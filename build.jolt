@@ -1,0 +1,403 @@
+"""
+go++: the Go standard library as a C++ framework.
+
+Tasks:
+  gopp               the library (libgopp.a and its headers)
+  examples/<name>    example programs; `examples` builds them all
+  gopp/tests         the unit test program
+  test               runs the unit tests
+  benchmark          compares examples/hello with the same server in Go
+"""
+
+import json
+import os
+import socket
+import subprocess
+import threading
+import time
+
+from jolt import Alias, IntParameter, ListParameter, Parameter, Task, attributes, influence
+from jolt.pkgs import boost, gcc, googletest, liburing, openssl, ssl  # noqa: F401
+from jolt.plugins import golang, ninja
+from jolt.plugins.googletest import GTestRunner
+
+
+@attributes.requires("requires_toolchain")
+class GoppProject(ninja.CXXProject):
+    """
+    Settings shared by the library, examples and tests.
+
+    go++ is C++26 with static reflection (encoding/json maps structs by
+    reflection), which needs GCC 16. Programs link libstdc++ statically, so
+    they don't depend on the runtime libraries of the build's GCC.
+    """
+    abstract = True
+    cxxstd = 26
+    cxxflags = ["-freflection", "-g", "-Wall", "-Wextra", "-Wno-unused-parameter", "-fno-omit-frame-pointer"]
+    ldflags = ["-static-libstdc++", "-static-libgcc"]
+    strip = False
+    requires_toolchain = ["gcc"]
+
+
+class Gopp(GoppProject, ninja.CXXLibrary):
+    """ The go++ library. """
+    name = "gopp"
+    # Only Boost.Context: the others aren't needed, and one of them,
+    # boost_stacktrace_from_exception, conflicts with static libstdc++.
+    requires = ["boost:libraries=context", "liburing", "virtual/ssl"]
+    incpaths = ["include", "src"]
+    sources = [
+        "include/gopp/**/*.hpp",
+        "src/**/*.hpp",
+        "src/**/*.cpp",
+    ]
+
+    def publish(self, artifact, tools):
+        super().publish(artifact, tools)
+        with tools.cwd("include"):
+            artifact.collect("gopp/**/*.hpp", "include/")
+        artifact.cxxinfo.incpaths.append("include")
+        artifact.cxxinfo.libraries.append("pthread")
+
+
+@attributes.common_metadata()
+class Example(GoppProject, ninja.CXXExecutable):
+    abstract = True
+    requires = ["gopp"]
+
+
+class Hello(Example):
+    """ HTTP server that serves hello world from a ServeMux. """
+    name = "examples/hello"
+    sources = ["examples/hello/*.cpp"]
+
+
+class Examples(Alias):
+    name = "examples"
+    requires = ["examples/hello"]
+
+
+class Tests(GoppProject, ninja.CXXExecutable):
+    """ Unit tests of the library. """
+    name = "gopp/tests"
+    requires = ["gopp", "google/test/main"]
+    # Tests ported from Go's in-package tests use the internal headers.
+    incpaths = ["src"]
+    sources = ["tests/*.cpp", "src/**/*.hpp"]
+
+
+class Test(GTestRunner):
+    """ Runs the unit tests. """
+    name = "test"
+    requires = ["gopp/tests"]
+
+
+# ---------------------------------------------------------------------------
+# Benchmarks
+
+@influence.files("benchmarks/go.mod")
+@influence.files("benchmarks/{package}/*.go")
+class GoBenchProgram(golang.Executable):
+    """ A Go program in benchmarks/, built with the Go version go++ ports. """
+    abstract = True
+    package = None
+
+    def run(self, deps, tools):
+        self.cachedir = tools.builddir("cache", incremental=True)
+        self.outdir = tools.builddir()
+        with tools.cwd("benchmarks"), tools.environ(GOCACHE=self.cachedir, GOTOOLCHAIN="local"):
+            tools.run("go build -trimpath -o {outdir}/{binary} ./{package}")
+
+
+class HelloGo(GoBenchProgram):
+    """ examples/hello written in Go, the reference for the benchmark. """
+    name = "benchmarks/hello-go"
+    package = "hello-go"
+    binary = "hello-go"
+
+
+class LoadGo(GoBenchProgram):
+    """ The load generator of the benchmark, in Go. """
+    name = "benchmarks/load-go"
+    package = "load"
+    binary = "load"
+
+
+class LoadGopp(GoppProject, ninja.CXXExecutable):
+    """ The load generator of the benchmark, ported to go++. """
+    name = "benchmarks/load-gopp"
+    binary = "load"
+    requires = ["gopp"]
+    sources = ["benchmarks/load-gopp/*.cpp"]
+
+
+def _parse_cpus(spec):
+    """ "0-3,6" -> [0, 1, 2, 3, 6] """
+    cpus = []
+    for part in spec.split(","):
+        lo, _, hi = part.partition("-")
+        cpus += range(int(lo), int(hi or lo) + 1)
+    return cpus
+
+
+def _format_cpus(cpus):
+    """ [0, 1, 2, 3, 6] -> "0-3,6" """
+    parts, start = [], None
+    for i, c in enumerate(cpus):
+        if start is None:
+            start = c
+        if i + 1 == len(cpus) or cpus[i + 1] != c + 1:
+            parts.append(str(start) if start == c else f"{start}-{c}")
+            start = None
+    return ",".join(parts)
+
+
+def _max_mhz(cpu):
+    try:
+        with open(f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/cpuinfo_max_freq") as f:
+            return int(f.read()) // 1000
+    except (OSError, ValueError):
+        return 0
+
+
+def _core_groups():
+    """ The usable CPUs grouped by core type (max frequency), fastest first. """
+    groups = {}
+    for cpu in sorted(os.sched_getaffinity(0)):
+        groups.setdefault(_max_mhz(cpu), []).append(cpu)
+    return [groups[mhz] for mhz in sorted(groups, reverse=True)]
+
+
+def _default_pinning():
+    """
+    Server and load generator CPUs, each of one core type. With several
+    core types, the load generator gets the fastest cores so that it isn't
+    the bottleneck, and the server two thirds as many cores of the next
+    type. With one type, each gets half.
+    """
+    groups = _core_groups()
+    if len(groups) == 1:
+        cpus = groups[0]
+        half = max(1, len(cpus) // 2)
+        return cpus[:half], cpus[half:] or cpus
+    client = groups[0]
+    server = groups[1][:max(1, min(len(groups[1]), len(client) * 2 // 3))]
+    return server, client
+
+
+@influence.always
+class Benchmark(Task):
+    """
+    Runs examples/hello (go++) and benchmarks/hello-go (Go) under the same
+    load and reports throughput, latency, CPU time per request and memory.
+
+    The servers and the load generator run on separate CPUs, with as many
+    threads (GOMAXPROCS) as their CPUs. Results are published under report/.
+    """
+    name = "benchmark"
+
+    connections = ListParameter(["1", "64", "256"], help="Concurrent connections, separated by '+'.")
+    paths = ListParameter(["/", "/hello/gopher"], help="Request paths, separated by '+'.")
+    duration = IntParameter(5, help="Measured seconds per run.")
+    warmup = IntParameter(1, help="Unmeasured warmup seconds per run.")
+    rounds = IntParameter(2, help="Runs per case and server, alternating the servers; the best is reported.")
+    cooldown = IntParameter(0, help="Idle seconds before each run, to let a throttling CPU recover.")
+    loader = Parameter("go", values=["go", "gopp"], help="Load generator: benchmarks/load-go or benchmarks/load-gopp.")
+    server_cpus = Parameter("", required=False, help="CPUs of the server, as for taskset; chosen by core type if empty.")
+    client_cpus = Parameter("", required=False, help="CPUs of the load generator; chosen by core type if empty.")
+
+    requires = ["examples/hello", "benchmarks/hello-go", "benchmarks/load-{loader}"]
+
+    def run(self, deps, tools):
+        default_server, default_client = _default_pinning()
+        server = _parse_cpus(str(self.server_cpus)) if str(self.server_cpus) else default_server
+        client = _parse_cpus(str(self.client_cpus)) if str(self.client_cpus) else default_client
+        self.scpus, self.ccpus = _format_cpus(server), _format_cpus(client)
+        # Each side runs as many threads as it has CPUs.
+        self.sprocs, self.cprocs = len(server), len(client)
+        self.smhz = sorted({_max_mhz(c) for c in server})
+        self.cmhz = sorted({_max_mhz(c) for c in client})
+        print(f"server on CPUs {self.scpus} (GOMAXPROCS={self.sprocs}), "
+              f"load generator on CPUs {self.ccpus} (GOMAXPROCS={self.cprocs})", flush=True)
+
+        servers = [
+            ("go++", os.path.join(deps["examples/hello"].path, "bin", "examples_hello")),
+            ("go", os.path.join(deps["benchmarks/hello-go"].path, "bin", "hello-go")),
+        ]
+        load = os.path.join(deps[f"benchmarks/load-{self.loader}"].path, "bin", "load")
+        conns = sorted(int(c) for c in self.connections)
+        paths = list(self.paths)
+
+        # The servers take turns within each round, so that both see the same
+        # conditions when a CPU throttles as it heats up.
+        self.results = []
+        self.all_mhz = []
+        for path in paths:
+            for c in conns:
+                best = {}
+                for _ in range(int(self.rounds)):
+                    for name, exe in servers:
+                        if int(self.cooldown) > 0:
+                            time.sleep(int(self.cooldown))
+                        r = self._run_case(exe, load, path, c)
+                        self.all_mhz.append(r["server_mhz"])
+                        print("{:5} {:15} c={:<4} {:>9.0f} req/s  p50 {:>7.1f}us  p99 {:>8.1f}us  "
+                              "{:>6.1f} kcycles/req  server {:>4.0f} MHz  client {:>4.0f} MHz".format(
+                                  name, path, c, r["rps"], r["p50_us"], r["p99_us"], r["kcycles_per_req"],
+                                  r["server_mhz"], r["client_mhz"]), flush=True)
+                        if name not in best or r["rps"] > best[name]["rps"]:
+                            best[name] = r
+                for name, _ in servers:
+                    best[name].update(server=name, path=path, connections=c)
+                    self.results.append(best[name])
+
+        self.outdir = tools.builddir("report")
+        report = self._markdown()
+        print(report)
+        with tools.cwd(self.outdir):
+            tools.write_file("benchmark.md", report, expand=False)
+            tools.write_file("benchmark.json", json.dumps({
+                "server_cpus": self.scpus, "server_gomaxprocs": self.sprocs, "server_max_mhz": self.smhz,
+                "client_cpus": self.ccpus, "client_gomaxprocs": self.cprocs, "client_max_mhz": self.cmhz,
+                "duration": int(self.duration), "warmup": int(self.warmup), "loader": str(self.loader),
+                "results": self.results,
+            }, indent=2), expand=False)
+
+    def publish(self, artifact, tools):
+        with tools.cwd(self.outdir):
+            artifact.collect("*", "report/")
+
+    def _run_case(self, exe, load, path, conns):
+        port = _free_port()
+        addr = f"127.0.0.1:{port}"
+        senv = dict(os.environ, GOMAXPROCS=str(self.sprocs))
+        cenv = dict(os.environ, GOMAXPROCS=str(self.cprocs))
+        srv = subprocess.Popen(["taskset", "-c", self.scpus, exe, addr], env=senv,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            _wait_for_port(port)
+            cpu0 = _cpu_seconds(srv.pid)
+            sampler = _FreqSampler(_parse_cpus(self.scpus), _parse_cpus(self.ccpus), delay=int(self.warmup))
+            out = subprocess.run(
+                ["taskset", "-c", self.ccpus, load, "-addr", addr, "-path", path, "-c", str(conns),
+                 "-d", f"{int(self.duration)}s", "-warmup", f"{int(self.warmup)}s"],
+                env=cenv, capture_output=True, text=True, check=True).stdout
+            cpu1 = _cpu_seconds(srv.pid)
+            r = json.loads(out)
+            r["server_mhz"], r["client_mhz"] = sampler.stop()
+            r["cpu_us_per_req"] = (cpu1 - cpu0) * 1e6 / max(1, r["all_requests"])
+            # CPU time at the measured clock: comparable across throttling.
+            r["kcycles_per_req"] = r["cpu_us_per_req"] * r["server_mhz"] / 1000
+            r["rss_mib"] = _peak_rss_kib(srv.pid) / 1024
+            return r
+        finally:
+            srv.terminate()
+            srv.wait()
+
+    def _markdown(self):
+        def mhz(m):
+            return "/".join(str(x) for x in m) + " MHz" if any(m) else "unknown MHz"
+        lines = [
+            "# go++ vs Go: hello world HTTP server",
+            "",
+            f"Server on CPUs {self.scpus} ({mhz(self.smhz)} cores, GOMAXPROCS={self.sprocs}); "
+            f"load generator on CPUs {self.ccpus} ({mhz(self.cmhz)} cores, GOMAXPROCS={self.cprocs}). "
+            f"{int(self.duration)} s measured after {int(self.warmup)} s warmup, best of {int(self.rounds)} "
+            f"with the servers taking turns. Load generator: benchmarks/load-{self.loader}.",
+            "",
+            "kcycles/req is the server's CPU time per request times its measured clock: unlike req/s and "
+            "CPU µs/req, it doesn't change when the CPU throttles.",
+            "",
+        ]
+        valid = [m for m in self.all_mhz if m > 0]
+        if valid and max(valid) > 1.25 * min(valid):
+            lines += [f"**The server CPUs ran between {min(valid):.0f} and {max(valid):.0f} MHz across runs**: "
+                      "the machine throttles under load, so req/s and latency depend on when a run happened. "
+                      "Compare kcycles/req, or rerun with `cooldown`.", ""]
+        lines += [
+            "| Path | Conns | Server | req/s | p50 µs | p99 µs | p99.9 µs | CPU µs/req | kcycles/req | Server MHz "
+            "| Peak RSS MiB | Errors |",
+            "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+        for r in self.results:
+            lines.append(f"| `{r['path']}` | {r['connections']} | {r['server']} | {r['rps']:.0f} | {r['p50_us']:.1f} | "
+                         f"{r['p99_us']:.1f} | {r['p999_us']:.1f} | {r['cpu_us_per_req']:.2f} | "
+                         f"{r['kcycles_per_req']:.1f} | {r['server_mhz']:.0f} | {r['rss_mib']:.1f} | {r['errors']} |")
+        lines += ["", "| Path | Conns | go++ / Go req/s | go++ / Go p99 | go++ / Go kcycles/req |", "|---|---:|---:|---:|---:|"]
+        by_case = {}
+        for r in self.results:
+            by_case.setdefault((r["path"], r["connections"]), {})[r["server"]] = r
+        for (path, c), rs in by_case.items():
+            a, b = rs.get("go++"), rs.get("go")
+            if a and b and b["rps"] and b["p99_us"] and b["kcycles_per_req"]:
+                lines.append(f"| `{path}` | {c} | {a['rps'] / b['rps']:.2f}x | {a['p99_us'] / b['p99_us']:.2f}x | "
+                             f"{a['kcycles_per_req'] / b['kcycles_per_req']:.2f}x |")
+        return "\n".join(lines) + "\n"
+
+
+def _cur_mhz(cpus):
+    total = 0
+    for c in cpus:
+        try:
+            with open(f"/sys/devices/system/cpu/cpu{c}/cpufreq/scaling_cur_freq") as f:
+                total += int(f.read()) / 1000
+        except (OSError, ValueError):
+            return 0
+    return total / max(1, len(cpus))
+
+
+class _FreqSampler:
+    """ Averages the clock of the server and client CPUs during a run. """
+
+    def __init__(self, server, client, delay=0, interval=0.2):
+        self._server, self._client = server, client
+        self._samples = []
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._run, args=(delay, interval), daemon=True)
+        self._thread.start()
+
+    def _run(self, delay, interval):
+        if self._done.wait(delay):
+            return
+        while not self._done.wait(interval):
+            self._samples.append((_cur_mhz(self._server), _cur_mhz(self._client)))
+
+    def stop(self):
+        self._done.set()
+        self._thread.join()
+        if not self._samples:
+            return 0.0, 0.0
+        n = len(self._samples)
+        return sum(s for s, _ in self._samples) / n, sum(c for _, c in self._samples) / n
+
+
+def _free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _wait_for_port(port, timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                return
+        except OSError:
+            time.sleep(0.02)
+    raise RuntimeError(f"server didn't listen on port {port}")
+
+
+def _cpu_seconds(pid):
+    # utime + stime of all threads, from /proc/<pid>/stat.
+    with open(f"/proc/{pid}/stat") as f:
+        fields = f.read().rsplit(")", 1)[1].split()
+    return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+
+
+def _peak_rss_kib(pid):
+    with open(f"/proc/{pid}/status") as f:
+        for line in f:
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1])
+    return 0

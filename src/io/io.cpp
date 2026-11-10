@@ -1,0 +1,131 @@
+#include <gopp/io.hpp>
+
+#include <algorithm>
+#include <cstring>
+
+namespace gopp::io {
+
+const error EOF_ = errors::New("@@EOF_@@");
+const error ErrUnexpectedEOF = errors::New("unexpected EOF");
+const error ErrShortWrite = errors::New("short write");
+const error ErrShortBuffer = errors::New("short buffer");
+const error ErrNoProgress = errors::New("multiple Read calls return no data or error");
+const error ErrClosedPipe = errors::New("io: read/write on closed pipe");
+
+std::pair<isize, error> WriteString(Writer& w, std::string_view s) { return w.Write(as_bytes(s)); }
+
+std::pair<isize, error> ReadAtLeast(Reader& r, std::span<byte> buf, isize min) {
+    if (static_cast<isize>(buf.size()) < min) return {0, ErrShortBuffer};
+    isize n = 0;
+    error err;
+    while (n < min && !err) {
+        auto [nn, e] = r.Read(buf.subspan(static_cast<std::size_t>(n)));
+        n += nn;
+        err = e;
+    }
+    if (n >= min) err = nullptr;
+    else if (n > 0 && err == EOF_) err = ErrUnexpectedEOF;
+    return {n, err};
+}
+
+std::pair<isize, error> ReadFull(Reader& r, std::span<byte> buf) {
+    return ReadAtLeast(r, buf, static_cast<isize>(buf.size()));
+}
+
+std::pair<int64, error> Copy(Writer& dst, Reader& src) {
+    byte buf[32 * 1024];
+    int64 written = 0;
+    for (;;) {
+        auto [nr, er] = src.Read(buf);
+        if (nr > 0) {
+            auto [nw, ew] = dst.Write(std::span<const byte>(buf, static_cast<std::size_t>(nr)));
+            if (nw < 0 || nr < nw) {
+                nw = 0;
+                if (!ew) ew = errors::New("invalid write result");
+            }
+            written += nw;
+            if (ew) return {written, ew};
+            if (nr != nw) return {written, ErrShortWrite};
+        }
+        if (er) {
+            if (er == EOF_) return {written, nullptr};
+            return {written, er};
+        }
+    }
+}
+
+std::pair<int64, error> CopyN(Writer& dst, Reader& src, int64 n) {
+    byte buf[32 * 1024];
+    int64 written = 0;
+    while (written < n) {
+        std::size_t want = static_cast<std::size_t>(std::min<int64>(n - written, sizeof(buf)));
+        auto [nr, er] = src.Read(std::span<byte>(buf, want));
+        if (nr > 0) {
+            auto [nw, ew] = dst.Write(std::span<const byte>(buf, static_cast<std::size_t>(nr)));
+            written += nw;
+            if (ew) return {written, ew};
+            if (nw != nr) return {written, ErrShortWrite};
+        }
+        if (er) return {written, er};
+    }
+    return {written, nullptr};
+}
+
+std::pair<bytes, error> ReadAll(Reader& r) {
+    bytes b = bytes::make(0, 512);
+    for (;;) {
+        if (b.len() == b.cap()) b = append(b, byte(0)).Sub(0, b.len());
+        auto [n, err] = r.Read(std::span<byte>(b.data() + b.len(), b.cap() - b.len()));
+        b = b.Sub(0, b.len() + static_cast<std::size_t>(n));
+        if (err) {
+            if (err == EOF_) err = nullptr;
+            return {b, err};
+        }
+    }
+}
+
+namespace {
+
+struct discard_writer final : Writer {
+    std::pair<isize, error> Write(std::span<const byte> p) override { return {static_cast<isize>(p.size()), nullptr}; }
+};
+
+struct nop_closer_t final : ReadCloser {
+    explicit nop_closer_t(ptr<Reader> r) : r(std::move(r)) {}
+    std::pair<isize, error> Read(std::span<byte> p) override { return r->Read(p); }
+    error Close() override { return nullptr; }
+    ptr<Reader> r;
+};
+
+}  // namespace
+
+Writer& Discard() {
+    static discard_writer* w = [] {
+        auto* d = new discard_writer();
+        d->add_ref();  // never freed
+        return d;
+    }();
+    return *w;
+}
+
+std::pair<isize, error> LimitedReader::Read(std::span<byte> p) {
+    if (n_ <= 0) return {0, EOF_};
+    if (static_cast<int64>(p.size()) > n_) p = p.first(static_cast<std::size_t>(n_));
+    auto [n, err] = r_->Read(p);
+    n_ -= n;
+    return {n, err};
+}
+
+ptr<Reader> LimitReader(ptr<Reader> r, int64 n) { return make_ptr<LimitedReader>(std::move(r), n); }
+
+ptr<ReadCloser> NopCloser(ptr<Reader> r) { return make_ptr<nop_closer_t>(std::move(r)); }
+
+std::pair<isize, error> StringReader::Read(std::span<byte> p) {
+    if (i_ >= s_.size()) return {0, EOF_};
+    std::size_t n = std::min(p.size(), s_.size() - i_);
+    std::memcpy(p.data(), s_.data() + i_, n);
+    i_ += n;
+    return {static_cast<isize>(n), nullptr};
+}
+
+}  // namespace gopp::io
