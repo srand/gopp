@@ -5,7 +5,7 @@
 //     ch.send(1);                            // ch <- 1
 //     int v = ch.recv();                     // v := <-ch
 //     auto [w, ok] = ch.recv2();             // w, ok := <-ch
-//     ch.Close();                            // close(ch)
+//     ch.close();                            // close(ch)
 //     for (int x : ch) { ... }               // for x := range ch
 //
 //     gopp::select(                          // select {
@@ -143,7 +143,7 @@ public:
         return r.received;
     }
 
-    void Close() const { detail::chan_close(c_); }
+    void close() const { detail::chan_close(c_); }
     std::size_t len() const noexcept { return c_ ? detail::chan_len(c_) : 0; }
     std::size_t cap() const noexcept { return c_ ? detail::chan_cap(c_) : 0; }
 

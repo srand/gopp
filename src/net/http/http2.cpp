@@ -656,7 +656,7 @@ void pipe::close_done_locked() {
     if (!donec_) return;  // done() creates it closed
     if (!done_closed_) {
         done_closed_ = true;
-        donec_.Close();
+        donec_.close();
     }
 }
 
@@ -666,7 +666,7 @@ chan<empty> pipe::done() {
         donec_ = make_chan<empty>();
         if (err_ || break_err_) {
             done_closed_ = true;
-            donec_.Close();
+            donec_.close();
         }
     }
     return donec_;

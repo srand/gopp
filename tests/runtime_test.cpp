@@ -102,14 +102,14 @@ TEST(Runtime, PingPong) {
     auto pong = make_chan<int>();
     go([ping, pong] {
         for (int v : ping) pong.send(v + 1);
-        pong.Close();
+        pong.close();
     });
     int v = 0;
     for (int i = 0; i < 10000; i++) {
         ping.send(v);
         v = pong.recv();
     }
-    ping.Close();
+    ping.close();
     EXPECT_EQ(v, 10000);
     auto [x, ok] = pong.recv2();
     EXPECT_FALSE(ok);

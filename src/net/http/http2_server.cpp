@@ -576,9 +576,9 @@ void server_conn::serve() {
     if (idle_timer_) idle_timer_->Stop();
     if (shutdown_timer_) shutdown_timer_->Stop();
     if (opts_.on_shutdown) opts_.on_shutdown(nullptr);
-    done_serving_.Close();
+    done_serving_.close();
     conn_->Close();
-    write_ch_.Close();
+    write_ch_.close();
     // Close the streams, so that their handlers see the connection end.
     auto streams = std::move(streams_);
     for (auto& [id, st] : streams) {
@@ -588,7 +588,7 @@ void server_conn::serve() {
         if (st->body) st->body->close_with_error(err_client_disconnected);
         st->close_err = err_client_disconnected;
         if (st->req) st->req->CancelContext();
-        st->cw.Close();
+        st->cw.close();
     }
     // Free the queued writes; their handlers see done_serving.
     queues_.clear();
@@ -996,7 +996,7 @@ void server_conn::close_stream(const ptr<stream>& st, gopp::error err) {
     if (auto* se = errors::As<StreamError>(err)) err = se->cause ? se->cause : err_stream_closed;
     st->close_err = err;
     if (st->req) st->req->CancelContext();
-    st->cw.Close();
+    st->cw.close();
 }
 
 void server_conn::reset_stream(uint32 id, ErrCode code, gopp::error cause) {

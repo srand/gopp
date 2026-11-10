@@ -66,7 +66,7 @@ public:
             err_ = err;
             cause_ = cause;
             if (!done_) done_ = make_chan<empty>();
-            done_.Close();
+            done_.close();
             children.swap(children_);
         }
         for (cancel_ctx* c : children) {

@@ -27,7 +27,7 @@ TEST(Chan, Buffered) {
 TEST(Chan, CloseDrainsThenZero) {
     auto c = make_chan<int>(2);
     c.send(7);
-    c.Close();
+    c.close();
     auto [v, ok] = c.recv2();
     EXPECT_EQ(v, 7);
     EXPECT_TRUE(ok);
@@ -43,7 +43,7 @@ TEST(Chan, CloseWakesReceivers) {
         go([c, results] { results.send(c.recv2().second); });
     }
     time::Sleep(10ms);
-    c.Close();
+    c.close();
     for (int i = 0; i < 3; i++) EXPECT_FALSE(results.recv());
 }
 
@@ -60,7 +60,7 @@ TEST(Chan, StringValues) {
     go([c] {
         c.send("hello");
         c.send("world"_s);
-        c.Close();
+        c.close();
     });
     std::string all;
     for (auto& s : c) all += s.view();
@@ -77,7 +77,7 @@ TEST(Chan, TrySendRecv) {
     bool closed = true;
     EXPECT_FALSE(c.try_recv(v, &closed));
     EXPECT_FALSE(closed);
-    c.Close();
+    c.close();
     EXPECT_FALSE(c.try_recv(v, &closed));
     EXPECT_TRUE(closed);
 }
@@ -98,7 +98,7 @@ TEST(Chan, ManyProducersConsumers) {
         });
     }
     prod.Wait();
-    c.Close();
+    c.close();
     cons.Wait();
     EXPECT_EQ(sum.load(), long(producers) * per * (per + 1) / 2);
 }
@@ -141,7 +141,7 @@ TEST(Select, BlocksUntilReady) {
 
 TEST(Select, ClosedChannelReceivesZero) {
     auto a = make_chan<int>();
-    a.Close();
+    a.close();
     bool ok = true;
     select(recv(a, [&](int v, bool k) {
         EXPECT_EQ(v, 0);
@@ -206,8 +206,8 @@ TEST(Select, ConcurrentSelectsOnSharedChannels) {
         for (int i = 0; i < n; i++) b.send(i);
     });
     senders.Wait();
-    a.Close();
-    b.Close();
+    a.close();
+    b.close();
     wg.Wait();
     EXPECT_EQ(received.load(), 2 * n);
 }
