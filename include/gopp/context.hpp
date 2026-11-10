@@ -16,7 +16,7 @@
 namespace gopp::context {
 
 // context.Canceled and context.DeadlineExceeded.
-extern const error canceled;
+extern const error Canceled;
 extern const error DeadlineExceeded;
 
 struct Context : public virtual object {
@@ -24,7 +24,7 @@ struct Context : public virtual object {
     virtual std::optional<time::Time> Deadline() const { return std::nullopt; }
     // A channel closed when the context is canceled; nil if it never is.
     virtual chan<empty> Done() const = 0;
-    // nil until done() is closed; then canceled or DeadlineExceeded.
+    // nil until done() is closed; then Canceled or DeadlineExceeded.
     virtual error Err() const = 0;
     // The value for key, or nullptr. Keys are compared by address.
     virtual ptr<object> Value(const void* key) const { return nullptr; }

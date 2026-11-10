@@ -88,9 +88,9 @@ ptr<io::ReadCloser> no_body();
 // HTTP/2 (http2_server.cpp, http2_transport.cpp)
 
 // Whether HTTP/2 is offered with ALPN and accepted with prior knowledge.
-inline constexpr bool http2_enabled = false;  // the server is written, not yet tested
-// Whether the client offers h2; off until the HTTP/2 transport exists.
-inline constexpr bool http2_client_enabled = false;
+inline constexpr bool http2_enabled = true;
+// Whether the client offers h2 with ALPN.
+inline constexpr bool http2_client_enabled = true;
 
 // The client connection preface.
 inline constexpr std::string_view http2_preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
@@ -108,6 +108,33 @@ struct server_options {
     // the server shuts down; nullptr unregisters it.
     std::function<void(std::function<void()>)> on_shutdown;
 };
+
+// An HTTP/2 client connection (http2_transport.cpp): multiplexes the
+// requests of a Transport to one host.
+struct http2_client_conn : object {
+    // Whether a new request can start a stream now.
+    virtual bool can_take_new_request() = 0;
+    // Sends req and waits for the response header. ctx (may be nil) cancels
+    // the request. An error that is err_http2_conn_unusable (errors::Is)
+    // means the request wasn't processed and may be retried elsewhere.
+    virtual std::pair<ptr<Response>, gopp::error> round_trip(Request& req, const ptr<context::Context>& ctx) = 0;
+    // Whether the connection is gone for good.
+    virtual bool closed() = 0;
+    // Closes the connection if it has no streams; returns whether it did.
+    virtual bool close_if_idle() = 0;
+    virtual void close() = 0;
+};
+
+struct http2_client_options {
+    time::Duration response_header_timeout{};
+};
+
+extern const gopp::error err_http2_conn_unusable;
+
+// Starts HTTP/2 on c (after ALPN h2, or h2c with prior knowledge): writes
+// the preface and SETTINGS and starts the read loop.
+ptr<http2_client_conn> new_http2_client_conn(ptr<net::Conn> c, std::optional<tls::ConnectionState> tls_state,
+                                             const http2_client_options& opts);
 
 // Serves HTTP/2 on c, whose reads go through br.
 void serve_http2(const ptr<net::Conn>& c, const ptr<bufio::Reader>& br, const ptr<Handler>& handler,

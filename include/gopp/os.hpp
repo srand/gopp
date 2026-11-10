@@ -13,8 +13,8 @@
 namespace gopp::os {
 
 // os.Stdout, os.Stderr: writers on file descriptors 1 and 2.
-extern io::Writer& stdout;
-extern io::Writer& stderr;
+extern io::Writer& Stdout;
+extern io::Writer& Stderr;
 
 // os.Args, as given to os::SetArgs (flag::Parse calls it).
 const std::vector<string>& Args();

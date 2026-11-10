@@ -7,6 +7,7 @@
 #include "internal.hpp"
 
 #include <gopp/strings.hpp>
+#include <gopp/sync.hpp>
 
 #include <cerrno>
 #include <charconv>
@@ -59,6 +60,32 @@ struct Transport::impl {
     std::unordered_map<std::string, std::vector<ptr<persist_conn>>> idle;
     int nidle = 0;
 
+    // HTTP/2 connections, shared by concurrent requests.
+    sync::Mutex h2_mu;  // fiber-aware: held while asking connections, which may park
+    std::unordered_map<std::string, std::vector<ptr<internal::http2_client_conn>>> h2;
+
+    // An HTTP/2 connection to key that can take a request now.
+    ptr<internal::http2_client_conn> h2_get(const std::string& key) {
+        std::lock_guard l(h2_mu);
+        auto it = h2.find(key);
+        if (it == h2.end()) return nullptr;
+        std::erase_if(it->second, [](auto& cc) { return cc->closed(); });
+        for (auto& cc : it->second) {
+            if (cc->can_take_new_request()) return cc;
+        }
+        return nullptr;
+    }
+
+    void h2_put(const std::string& key, ptr<internal::http2_client_conn> cc) {
+        std::lock_guard l(h2_mu);
+        h2[key].push_back(std::move(cc));
+    }
+
+    void h2_close_idle() {
+        std::lock_guard l(h2_mu);
+        for (auto& [key, list] : h2) std::erase_if(list, [](auto& cc) { return cc->close_if_idle() || cc->closed(); });
+    }
+
     ptr<persist_conn> get_idle(const std::string& key) {
         std::lock_guard l(mu);
         auto it = idle.find(key);
@@ -91,6 +118,7 @@ struct Transport::impl {
         for (auto& [key, list] : old) {
             for (auto& pc : list) pc->conn->Close();
         }
+        h2_close_idle();
     }
 };
 
@@ -307,8 +335,30 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
         deadline = req.ctx_->Deadline();
     }
 
+    // HTTP/2: negotiated with ALPN over TLS, or h2c with prior knowledge
+    // when the transport speaks only unencrypted HTTP/2 to http:// URLs.
+    http::Protocols protos = Protocols.value_or(DefaultProtocols());
+    bool h2c = !https && protos.UnencryptedHTTP2() && !protos.HTTP1();
+    bool may_h2 = (https && protos.HTTP2() && internal::http2_client_enabled) || h2c;
+    internal::http2_client_options h2opts{.response_header_timeout = ResponseHeaderTimeout};
+    // Retries a request the server didn't process (after GOAWAY or on a
+    // connection that broke before the request went out).
+    auto h2_round_trip = [&](const ptr<internal::http2_client_conn>& cc, int attempt, bool& retry) {
+        auto [resp, err] = cc->round_trip(req, req.ctx_);
+        retry = err && errors::Is(err, internal::err_http2_conn_unusable) && attempt < 3;
+        return std::pair<ptr<Response>, gopp::error>{resp, err};
+    };
+
     for (int attempt = 0;; attempt++) {
-        ptr<persist_conn> pc = DisableKeepAlives ? nullptr : impl_->get_idle(key);
+        if (may_h2) {
+            if (auto cc = impl_->h2_get(key)) {
+                bool retry;
+                auto res = h2_round_trip(cc, attempt, retry);
+                if (retry) continue;
+                return res;
+            }
+        }
+        ptr<persist_conn> pc = DisableKeepAlives || h2c ? nullptr : impl_->get_idle(key);
         bool reused = static_cast<bool>(pc);
         if (!pc) {
             time::Duration dt = DialTimeout;
@@ -329,8 +379,24 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
                     return {nullptr, herr};
                 }
                 c->SetDeadline(time::Time{});
+                tls::ConnectionState state = tc->ConnectionState();
+                if (state.NegotiatedProtocol == "h2") {
+                    auto cc = internal::new_http2_client_conn(tc, state, h2opts);
+                    impl_->h2_put(key, cc);
+                    bool retry;
+                    auto res = h2_round_trip(cc, attempt, retry);
+                    if (retry) continue;
+                    return res;
+                }
                 pc = make_ptr<persist_conn>(key, tc);
-                pc->tls = tc->ConnectionState();
+                pc->tls = state;
+            } else if (h2c) {
+                auto cc = internal::new_http2_client_conn(c, std::nullopt, h2opts);
+                impl_->h2_put(key, cc);
+                bool retry;
+                auto res = h2_round_trip(cc, attempt, retry);
+                if (retry) continue;
+                return res;
             } else {
                 pc = make_ptr<persist_conn>(key, c);
             }
@@ -546,6 +612,11 @@ std::pair<ptr<Response>, gopp::error> Client::Post(std::string_view url, std::st
     if (err) return {nullptr, err};
     req->Header.Set("Content-Type", string(content_type));
     return Do(req);
+}
+
+void Client::CloseIdleConnections() {
+    ptr<RoundTripper> rt = Transport ? Transport : ptr<RoundTripper>(DefaultTransport());
+    if (auto t = dynamic_pointer_cast<http::Transport>(rt)) t->CloseIdleConnections();
 }
 
 Client& DefaultClient() {

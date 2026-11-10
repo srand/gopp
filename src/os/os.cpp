@@ -53,8 +53,8 @@ std::vector<string>& argv_storage() {
 
 }  // namespace
 
-io::Writer& stdout = out();
-io::Writer& stderr = err();
+io::Writer& Stdout = out();
+io::Writer& Stderr = err();
 
 const std::vector<string>& Args() { return argv_storage(); }
 

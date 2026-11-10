@@ -7,6 +7,7 @@
 #include <gopp/chan.hpp>
 #include <gopp/runtime.hpp>
 #include <gopp/strings.hpp>
+#include <gopp/sync.hpp>
 
 #include <cerrno>
 #include <charconv>
@@ -109,7 +110,7 @@ class response;
 namespace detail {
 
 struct server_state {
-    std::mutex mu;
+    sync::Mutex mu;  // fiber-aware: held while closing listeners and connections, which may park
     std::vector<ptr<net::Listener>> listeners;
     std::unordered_set<conn*> conns;
     std::atomic<bool> shutting_down{false};

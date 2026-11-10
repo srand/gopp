@@ -62,6 +62,11 @@ public:
     ptr<net::Listener> Listener;
     http::Server Config;
 
+    // Starts serving HTTP, or HTTPS with a test certificate for 127.0.0.1,
+    // ::1 and example.com that Client() trusts, on a server made by
+    // NewUnstartedServer. Client() speaks Config.Protocols.
+    void Start();
+    void StartTLS();
     // Shuts the server down and waits for it.
     void Close();
     // A client for the server, whose idle connections close() closes.
@@ -71,7 +76,8 @@ public:
 private:
     friend ptr<Server> NewServer(ptr<http::Handler> handler);
     friend ptr<Server> NewTLSServer(ptr<http::Handler> handler, std::optional<http::Protocols> protocols);
-    friend ptr<Server> start(ptr<Server> s, ptr<net::Listener> ln, bool tls);
+    friend ptr<Server> NewUnstartedServer(ptr<http::Handler> handler);
+    void start(bool tls);
     ptr<http::Transport> transport_;
     http::Client client_;
     chan<gopp::error> done_;
@@ -80,6 +86,10 @@ private:
 
 // httptest.NewServer
 ptr<Server> NewServer(ptr<http::Handler> handler);
+
+// httptest.NewUnstartedServer: a server listening on a loopback port,
+// which serves once Start or StartTLS is called; change Config first.
+ptr<Server> NewUnstartedServer(ptr<http::Handler> handler);
 
 // httptest.NewTLSServer: serves HTTPS with a test certificate for
 // 127.0.0.1, ::1 and example.com, which client() trusts. With HTTP/2 on by

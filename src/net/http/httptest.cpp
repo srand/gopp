@@ -85,6 +85,10 @@ ptr<http::Request> NewRequest(std::string_view method, std::string_view target, 
 void Server::Close() {
     if (closed_) return;
     closed_ = true;
+    if (!done_) {
+        Listener->Close();  // never started
+        return;
+    }
     Config.Close();
     done_.recv();
     transport_->CloseIdleConnections();
@@ -102,43 +106,55 @@ ptr<net::Listener> local_listener() {
 
 }  // namespace
 
-ptr<Server> start(ptr<Server> s, ptr<net::Listener> ln, bool tls) {
-    s->Listener = ln;
-    s->URL = (tls ? "https://" : "http://") + ln->Addr();
-    s->transport_ = make_ptr<http::Transport>();
-    s->client_.Transport = s->transport_;
-    s->done_ = make_chan<gopp::error>(1);
-    Server* raw = s.get();
+void Server::start(bool tls) {
+    if (done_) panic("httptest: Server already started");
+    ptr<net::Listener> ln = Listener;
+    URL = (tls ? "https://" : "http://") + ln->Addr();
+    transport_ = make_ptr<http::Transport>();
+    client_.Transport = transport_;
+    transport_->Protocols = Config.Protocols;
+    done_ = make_chan<gopp::error>(1);
+    Server* raw = this;
     if (tls) {
-        // Trust the test certificate, and speak the server's protocols.
+        if (!Config.TLSConfig) {
+            auto [cert, err] = tls::X509KeyPair(testcert::localhost_cert, testcert::localhost_key);
+            if (err) panic("httptest: StartTLS: " + std::string(err.Error().view()));
+            tls::Config cfg;
+            cfg.Certificates = {cert};
+            Config.TLSConfig = cfg;
+        }
+        // Trust the test certificate.
         tls::Config cfg;
         cfg.RootCAs = x509::NewCertPool();
         cfg.RootCAs->AppendCertsFromPEM(testcert::localhost_cert);
-        s->transport_->TLSClientConfig = cfg;
-        s->transport_->Protocols = s->Config.Protocols;
+        transport_->TLSClientConfig = cfg;
         go([raw, ln] { raw->done_.send(raw->Config.ServeTLS(ln, "", "")); });
     } else {
         go([raw, ln] { raw->done_.send(raw->Config.Serve(ln)); });
     }
+}
+
+void Server::Start() { start(false); }
+void Server::StartTLS() { start(true); }
+
+ptr<Server> NewUnstartedServer(ptr<http::Handler> handler) {
+    auto s = make_ptr<Server>();
+    s->Config.Handler = std::move(handler);
+    s->Listener = local_listener();
     return s;
 }
 
 ptr<Server> NewServer(ptr<http::Handler> handler) {
-    auto s = make_ptr<Server>();
-    s->Config.Handler = std::move(handler);
-    return start(s, local_listener(), false);
+    auto s = NewUnstartedServer(std::move(handler));
+    s->Start();
+    return s;
 }
 
 ptr<Server> NewTLSServer(ptr<http::Handler> handler, std::optional<http::Protocols> protocols) {
-    auto s = make_ptr<Server>();
-    s->Config.Handler = std::move(handler);
+    auto s = NewUnstartedServer(std::move(handler));
     s->Config.Protocols = protocols;
-    auto [cert, err] = tls::X509KeyPair(testcert::localhost_cert, testcert::localhost_key);
-    if (err) panic("httptest: NewTLSServer: " + std::string(err.Error().view()));
-    tls::Config cfg;
-    cfg.Certificates = {cert};
-    s->Config.TLSConfig = cfg;
-    return start(s, local_listener(), true);
+    s->StartTLS();
+    return s;
 }
 
 }  // namespace gopp::httptest

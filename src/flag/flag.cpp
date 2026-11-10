@@ -67,7 +67,7 @@ void FlagSet::DurationVar(time::Duration* p, std::string_view name, time::Durati
 }
 
 gopp::error FlagSet::fail(gopp::string msg) {
-    fmt::Println(os::stderr, "{}", msg);
+    fmt::Println(os::Stderr, "{}", msg);
     PrintDefaults();
     return errors::New(msg);
 }
@@ -128,8 +128,8 @@ gopp::error FlagSet::Parse(std::span<const gopp::string> arguments) {
 }
 
 void FlagSet::PrintDefaults() const {
-    if (name_.empty()) fmt::Println(os::stderr, "Usage:");
-    else fmt::Println(os::stderr, "Usage of {}:", name_);
+    if (name_.empty()) fmt::Println(os::Stderr, "Usage:");
+    else fmt::Println(os::Stderr, "Usage of {}:", name_);
     std::vector<const flag_def*> sorted;
     for (auto& f : flags_) sorted.push_back(&f);
     std::sort(sorted.begin(), sorted.end(), [](auto* a, auto* b) { return a->name < b->name; });
@@ -142,7 +142,7 @@ void FlagSet::PrintDefaults() const {
             bool quoted = std::string_view(f->type) == "string";
             line += " (default " + (quoted ? std::string(strconv::Quote(f->DefValue).view()) : f->DefValue.str()) + ")";
         }
-        fmt::Println(os::stderr, "{}", line);
+        fmt::Println(os::Stderr, "{}", line);
     }
 }
 

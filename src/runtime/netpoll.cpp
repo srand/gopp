@@ -161,6 +161,8 @@ void netpoll_init() noexcept {
 
 bool netpoll_any_waiters() noexcept { return waiters.load(std::memory_order_relaxed) > 0; }
 
+int32_t netpoll_waiters() noexcept { return waiters.load(std::memory_order_relaxed); }
+
 void netpoll_break() noexcept {
     uint32_t z = 0;
     if (!wake_sig.compare_exchange_strong(z, 1)) return;

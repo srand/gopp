@@ -72,9 +72,15 @@ class Hello(Example):
     sources = ["examples/hello/*.cpp"]
 
 
+class Fetch(Example):
+    """ A small curl: fetches URLs over HTTP/1.1, HTTPS and HTTP/2. """
+    name = "examples/fetch"
+    sources = ["examples/fetch/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello"]
+    requires = ["examples/hello", "examples/fetch"]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):

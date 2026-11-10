@@ -17,7 +17,7 @@ struct deadline_exceeded_error final : error_interface {
 
 }  // namespace
 
-const error canceled = errors::New("context canceled");
+const error Canceled = errors::New("context canceled");
 const error DeadlineExceeded = error(make_ptr<deadline_exceeded_error>());
 
 namespace {
@@ -202,7 +202,7 @@ std::pair<ptr<Context>, CancelFunc> WithCancel(ptr<Context> parent) {
     if (!parent) panic("cannot create context from nil parent");
     ptr<cancel_ctx> c = make_ptr<cancel_ctx>(std::move(parent));
     c->propagate_cancel();
-    return {c, [c] { c->cancel(true, canceled, nullptr); }};
+    return {c, [c] { c->cancel(true, Canceled, nullptr); }};
 }
 
 std::pair<ptr<Context>, CancelFunc> WithDeadline(ptr<Context> parent, time::Time d) {
@@ -213,10 +213,10 @@ std::pair<ptr<Context>, CancelFunc> WithDeadline(ptr<Context> parent, time::Time
     time::Duration dur = time::Until(d);
     if (dur.ns <= 0) {
         c->cancel(true, DeadlineExceeded, nullptr);
-        return {c, [c] { c->cancel(false, canceled, nullptr); }};
+        return {c, [c] { c->cancel(false, Canceled, nullptr); }};
     }
     if (!c->Err()) c->start(dur);
-    return {c, [c] { c->cancel(true, canceled, nullptr); }};
+    return {c, [c] { c->cancel(true, Canceled, nullptr); }};
 }
 
 std::pair<ptr<Context>, CancelFunc> WithTimeout(ptr<Context> parent, time::Duration timeout) {

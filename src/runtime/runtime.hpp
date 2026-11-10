@@ -253,6 +253,8 @@ glist netpoll(int64_t delay) noexcept;
 // Interrupts a blocked netpoll.
 void netpoll_break() noexcept;
 bool netpoll_any_waiters() noexcept;
+// The number of fibers and threads parked in the poller, for schedtrace.
+int32_t netpoll_waiters() noexcept;
 
 // ---------------------------------------------------------------------------
 // Semaphores (sema.cpp), after Go's sema.Go.

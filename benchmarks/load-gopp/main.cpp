@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
             all += n;
             if (err) {
                 errs++;
-                fmt::Println(os::stderr, "{}", err);
+                fmt::Println(os::Stderr, "{}", err);
             }
             std::lock_guard l(mu);
             lats = append_span<time::Duration>(lats, local);
@@ -115,5 +115,5 @@ int main(int argc, char** argv) {
         .p999_us = pct(0.999),
         .max_us = pct(1),
     };
-    json::NewEncoder(os::stdout).Encode(r);
+    json::NewEncoder(os::Stdout).Encode(r);
 }

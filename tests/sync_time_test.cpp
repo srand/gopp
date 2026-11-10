@@ -207,8 +207,8 @@ TEST(Context, Cancel) {
     });
     cancel();
     EXPECT_TRUE(woke.recv());
-    EXPECT_EQ(ctx->Err(), context::canceled);
-    EXPECT_EQ(child->Err(), context::canceled);
+    EXPECT_EQ(ctx->Err(), context::Canceled);
+    EXPECT_EQ(child->Err(), context::Canceled);
     cancel_child();
 }
 

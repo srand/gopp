@@ -769,6 +769,41 @@ void mcall(G* gp, gaction action) noexcept {
     gp->caller = std::move(gp->caller).resume();
 }
 
+// Times sysmon found the network unpolled with fibers or threads waiting
+// on it, and polled it (schedtrace's sysmon_poll).
+std::atomic<uint64_t> sysmon_polls{0};
+
+// sysmon (after Go's): a thread outside the scheduler that polls the
+// network when nobody has for 10ms while something waits on it. The
+// scheduler keeps an M polling whenever it idles with waiters, so this is a
+// safety net; schedtrace counts each time it was needed.
+void sysmon() {
+    constexpr int64_t force_poll = 10'000'000;  // ns
+    int64_t delay = 20'000;                     // ns; backs off to 10ms
+    int idle = 0;
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::nanoseconds(delay));
+        int64_t now = nanotime();
+        int64_t last = sched.lastpoll.load();
+        bool polled = false;
+        if (netpoll_any_waiters() && last != 0 && last + force_poll < now &&
+            sched.lastpoll.compare_exchange_strong(last, now)) {
+            glist list = netpoll(0);
+            if (!list.empty()) {
+                sysmon_polls.fetch_add(1, std::memory_order_relaxed);
+                injectglist(list);
+                polled = true;
+            }
+        }
+        if (polled) {
+            idle = 0;
+            delay = 20'000;
+        } else if (++idle > 50) {
+            delay = std::min<int64_t>(delay * 2, force_poll);
+        }
+    }
+}
+
 // GOPP_SCHEDTRACE=<ms>: prints the scheduler counters per second every ms.
 void schedtrace(int ms) {
     constexpr int nfields = 0
@@ -802,7 +837,10 @@ void schedtrace(int ms) {
         last = now;
         std::string line = "SCHED threads=" + std::to_string(nm) + " idlep=" + std::to_string(idle) +
                            " spinning=" + std::to_string(spinning) + " idlem=" + std::to_string(nmidle) +
-                           " runq=" + std::to_string(sched.runqsize.load());
+                           " runq=" + std::to_string(sched.runqsize.load()) +
+                           " pollwaiters=" + std::to_string(netpoll_waiters()) +
+                           " polling=" + std::to_string(sched.lastpoll.load() == 0) +
+                           " sysmon_poll=" + std::to_string(sysmon_polls.load(std::memory_order_relaxed));
         for (int i = 0; i < nfields; i++) {
             line += " " + std::string(names[i]) + "=" + std::to_string(static_cast<uint64_t>((cur[i] - prev[i]) / secs));
             prev[i] = cur[i];
@@ -829,6 +867,7 @@ void init() noexcept {
     }
     netpoll_init();
     inited.store(true, std::memory_order_release);
+    std::thread(sysmon).detach();
     if (const char* s = std::getenv("GOPP_SCHEDTRACE")) {
         int ms = std::atoi(s);
         if (ms > 0) std::thread(schedtrace, ms).detach();

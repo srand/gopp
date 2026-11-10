@@ -487,6 +487,8 @@ public:
     std::pair<ptr<Response>, gopp::error> Get(std::string_view url);
     std::pair<ptr<Response>, gopp::error> Head(std::string_view url);
     std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view content_type, ptr<io::Reader> body);
+    // Closes the transport's idle connections, if it is a Transport.
+    void CloseIdleConnections();
 };
 
 // http.DefaultClient
