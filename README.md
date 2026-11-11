@@ -96,15 +96,17 @@ all park instead of blocking the thread.
 | `crypto/tls` | TLS 1.2/1.3 over any `net::Conn` (OpenSSL underneath), ALPN, SNI, certificate verification, `tls::Listen`/`Dial` |
 | `encoding/json` | `Marshal`/`Unmarshal` of plain structs through C++26 reflection, with no macros and no registration. Struct tags as annotations (`omitempty`, `string`, `-`), `Encoder`/`Decoder` streams, `json::Value` for Go's `any`, Go's error messages and number formatting |
 | `database/sql` | Go's connection pool (`SetMaxOpenConns`, idle limits, lifetimes, waiting with context cancellation, bad-connection retries), `Query`/`QueryRow`/`Exec`, prepared `Stmt`s that follow connections, `Tx` rolled back when its context ends, `Conn`, `Rows`/`Scan` with Go's conversions, `Null*` types and `sql::Named`, and the `driver` interfaces |
+| `text/template` | Go's templates (`gopp::text::template_`, as `template` is a keyword): `{{if}}`, `{{range}}` over slices, maps in key order and integers, `{{with}}`, `{{define}}`/`{{template}}`/`{{block}}`, pipelines, variables, the builtins with Go's `printf` verbs, and plain C++ lambdas as functions. The data is any C++ struct, read by reflection: fields, const methods with arguments, containers and smart pointers |
 | `net`, `net/url` | TCP with deadlines, URL parsing and escaping |
 | `context`, `sync`, `time` | Cancellation and deadlines; `Mutex`, `RWMutex`, `WaitGroup`, `Once`, `Cond`; `Timer`, `Ticker`, `AfterFunc` |
 | `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `flag`, `os` | The everyday packages, with `fmt` on `std::format` |
 
-**Tested against Go's own tests.** 261 unit tests, 156 of them ported
-from Go: `net/http`'s routing and ServeMux tests, `encoding/json`'s scanner,
-encoding and decoding tests, HPACK's RFC 7541 vectors, and `database/sql`'s
-pool, statement, transaction and conversion tests against Go's fake driver.
-They keep Go's test names and tables.
+**Tested against Go's own tests.** 414 unit tests, 290 of them ported
+from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
+`encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
+vectors, `database/sql`'s pool, statement, transaction and conversion
+tests against Go's fake driver, and `text/template`'s lexer, parser and
+executor tests. They keep Go's test names and tables.
 
 ## Get started
 
