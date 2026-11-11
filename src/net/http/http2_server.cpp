@@ -153,6 +153,7 @@ private:
     gopp::error NewRequest(stream& st, const Frame& f, ptr<Request>& out);
     void schedule_handler(ptr<stream> st, ptr<Request> req, int status_override, string msg);
     void close_stream(const ptr<stream>& st, gopp::error err);
+    void release_stream(stream& st);
     void end_stream(stream& st);
     void reset_stream(uint32 id, ErrCode code, gopp::error cause = nullptr);
     void go_away(ErrCode code);
@@ -572,9 +573,12 @@ void server_conn::serve() {
         }
     }
 
+    // The timers' functions refer to this connection: drop them.
     settings_timer->Stop();
     if (idle_timer_) idle_timer_->Stop();
     if (shutdown_timer_) shutdown_timer_->Stop();
+    idle_timer_ = nullptr;
+    shutdown_timer_ = nullptr;
     if (opts_.on_shutdown) opts_.on_shutdown(nullptr);
     done_serving_.close();
     conn_->Close();
@@ -583,15 +587,15 @@ void server_conn::serve() {
     auto streams = std::move(streams_);
     for (auto& [id, st] : streams) {
         st->state = stream_state::closed;
-        if (st->read_deadline) st->read_deadline->Stop();
-        if (st->write_deadline) st->write_deadline->Stop();
         if (st->body) st->body->close_with_error(err_client_disconnected);
         st->close_err = err_client_disconnected;
-        if (st->req) st->req->CancelContext();
+        release_stream(*st);
         st->cw.close();
     }
     // Free the queued writes; their handlers see done_serving.
     queues_.clear();
+    control_effects_.clear();
+    in_flight_.clear();
 }
 
 bool server_conn::process_frame_from_reader(read_frame_result res) {
@@ -978,8 +982,6 @@ gopp::error server_conn::process_goaway(const Frame& f) {
 void server_conn::close_stream(const ptr<stream>& st, gopp::error err) {
     if (st->state == stream_state::idle || st->state == stream_state::closed) panic("http2: can't close stream in this state");
     st->state = stream_state::closed;
-    if (st->read_deadline) st->read_deadline->Stop();
-    if (st->write_deadline) st->write_deadline->Stop();
     cur_client_streams_--;
     streams_.erase(st->id);
     queues_.erase(st->id);
@@ -995,8 +997,25 @@ void server_conn::close_stream(const ptr<stream>& st, gopp::error err) {
     }
     if (auto* se = errors::As<StreamError>(err)) err = se->cause ? se->cause : err_stream_closed;
     st->close_err = err;
-    if (st->req) st->req->CancelContext();
+    release_stream(*st);
     st->cw.close();
+}
+
+// Drops what a closed stream refers to: its request (whose body refers back
+// to the stream) and its deadline timers (whose functions do too).
+void server_conn::release_stream(stream& st) {
+    if (st.read_deadline) {
+        st.read_deadline->Stop();
+        st.read_deadline = nullptr;
+    }
+    if (st.write_deadline) {
+        st.write_deadline->Stop();
+        st.write_deadline = nullptr;
+    }
+    if (st.req) {
+        st.req->CancelContext();
+        st.req = nullptr;
+    }
 }
 
 void server_conn::reset_stream(uint32 id, ErrCode code, gopp::error cause) {

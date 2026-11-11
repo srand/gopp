@@ -278,6 +278,13 @@ struct template_access;
 
 // template.Template: a parsed template, and the templates associated with
 // it (defined in it, or added with New, Parse or AddParseTree).
+//
+// Associated templates form a set that refers to its templates by name,
+// and they refer to the set. Go's garbage collector frees such a set when
+// none of its templates is referenced any more; here the templates of a set
+// share one reference count, the set's, so the set and all its templates go
+// with the last ptr<Template> to any of them. Templates must therefore live
+// in ptr<Template> (as New returns them), not on the stack.
 class Template final : public object {
 public:
     // The parse tree; nil until parsed.
@@ -286,6 +293,11 @@ public:
     // template.New
     explicit Template(string name);
     ~Template() override;
+
+    // Reference counting (intrusive_ptr calls these): a template in a set
+    // counts on the set.
+    void add_ref() const noexcept;
+    void release_ref() const noexcept;
 
     string Name() const { return name_; }
     // A new template associated with this one, with its delimiters.
@@ -339,9 +351,12 @@ private:
     friend std::pair<ptr<Template>, gopp::error> ParseFiles(std::initializer_list<std::string_view> filenames);
     friend ptr<Template> New(string name);
     void init();
-    ptr<Template> copy(std::shared_ptr<detail::common> c) const;
+    // Makes this template, so far on its own, a member of set c: its
+    // references move to the set, which frees it.
+    void join(detail::common* c);
+    ptr<Template> copy(detail::common* c) const;
     bool associate(const ptr<Template>& nt, const ptr<parse::Tree>& tree);
-    std::shared_ptr<detail::common> common_;
+    detail::common* common_ = nullptr;  // the set; owns this template
     string left_delim_, right_delim_;
     string name_;
 };

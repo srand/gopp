@@ -317,6 +317,10 @@ std::pair<ptr<Response>, gopp::error> client_conn::round_trip(Request& req, cons
             cs->flow.conn = &flow_;
             cs->flow.add(initial_window_);
             cs->in.init(transport_default_stream_flow);
+            // Without a body, the HEADERS end the request: mark it sent now,
+            // so that a response that arrives before this fiber runs again
+            // finds the stream complete and removes it.
+            cs->sent_end = !has_body;
             streams_[cs->id] = cs;
         }
         werr = write_headers(req, *cs, !has_body);
@@ -325,10 +329,7 @@ std::pair<ptr<Response>, gopp::error> client_conn::round_trip(Request& req, cons
         forget_stream(cs);
         return {nullptr, unusable(werr)};
     }
-    if (!has_body) {
-        std::lock_guard l(mu_);
-        cs->sent_end = true;
-    } else {
+    if (has_body) {
         // The body goes out on its own fiber, so that a server that
         // answers before reading it all isn't kept waiting.
         ptr<client_conn> self(this);

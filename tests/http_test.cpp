@@ -32,6 +32,8 @@ public:
     ~TestServer() {
         srv.Close();
         EXPECT_EQ(done.recv(), http::ErrServerClosed);
+        // Like httptest: http::Get pooled connections to this server.
+        http::DefaultTransport()->CloseIdleConnections();
     }
 
     // Sends raw bytes and reads until the server closes the connection.

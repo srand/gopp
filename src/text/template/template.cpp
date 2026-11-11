@@ -11,9 +11,47 @@ namespace gopp::text::template_ {
 
 using namespace detail;
 
-Template::Template(string name) : name_(std::move(name)) {}
+namespace {
 
-Template::~Template() = default;
+std::atomic<long> n_live{0};  // templates alive
+
+}  // namespace
+
+// Templates alive, for tests.
+long detail::live_templates() noexcept { return n_live.load(); }
+
+Template::Template(string name) : name_(std::move(name)) { n_live.fetch_add(1, std::memory_order_relaxed); }
+
+Template::~Template() { n_live.fetch_sub(1, std::memory_order_relaxed); }
+
+common::~common() {
+    for (Template* t : members) delete t;
+}
+
+void Template::add_ref() const noexcept {
+    if (common_) common_->refs.fetch_add(1, std::memory_order_relaxed);
+    else object::add_ref();
+}
+
+void Template::release_ref() const noexcept {
+    if (!common_) {
+        object::release_ref();
+        return;
+    }
+    if (common_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) delete common_;
+}
+
+void Template::join(common* c) {
+    if (common_) {
+        if (common_ != c) panic("template: internal error: a template joins a second set");
+        return;
+    }
+    // Templates are built on one fiber, as in Go: no reference can come or
+    // go between reading the count and moving it.
+    c->refs.fetch_add(object::use_count(), std::memory_order_relaxed);
+    c->members.push_back(this);
+    common_ = c;
+}
 
 ptr<Template> New(string name) {
     auto t = make_ptr<Template>(std::move(name));
@@ -22,22 +60,22 @@ ptr<Template> New(string name) {
 }
 
 void Template::init() {
-    if (!common_) common_ = std::make_shared<common>();
+    if (!common_) join(new common());
 }
 
 ptr<Template> Template::New(string name) {
     init();
     auto nt = make_ptr<Template>(std::move(name));
-    nt->common_ = common_;
+    nt->join(common_);
     nt->left_delim_ = left_delim_;
     nt->right_delim_ = right_delim_;
     return nt;
 }
 
-ptr<Template> Template::copy(std::shared_ptr<common> c) const {
+ptr<Template> Template::copy(common* c) const {
     auto nt = make_ptr<Template>(name_);
     nt->Tree = Tree;
-    nt->common_ = std::move(c);
+    if (c) nt->join(c);
     nt->left_delim_ = left_delim_;
     nt->right_delim_ = right_delim_;
     return nt;
@@ -51,11 +89,11 @@ std::pair<ptr<Template>, gopp::error> Template::Clone() const {
     common_->mu_tmpl.RLock();
     for (auto& [k, v] : common_->tmpl) {
         if (k == name_.view()) {
-            nt->common_->tmpl[k] = nt;
+            nt->common_->tmpl[k] = nt.get();
             continue;
         }
         // The associated templates share nt's common structure.
-        nt->common_->tmpl[k] = v->copy(nt->common_);
+        nt->common_->tmpl[k] = v->copy(nt->common_).get();  // the set keeps it
     }
     common_->mu_tmpl.RUnlock();
     common_->mu_funcs.RLock();
@@ -80,7 +118,7 @@ std::vector<ptr<Template>> Template::Templates() const {
     std::vector<ptr<Template>> m;
     if (!common_) return m;
     common_->mu_tmpl.RLock();
-    for (auto& [k, v] : common_->tmpl) m.push_back(v);
+    for (auto& [k, v] : common_->tmpl) m.push_back(ptr<Template>(v));
     common_->mu_tmpl.RUnlock();
     return m;
 }
@@ -130,7 +168,7 @@ ptr<Template> Template::Lookup(std::string_view name) const {
     if (!common_) return nullptr;
     common_->mu_tmpl.RLock();
     auto it = common_->tmpl.find(name);
-    ptr<Template> t = it == common_->tmpl.end() ? nullptr : it->second;
+    ptr<Template> t = it == common_->tmpl.end() ? nullptr : ptr<Template>(it->second);
     common_->mu_tmpl.RUnlock();
     return t;
 }
@@ -162,7 +200,7 @@ bool Template::associate(const ptr<Template>& nt, const ptr<parse::Tree>& tree) 
         // template.
         return false;
     }
-    common_->tmpl[nt->name_.str()] = nt;
+    common_->tmpl[nt->name_.str()] = nt.get();
     return true;
 }
 

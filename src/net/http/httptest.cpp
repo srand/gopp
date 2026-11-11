@@ -92,6 +92,8 @@ void Server::Close() {
     Config.Close();
     done_.recv();
     transport_->CloseIdleConnections();
+    // As Go's: also the default transport's, which http::Get used.
+    http::DefaultTransport()->CloseIdleConnections();
 }
 
 Server::~Server() { Close(); }

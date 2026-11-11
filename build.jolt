@@ -5,7 +5,8 @@ Tasks:
   gopp               the library (libgopp.a and its headers)
   examples/<name>    example programs; `examples` builds them all
   gopp/tests         the unit test program
-  test               runs the unit tests
+  test               runs the unit tests; test:leaks=true,repeat=2 checks
+                     each test for leaked objects
   benchmark          compares examples/hello with the same server in Go
 """
 
@@ -16,12 +17,13 @@ import subprocess
 import threading
 import time
 
-from jolt import Alias, IntParameter, ListParameter, Parameter, Task, attributes, influence
+from jolt import Alias, BooleanParameter, IntParameter, ListParameter, Parameter, Task, attributes, influence
 from jolt.pkgs import boost, gcc, googletest, liburing, openssl, ssl  # noqa: F401
-from jolt.plugins import golang, ninja
+from jolt.plugins import golang, googletest, ninja
 from jolt.plugins.googletest import GTestRunner
 
 
+@ninja.attributes.macros("macros_leaks_{leaks}")
 @attributes.requires("requires_toolchain")
 class GoppProject(ninja.CXXProject):
     """
@@ -37,6 +39,9 @@ class GoppProject(ninja.CXXProject):
     ldflags = ["-static-libstdc++", "-static-libgcc"]
     strip = False
     requires_toolchain = ["gcc"]
+
+    leaks = BooleanParameter(False, help="Count live objects (GOPP_DEBUG_LEAKS): the tests then report leaks.")
+    macros_leaks_true = ["GOPP_DEBUG_LEAKS"]
 
 
 class Gopp(GoppProject, ninja.CXXLibrary):
@@ -86,16 +91,25 @@ class Examples(Alias):
 class Tests(GoppProject, ninja.CXXExecutable):
     """ Unit tests of the library. """
     name = "gopp/tests"
-    requires = ["gopp", "google/test/main"]
+    requires = ["gopp:leaks={leaks}", "google/test/main"]
     # Tests ported from Go's in-package tests use the internal headers.
     incpaths = ["src"]
     sources = ["tests/*.cpp", "src/**/*.hpp"]
 
 
+@googletest.filter()
+@googletest.repeat(default=1)
 class Test(GTestRunner):
-    """ Runs the unit tests. """
+    """
+    Runs the unit tests.
+
+    With leaks=true, each test fails that ends with more live objects than it
+    started with. Run with repeat=2: the first round is then a warm-up, so
+    that objects created once and kept (default clients, caches) don't count.
+    """
     name = "test"
-    requires = ["gopp/tests"]
+    leaks = BooleanParameter(False, help="Fail tests that leak objects.")
+    requires = ["gopp/tests:leaks={leaks}"]
 
 
 # ---------------------------------------------------------------------------

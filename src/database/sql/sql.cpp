@@ -1225,6 +1225,14 @@ void Tx::close(error err) {
     release_conn_(std::move(err));
     dc_ = nullptr;
     txi_ = nullptr;
+    // The Tx's statements refer to it (to grab its connection); drop them,
+    // closed or not, so that the two don't keep each other alive. Go's GC
+    // frees the pair; statements of a done Tx are unusable anyway.
+    std::vector<ptr<sql::Stmt>> stmts;
+    {
+        std::lock_guard l(stmts_mu_);
+        stmts.swap(stmts_);
+    }
 }
 
 std::tuple<ptr<driver_conn>, release_fn, error> Tx::grab_conn(ptr<context::Context> ctx) {

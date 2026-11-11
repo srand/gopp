@@ -5,6 +5,8 @@
 // the object, so a ptr is one machine word and an object one allocation.
 #pragma once
 
+#include <string>
+#include <vector>
 #include <atomic>
 #include <cstddef>
 #include <functional>
@@ -14,11 +16,19 @@
 namespace gopp {
 
 #ifdef GOPP_DEBUG_LEAKS
+// Leak checking (GOPP_DEBUG_LEAKS): every object is recorded while alive.
+class object;
 namespace detail {
-void increment_objects_in_use() noexcept;
-void decrement_objects_in_use() noexcept;
+void object_created(const object* o) noexcept;
+void object_destroyed(const object* o) noexcept;
 }  // namespace detail
+// Objects alive.
 long objects_in_use() noexcept;
+// Objects created so far.
+unsigned long objects_created() noexcept;
+// The dynamic types of the objects alive that were created after the
+// first `since`, with their counts ("gopp::http::Request x2").
+std::vector<std::string> live_objects_since(unsigned long since);
 #endif
 
 // Base class of reference-counted objects. Interfaces derive from it
@@ -27,7 +37,7 @@ class object {
 public:
     object() noexcept {
 #ifdef GOPP_DEBUG_LEAKS
-        detail::increment_objects_in_use();
+        detail::object_created(this);
 #endif
     }
 
@@ -37,7 +47,7 @@ public:
 
     virtual ~object() {
 #ifdef GOPP_DEBUG_LEAKS
-        detail::decrement_objects_in_use();
+        detail::object_destroyed(this);
 #endif
     }
 

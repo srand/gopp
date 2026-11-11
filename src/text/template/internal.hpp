@@ -4,25 +4,39 @@
 #include <gopp/sync.hpp>
 #include <gopp/text/template.hpp>
 
+#include <atomic>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace gopp::text::template_::detail {
 
 enum missing_key_action { map_invalid, map_zero_value, map_error };
 
 // What associated templates share (Go's common).
+// A set of associated templates. It owns its templates and is freed when
+// its reference count, shared by all of them, drops to zero.
 struct common {
-    std::map<std::string, ptr<Template>, std::less<>> tmpl;  // defined templates, by name
+    std::atomic<unsigned long> refs{0};  // references to any of the templates
+    std::vector<Template*> members;      // every template that joined, freed with the set
+    std::map<std::string, Template*, std::less<>> tmpl;  // defined templates, by name
     sync::RWMutex mu_tmpl;
     missing_key_action missing_key = map_invalid;
     sync::RWMutex mu_funcs;
     parse::FuncNames parse_funcs;  // names, for the parser
     FuncMap exec_funcs;
+
+    common() = default;
+    common(const common&) = delete;
+    common& operator=(const common&) = delete;
+    ~common();
 };
 
+// Templates alive (template.cpp), for tests.
+long live_templates() noexcept;
+
 struct template_access {
-    static common* of(const Template& t) { return t.common_.get(); }
+    static common* of(const Template& t) { return t.common_; }
 };
 
 // The builtin functions.

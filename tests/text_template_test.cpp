@@ -175,3 +175,41 @@ TEST(TextTemplateGopp, ConcurrentExecution) {
     }
     for (int i = 0; i < 16; i++) EXPECT_EQ(results.recv(), "123");
 }
+
+// A set of associated templates refers to its templates and they to the
+// set; the set and all its templates go with the last reference to any of
+// them (Go's garbage collector frees such cycles).
+namespace gopp::text::template_::detail {
+long live_templates() noexcept;  // template.cpp: templates alive, for tests
+}
+
+TEST(TextTemplate, SetIsFreedWithItsLastTemplate) {
+    struct access {
+        static long live() { return tmpl::detail::live_templates(); }
+    };
+    long before = access::live();
+    {
+        auto t = tmpl::Must(tmpl::New("root")->Parse(R"({{define "a"}}A{{end}}{{define "b"}}B{{template "a"}}{{end}}root)"));
+        auto extra = t->New("extra");
+        tmpl::Must(extra->Parse("extra {{template \"b\"}}"));
+        auto clone = tmpl::Must(t->Clone());
+        EXPECT_EQ(t->Templates().size(), 4u);
+        strings::Builder b;
+        EXPECT_FALSE(clone->ExecuteTemplate(b, "extra", Value()));
+        EXPECT_EQ(b.str(), "extra BA");
+        EXPECT_GT(access::live(), before);
+    }
+    EXPECT_EQ(access::live(), before) << "templates leaked";
+
+    // Holding one associated template keeps its whole set.
+    ptr<tmpl::Template> b;
+    {
+        auto t = tmpl::Must(tmpl::New("root")->Parse(R"({{define "a"}}A{{end}}{{define "b"}}B{{template "a"}}{{end}})"));
+        b = t->Lookup("b");
+    }
+    strings::Builder out;
+    EXPECT_FALSE(b->Execute(out, nullptr));
+    EXPECT_EQ(out.str(), "BA");
+    b = nullptr;
+    EXPECT_EQ(access::live(), before) << "templates leaked";
+}

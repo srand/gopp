@@ -861,6 +861,9 @@ void exec(sql::DB& db, std::string_view query, const A&... args) {
 }
 
 void close_db(sql::DB& db) {
+    // The fake driver's databases are global, as in Go, where the next test
+    // wipes them; wiping here keeps each test's objects its own.
+    db.Exec("WIPE");
     for (auto& dc : test_access::free_conns(db)) {
         std::lock_guard l(dc->mu);
         EXPECT_EQ(dc->open_stmt.size(), 0u) << "while closing db, a free conn had open stmts";
@@ -937,6 +940,10 @@ void test_database(const std::function<void(sql::DB&)>& f, bool require_default 
         ASSERT_FALSE(err) << "exec wipe: " << err;
         f(*db);
         close_db(*db);
+        // A test may close the DB itself: wipe through a new one.
+        auto w = sql::OpenDB(c);
+        w->Exec("WIPE");
+        w->Close();
     }
 }
 
@@ -1704,14 +1711,17 @@ TEST(Sql, PendingConnsAfterErr) {
         });
     }
     opening.Wait();
-    // All connections fail without deadlock.
+    // All connections fail without deadlock. (One timer for all, stopped at
+    // the end: time::After's would live on for 5s each.)
+    auto timeout = time::NewTimer(5 * time::Second);
     for (int i = 0; i < try_open; i++) {
         gopp::error got;
         bool timed_out = false;
-        select(recv(errs, [&](gopp::error e) { got = e; }), recv(time::After(5 * time::Second), [&] { timed_out = true; }));
+        select(recv(errs, [&](gopp::error e) { got = e; }), recv(timeout->C, [&] { timed_out = true; }));
         ASSERT_FALSE(timed_out) << "orphaned connection request(s)";
         EXPECT_EQ(got, err_offline) << got;
     }
+    timeout->Stop();
     hook_open_err = nullptr;
     close_db(*db);
 }
