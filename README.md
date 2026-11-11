@@ -91,8 +91,8 @@ all park instead of blocking the thread.
 | Package | What you get |
 |---|---|
 | runtime | `go()`, M:N scheduler with work stealing (Go's `proc.go` design), epoll netpoller, timers, semaphores |
-| `net/http` | Server with Go 1.22 `ServeMux` patterns (`GET /items/{id}`, `{path...}`, `{$}`, conflict detection), keep-alive, pipelining, chunked encoding, content sniffing, timeouts, graceful `Shutdown`, HTTPS. Client with `http::Get`/`Head`/`Post`, `Client` with redirects and timeouts, pooling `Transport`, HTTPS |
-| `net/http/httptest` | `NewRecorder`, `NewRequest`, `NewServer`, `NewTLSServer` |
+| `net/http` | Server with Go 1.22 `ServeMux` patterns (`GET /items/{id}`, `{path...}`, `{$}`, conflict detection), keep-alive, pipelining, chunked encoding, content sniffing, timeouts, graceful `Shutdown`, HTTPS. HTTP/2 on both sides, negotiated over TLS or spoken as h2c (`http::Protocols`), with flow control, multiplexing and GOAWAY; tested against Go's client and server and curl. Client with `http::Get`/`Head`/`Post`, `Client` with redirects and timeouts, pooling `Transport`, HTTPS |
+| `net/http/httptest` | `NewRecorder`, `NewRequest`, `NewServer`, `NewTLSServer`, `NewUnstartedServer` |
 | `crypto/tls` | TLS 1.2/1.3 over any `net::Conn` (OpenSSL underneath), ALPN, SNI, certificate verification, `tls::Listen`/`Dial` |
 | `encoding/json` | `Marshal`/`Unmarshal` of plain structs through C++26 reflection, with no macros and no registration. Struct tags as annotations (`omitempty`, `string`, `-`), `Encoder`/`Decoder` streams, `json::Value` for Go's `any`, Go's error messages and number formatting |
 | `database/sql` | Go's connection pool (`SetMaxOpenConns`, idle limits, lifetimes, waiting with context cancellation, bad-connection retries), `Query`/`QueryRow`/`Exec`, prepared `Stmt`s that follow connections, `Tx` rolled back when its context ends, `Conn`, `Rows`/`Scan` with Go's conversions, `Null*` types and `sql::Named`, and the `driver` interfaces |
@@ -101,7 +101,7 @@ all park instead of blocking the thread.
 | `context`, `sync`, `time` | Cancellation and deadlines; `Mutex`, `RWMutex`, `WaitGroup`, `Once`, `Cond`; `Timer`, `Ticker`, `AfterFunc` |
 | `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `flag`, `os` | The everyday packages, with `fmt` on `std::format` |
 
-**Tested against Go's own tests.** 414 unit tests, 290 of them ported
+**Tested against Go's own tests.** 415 unit tests, 290 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
 vectors, `database/sql`'s pool, statement, transaction and conversion
@@ -115,7 +115,8 @@ dependency on first use: GCC 16, Boost.Context, liburing, OpenSSL and
 googletest. Your host compiler doesn't matter.
 
 ```sh
-jolt build examples/hello        # the hello-world server
+jolt build examples/hello        # the hello-world server (-cert/-key for HTTPS and HTTP/2, -h2c)
+jolt build examples/fetch        # a small curl: fetch -i https://go.dev/
 jolt build test                  # run the unit tests
 jolt build benchmark             # go++ vs Go, report in report/benchmark.md
 ```
@@ -170,6 +171,12 @@ benchmarks/         the Go and go++ servers and load generators
 tests/              googletest unit tests; tests/go_*_test.cpp are Go's
 ```
 
+`jolt build test:leaks=true,repeat=2` checks every test for leaks: built
+with `GOPP_DEBUG_LEAKS`, go++ records each live `gopp::object`, and a test
+fails if it leaves objects alive, which are listed by type. The first round
+is a warm-up, so that objects kept for good (default clients, caches)
+don't count.
+
 `GOPP_SCHEDTRACE=<ms>` prints the scheduler's counters to standard error
 every `<ms>` milliseconds, like Go's `GODEBUG=schedtrace`. It shows fibers
 scheduled, steals, network polls, threads parked and woken, and I/O that
@@ -188,9 +195,9 @@ turns, and the report records each side's clock.
 go++ is a prototype, and a fast one. It is in active development; here is
 what it doesn't do yet:
 
-- **HTTP/2** is in progress. HPACK and the framer are done and tested, and
-  the server is written. The client transport is next, and then h2 is
-  switched on by default over TLS and as h2c with prior knowledge.
+- **HTTP/2** has no server push, RFC 9218 priorities or trailers yet. The
+  server ignores priorities and schedules streams round-robin, as Go's does
+  by default.
 - **No preemption.** A fiber that computes without blocking keeps its
   thread until it blocks or calls `runtime::Gosched()`.
 - **Fixed-size fiber stacks**, set by `GOPP_STACK_SIZE` (256 KiB of

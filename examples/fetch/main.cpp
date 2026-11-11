@@ -1,7 +1,7 @@
 // fetch: a small curl. Fetches a URL and prints the body; HTTP/2 is
 // negotiated over TLS, or spoken in the clear with -h2c.
 //
-//     $ fetch -i https://www.example.com/
+//     $ fetch -i https://go.dev/
 //     $ fetch -h2c -X POST -d hello http://localhost:8080/echo
 //     $ fetch -n 1000 -c 50 https://localhost:8443/    # load: n requests, c at a time
 #include <gopp/flag.hpp>
