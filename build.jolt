@@ -126,9 +126,15 @@ class TemplateExample(Example):
     sources = ["examples/template/*.cpp"]
 
 
+class JSONFile(Example):
+    """ JSON task list persisted with os.ReadFile and os.WriteFile. """
+    name = "examples/json-file"
+    sources = ["examples/json-file/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot", "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat", "examples/template"]
+    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot", "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat", "examples/template", "examples/json-file"]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):
