@@ -2,10 +2,12 @@
 // sock_posix.go, ipsock_posix.go, tcpsock*.go and udpsock*.go.
 #include "fd.hpp"
 #include "ipsock.hpp"
+#include "unixsock.hpp"
 
 #include <gopp/runtime.hpp>
 #include <gopp/strings.hpp>
 
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
@@ -19,12 +21,7 @@ namespace gopp::net {
 
 const error ErrClosed = errors::New("use of closed network connection");
 const error ErrWriteToConnected = errors::New("use of WriteTo with pre-connected connection");
-
-namespace {
-
 const error errMissingAddress = errors::New("missing address");
-
-}  // namespace
 
 string OpError::Error() const {
     string s = Op;
@@ -37,8 +34,6 @@ string OpError::Error() const {
     return s + ": " + Err.Error();
 }
 
-namespace {
-
 gopp::error op_error(std::string_view op, const string& network, ptr<Addr> source, ptr<Addr> addr, gopp::error err) {
     if (!err || err == io::EOF_) return err;
     auto e = make_ptr<OpError>();
@@ -49,6 +44,8 @@ gopp::error op_error(std::string_view op, const string& network, ptr<Addr> sourc
     e->Err = std::move(err);
     return e;
 }
+
+namespace {
 
 int listen_backlog() {
     static int backlog = [] {
@@ -65,6 +62,7 @@ int listen_backlog() {
 
 bool is_tcp(std::string_view n) { return n == "tcp" || n == "tcp4" || n == "tcp6"; }
 bool is_udp(std::string_view n) { return n == "udp" || n == "udp4" || n == "udp6"; }
+bool is_unix(std::string_view n) { return n == "unix" || n == "unixgram" || n == "unixpacket"; }
 
 // The sockaddr of a TCPAddr or UDPAddr for family; len 0 for nullptr.
 error addr_sockaddr(const Addr* a, int family, sockaddr_storage* sa, socklen_t* len) {
@@ -159,6 +157,12 @@ std::pair<ptr<Conn>, error> dial_one(std::string_view net, const Addr* raddr, in
 
 std::pair<ptr<Listener>, error> Listen(std::string_view network, std::string_view address) {
     string net(network);
+    if (is_unix(network)) {
+        auto la = ResolveUnixAddr(network, address).first;
+        auto [ln, err] = listen_unix(network, la.get());
+        if (err) return {nullptr, op_error("listen", net, nullptr, la, err)};
+        return {ln, nullptr};
+    }
     auto [addrs, rerr] = internet_addr_list(network, address);
     if (rerr) return {nullptr, op_error("listen", net, nullptr, nullptr, rerr)};
     ptr<Addr> la = first_ipv4(addrs);
@@ -173,6 +177,12 @@ std::pair<ptr<Listener>, error> Listen(std::string_view network, std::string_vie
 
 std::pair<ptr<PacketConn>, error> ListenPacket(std::string_view network, std::string_view address) {
     string net(network);
+    if (is_unix(network)) {
+        auto la = ResolveUnixAddr(network, address).first;
+        auto [fd, err] = unix_socket(network, la.get(), nullptr, true);
+        if (err) return {nullptr, op_error("listen", net, nullptr, la, err)};
+        return {make_ptr<UnixConn>(fd), nullptr};
+    }
     auto [addrs, rerr] = internet_addr_list(network, address);
     if (rerr) return {nullptr, op_error("listen", net, nullptr, nullptr, rerr)};
     ptr<Addr> la = first_ipv4(addrs);
@@ -204,6 +214,12 @@ std::pair<ptr<UDPConn>, error> DialUDP(std::string_view network, const ptr<UDPAd
 
 std::pair<ptr<Conn>, error> DialTimeout(std::string_view network, std::string_view address, time::Duration timeout) {
     string net(network);
+    if (is_unix(network)) {
+        auto ra = ResolveUnixAddr(network, address).first;
+        auto [fd, err] = unix_socket(network, nullptr, ra.get(), false);
+        if (err) return {nullptr, op_error("dial", net, nullptr, ra, err)};
+        return {make_ptr<UnixConn>(fd), nullptr};
+    }
     auto [addrs, rerr] = internet_addr_list(network, address);
     if (rerr) return {nullptr, op_error("dial", net, nullptr, nullptr, rerr)};
     int64 deadline = timeout.ns > 0 ? runtime::nanotime() + timeout.ns : 0;
@@ -258,6 +274,94 @@ error conn_base::SetReadBuffer(int bytes) {
 }
 error conn_base::SetWriteBuffer(int bytes) {
     return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockopt_int(SOL_SOCKET, SO_SNDBUF, bytes));
+}
+
+std::pair<ptr<os::File>, error> conn_base::File() {
+    auto [f, err] = fd_->dup();
+    if (err) return {nullptr, op_error("file", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    return {f, nullptr};
+}
+
+// ---------------------------------------------------------------------------
+// FileConn, FileListener and FilePacketConn (Go's file_unix.go)
+
+namespace {
+
+// Go's fileAddr: the name of the File in errors.
+struct fileAddr final : Addr {
+    string name;
+    explicit fileAddr(string n) : name(std::move(n)) {}
+    string Network() const override { return string::from_static("file+net"); }
+    string String() const override { return name; }
+};
+
+// Go's newFileFD: a non-blocking copy of f's socket.
+std::pair<ptr<netfd>, error> new_file_fd(const ptr<os::File>& f) {
+    int s = ::fcntl(static_cast<int>(f->Fd()), F_DUPFD_CLOEXEC, 0);
+    if (s < 0) return {nullptr, os::NewSyscallError("dup", errno_error(errno))};
+    int fl = ::fcntl(s, F_GETFL);
+    if (fl < 0 || ::fcntl(s, F_SETFL, fl | O_NONBLOCK) < 0) {
+        int e = errno;
+        ::close(s);
+        return {nullptr, os::NewSyscallError("setnonblock", errno_error(e))};
+    }
+    int sotype = 0;
+    socklen_t optlen = sizeof(sotype);
+    sockaddr_storage lsa{};
+    socklen_t llen = sizeof(lsa);
+    if (::getsockopt(s, SOL_SOCKET, SO_TYPE, &sotype, &optlen) < 0 ||
+        ::getsockname(s, reinterpret_cast<sockaddr*>(&lsa), &llen) < 0) {
+        int e = errno;
+        ::close(s);
+        return {nullptr, os::NewSyscallError("getsockopt", errno_error(e))};
+    }
+    int family = lsa.ss_family;
+    if (family != AF_INET && family != AF_INET6 && family != AF_UNIX) {
+        ::close(s);
+        return {nullptr, errno_error(EPROTONOSUPPORT)};
+    }
+    // The network is the local address's.
+    ptr<Addr> la = sockaddr_to_addr(lsa, sotype);
+    auto fd = make_ptr<netfd>(s, family, sotype, la->Network());
+    if (error err = fd->init()) return {nullptr, err};
+    fd->set_addrs();
+    return {fd, nullptr};
+}
+
+template <typename T>
+std::pair<ptr<T>, error> file_error(const ptr<os::File>& f, error err) {
+    return {nullptr, op_error("file", string::from_static("file+net"), nullptr, make_ptr<fileAddr>(f->Name()), err)};
+}
+
+}  // namespace
+
+std::pair<ptr<Conn>, error> FileConn(const ptr<os::File>& f) {
+    auto [fd, err] = new_file_fd(f);
+    if (err) return file_error<Conn>(f, err);
+    if (dynamic_cast<TCPAddr*>(fd->laddr.get())) return {make_ptr<TCPConn>(fd), nullptr};
+    if (dynamic_cast<UDPAddr*>(fd->laddr.get())) return {make_ptr<UDPConn>(fd), nullptr};
+    if (dynamic_cast<UnixAddr*>(fd->laddr.get())) return {make_ptr<UnixConn>(fd), nullptr};
+    fd->Close();
+    return file_error<Conn>(f, errno_error(EINVAL));
+}
+
+std::pair<ptr<Listener>, error> FileListener(const ptr<os::File>& f) {
+    auto [fd, err] = new_file_fd(f);
+    if (err) return file_error<Listener>(f, err);
+    if (dynamic_cast<TCPAddr*>(fd->laddr.get())) return {make_ptr<TCPListener>(fd), nullptr};
+    // A listener from a File doesn't remove the socket file when closed.
+    if (auto* ua = dynamic_cast<UnixAddr*>(fd->laddr.get())) return {make_ptr<UnixListener>(fd, ua->Name, false), nullptr};
+    fd->Close();
+    return file_error<Listener>(f, errno_error(EINVAL));
+}
+
+std::pair<ptr<PacketConn>, error> FilePacketConn(const ptr<os::File>& f) {
+    auto [fd, err] = new_file_fd(f);
+    if (err) return file_error<PacketConn>(f, err);
+    if (dynamic_cast<UDPAddr*>(fd->laddr.get())) return {make_ptr<UDPConn>(fd), nullptr};
+    if (dynamic_cast<UnixAddr*>(fd->laddr.get())) return {make_ptr<UnixConn>(fd), nullptr};
+    fd->Close();
+    return file_error<PacketConn>(f, errno_error(EINVAL));
 }
 
 error TCPConn::CloseRead() {

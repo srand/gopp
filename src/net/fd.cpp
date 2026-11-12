@@ -4,8 +4,10 @@
 
 #include <arpa/inet.h>
 #include <net/if.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -44,7 +46,45 @@ uint32_t zone_index(std::string_view zone) {
 
 }  // namespace
 
+string unix_net(int sotype) {
+    switch (sotype) {
+    case SOCK_DGRAM: return string::from_static("unixgram");
+    case SOCK_SEQPACKET: return string::from_static("unixpacket");
+    default: return string::from_static("unix");
+    }
+}
+
+error unix_sockaddr(std::string_view name, sockaddr_storage* sa, socklen_t* len) {
+    std::memset(sa, 0, sizeof(*sa));
+    auto* un = reinterpret_cast<sockaddr_un*>(sa);
+    std::size_t n = name.size();
+    if (n > sizeof(un->sun_path)) return errno_error(EINVAL);
+    // A path needs room for its NUL; an abstract name doesn't.
+    if (n == sizeof(un->sun_path) && name[0] != '@' && name[0] != '\0') return errno_error(EINVAL);
+    un->sun_family = AF_UNIX;
+    std::memcpy(un->sun_path, name.data(), n);
+    socklen_t sl = sizeof(sa_family_t);
+    if (n > 0) sl += static_cast<socklen_t>(n) + 1;
+    if (un->sun_path[0] == '@' || (un->sun_path[0] == 0 && sl > 3)) {
+        un->sun_path[0] = 0;
+        sl--;  // an abstract name has no NUL
+    }
+    *len = sl;
+    return nullptr;
+}
+
 ptr<Addr> sockaddr_to_addr(const sockaddr_storage& sa, int sotype) {
+    if (sa.ss_family == AF_UNIX) {
+        // An abstract name shows with '@' for its leading NUL, and ends at
+        // the next NUL, as in Go.
+        auto* un = reinterpret_cast<const sockaddr_un*>(&sa);
+        char path[sizeof(un->sun_path)];
+        std::memcpy(path, un->sun_path, sizeof(path));
+        if (path[0] == 0) path[0] = '@';
+        std::size_t n = 0;
+        while (n < sizeof(path) && path[n] != 0) n++;
+        return make_ptr<UnixAddr>(string(std::string_view(path, n)), unix_net(sotype));
+    }
     IP ip;
     int port = 0;
     string zone;
@@ -125,6 +165,16 @@ void netfd::set_addrs(const sockaddr_storage* raddr_sa) {
     sockaddr_storage pa{};
     len = sizeof(pa);
     if (getpeername(sysfd_, reinterpret_cast<sockaddr*>(&pa), &len) == 0) raddr = sockaddr_to_addr(pa, sotype_);
+}
+
+std::pair<ptr<os::File>, error> netfd::dup() {
+    if (!incref()) return {nullptr, ErrClosed};
+    int ns = ::fcntl(sysfd_, F_DUPFD_CLOEXEC, 0);
+    int e = errno;
+    decref();
+    if (ns < 0) return {nullptr, os::NewSyscallError("dup", errno_error(e))};
+    string name = net_ + ":" + (laddr ? laddr->String() : string()) + "->" + (raddr ? raddr->String() : string());
+    return {os::NewFile(static_cast<uintptr>(ns), name), nullptr};
 }
 
 bool netfd::incref() noexcept {
@@ -244,14 +294,18 @@ std::pair<isize, error> netfd::Write(std::span<const byte> p) {
 std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span<byte> oob, int flags,
                                                     sockaddr_storage* from) {
     std::lock_guard l(rmu_);
-    from->ss_family = AF_UNSPEC;
+    std::memset(from, 0, sizeof(*from));
     if (!incref()) return {0, 0, 0, ErrClosed};
     if (int pe = runtime::poll_reset(pd_, 'r')) {
         decref();
         return {0, 0, 0, op_error(pe)};
     }
+    // As Go's Recvmsg: with no buffer for data but some for control
+    // messages, a stream socket reads one byte, which carries them.
+    byte dummy;
+    bool use_dummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM;
     for (;;) {
-        iovec iov{p.data(), p.size()};
+        iovec iov{use_dummy ? &dummy : p.data(), use_dummy ? 1 : p.size()};
         msghdr msg{};
         msg.msg_name = from;
         msg.msg_namelen = sizeof(*from);
@@ -265,7 +319,9 @@ std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span
         if (n >= 0) {
             decref();
             if (msg.msg_namelen == 0) from->ss_family = AF_UNSPEC;
-            return {static_cast<isize>(n), static_cast<isize>(msg.msg_controllen), msg.msg_flags, nullptr};
+            // Go's eofError: no bytes from a connection-oriented socket.
+            error err = n == 0 && sotype_ != SOCK_DGRAM ? io::EOF_ : nullptr;
+            return {static_cast<isize>(n), static_cast<isize>(msg.msg_controllen), msg.msg_flags, err};
         }
         int e = errno;
         if (e == EINTR) continue;
@@ -289,8 +345,12 @@ std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::sp
         decref();
         return {0, 0, op_error(pe)};
     }
+    // As Go's Sendmsg: control messages without data go with one byte on a
+    // stream socket, which doesn't count.
+    byte dummy = 0;
+    bool use_dummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM;
     for (;;) {
-        iovec iov{const_cast<byte*>(p.data()), p.size()};
+        iovec iov{use_dummy ? &dummy : const_cast<byte*>(p.data()), use_dummy ? 1 : p.size()};
         msghdr msg{};
         msg.msg_name = const_cast<void*>(sa);
         msg.msg_namelen = sa ? salen : 0;
@@ -303,6 +363,7 @@ std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::sp
         ssize_t n = ::sendmsg(sysfd_, &msg, MSG_NOSIGNAL);
         if (n >= 0) {
             decref();
+            if (use_dummy) n = 0;
             return {static_cast<isize>(n), static_cast<isize>(oob.size()), nullptr};
         }
         int e = errno;

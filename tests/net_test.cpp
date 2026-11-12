@@ -230,6 +230,45 @@ TEST(Net, ZeroByteRead) {
     ln->Close();
 }
 
+// Many clients over a Unix stream socket, through net::Listen and Dial.
+TEST(Net, UnixEchoServer) {
+    auto [dir, derr] = os::MkdirTemp("", "gopp-unix");
+    ASSERT_FALSE(derr) << derr;
+    std::string path = std::string(dir.view()) + "/echo.sock";
+    auto [ln, err] = net::Listen("unix", path);
+    ASSERT_FALSE(err) << err;
+    EXPECT_EQ(ln->Addr()->Network(), "unix");
+    EXPECT_EQ(ln->Addr()->String(), path);
+
+    go([ln] {
+        for (;;) {
+            auto [c, err] = ln->Accept();
+            if (err) return;
+            go([c] { io::Copy(*c, *c); });
+        }
+    });
+
+    sync::WaitGroup wg;
+    for (int k = 0; k < 20; k++) {
+        wg.Go([path] {
+            auto [c, err] = net::Dial("unix", path);
+            ASSERT_FALSE(err) << err;
+            bufio::Reader r(c);
+            for (int i = 0; i < 50; i++) {
+                fmt::Print(*c, "line {}\n", i);
+                auto [line, err] = r.ReadString('\n');
+                ASSERT_FALSE(err) << err;
+                EXPECT_EQ(line, fmt::Sprint("line {}\n", i));
+            }
+            c->Close();
+        });
+    }
+    wg.Wait();
+    ln->Close();
+    EXPECT_TRUE(os::IsNotExist(os::Stat(path).second)) << "the listener's socket file is still there";
+    os::RemoveAll(dir.view());
+}
+
 TEST(Net, DialRefused) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);

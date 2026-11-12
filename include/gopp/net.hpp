@@ -1,5 +1,5 @@
-// The net package: TCP and UDP on the runtime's network poller, IP
-// addresses, and address resolution.
+// The net package: TCP, UDP and Unix domain sockets on the runtime's
+// network poller, IP addresses, and address resolution.
 //
 // Reads, writes, accepts and dials park the calling fiber until the
 // socket is ready; the thread runs other fibers meanwhile.
@@ -8,6 +8,7 @@
 //     auto [c, err] = net::Dial("udp", "127.0.0.1:53");
 //     auto [pc, err] = net::ListenPacket("udp", ":0");
 //     auto [n, addr, err] = pc->ReadFrom(buf);
+//     auto [ln, err] = net::Listen("unix", "/run/app.sock");
 #pragma once
 
 // The module interfaces (modules/) import these instead.
@@ -21,6 +22,7 @@
 #include <gopp/syscall.hpp>
 #include <gopp/time.hpp>
 
+#include <atomic>
 #include <format>
 #include <span>
 #include <string_view>
@@ -148,6 +150,21 @@ struct UDPAddr final : Addr {
     string Network() const override { return string::from_static("udp"); }
     string String() const override;
 };
+
+// net.UnixAddr: the path of a Unix domain socket, or "@name" for one in
+// Linux's abstract namespace (and "@" for an unnamed one), and its network:
+// "unix", "unixgram" or "unixpacket".
+struct UnixAddr final : Addr {
+    string Name;
+    string Net;
+    UnixAddr() = default;
+    UnixAddr(string name, string net) : Name(std::move(name)), Net(std::move(net)) {}
+    string Network() const override { return Net; }
+    string String() const override { return Name; }
+};
+
+// net.ResolveUnixAddr: network is "unix", "unixgram" or "unixpacket".
+std::pair<ptr<UnixAddr>, error> ResolveUnixAddr(std::string_view network, std::string_view address);
 
 // net.ResolveTCPAddr: network is "tcp", "tcp4" or "tcp6"; address is
 // "host:port", where host may be a name, and port a service name.
@@ -280,6 +297,8 @@ public:
     // The socket's buffer sizes (SO_RCVBUF, SO_SNDBUF).
     error SetReadBuffer(int bytes);
     error SetWriteBuffer(int bytes);
+    // A copy of the socket as a File; closing one doesn't close the other.
+    std::pair<ptr<os::File>, error> File();
 
 protected:
     ptr<netfd> fd_;
@@ -321,11 +340,82 @@ public:
     error SetWriteDeadline(time::Time t) override { return conn_base::SetWriteDeadline(t); }
 };
 
-// net.Listen: network is "tcp", "tcp4" or "tcp6"; address is
-// "host:port", ":port" or "[ipv6]:port".
+// net.UnixConn: a Unix domain socket, stream ("unix"), datagram
+// ("unixgram") or sequenced packet ("unixpacket").
+class UnixConn final : public conn_base, public PacketConn {
+public:
+    using conn_base::conn_base;
+
+    // Shut down reading or writing (shutdown(2)).
+    error CloseRead();
+    error CloseWrite();
+
+    std::tuple<isize, ptr<UnixAddr>, error> ReadFromUnix(std::span<byte> b);
+    std::tuple<isize, ptr<net::Addr>, error> ReadFrom(std::span<byte> b) override;
+    // Reads a message and its out-of-band data, such as the descriptors of
+    // an SCM_RIGHTS message (syscall::ParseUnixRights); they arrive
+    // close-on-exec. Returns n, oobn, flags, the sender, and an error.
+    std::tuple<isize, isize, int, ptr<UnixAddr>, error> ReadMsgUnix(std::span<byte> b, std::span<byte> oob);
+    std::pair<isize, error> WriteToUnix(std::span<const byte> b, const ptr<UnixAddr>& addr);
+    std::pair<isize, error> WriteTo(std::span<const byte> b, const ptr<net::Addr>& addr) override;
+    // Writes a message with out-of-band data (syscall::UnixRights) to addr,
+    // or, with addr nil, to the peer. Returns n, oobn and an error.
+    std::tuple<isize, isize, error> WriteMsgUnix(std::span<const byte> b, std::span<const byte> oob,
+                                                 const ptr<UnixAddr>& addr);
+
+    error Close() override { return conn_base::Close(); }
+    ptr<net::Addr> LocalAddr() const override { return conn_base::LocalAddr(); }
+    error SetDeadline(time::Time t) override { return conn_base::SetDeadline(t); }
+    error SetReadDeadline(time::Time t) override { return conn_base::SetReadDeadline(t); }
+    error SetWriteDeadline(time::Time t) override { return conn_base::SetWriteDeadline(t); }
+};
+
+// net.UnixListener. Closing it removes its socket file, unless
+// SetUnlinkOnClose(false) said otherwise or it came from FileListener.
+class UnixListener final : public Listener {
+public:
+    UnixListener(ptr<netfd> fd, string path, bool unlink);
+    ~UnixListener() override;
+
+    std::pair<ptr<UnixConn>, error> AcceptUnix();
+    std::pair<ptr<Conn>, error> Accept() override;
+    error Close() override;
+    ptr<net::Addr> Addr() const override;
+    error SetDeadline(time::Time t);
+    void SetUnlinkOnClose(bool unlink) { unlink_ = unlink; }
+    // A copy of the listener's socket as a File.
+    std::pair<ptr<os::File>, error> File();
+
+private:
+    ptr<netfd> fd_;
+    string path_;
+    bool unlink_;
+    std::atomic<bool> unlinked_{false};
+};
+
+// net.ListenUnix: network is "unix" or "unixpacket". An empty laddr Name
+// binds to an abstract name the kernel picks (Linux's autobind).
+std::pair<ptr<UnixListener>, error> ListenUnix(std::string_view network, const ptr<UnixAddr>& laddr);
+
+// net.ListenUnixgram: network is "unixgram".
+std::pair<ptr<UnixConn>, error> ListenUnixgram(std::string_view network, const ptr<UnixAddr>& laddr);
+
+// net.DialUnix: connects to raddr, bound to laddr if it isn't nil.
+std::pair<ptr<UnixConn>, error> DialUnix(std::string_view network, const ptr<UnixAddr>& laddr,
+                                         const ptr<UnixAddr>& raddr);
+
+// net.Listen: network is "tcp", "tcp4" or "tcp6", with an address
+// "host:port", ":port" or "[ipv6]:port"; or "unix" or "unixpacket", with
+// a socket path.
 std::pair<ptr<Listener>, error> Listen(std::string_view network, std::string_view address);
 
-// net.ListenPacket: network is "udp", "udp4" or "udp6".
+// net.FileConn, net.FileListener and net.FilePacketConn: a copy of the
+// socket in f, which stays open.
+std::pair<ptr<Conn>, error> FileConn(const ptr<os::File>& f);
+std::pair<ptr<Listener>, error> FileListener(const ptr<os::File>& f);
+std::pair<ptr<PacketConn>, error> FilePacketConn(const ptr<os::File>& f);
+
+// net.ListenPacket: network is "udp", "udp4", "udp6" or "unixgram".
 std::pair<ptr<PacketConn>, error> ListenPacket(std::string_view network, std::string_view address);
 
 // net.ListenUDP: listens on laddr; nil, or a nil IP or port 0, picks one.
@@ -335,7 +425,8 @@ std::pair<ptr<UDPConn>, error> ListenUDP(std::string_view network, const ptr<UDP
 // isn't nil.
 std::pair<ptr<UDPConn>, error> DialUDP(std::string_view network, const ptr<UDPAddr>& laddr, const ptr<UDPAddr>& raddr);
 
-// net.Dial: network is "tcp", "tcp4", "tcp6", "udp", "udp4" or "udp6".
+// net.Dial: network is "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6",
+// "unix", "unixgram" or "unixpacket".
 std::pair<ptr<Conn>, error> Dial(std::string_view network, std::string_view address);
 
 // net.DialTimeout

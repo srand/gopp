@@ -5,6 +5,7 @@
 
 #include <gopp/errors.hpp>
 #include <gopp/net.hpp>
+#include <gopp/os.hpp>
 #include <gopp/sync.hpp>
 
 #include <sys/socket.h>
@@ -51,6 +52,8 @@ public:
     // Sets laddr from getsockname(2) and raddr from getpeername(2), or
     // from raddr_sa when it's given.
     void set_addrs(const sockaddr_storage* raddr_sa = nullptr);
+    // A copy of the descriptor as an os::File (Go's netFD.dup).
+    std::pair<ptr<os::File>, error> dup();
     ptr<Addr> laddr;
     ptr<Addr> raddr;
 
@@ -72,8 +75,23 @@ private:
 };
 
 // The Addr of a sockaddr for a socket of type sotype: a TCPAddr for
-// streams and a UDPAddr for datagrams; nullptr for AF_UNSPEC.
+// streams and a UDPAddr for datagrams; a UnixAddr; nullptr for AF_UNSPEC.
+// sa must have been zeroed before the kernel filled it in.
 ptr<Addr> sockaddr_to_addr(const sockaddr_storage& sa, int sotype);
+
+// Go's SockaddrUnix.sockaddr: name as a sockaddr_un. "@name" (or a name
+// starting with NUL) is in the abstract namespace; "" is unnamed, which
+// bind(2) gives an abstract name.
+error unix_sockaddr(std::string_view name, sockaddr_storage* sa, socklen_t* len);
+
+// The network of a Unix socket of type sotype: "unix", "unixgram" or
+// "unixpacket".
+string unix_net(int sotype);
+
+// net.OpError for a failed operation, unless err is nil or io::EOF_.
+error op_error(std::string_view op, const string& network, ptr<Addr> source, ptr<Addr> addr, error err);
+
+extern const error errMissingAddress;
 
 // Go's ipToSockaddr: ip (nil for the wildcard), port and zone as a
 // sockaddr of family.
