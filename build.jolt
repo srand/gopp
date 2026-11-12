@@ -120,9 +120,15 @@ class TCPChat(Example):
     sources = ["examples/tcp-chat/*.cpp"]
 
 
+class TemplateExample(Example):
+    """ Markdown report rendered from structs with text/template. """
+    name = "examples/template"
+    sources = ["examples/template/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot", "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat"]
+    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot", "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat", "examples/template"]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):
