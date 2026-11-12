@@ -114,9 +114,15 @@ class UDPEcho(Example):
     sources = ["examples/udp-echo/*.cpp"]
 
 
+class TCPChat(Example):
+    """ Multi-client TCP chat room managed with fibers and channels. """
+    name = "examples/tcp-chat"
+    sources = ["examples/tcp-chat/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot", "examples/tcp-echo", "examples/udp-echo"]
+    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot", "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat"]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):

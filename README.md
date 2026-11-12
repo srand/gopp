@@ -125,6 +125,7 @@ jolt build examples/prime        # concurrent prime sieve using goroutines and c
 jolt build examples/mandelbrot   # ASCII fractal rendered by a goroutine worker pool
 jolt build examples/tcp-echo     # TCP echo server; connect with: nc localhost 8081
 jolt build examples/udp-echo     # UDP echo server; try: nc -u -w1 localhost 8082
+jolt build examples/tcp-chat     # multi-client chat room; connect from multiple terminals with nc localhost 8083
 jolt build test                  # run the unit tests
 jolt build benchmark             # go++ vs Go, report in report/benchmark.md
 ```
