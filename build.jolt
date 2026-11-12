@@ -101,7 +101,7 @@ class Tests(GoppProject, ninja.CXXExecutable):
     requires = ["gopp:leaks={leaks}", "google/test/main"]
     # Tests ported from Go's in-package tests use the internal headers.
     incpaths = ["src"]
-    sources = ["tests/*.cpp", "src/**/*.hpp"]
+    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp"]
 
 
 @googletest.filter()

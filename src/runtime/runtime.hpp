@@ -257,6 +257,19 @@ bool netpoll_any_waiters() noexcept;
 int32_t netpoll_waiters() noexcept;
 
 // ---------------------------------------------------------------------------
+// Signals (signal.cpp)
+
+// Installs the runtime's signal handlers, once. SIGPIPE gets a handler
+// that does nothing, as in Go: writes to a broken pipe or socket fail with
+// EPIPE instead of killing the process. A program started with SIGPIPE
+// ignored keeps it ignored. Runs before main.
+void initsig() noexcept;
+
+// Go's sigpipe: after a write to standard output or error failed with
+// EPIPE, dies of SIGPIPE, unless SIGPIPE is ignored.
+void sigpipe() noexcept;
+
+// ---------------------------------------------------------------------------
 // Semaphores (sema.cpp), after Go's sema.Go.
 
 void semacquire(std::atomic<uint32_t>* addr, bool lifo = false) noexcept;

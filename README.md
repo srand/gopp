@@ -99,14 +99,16 @@ all park instead of blocking the thread.
 | `text/template` | Go's templates (`gopp::text::template_`, as `template` is a keyword): `{{if}}`, `{{range}}` over slices, maps in key order and integers, `{{with}}`, `{{define}}`/`{{template}}`/`{{block}}`, pipelines, variables, the builtins with Go's `printf` verbs, and plain C++ lambdas as functions. The data is any C++ struct, read by reflection: fields, const methods with arguments, containers and smart pointers |
 | `net`, `net/url` | TCP with deadlines, URL parsing and escaping |
 | `context`, `sync`, `time` | Cancellation and deadlines; `Mutex`, `RWMutex`, `WaitGroup`, `Once`, `Cond`; `Timer`, `Ticker`, `AfterFunc` |
-| `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `flag`, `os` | The everyday packages, with `fmt` on `std::format` |
+| `os`, `io/fs` | Files: `Open`/`Create`/`OpenFile`, `ReadFile`/`WriteFile`, `File` with `Read`/`Write`/`ReadAt`/`WriteAt`/`Seek`, `Stat`, `Truncate`, `Sync`, `ReadDir`/`Readdir`/`Readdirnames`; paths: `Stat`/`Lstat`, `Mkdir`/`MkdirAll`, `Remove`/`RemoveAll`, `Rename`, `Chmod`/`Chown`/`Chtimes`, links, `CreateTemp`/`MkdirTemp`, `Getwd`/`Chdir`; `Pipe` with deadlines. Go's errors (`PathError`, `IsNotExist`, `errors::Is(err, fs::ErrNotExist)`) and `FileMode`/`FileInfo`/`DirEntry`. File I/O blocks only its thread, which hands its processor on, as in Go; pipes park only their fiber |
+| `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` |
 
-**Tested against Go's own tests.** 415 unit tests, 290 of them ported
+**Tested against Go's own tests.** 539 unit tests, 413 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
 vectors, `database/sql`'s pool, statement, transaction and conversion
-tests against Go's fake driver, and `text/template`'s lexer, parser and
-executor tests. They keep Go's test names and tables.
+tests against Go's fake driver, `text/template`'s lexer, parser and
+executor tests, and `os`'s and `io/fs`'s file, directory, pipe and error
+tests. They keep Go's test names and tables.
 
 ## Get started
 
@@ -178,10 +180,16 @@ The interfaces are in `modules/`, one per header. In module mode
 - **Threads the runtime didn't start can join in.** The main thread, for
   example, can use channels, locks, timers and the network; it blocks the
   thread where a fiber would park.
-- Two spellings differ from Go. `io.EOF` is `io::EOF_`, because `EOF` is a C
-  macro. And `url::Error` can't declare `Error()`, because C++ reserves a
-  class's own name for its constructors: call it through `gopp::error`, or
-  use `message()`.
+- **Writing to a broken pipe returns EPIPE**, as in Go: the runtime handles
+  SIGPIPE, except that a write to a broken standard output or error still
+  ends the program with the signal, so `prog | head` exits quietly. A
+  program started with SIGPIPE ignored, or that installs its own handler,
+  keeps it.
+- A few spellings differ from Go. `io.EOF` is `io::EOF_` and `os.O_RDONLY`
+  is `os::O_RDONLY_` (and so on for `os`'s `O_` flags), because C headers
+  define Go's names as macros. And `url::Error` can't declare `Error()`,
+  because C++ reserves a class's own name for its constructors: call it
+  through `gopp::error`, or use `message()`.
 
 ## Under the hood
 
@@ -231,6 +239,10 @@ what it doesn't do yet:
 - **x86-64 only for now.** The code supports ARM64, but it isn't built or
   tested there yet.
 - **`flag` has only the Var forms** (`StringVar`, `IntVar`, ...).
+- **`os` has files, directories and pipes**, but no processes
+  (`StartProcess`, `os/exec`), `os/signal`, `os.Root` or `DirFS`, and
+  `File` has no `ReadFrom`/`WriteTo` fast paths (`copy_file_range`,
+  `splice`).
 - **Request contexts** are canceled when the handler returns or a write to
   the client fails, not when the client disconnects while the handler is
   idle.

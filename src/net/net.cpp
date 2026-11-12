@@ -18,17 +18,7 @@
 
 namespace gopp::net {
 
-namespace {
-
-struct timeout_error final : error_interface {
-    string Error() const override { return string::from_static("i/o timeout"); }
-    bool Timeout() const noexcept override { return true; }
-};
-
-}  // namespace
-
 const error ErrClosed = errors::New("use of closed network connection");
-const error ErrDeadlineExceeded = error(make_ptr<timeout_error>());
 
 string OpError::Error() const {
     std::string s(Op.view());
@@ -49,17 +39,6 @@ string OpError::Error() const {
     return string(s);
 }
 
-string Errno::Error() const {
-    // Go's errno texts are strerror's, starting in lowercase.
-    char buf[128];
-    std::string s(strerror_r(Code, buf, sizeof(buf)));
-    if (s.size() > 1 && s[0] >= 'A' && s[0] <= 'Z' && !(s[1] >= 'A' && s[1] <= 'Z')) s[0] = static_cast<char>(s[0] + 32);
-    return string(s);
-}
-
-bool Errno::Timeout() const noexcept { return Code == EAGAIN || Code == ETIMEDOUT; }
-
-gopp::error errno_error(int code) { return make_ptr<Errno>(code); }
 
 namespace {
 

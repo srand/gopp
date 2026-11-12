@@ -8,8 +8,10 @@
 #ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/io.hpp>
+#include <gopp/os.hpp>
 #include <gopp/ptr.hpp>
 #include <gopp/string.hpp>
+#include <gopp/syscall.hpp>
 #include <gopp/time.hpp>
 
 #include <string_view>
@@ -21,8 +23,8 @@ namespace gopp::net {
 
 // net.ErrClosed: "use of closed network connection".
 extern const error ErrClosed;
-// os.ErrDeadlineExceeded: "i/o timeout"; timeout() is true.
-extern const error ErrDeadlineExceeded;
+// os.ErrDeadlineExceeded: "i/o timeout"; Timeout() is true.
+using os::ErrDeadlineExceeded;
 
 // net.OpError: the operation, network and addresses of a failed call.
 struct OpError : error_interface {
@@ -36,14 +38,9 @@ struct OpError : error_interface {
     bool Timeout() const noexcept override { return Err && Err->Timeout(); }
 };
 
-// An errno from a system call (syscall.Errno).
-struct Errno : error_interface {
-    int Code;
-    explicit Errno(int c) : Code(c) {}
-    string Error() const override;
-    bool Timeout() const noexcept override;
-};
-gopp::error errno_error(int code);
+// syscall.Errno, also known as net::Errno.
+using syscall::Errno;
+using syscall::errno_error;
 
 // net.Conn
 struct Conn : public io::Reader, public io::Writer, public io::Closer {

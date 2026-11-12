@@ -896,6 +896,15 @@ void ensure_init() noexcept {
     if (!inited.load(std::memory_order_acquire)) std::call_once(init_once, init);
 }
 
+namespace {
+
+// The signal handlers are installed before main, as Go's runtime does
+// before main.main: in a program that links the runtime, a write to a
+// broken pipe fails with EPIPE from the start.
+[[gnu::constructor]] void install_signal_handlers() { initsig(); }
+
+}  // namespace
+
 // ---------------------------------------------------------------------------
 // Public and runtime-internal entry points
 

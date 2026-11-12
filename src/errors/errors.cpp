@@ -100,7 +100,7 @@ error New(string text) { return error(make_ptr<error_string>(std::move(text))); 
 bool Is(const error& err, const error& target) noexcept {
     if (!err || !target) return err == target;
     for (const error_interface* e = err.get(); e; e = e->Unwrap()) {
-        if (e == target.get()) return true;
+        if (e == target.get() || e->Is(target.get())) return true;
     }
     return false;
 }

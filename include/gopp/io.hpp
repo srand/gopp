@@ -40,7 +40,31 @@ struct Closer : public virtual object {
     virtual error Close() = 0;
 };
 
+// io.SeekStart, io.SeekCurrent, io.SeekEnd: the whence of Seek.
+inline constexpr int SeekStart = 0;
+inline constexpr int SeekCurrent = 1;
+inline constexpr int SeekEnd = 2;
+
+struct Seeker : public virtual object {
+    // Sets the offset of the next Read or Write to offset, relative to
+    // whence, and returns the new offset.
+    virtual std::pair<int64, error> Seek(int64 offset, int whence) = 0;
+};
+
+struct ReaderAt : public virtual object {
+    // Reads len(p) bytes at offset off, or fewer and an error: io::EOF_ at
+    // the end of the input.
+    virtual std::pair<isize, error> ReadAt(std::span<byte> p, int64 off) = 0;
+};
+
+struct WriterAt : public virtual object {
+    // Writes p at offset off, or returns the count written and an error.
+    virtual std::pair<isize, error> WriteAt(std::span<const byte> p, int64 off) = 0;
+};
+
 struct ReadWriter : public Reader, public Writer {};
+struct ReadSeeker : public Reader, public Seeker {};
+struct ReadWriteSeeker : public Reader, public Writer, public Seeker {};
 struct ReadCloser : public Reader, public Closer {};
 struct WriteCloser : public Writer, public Closer {};
 struct ReadWriteCloser : public Reader, public Writer, public Closer {};

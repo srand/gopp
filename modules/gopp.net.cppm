@@ -6,8 +6,10 @@ export module gopp.net;
 import std.compat;
 export import gopp.errors;
 export import gopp.io;
+export import gopp.os;
 export import gopp.ptr;
 export import gopp.string;
+export import gopp.syscall;
 export import gopp.time;
 
 export extern "C++" {

@@ -26,6 +26,10 @@ struct error_interface : public virtual object {
     virtual const error_interface* Unwrap() const noexcept { return nullptr; }
     // Optional: whether the error is a timeout (net.Error).
     virtual bool Timeout() const noexcept { return false; }
+    // Optional: whether the error matches target for errors.Is, as an
+    // Is(error) bool method does in Go; syscall::Errno matches
+    // fs::ErrNotExist, for example.
+    virtual bool Is(const error_interface* target) const noexcept { return false; }
 };
 
 // A value of Go's error type: nil, or a pointer to an implementation.
