@@ -90,9 +90,15 @@ class Modules(Example):
     sources = ["examples/modules/*.cpp"]
 
 
+class Prime(Example):
+    """ Concurrent prime sieve built from goroutines and channels. """
+    name = "examples/prime"
+    sources = ["examples/prime/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello", "examples/fetch", "examples/modules"]
+    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime"]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):

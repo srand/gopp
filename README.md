@@ -121,6 +121,7 @@ googletest. Your host compiler doesn't matter.
 jolt build examples/hello        # the hello-world server (-cert/-key for HTTPS and HTTP/2, -h2c)
 jolt build examples/fetch        # a small curl: fetch -i https://go.dev/
 jolt build examples/modules      # go++ imported as C++ modules
+jolt build examples/prime        # concurrent prime sieve using goroutines and channels
 jolt build test                  # run the unit tests
 jolt build benchmark             # go++ vs Go, report in report/benchmark.md
 ```
