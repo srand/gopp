@@ -13,7 +13,7 @@
 #include <vector>
 
 using namespace gopp;
-using namespace gopp::text::template_::parse;
+using namespace gopp::text::tmpl::parse;
 using namespace std::complex_literals;
 
 namespace {

@@ -4,8 +4,8 @@
 //
 //     auto [trees, err] = parse::Parse("t", "{{.Name}}", "", "", {&funcs});
 //
-// `template` is a C++ keyword, so the packages are gopp::text::template_
-// and gopp::text::template_::parse.
+// `template` is a C++ keyword, so the packages are gopp::text::tmpl
+// and gopp::text::tmpl::parse.
 #pragma once
 
 // The module interfaces (modules/) import these instead.
@@ -23,7 +23,7 @@
 #include <vector>
 #endif
 
-namespace gopp::text::template_::parse {
+namespace gopp::text::tmpl::parse {
 
 // parse.Pos: a byte position in the original input.
 using Pos = int;
@@ -395,4 +395,4 @@ bool IsEmptyTree(const Node* n);
 // stacks, so go++ allows 200 of each ("max expression depth exceeded",
 // "max template nesting depth exceeded").
 
-}  // namespace gopp::text::template_::parse
+}  // namespace gopp::text::tmpl::parse

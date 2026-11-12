@@ -3,7 +3,7 @@
 
 #include "lex.hpp"
 
-namespace gopp::text::template_::parse {
+namespace gopp::text::tmpl::parse {
 
 namespace {
 
@@ -360,4 +360,4 @@ void TemplateNode::write_to(std::string& sb) const {
     sb += right(*this);
 }
 
-}  // namespace gopp::text::template_::parse
+}  // namespace gopp::text::tmpl::parse

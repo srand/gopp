@@ -7,7 +7,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace gopp::text::template_ {
+namespace gopp::text::tmpl {
 
 using namespace detail;
 
@@ -284,7 +284,7 @@ std::pair<ptr<Template>, gopp::error> parse_files(ptr<Template> t, std::span<con
         //  t, err := New(name).Funcs(xxx).ParseFiles(name)
         // works. Otherwise we create a new template associated with t.
         ptr<Template> tmpl;
-        if (!t) t = template_::New(string(name));
+        if (!t) t = tmpl::New(string(name));
         if (name == t->Name().view()) tmpl = t;
         else tmpl = t->New(string(name));
         if (auto [r, perr] = tmpl->Parse(s); perr) return {nullptr, perr};
@@ -329,4 +329,4 @@ std::pair<ptr<Template>, gopp::error> ParseFiles(std::initializer_list<std::stri
 
 std::pair<ptr<Template>, gopp::error> ParseGlob(std::string_view pattern) { return parse_glob(nullptr, pattern); }
 
-}  // namespace gopp::text::template_
+}  // namespace gopp::text::tmpl

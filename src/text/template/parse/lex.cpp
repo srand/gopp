@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <map>
 
-namespace gopp::text::template_::parse {
+namespace gopp::text::tmpl::parse {
 
 namespace {
 
@@ -482,4 +482,4 @@ bool lexer::lex_raw_quote() {
     return emit(itemRawString);
 }
 
-}  // namespace gopp::text::template_::parse
+}  // namespace gopp::text::tmpl::parse

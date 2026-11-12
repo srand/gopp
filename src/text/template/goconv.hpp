@@ -11,7 +11,7 @@
 #include <string_view>
 #include <tuple>
 
-namespace gopp::text::template_::detail {
+namespace gopp::text::tmpl::detail {
 
 using rune = int32;
 inline constexpr rune rune_error = 0xFFFD;
@@ -54,4 +54,4 @@ std::pair<double, gopp::error> parse_float(std::string_view s);
 // prec -1 is the shortest representation that round-trips.
 std::string format_float(double f, char fmt, int prec);
 
-}  // namespace gopp::text::template_::detail
+}  // namespace gopp::text::tmpl::detail

@@ -8,10 +8,10 @@ import std;
 import gopp.encoding.json;
 import gopp.fmt;
 import gopp.os;
-import gopp.text.template_;
+import gopp.text.tmpl;
 
 using namespace gopp;
-namespace template_ = text::template_;
+namespace tmpl = text::tmpl;
 
 struct Inventory {
     string Name;
@@ -28,7 +28,7 @@ int main() {
     }
     fmt::Println("{}", std::string_view(reinterpret_cast<const char*>(b.data()), b.size()));
 
-    auto t = template_::Must(template_::New("inventory")->Parse("{{.Name}} has {{.Count}} items\n"));
+    auto t = tmpl::Must(tmpl::New("inventory")->Parse("{{.Name}} has {{.Count}} items\n"));
     if (auto err = t->Execute(os::Stdout, inv)) {
         fmt::Println("{}", err);
         return 1;

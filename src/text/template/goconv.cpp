@@ -11,7 +11,7 @@
 #include <cstring>
 #include <limits>
 
-namespace gopp::text::template_::detail {
+namespace gopp::text::tmpl::detail {
 
 namespace {
 
@@ -564,4 +564,4 @@ std::string format_float(double f, char fmt, int prec) {
     return "%" + std::string(1, fmt);
 }
 
-}  // namespace gopp::text::template_::detail
+}  // namespace gopp::text::tmpl::detail

@@ -2,7 +2,7 @@
 """
 Writes the module interfaces in modules/: one per public header, named after
 its path (<gopp/net/http.hpp> is gopp.net.http; template is a keyword, so
-the text/template headers are gopp.text.template_), and gopp, which imports
+the text/template headers are gopp.text.tmpl), and gopp, which imports
 them all.
 
 An interface imports std.compat and the modules of the go++ headers that its
@@ -31,7 +31,7 @@ def headers():
 
 
 def module_name(header):
-    return header[:-len(".hpp")].replace(os.sep, ".").replace("template", "template_")
+    return header[:-len(".hpp")].replace(os.sep, ".").replace("template", "tmpl")
 
 
 def gopp_includes(header):

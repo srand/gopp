@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <format>
 
-namespace gopp::text::template_::parse {
+namespace gopp::text::tmpl::parse {
 
 namespace {
 
@@ -793,4 +793,4 @@ ptr<Node> Tree::use_var(parse::Pos pos, std::string_view name) {
     errorf("undefined variable " + detail::quote(v->Ident[0]));
 }
 
-}  // namespace gopp::text::template_::parse
+}  // namespace gopp::text::tmpl::parse

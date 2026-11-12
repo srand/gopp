@@ -15,7 +15,7 @@
 #include <vector>
 
 using namespace gopp;
-namespace tmpl = gopp::text::template_;
+namespace tmpl = gopp::text::tmpl;
 using tmpl::Value;
 
 namespace {
@@ -179,7 +179,7 @@ TEST(TextTemplateGopp, ConcurrentExecution) {
 // A set of associated templates refers to its templates and they to the
 // set; the set and all its templates go with the last reference to any of
 // them (Go's garbage collector frees such cycles).
-namespace gopp::text::template_::detail {
+namespace gopp::text::tmpl::detail {
 long live_templates() noexcept;  // template.cpp: templates alive, for tests
 }
 

@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace gopp::text::template_::detail {
+namespace gopp::text::tmpl::detail {
 
 enum missing_key_action { map_invalid, map_zero_value, map_error };
 
@@ -53,4 +53,4 @@ Value indirect_interface(const Value& v);
 // templates may run on 256 KiB fiber stacks.
 inline constexpr int max_exec_depth = 200;
 
-}  // namespace gopp::text::template_::detail
+}  // namespace gopp::text::tmpl::detail

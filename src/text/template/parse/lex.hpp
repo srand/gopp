@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-namespace gopp::text::template_::parse {
+namespace gopp::text::tmpl::parse {
 
 enum itemType : int {
     itemError,         // error occurred; value is text of error
@@ -128,4 +128,4 @@ private:
     state_fn state_ = nullptr;
 };
 
-}  // namespace gopp::text::template_::parse
+}  // namespace gopp::text::tmpl::parse

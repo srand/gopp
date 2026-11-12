@@ -1,7 +1,7 @@
-// Module gopp.text.template_.parse: <gopp/text/template/parse.hpp>. Written by generate.py.
+// Module gopp.text.tmpl.parse: <gopp/text/template/parse.hpp>. Written by generate.py.
 module;
 #define GOPP_MODULE
-export module gopp.text.template_.parse;
+export module gopp.text.tmpl.parse;
 
 import std.compat;
 export import gopp.errors;

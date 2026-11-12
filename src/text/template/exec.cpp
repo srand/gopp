@@ -9,7 +9,7 @@
 #include <exception>
 #include <format>
 
-namespace gopp::text::template_ {
+namespace gopp::text::tmpl {
 
 using namespace detail;
 
@@ -814,4 +814,4 @@ gopp::error Template::ExecuteTemplate(io::Writer& w, std::string_view name, cons
     return tmpl->Execute(w, data);
 }
 
-}  // namespace gopp::text::template_
+}  // namespace gopp::text::tmpl

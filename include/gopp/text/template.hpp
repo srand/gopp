@@ -4,14 +4,14 @@
 //         string Material;
 //         int Count;
 //     };
-//     auto t = template_::Must(template_::New("test")->Parse("{{.Count}} items are made of {{.Material}}"));
+//     auto t = tmpl::Must(tmpl::New("test")->Parse("{{.Count}} items are made of {{.Material}}"));
 //     t->Execute(w, Inventory{"wool", 17});    // 17 items are made of wool
 //
-// `template` is a C++ keyword, so the package is gopp::text::template_
-// (alias it: namespace tmpl = gopp::text::template_;).
+// `template` is a C++ keyword, so the package is gopp::text::tmpl
+// (alias it: namespace tmpl = gopp::text::tmpl;).
 //
 // Data model. Go's executor works on reflect.Value; go++'s works on
-// template_::Value, a view of C++ data that C++26 reflection describes:
+// tmpl::Value, a view of C++ data that C++26 reflection describes:
 //
 //   - bool, integers, floating point and std::complex<double> are Go's
 //     bool, int and uint kinds, float and complex. Integer types of any
@@ -23,7 +23,7 @@
 //     ({{.Name}}), and their public const non-static member functions are
 //     methods ({{.Method arg1 arg2}}) taking any of these types and
 //     returning a value, or std::pair<value, gopp::error> (a non-nil error
-//     stops execution). A last parameter of type template_::Variadic<T>
+//     stops execution). A last parameter of type tmpl::Variadic<T>
 //     takes any number of T, as Go's ...T. A String() const method makes
 //     the type a fmt.Stringer; an Error() const one an error.
 //   - std::vector, gopp::slice, std::array and std::span are slices;
@@ -32,7 +32,7 @@
 //   - T*, ptr<T>, std::shared_ptr<T>, std::unique_ptr<T> and
 //     std::optional<T> are pointers: fields are reached through them, and
 //     null is nil.
-//   - gopp::error is Go's error; json::Value and template_::Value are
+//   - gopp::error is Go's error; json::Value and tmpl::Value are
 //     Go's any.
 //   - Callables (std::function and function pointers) are funcs, for
 //     {{call .F args}}; FuncMap entries are any callable with a
@@ -79,7 +79,7 @@
 #include <vector>
 #endif
 
-namespace gopp::text::template_ {
+namespace gopp::text::tmpl {
 
 // reflect.Kind, for the kinds the executor tells apart.
 enum class Kind { Invalid, Bool, Int, Uint, Float, Complex, String, Slice, Array, Map, Struct, Pointer, Func, Interface };
@@ -165,7 +165,7 @@ public:
     static Value Ref(const T& v, detail::owner_t owner = nullptr);
 
     bool IsValid() const noexcept { return t_ != nullptr; }
-    template_::Kind Kind() const noexcept;
+    tmpl::Kind Kind() const noexcept;
     const detail::type_ops* Type() const noexcept { return t_; }
     // The type's name, as Go would print it ("<nil>" if invalid).
     std::string_view TypeName() const noexcept;
@@ -708,7 +708,7 @@ const type_ops* complex_ops();
 const type_ops* error_ops();
 const type_ops* any_ops();      // a Value field: Go's any
 const type_ops* json_ops();     // json::Value: Go's any
-const type_ops* func_ops();     // template_::Func
+const type_ops* func_ops();     // tmpl::Func
 const type_ops* scalar_ops(Kind k, std::string_view name);
 
 template <typename T>
@@ -978,4 +978,4 @@ Func::Func(F f) {
     };
 }
 
-}  // namespace gopp::text::template_
+}  // namespace gopp::text::tmpl

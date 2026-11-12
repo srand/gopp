@@ -24,7 +24,7 @@
 #include <vector>
 
 using namespace gopp;
-namespace tmpl = gopp::text::template_;
+namespace tmpl = gopp::text::tmpl;
 using tmpl::FuncMap;
 using tmpl::Value;
 using tmpl::Variadic;

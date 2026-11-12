@@ -1,10 +1,10 @@
-// template_::Value and the descriptors of the builtin types.
+// tmpl::Value and the descriptors of the builtin types.
 #include <gopp/text/template.hpp>
 
 #include <mutex>
 #include <set>
 
-namespace gopp::text::template_ {
+namespace gopp::text::tmpl {
 
 namespace detail {
 
@@ -196,19 +196,19 @@ Value Value::object(const detail::type_ops* t, const void* p, detail::owner_t ow
     return v;
 }
 
-Kind Value::Kind() const noexcept { return t_ ? t_->kind : template_::Kind::Invalid; }
+Kind Value::Kind() const noexcept { return t_ ? t_->kind : tmpl::Kind::Invalid; }
 
 std::string_view Value::TypeName() const noexcept { return t_ ? t_->name : std::string_view("<nil>"); }
 
 std::size_t Value::Len() const {
-    if (Kind() == template_::Kind::String) return str_.size();
+    if (Kind() == tmpl::Kind::String) return str_.size();
     if (t_ && t_->len) return t_->len(p_);
     return 0;
 }
 
 Value Value::Index(std::size_t i) const {
-    if (Kind() == template_::Kind::String) {
-        return Value::scalar_uint(detail::scalar_ops(template_::Kind::Uint, "uint8"), static_cast<unsigned char>(str_[i]));
+    if (Kind() == tmpl::Kind::String) {
+        return Value::scalar_uint(detail::scalar_ops(tmpl::Kind::Uint, "uint8"), static_cast<unsigned char>(str_[i]));
     }
     if (t_ && t_->index) return t_->index(p_, owner_, i);
     return Value();
@@ -274,4 +274,4 @@ Func Func::Raw(std::vector<detail::ops_fn> in, bool variadic,
     return f;
 }
 
-}  // namespace gopp::text::template_
+}  // namespace gopp::text::tmpl

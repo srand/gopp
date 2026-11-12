@@ -26,6 +26,6 @@ export import gopp.string;
 export import gopp.strings;
 export import gopp.sync;
 export import gopp.syscall;
-export import gopp.text.template_;
-export import gopp.text.template_.parse;
+export import gopp.text.tmpl;
+export import gopp.text.tmpl.parse;
 export import gopp.time;

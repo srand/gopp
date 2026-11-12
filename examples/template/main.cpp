@@ -8,7 +8,7 @@
 #include <vector>
 
 using namespace gopp;
-namespace tmpl = text::template_;
+namespace tmpl = text::tmpl;
 
 struct Task {
     string Title;

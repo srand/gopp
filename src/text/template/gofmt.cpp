@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 
-namespace gopp::text::template_ {
+namespace gopp::text::tmpl {
 
 namespace {
 
@@ -596,4 +596,4 @@ string Sprintf(std::string_view format, std::span<const Value> args) {
     return string(p.buf);
 }
 
-}  // namespace gopp::text::template_
+}  // namespace gopp::text::tmpl

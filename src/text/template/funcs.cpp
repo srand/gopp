@@ -7,7 +7,7 @@
 
 #include <format>
 
-namespace gopp::text::template_ {
+namespace gopp::text::tmpl {
 
 using namespace detail;
 
@@ -460,4 +460,4 @@ string HTMLEscaper(std::span<const Value> args) { return HTMLEscapeString(eval_a
 string JSEscaper(std::span<const Value> args) { return JSEscapeString(eval_args(args)); }
 string URLQueryEscaper(std::span<const Value> args) { return url::QueryEscape(eval_args(args)); }
 
-}  // namespace gopp::text::template_
+}  // namespace gopp::text::tmpl
