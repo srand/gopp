@@ -7,6 +7,9 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <vector>
+
 using namespace gopp;
 using namespace std::chrono_literals;
 
@@ -117,6 +120,113 @@ TEST(Net, PeerCloseGivesEOF) {
     auto [data, rerr] = io::ReadAll(*c);
     EXPECT_FALSE(rerr);
     EXPECT_EQ(as_string_view(data), "bye");
+    ln->Close();
+}
+
+namespace {
+
+// A connected pair: the dialed side and the accepted one.
+std::pair<ptr<net::Conn>, ptr<net::Conn>> tcp_pair(const ptr<net::Listener>& ln) {
+    auto accepted = make_chan<ptr<net::Conn>>(1);
+    go([ln, accepted] { accepted.send(ln->Accept().first); });
+    auto [c, err] = net::Dial("tcp", ln->Addr());
+    EXPECT_FALSE(err) << err;
+    return {c, accepted.recv()};
+}
+
+byte pattern(int conn, std::size_t i) { return static_cast<byte>((conn * 131 + i * 7) & 0xff); }
+
+}  // namespace
+
+// Many connections get data that isn't read for a while: with io_uring, it
+// fills the rings' buffers until they run out, and then waits in the
+// sockets. Every byte must still arrive, in order.
+TEST(Net, UnreadDataOnManyConnections) {
+    auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
+    ASSERT_FALSE(err);
+    constexpr int nconns = 256;
+    constexpr std::size_t size = 256 * 1024;
+    sync::WaitGroup wg;
+    std::atomic<int> bad{0};
+    for (int k = 0; k < nconns; k++) {
+        auto [c, s] = tcp_pair(ln);
+        ASSERT_TRUE(c && s);
+        wg.Go([c, k] {
+            std::vector<byte> data(size);
+            for (std::size_t i = 0; i < size; i++) data[i] = pattern(k, i);
+            c->Write(data);
+        });
+        wg.Go([s, k, &bad] {
+            // Reading starts the receive; then the data piles up.
+            std::vector<byte> got(size);
+            auto [n, rerr] = io::ReadFull(*s, std::span(got).first(1));
+            if (rerr) bad++;
+            time::Sleep(100ms);
+            auto [m, rerr2] = io::ReadFull(*s, std::span(got).subspan(1));
+            if (rerr2 || n + m != static_cast<isize>(size)) bad++;
+            for (std::size_t i = 0; i < size; i++) {
+                if (got[i] != pattern(k, i)) {
+                    bad++;
+                    break;
+                }
+            }
+            s->Close();
+        });
+    }
+    wg.Wait();
+    EXPECT_EQ(bad.load(), 0);
+    ln->Close();
+}
+
+// A read deadline that passed fails reads, even with data waiting; once
+// cleared, the data is there.
+TEST(Net, ReadDeadlineKeepsData) {
+    auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
+    ASSERT_FALSE(err);
+    auto [c, s] = tcp_pair(ln);
+    byte buf[16];
+    io::WriteString(*s, "a");
+    auto [n0, e0] = io::ReadFull(*c, std::span(buf).first(1));
+    ASSERT_FALSE(e0) << e0;
+    c->SetReadDeadline(time::Now().Add(-1s));
+    io::WriteString(*s, "hello");
+    time::Sleep(10ms);
+    auto [n1, e1] = c->Read(buf);
+    EXPECT_EQ(n1, 0);
+    ASSERT_TRUE(e1);
+    EXPECT_TRUE(e1->Timeout()) << e1;
+    c->SetReadDeadline(time::Time{});
+    auto [n2, e2] = io::ReadFull(*c, std::span(buf).first(5));
+    ASSERT_FALSE(e2) << e2;
+    EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(buf), 5), "hello");
+    ln->Close();
+}
+
+// Closing a connection that has been read from, and so has a receive in
+// flight with io_uring, closes the socket: the peer reads EOF.
+TEST(Net, CloseAfterReadSendsEOF) {
+    auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
+    ASSERT_FALSE(err);
+    auto [c, s] = tcp_pair(ln);
+    io::WriteString(*c, "x");
+    byte buf[1];
+    auto [n, rerr] = io::ReadFull(*s, buf);
+    ASSERT_FALSE(rerr) << rerr;
+    s->Close();
+    c->SetReadDeadline(time::Now().Add(5s));
+    auto [m, eof] = c->Read(buf);
+    EXPECT_EQ(m, 0);
+    EXPECT_EQ(eof, io::EOF_) << eof;
+    ln->Close();
+}
+
+TEST(Net, ZeroByteRead) {
+    auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
+    ASSERT_FALSE(err);
+    auto [c, s] = tcp_pair(ln);
+    auto [n, rerr] = c->Read(std::span<byte>());
+    EXPECT_EQ(n, 0);
+    EXPECT_FALSE(rerr) << rerr;
     ln->Close();
 }
 
