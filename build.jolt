@@ -35,7 +35,7 @@ class GoppProject(ninja.CXXProject):
     """
     abstract = True
     cxxstd = 26
-    cxxflags = ["-freflection", "-g", "-Wall", "-Wextra", "-Wno-unused-parameter", "-fno-omit-frame-pointer"]
+    cxxflags = ["-freflection", "-g", "-Wall", "-Wextra", "-pedantic", "-Werror", "-Wno-unused-parameter", "-fno-omit-frame-pointer"]
     ldflags = ["-static-libstdc++", "-static-libgcc"]
     strip = False
     requires_toolchain = ["gcc"]

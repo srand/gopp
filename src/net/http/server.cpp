@@ -130,11 +130,11 @@ public:
           idle_timeout_(srv.IdleTimeout.ns ? srv.IdleTimeout : srv.ReadTimeout),
           max_header_bytes_(srv.MaxHeaderBytes > 0 ? srv.MaxHeaderBytes : DefaultMaxHeaderBytes),
           disable_keep_alives_(srv.DisableKeepAlives),
-          protocols_(srv.Protocols.value_or(DefaultProtocols())),
           state_(std::move(st)),
           rwc(std::move(rwc)),
           bufr(make_ptr<bufio::Reader>(this->rwc, 4096)),
-          bufw(make_ptr<conn_writer>(this), 4096) {
+          bufw(make_ptr<conn_writer>(this), 4096),
+          protocols_(srv.Protocols.value_or(DefaultProtocols())) {
         if (!handler_) handler_ = ptr<Handler>(&DefaultServeMux());
     }
 

@@ -58,13 +58,20 @@ public:
 
     void release_ref() const noexcept {
         if (refs_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            delete this;
+            destroy();
         }
     }
 
     unsigned use_count() const noexcept { return refs_.load(std::memory_order_relaxed); }
 
 private:
+    // Not inlined: where the type is known, as in ~intrusive_ptr<T> of a
+    // final T with this object as a virtual base at an offset, GCC warns
+    // that delete frees a pointer into the middle of the object
+    // (-Wfree-nonheap-object), although the virtual destructor frees all of
+    // it. It's the rare path anyway.
+    [[gnu::noinline]] void destroy() const noexcept { delete this; }
+
     mutable std::atomic<unsigned> refs_{0};
 };
 

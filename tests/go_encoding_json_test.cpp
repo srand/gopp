@@ -209,11 +209,14 @@ struct StringTag {
 }  // namespace
 
 TEST(GoEncodingJson, RoundtripStringTag) {
-    struct {
+    struct test {
         std::string name;
         StringTag in;
         std::string want;
-    } tests[] = {
+    };
+    // A vector, not an array: GCC 16 wrongly warns that the cleanup of an
+    // array of these may destroy an uninitialized string.
+    std::vector<test> tests = {
         {"AllTypes", {true, 42, 44, "xzbit"}, R"({
 	"BoolStr": "true",
 	"IntStr": "42",

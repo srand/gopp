@@ -61,7 +61,7 @@ std::string format_float_g(double f, int bits) {
         // %e: d.ddde±XX
         out += digits[0];
         if (digits.size() > 1) out += "." + digits.substr(1);
-        char eb[8];
+        char eb[16];  // e, sign and any int
         std::snprintf(eb, sizeof(eb), "e%c%02d", exp < 0 ? '-' : '+', exp < 0 ? -exp : exp);
         return out + eb;
     }

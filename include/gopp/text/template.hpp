@@ -548,7 +548,7 @@ std::pair<Value, gopp::error> wrap_result(R&& r) {
 template <typename Tuple, std::size_t... I>
 auto args_from(std::span<const Value> args, std::index_sequence<I...>) {
     constexpr std::size_t n = sizeof...(I);
-    auto one = [&]<std::size_t K>() {
+    [[maybe_unused]] auto one = [&]<std::size_t K>() {  // unused without arguments
         using P = std::remove_cvref_t<std::tuple_element_t<K, Tuple>>;
         if constexpr (is_variadic_param<P>::value && K == n - 1) {
             P rest;
@@ -563,7 +563,7 @@ auto args_from(std::span<const Value> args, std::index_sequence<I...>) {
 
 template <typename Tuple, std::size_t... I>
 std::array<ops_fn, sizeof...(I)> params_of(std::index_sequence<I...>) {
-    auto one = []<std::size_t K>() -> ops_fn {
+    [[maybe_unused]] auto one = []<std::size_t K>() -> ops_fn {  // unused without arguments
         using P = std::remove_cvref_t<std::tuple_element_t<K, Tuple>>;
         if constexpr (is_variadic_param<P>::value) {
             using E = typename is_variadic_param<P>::elem;
