@@ -2,12 +2,15 @@
 #pragma once
 
 #include "../internal/poll/fd.hpp"
+#include "../runtime/uring.hpp"
 
 #include <gopp/os.hpp>
 #include <gopp/runtime.hpp>
 #include <gopp/sync.hpp>
 #include <gopp/syscall.hpp>
 
+#include <fcntl.h>
+#include "../runtime/liburing.hpp"
 #include <sys/stat.h>
 
 #include <atomic>
@@ -104,6 +107,30 @@ int sys(F&& f) {
         if (r >= 0) return 0;
         if (e != EINTR) return e;
     }
+}
+
+// Runs a file system call through io_uring if it supports opcode, or as
+// a blocking call (see sys); returns 0 or the errno.
+template <typename Prep, typename Call>
+int sys_io(int opcode, Prep&& prep, Call&& call) {
+    long r = runtime::uring_or_blocking(opcode, prep, call);
+    return r < 0 ? static_cast<int>(-r) : 0;
+}
+
+// openat(2) through sys_io: the descriptor, or -1 and the errno in *err.
+inline int open_at(int dirfd, const char* path, int flags, mode_t mode, int* err) {
+    long r = runtime::uring_or_blocking(
+        IORING_OP_OPENAT, [&](io_uring_sqe* sqe) { io_uring_prep_openat(sqe, dirfd, path, flags, mode); },
+        [&] { return ::openat(dirfd, path, flags, mode); });
+    *err = r < 0 ? static_cast<int>(-r) : 0;
+    return r < 0 ? -1 : static_cast<int>(r);
+}
+
+// unlinkat(2) through sys_io; returns 0 or the errno.
+inline int unlink_at(int dirfd, const char* path, int flags) {
+    return sys_io(
+        IORING_OP_UNLINKAT, [&](io_uring_sqe* sqe) { io_uring_prep_unlinkat(sqe, dirfd, path, flags); },
+        [&] { return ::unlinkat(dirfd, path, flags); });
 }
 
 inline error errno_error(int e) { return syscall::errno_error(e); }

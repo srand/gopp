@@ -26,6 +26,12 @@ namespace gopp::poll {
 // package reports it as fs::ErrClosed.
 extern const error ErrFileClosing;
 
+// The struct stat of a statx.
+void stat_from_statx(const struct statx& x, struct stat* st) noexcept;
+
+// fstatat(2), through io_uring's statx if it can; returns 0 or the errno.
+int statat(int dirfd, const char* name, struct stat* st, int flags) noexcept;
+
 class FD {
 public:
     explicit FD(int sysfd) noexcept : sysfd_(sysfd) {}
@@ -71,6 +77,13 @@ public:
     int Sysfd() const noexcept { return sysfd_; }
     bool pollable() const noexcept { return pd_ && !blocking_.load(std::memory_order_relaxed); }
 
+    // Marks a regular file or block device, whose reads and writes may
+    // block on the disk: they go through io_uring when it's in use. Other
+    // blocking descriptors (terminals, pipes and sockets not on the poller)
+    // are read and written with plain system calls, which honor O_NONBLOCK
+    // if the program sets it.
+    void set_regular(bool regular) noexcept { regular_ = regular; }
+
 private:
     // Reference counting of operations against Close (Go's fdMutex,
     // without its per-direction queues: rmu_ and wmu_ serialize reads and
@@ -84,10 +97,14 @@ private:
     // Runs a call that takes the descriptor, retrying after EINTR.
     template <typename F>
     error fcall(F&& f);
+    // Likewise, through io_uring if it supports opcode.
+    template <typename Prep, typename Call>
+    error ucall(int opcode, Prep&& prep, Call&& call);
 
     int sysfd_;
     runtime::poll_desc* pd_ = nullptr;
     std::atomic<bool> blocking_{true};
+    bool regular_ = false;
     std::atomic<uint64_t> state_{1};  // bit 63: closed; low bits: references
     std::atomic<uint32_t> csema_{0};  // released when the descriptor is closed
     sync::Mutex rmu_;

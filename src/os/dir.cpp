@@ -153,8 +153,8 @@ std::pair<std::vector<ptr<DirEntry>>, error> ReadDir(std::string_view name) {
     // Go's openDir: O_DIRECTORY, never polled.
     std::string p;
     if (!detail::cpath(name, p)) return {{}, detail::path_error("open", name, detail::errno_error(EINVAL))};
-    int fd = -1;
-    int e = detail::sys([&] { return fd = ::open(p.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY); });
+    int e;
+    int fd = detail::open_at(AT_FDCWD, p.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY, 0, &e);
     if (e) return {{}, detail::path_error("open", name, detail::errno_error(e))};
     ptr<File> f = detail::new_file(fd, string(name), detail::file_kind::no_poll, false);
     auto [dirs, err] = f->ReadDir(-1);

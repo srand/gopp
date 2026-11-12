@@ -99,7 +99,7 @@ all park instead of blocking the thread.
 | `text/template` | Go's templates (`gopp::text::template_`, as `template` is a keyword): `{{if}}`, `{{range}}` over slices, maps in key order and integers, `{{with}}`, `{{define}}`/`{{template}}`/`{{block}}`, pipelines, variables, the builtins with Go's `printf` verbs, and plain C++ lambdas as functions. The data is any C++ struct, read by reflection: fields, const methods with arguments, containers and smart pointers |
 | `net`, `net/url` | TCP with deadlines, URL parsing and escaping |
 | `context`, `sync`, `time` | Cancellation and deadlines; `Mutex`, `RWMutex`, `WaitGroup`, `Once`, `Cond`; `Timer`, `Ticker`, `AfterFunc` |
-| `os`, `io/fs` | Files: `Open`/`Create`/`OpenFile`, `ReadFile`/`WriteFile`, `File` with `Read`/`Write`/`ReadAt`/`WriteAt`/`Seek`, `Stat`, `Truncate`, `Sync`, `ReadDir`/`Readdir`/`Readdirnames`; paths: `Stat`/`Lstat`, `Mkdir`/`MkdirAll`, `Remove`/`RemoveAll`, `Rename`, `Chmod`/`Chown`/`Chtimes`, links, `CreateTemp`/`MkdirTemp`, `Getwd`/`Chdir`; `Pipe` with deadlines. Go's errors (`PathError`, `IsNotExist`, `errors::Is(err, fs::ErrNotExist)`) and `FileMode`/`FileInfo`/`DirEntry`. File I/O blocks only its thread, which hands its processor on, as in Go; pipes park only their fiber |
+| `os`, `io/fs` | Files, on io_uring when the kernel has it: `Open`/`Create`/`OpenFile`, `ReadFile`/`WriteFile`, `File` with `Read`/`Write`/`ReadAt`/`WriteAt`/`Seek`, `Stat`, `Truncate`, `Sync`, `ReadDir`/`Readdir`/`Readdirnames`; paths: `Stat`/`Lstat`, `Mkdir`/`MkdirAll`, `Remove`/`RemoveAll`, `Rename`, `Chmod`/`Chown`/`Chtimes`, links, `CreateTemp`/`MkdirTemp`, `Getwd`/`Chdir`; `Pipe` with deadlines. Go's errors (`PathError`, `IsNotExist`, `errors::Is(err, fs::ErrNotExist)`) and `FileMode`/`FileInfo`/`DirEntry`. A file call parks only its fiber, on io_uring, or blocks its thread, which hands its processor on, as in Go; pipes park only their fiber |
 | `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` |
 
 **Tested against Go's own tests.** 539 unit tests, 413 of them ported
@@ -130,6 +130,7 @@ jolt build benchmark             # go++ vs Go, report in report/benchmark.md
 | `jolt build examples` | the example programs |
 | `jolt build gopp/tests` | the unit test program |
 | `jolt build test` | runs the unit tests |
+| `jolt build benchmarks/files-gopp` | `files -op stat\|read\|open\|write\|readdir -c 64 -d 3s`: file system calls per second from many fibers; run with `GOPP_IOURING=0` to compare |
 | `jolt build benchmark` | runs `examples/hello` and the same server in Go 1.27 (`benchmarks/hello-go`) under the same load; publishes `report/benchmark.md` and `.json` |
 
 Requirements: Linux, x86-64. go++ is C++26 with static reflection (P2996),
@@ -214,6 +215,20 @@ every `<ms>` milliseconds, like Go's `GODEBUG=schedtrace`. It shows fibers
 scheduled, steals, network polls, threads parked and woken, and I/O that
 would block. `GOPP_STACK_SIZE` sets the fiber stack size.
 
+File system calls go through io_uring when the kernel allows it: a fiber
+submits its call to its thread's ring and parks, and its thread runs other
+fibers until the completion comes in, which the network poller picks up
+from the rings' descriptors. That's done only when the thread has other
+fibers to run. With nothing else to run, a direct system call is faster:
+the kernel hands most of these calls (`statx`, `unlinkat`, reads on tmpfs,
+...) to a worker thread, whose wakeup costs more than the call. Calls on
+regular files and paths take this route; pipes and terminals that aren't
+on the poller don't. `GOPP_IOURING=0` turns io_uring off, and without it
+file calls are blocking calls, whose thread hands its processor to
+another. `benchmarks/files-gopp` compares the two: with 64 fibers, stat,
+open and read calls run 2 to 4 times faster through io_uring (writes too,
+unless they wait for the disk), and with one fiber as fast as directly.
+
 The benchmark's load generator exists in Go (`benchmarks/load-go`, the
 default) and in go++ (`benchmarks/load-gopp`, `benchmark:loader=gopp`).
 Both send `http.Get` requests in a loop over keep-alive connections.
@@ -235,7 +250,8 @@ what it doesn't do yet:
 - **Fixed-size fiber stacks**, set by `GOPP_STACK_SIZE` (256 KiB of
   virtual memory by default).
 - **One global timer heap**, where Go keeps one per P.
-- **epoll only**; io_uring is next.
+- **Sockets and pipes use epoll**; io_uring carries only file system calls so
+  far.
 - **x86-64 only for now.** The code supports ARM64, but it isn't built or
   tested there yet.
 - **`flag` has only the Var forms** (`StringVar`, `IntVar`, ...).

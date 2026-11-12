@@ -48,12 +48,11 @@ std::pair<ptr<FileInfo>, error> lstatat(File& f, file_impl& fi, std::string_view
 
 namespace {
 
-template <typename F>
-std::pair<ptr<FileInfo>, error> stat_path(std::string_view op, std::string_view name, F&& f) {
+std::pair<ptr<FileInfo>, error> stat_path(std::string_view op, std::string_view name, int flags) {
     std::string p;
     if (!detail::cpath(name, p)) return {nullptr, detail::path_error(op, name, detail::errno_error(EINVAL))};
     auto st = make_ptr<detail::file_stat>();
-    if (int e = detail::sys([&] { return f(p.c_str(), &st->sys); })) {
+    if (int e = poll::statat(AT_FDCWD, p.c_str(), &st->sys, flags)) {
         return {nullptr, detail::path_error(op, name, detail::errno_error(e))};
     }
     detail::fill_file_stat(*st, name);
@@ -63,11 +62,11 @@ std::pair<ptr<FileInfo>, error> stat_path(std::string_view op, std::string_view 
 }  // namespace
 
 std::pair<ptr<FileInfo>, error> Stat(std::string_view name) {
-    return stat_path("stat", name, [](const char* p, struct stat* st) { return ::stat(p, st); });
+    return stat_path("stat", name, 0);
 }
 
 std::pair<ptr<FileInfo>, error> Lstat(std::string_view name) {
-    return stat_path("lstat", name, [](const char* p, struct stat* st) { return ::lstat(p, st); });
+    return stat_path("lstat", name, AT_SYMLINK_NOFOLLOW);
 }
 
 std::pair<ptr<FileInfo>, error> File::Stat() {

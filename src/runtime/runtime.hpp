@@ -134,7 +134,8 @@ struct P {
 struct sched_stats {
 #define GOPP_SCHED_STATS(X) \
     X(schedules) X(steal_ok) X(steal_fail) X(poll_nb) X(poll_nb_ready) X(poll_block) X(poll_block_ready) \
-    X(stopm) X(startm) X(wakep) X(spin) X(read) X(read_eagain) X(write) X(write_eagain)
+    X(stopm) X(startm) X(wakep) X(spin) X(read) X(read_eagain) X(write) X(write_eagain) \
+    X(uring_done) X(uring_park)
 #define GOPP_FIELD(name) std::atomic<uint64_t> name{0};
     GOPP_SCHED_STATS(GOPP_FIELD)
 #undef GOPP_FIELD
@@ -216,6 +217,10 @@ uint32_t fastrand() noexcept;
 
 void ensure_init() noexcept;
 
+// Whether the calling fiber's P has other fibers to run: in its run queue,
+// or the global one. False outside fibers.
+bool has_runnable() noexcept;
+
 // ---------------------------------------------------------------------------
 // Timers (timer.cpp)
 
@@ -252,6 +257,15 @@ void netpoll_init() noexcept;
 glist netpoll(int64_t delay) noexcept;
 // Interrupts a blocked netpoll.
 void netpoll_break() noexcept;
+// Adds an io_uring ring's descriptor to the poller: when it has
+// completions, netpoll takes them with uring_reap(ring). Returns false if
+// epoll refuses.
+bool netpoll_add_uring(int fd, void* ring) noexcept;
+// Counts fibers and threads parked for I/O, besides those on poll_descs:
+// while there are any, an M polls.
+void netpoll_waiter_add(int32_t delta) noexcept;
+// Takes a ring's completions; the fibers to run go to list (uring.cpp).
+void uring_reap(void* ring, glist& list) noexcept;
 bool netpoll_any_waiters() noexcept;
 // The number of fibers and threads parked in the poller, for schedtrace.
 int32_t netpoll_waiters() noexcept;

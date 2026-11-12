@@ -733,14 +733,26 @@ void execute(M* m, G* gp) noexcept {
             sched.ngoroutines.fetch_sub(1, std::memory_order_relaxed);
             gfput(m->p, gp);
             return;
-        case gaction::exitsyscall:
-            // No P was free after a blocking call: queue gp and wait for one.
-            gp->status.store(gstatus::runnable, std::memory_order_relaxed);
+        case gaction::exitsyscall: {
+            // No P was free after a blocking call. One may have become free
+            // since, its M having seen an empty global queue: try again
+            // under sched.lock, which that M held to check the queue and
+            // give up its P (Go's exitsyscall0). Otherwise queue gp for
+            // the next M that looks.
             sched.lock.lock();
-            globrunqput(gp);
+            P* pp = pidleget();
+            if (!pp) {
+                gp->status.store(gstatus::runnable, std::memory_order_relaxed);
+                globrunqput(gp);
+            }
             sched.lock.unlock();
+            if (pp) {
+                acquirep(m, pp);
+                continue;  // resume it at once
+            }
             stopm(m);
             return;
+        }
         case gaction::none:
             fatal("execute: fiber returned without an action");
         }
@@ -772,6 +784,7 @@ void mcall(G* gp, gaction action) noexcept {
 // Times sysmon found the network unpolled with fibers or threads waiting
 // on it, and polled it (schedtrace's sysmon_poll).
 std::atomic<uint64_t> sysmon_polls{0};
+std::atomic<uint64_t> sysmon_timers{0};
 
 // sysmon (after Go's): a thread outside the scheduler that polls the
 // network when nobody has for 10ms while something waits on it. The
@@ -794,6 +807,17 @@ void sysmon() {
                 injectglist(list);
                 polled = true;
             }
+        }
+        // Timers are run by Ms that schedule. When every P runs a fiber
+        // that doesn't park, as a loop of calls that complete at once does
+        // (fibers aren't preempted), they'd starve: a sleeping thread
+        // wouldn't wake. Run timers that are late here; their functions
+        // don't block.
+        constexpr int64_t timer_slack = 1'000'000;  // ns
+        if (int64_t nt = next_timer(); nt != INT64_MAX && nt + timer_slack < now) {
+            run_timers(now);
+            sysmon_timers.fetch_add(1, std::memory_order_relaxed);
+            polled = true;
         }
         if (polled) {
             idle = 0;
@@ -840,7 +864,8 @@ void schedtrace(int ms) {
                            " runq=" + std::to_string(sched.runqsize.load()) +
                            " pollwaiters=" + std::to_string(netpoll_waiters()) +
                            " polling=" + std::to_string(sched.lastpoll.load() == 0) +
-                           " sysmon_poll=" + std::to_string(sysmon_polls.load(std::memory_order_relaxed));
+                           " sysmon_poll=" + std::to_string(sysmon_polls.load(std::memory_order_relaxed)) +
+                           " sysmon_timers=" + std::to_string(sysmon_timers.load(std::memory_order_relaxed));
         for (int i = 0; i < nfields; i++) {
             line += " " + std::string(names[i]) + "=" + std::to_string(static_cast<uint64_t>((cur[i] - prev[i]) / secs));
             prev[i] = cur[i];
@@ -894,6 +919,12 @@ void ensure_poller() noexcept {
 
 void ensure_init() noexcept {
     if (!inited.load(std::memory_order_acquire)) std::call_once(init_once, init);
+}
+
+bool has_runnable() noexcept {
+    M* m = getm();
+    if (!m || !m->p) return false;
+    return !runqempty(m->p) || sched.runqsize.load(std::memory_order_relaxed) != 0;
 }
 
 namespace {

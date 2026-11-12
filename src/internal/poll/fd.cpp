@@ -1,6 +1,7 @@
 #include "fd.hpp"
 
 #include "../../runtime/runtime.hpp"
+#include "../../runtime/uring.hpp"
 
 #include <gopp/io.hpp>
 #include <gopp/os.hpp>
@@ -8,8 +9,10 @@
 #include <gopp/syscall.hpp>
 
 #include <dirent.h>
+#include "../../runtime/liburing.hpp"
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -39,7 +42,67 @@ auto sys(bool blocking, F&& f) {
     return f();
 }
 
+// A read, pread, write or pwrite on a blocking descriptor, through
+// io_uring if it can and use_uring is set: off is the offset, or -1 for
+// the file's. Returns the count or -errno.
+long blocking_rw(bool use_uring, bool write, int fd, void* p, std::size_t n, int64 off) {
+    using runtime::uring_or_blocking;
+    auto u64off = static_cast<__u64>(off);
+    auto len = static_cast<unsigned>(n);
+    if (write) {
+        return uring_or_blocking(
+            use_uring ? IORING_OP_WRITE : -1, [&](io_uring_sqe* sqe) { io_uring_prep_write(sqe, fd, p, len, u64off); },
+            [&] { return off < 0 ? ::write(fd, p, n) : ::pwrite(fd, p, n, off); });
+    }
+    return uring_or_blocking(
+        use_uring ? IORING_OP_READ : -1, [&](io_uring_sqe* sqe) { io_uring_prep_read(sqe, fd, p, len, u64off); },
+        [&] { return off < 0 ? ::read(fd, p, n) : ::pread(fd, p, n, off); });
+}
+
 }  // namespace
+
+void stat_from_statx(const struct statx& x, struct stat* st) noexcept {
+    *st = {};
+    st->st_dev = makedev(x.stx_dev_major, x.stx_dev_minor);
+    st->st_ino = x.stx_ino;
+    st->st_mode = x.stx_mode;
+    st->st_nlink = x.stx_nlink;
+    st->st_uid = x.stx_uid;
+    st->st_gid = x.stx_gid;
+    st->st_rdev = makedev(x.stx_rdev_major, x.stx_rdev_minor);
+    st->st_size = static_cast<off_t>(x.stx_size);
+    st->st_blksize = static_cast<blksize_t>(x.stx_blksize);
+    st->st_blocks = static_cast<blkcnt_t>(x.stx_blocks);
+    st->st_atim = {x.stx_atime.tv_sec, x.stx_atime.tv_nsec};
+    st->st_mtim = {x.stx_mtime.tv_sec, x.stx_mtime.tv_nsec};
+    st->st_ctim = {x.stx_ctime.tv_sec, x.stx_ctime.tv_nsec};
+}
+
+int statat(int dirfd, const char* name, struct stat* st, int flags) noexcept {
+    if (!runtime::uring_worth(IORING_OP_STATX)) {
+        for (;;) {
+            int r, e;
+            {
+                runtime::blocking_call b;
+                r = ::fstatat(dirfd, name, st, flags);
+                e = errno;
+            }
+            if (r == 0) return 0;
+            if (e != EINTR) return e;
+        }
+    }
+    struct statx x;
+    for (;;) {
+        int r = runtime::uring([&](io_uring_sqe* sqe) {
+            io_uring_prep_statx(sqe, dirfd, name, flags, STATX_BASIC_STATS, &x);
+        });
+        if (r == 0) {
+            stat_from_statx(x, st);
+            return 0;
+        }
+        if (r != -EINTR) return -r;
+    }
+}
 
 FD::~FD() {
     // Normally closed through Close; this handles a File that wasn't.
@@ -138,8 +201,15 @@ std::pair<isize, error> FD::Read(std::span<byte> p) {
         }
     }
     if (p.size() > max_rw) p = p.first(max_rw);
+    if (blocking) {
+        long n = blocking_rw(regular_, false, sysfd_, p.data(), p.size(), -1);
+        decref();
+        if (n < 0) return {0, errno_error(static_cast<int>(-n))};
+        if (n == 0) return {0, io::EOF_};
+        return {static_cast<isize>(n), nullptr};
+    }
     for (;;) {
-        ssize_t n = sys(blocking, [&] { return ::read(sysfd_, p.data(), p.size()); });
+        ssize_t n = ::read(sysfd_, p.data(), p.size());
         if (n >= 0) {
             decref();
             if (n == 0) return {0, io::EOF_};
@@ -162,16 +232,19 @@ std::pair<isize, error> FD::Read(std::span<byte> p) {
 std::pair<isize, error> FD::Pread(std::span<byte> p, int64 off) {
     if (error err = incref()) return {0, err};
     if (p.size() > max_rw) p = p.first(max_rw);
-    bool blocking = !pollable();
-    for (;;) {
-        ssize_t n = sys(blocking, [&] { return ::pread(sysfd_, p.data(), p.size(), off); });
-        if (n < 0 && errno == EINTR) continue;
-        int e = errno;
-        decref();
-        if (n < 0) return {0, errno_error(e)};
-        if (n == 0 && !p.empty()) return {0, io::EOF_};
-        return {static_cast<isize>(n), nullptr};
+    long n;
+    if (!pollable()) {
+        n = blocking_rw(regular_, false, sysfd_, p.data(), p.size(), off);
+    } else {
+        do {
+            n = ::pread(sysfd_, p.data(), p.size(), off);
+        } while (n < 0 && errno == EINTR);
+        if (n < 0) n = -errno;
     }
+    decref();
+    if (n < 0) return {0, errno_error(static_cast<int>(-n))};
+    if (n == 0 && !p.empty()) return {0, io::EOF_};
+    return {static_cast<isize>(n), nullptr};
 }
 
 std::pair<isize, error> FD::Write(std::span<const byte> p) {
@@ -187,7 +260,14 @@ std::pair<isize, error> FD::Write(std::span<const byte> p) {
     isize nn = 0;
     for (;;) {
         std::size_t max = std::min(p.size(), max_rw);
-        ssize_t n = sys(blocking, [&] { return ::write(sysfd_, p.data(), max); });
+        ssize_t n;
+        if (blocking) {
+            long r = blocking_rw(regular_, true, sysfd_, const_cast<byte*>(p.data()), max, -1);
+            n = r < 0 ? -1 : r;
+            if (r < 0) errno = static_cast<int>(-r);
+        } else {
+            n = ::write(sysfd_, p.data(), max);
+        }
         if (n > 0) {
             nn += n;
             p = p.subspan(static_cast<std::size_t>(n));
@@ -217,12 +297,19 @@ std::pair<isize, error> FD::Pwrite(std::span<const byte> p, int64 off) {
     isize nn = 0;
     while (!p.empty()) {
         std::size_t max = std::min(p.size(), max_rw);
-        ssize_t n = sys(blocking, [&] { return ::pwrite(sysfd_, p.data(), max, off + nn); });
-        if (n < 0 && errno == EINTR) continue;
+        long n;
+        if (blocking) {
+            n = blocking_rw(regular_, true, sysfd_, const_cast<byte*>(p.data()), max, off + nn);
+        } else {
+            n = ::pwrite(sysfd_, p.data(), max, off + nn);
+            if (n < 0) {
+                if (errno == EINTR) continue;
+                n = -errno;
+            }
+        }
         if (n <= 0) {
-            int e = errno;
             decref();
-            return {nn, n == 0 ? io::ErrUnexpectedEOF : errno_error(e)};
+            return {nn, n == 0 ? io::ErrUnexpectedEOF : errno_error(static_cast<int>(-n))};
         }
         nn += n;
         p = p.subspan(static_cast<std::size_t>(n));
@@ -265,11 +352,17 @@ error FD::fcall(F&& f) {
 }
 
 error FD::Fstat(struct stat* st) {
-    return fcall([&] { return ::fstat(sysfd_, st); });
+    if (error err = incref()) return err;
+    int e = statat(sysfd_, "", st, AT_EMPTY_PATH);
+    decref();
+    return e ? errno_error(e) : nullptr;
 }
 
 error FD::Fstatat(const char* name, struct stat* st, int flags) {
-    return fcall([&] { return ::fstatat(sysfd_, name, st, flags); });
+    if (error err = incref()) return err;
+    int e = statat(sysfd_, name, st, flags);
+    decref();
+    return e ? errno_error(e) : nullptr;
 }
 
 error FD::Fchmod(uint32 mode) {
@@ -280,12 +373,25 @@ error FD::Fchown(int uid, int gid) {
     return fcall([&] { return ::fchown(sysfd_, static_cast<uid_t>(uid), static_cast<gid_t>(gid)); });
 }
 
+// A call on the descriptor through io_uring if it supports opcode.
+template <typename Prep, typename Call>
+error FD::ucall(int opcode, Prep&& prep, Call&& call) {
+    if (error err = incref()) return err;
+    long r = runtime::uring_or_blocking(opcode, prep, call);
+    decref();
+    return r < 0 ? errno_error(static_cast<int>(-r)) : nullptr;
+}
+
 error FD::Ftruncate(int64 size) {
-    return fcall([&] { return ::ftruncate(sysfd_, size); });
+    return ucall(
+        IORING_OP_FTRUNCATE, [&](io_uring_sqe* sqe) { io_uring_prep_ftruncate(sqe, sysfd_, size); },
+        [&] { return ::ftruncate(sysfd_, size); });
 }
 
 error FD::Fsync() {
-    return fcall([&] { return ::fsync(sysfd_); });
+    return ucall(
+        IORING_OP_FSYNC, [&](io_uring_sqe* sqe) { io_uring_prep_fsync(sqe, sysfd_, 0); },
+        [&] { return ::fsync(sysfd_); });
 }
 
 error FD::Fchdir() {

@@ -163,6 +163,17 @@ bool netpoll_any_waiters() noexcept { return waiters.load(std::memory_order_rela
 
 int32_t netpoll_waiters() noexcept { return waiters.load(std::memory_order_relaxed); }
 
+bool netpoll_add_uring(int fd, void* ring) noexcept {
+    // Tagged with the low bit, to tell rings from poll_descs. Edge
+    // triggered: uring_reap drains the ring.
+    epoll_event ev{};
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.ptr = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(ring) | 1);
+    return epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) == 0;
+}
+
+void netpoll_waiter_add(int32_t delta) noexcept { waiters.fetch_add(delta, std::memory_order_relaxed); }
+
 void netpoll_break() noexcept {
     uint32_t z = 0;
     if (!wake_sig.compare_exchange_strong(z, 1)) return;
@@ -203,6 +214,10 @@ glist netpoll(int64_t delay) noexcept {
                 (void)r;
                 wake_sig.store(0);
             }
+            continue;
+        }
+        if (auto tag = reinterpret_cast<uintptr_t>(ev.data.ptr); tag & 1) {
+            uring_reap(reinterpret_cast<void*>(tag & ~uintptr_t(1)), list);
             continue;
         }
         auto* pd = static_cast<poll_desc*>(ev.data.ptr);

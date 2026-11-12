@@ -158,6 +158,14 @@ class LoadGopp(GoppProject, ninja.CXXExecutable):
     sources = ["benchmarks/load-gopp/*.cpp"]
 
 
+class FilesGopp(GoppProject, ninja.CXXExecutable):
+    """ File system calls from many fibers, with and without io_uring (GOPP_IOURING=0). """
+    name = "benchmarks/files-gopp"
+    binary = "files"
+    requires = ["gopp"]
+    sources = ["benchmarks/files-gopp/*.cpp"]
+
+
 def _parse_cpus(spec):
     """ "0-3,6" -> [0, 1, 2, 3, 6] """
     cpus = []

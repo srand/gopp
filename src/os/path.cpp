@@ -69,16 +69,15 @@ bool ends_with_dot(std::string_view path) {
 }
 
 int unlinkat(int dirfd, const std::string& name, int flags) {
-    return detail::sys([&] { return ::unlinkat(dirfd, name.c_str(), flags); });
+    return detail::unlink_at(dirfd, name.c_str(), flags);
 }
 
 // Go's rootOpenDir, for RemoveAll: opens name in dirfd as a directory
 // without following a symbolic link. Returns the descriptor, or -1 and the
 // errno, with symlink set if name is a symbolic link.
 int open_dir_at(int dirfd, const std::string& name, int* err, bool* symlink) {
-    int fd = -1;
     *symlink = false;
-    *err = detail::sys([&] { return fd = ::openat(dirfd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_DIRECTORY); });
+    int fd = detail::open_at(dirfd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_DIRECTORY, 0, err);
     if (*err == ELOOP || *err == ENOTDIR) {
         char buf[1];
         if (::readlinkat(dirfd, name.c_str(), buf, sizeof(buf)) >= 0) *symlink = true;

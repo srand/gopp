@@ -48,6 +48,8 @@ File& std_file(int fd, const char* name) {
     auto impl = std::make_unique<detail::file_impl>(fd, string(name));
     impl->stdout_or_err = fd == 1 || fd == 2;
     impl->append_mode = fl & O_APPEND;
+    struct stat st;
+    impl->pfd.set_regular(::fstat(fd, &st) == 0 && (S_ISREG(st.st_mode) || S_ISBLK(st.st_mode)));
     if (fl & O_NONBLOCK) {
         // Go makes a non-blocking descriptor pollable; the poller can't be
         // used before main, so it's registered on first use.
@@ -72,12 +74,14 @@ ptr<File> new_file(int fd, string name, file_kind kind, bool non_blocking, bool 
     impl->stdout_or_err = fd == 1 || fd == 2;
     impl->append_mode = append_mode;
     bool pollable = kind == file_kind::open_file || kind == file_kind::pipe || non_blocking;
-    if (kind == file_kind::open_file && !non_blocking) {
-        // epoll refuses regular files and directories; Go lets it fail on
-        // Linux, but asking first saves two fcntls and an epoll_ctl.
-        struct stat st;
-        if (::fstat(fd, &st) == 0 && (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode))) pollable = false;
+    // epoll refuses regular files and directories; Go lets it fail on
+    // Linux, but asking first saves two fcntls and an epoll_ctl.
+    struct stat st;
+    bool have_st = kind != file_kind::pipe && ::fstat(fd, &st) == 0;
+    if (have_st && (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode)) && kind == file_kind::open_file && !non_blocking) {
+        pollable = false;
     }
+    impl->pfd.set_regular(have_st && (S_ISREG(st.st_mode) || S_ISBLK(st.st_mode)));
     bool clear_nonblock = false;
     if (pollable) {
         if (non_blocking) {
@@ -240,8 +244,8 @@ std::pair<ptr<File>, error> Create(std::string_view name) {
 std::pair<ptr<File>, error> OpenFile(std::string_view name, int flag, FileMode perm) {
     std::string p;
     if (!detail::cpath(name, p)) return {nullptr, detail::path_error("open", name, detail::errno_error(EINVAL))};
-    int fd = -1;
-    int e = detail::sys([&] { return fd = ::open(p.c_str(), flag | O_CLOEXEC, syscall_mode(perm)); });
+    int e;
+    int fd = detail::open_at(AT_FDCWD, p.c_str(), flag | O_CLOEXEC, syscall_mode(perm), &e);
     if (e) return {nullptr, detail::path_error("open", name, detail::errno_error(e))};
     return {detail::new_file(fd, string(name), detail::file_kind::open_file, flag & O_NONBLOCK, flag & O_APPEND), nullptr};
 }
@@ -311,15 +315,18 @@ error path_call(std::string_view op, std::string_view name, F&& f) {
     return nullptr;
 }
 
-// A call on two paths that fails with a LinkError.
-template <typename F>
-error link_call(std::string_view op, std::string_view oldname, std::string_view newname, F&& f) {
+// A call on two paths that fails with a LinkError, through io_uring if it
+// supports opcode: prep(sqe, old, new) prepares it, f(old, new) makes it.
+template <typename Prep, typename F>
+error link_call(std::string_view op, std::string_view oldname, std::string_view newname, int opcode, Prep&& prep,
+                F&& f) {
     std::string o, n;
     int e = 0;
     if (!detail::cpath(oldname, o) || !detail::cpath(newname, n)) {
         e = EINVAL;
     } else {
-        e = detail::sys([&] { return f(o.c_str(), n.c_str()); });
+        e = detail::sys_io(
+            opcode, [&](io_uring_sqe* sqe) { prep(sqe, o.c_str(), n.c_str()); }, [&] { return f(o.c_str(), n.c_str()); });
     }
     if (e) return make_ptr<LinkError>(string(op), string(oldname), string(newname), detail::errno_error(e));
     return nullptr;
@@ -328,7 +335,14 @@ error link_call(std::string_view op, std::string_view oldname, std::string_view 
 }  // namespace
 
 error Mkdir(std::string_view name, FileMode perm) {
-    return path_call("mkdir", name, [&](const char* p) { return ::mkdir(p, syscall_mode(perm)); });
+    std::string p;
+    if (!detail::cpath(name, p)) return detail::path_error("mkdir", name, detail::errno_error(EINVAL));
+    mode_t mode = syscall_mode(perm);
+    int e = detail::sys_io(
+        IORING_OP_MKDIRAT, [&](io_uring_sqe* sqe) { io_uring_prep_mkdirat(sqe, AT_FDCWD, p.c_str(), mode); },
+        [&] { return ::mkdir(p.c_str(), mode); });
+    if (e) return detail::path_error("mkdir", name, detail::errno_error(e));
+    return nullptr;
 }
 
 error Chdir(std::string_view dir) {
@@ -339,9 +353,9 @@ error Remove(std::string_view name) {
     // unlink, then rmdir: which one fits is unknown, and asking would race.
     std::string p;
     if (!detail::cpath(name, p)) return detail::path_error("remove", name, detail::errno_error(EINVAL));
-    int e = detail::sys([&] { return ::unlink(p.c_str()); });
+    int e = detail::unlink_at(AT_FDCWD, p.c_str(), 0);
     if (e == 0) return nullptr;
-    int e1 = detail::sys([&] { return ::rmdir(p.c_str()); });
+    int e1 = detail::unlink_at(AT_FDCWD, p.c_str(), AT_REMOVEDIR);
     if (e1 == 0) return nullptr;
     // Both failed: report rmdir's error unless it's ENOTDIR, which means
     // unlink's is the one that matters.
@@ -362,7 +376,10 @@ error Rename(std::string_view oldpath, std::string_view newpath) {
             return make_ptr<LinkError>(string("rename"), string(oldpath), string(newpath), detail::errno_error(EEXIST));
         }
     }
-    return link_call("rename", oldpath, newpath, [](const char* o, const char* n) { return ::rename(o, n); });
+    return link_call(
+        "rename", oldpath, newpath, IORING_OP_RENAMEAT,
+        [](io_uring_sqe* sqe, const char* o, const char* n) { io_uring_prep_renameat(sqe, AT_FDCWD, o, AT_FDCWD, n, 0); },
+        [](const char* o, const char* n) { return ::rename(o, n); });
 }
 
 error Truncate(std::string_view name, int64 size) {
@@ -407,11 +424,17 @@ error Chtimes(std::string_view name, time::Time atime, time::Time mtime) {
 }
 
 error Link(std::string_view oldname, std::string_view newname) {
-    return link_call("link", oldname, newname, [](const char* o, const char* n) { return ::link(o, n); });
+    return link_call(
+        "link", oldname, newname, IORING_OP_LINKAT,
+        [](io_uring_sqe* sqe, const char* o, const char* n) { io_uring_prep_linkat(sqe, AT_FDCWD, o, AT_FDCWD, n, 0); },
+        [](const char* o, const char* n) { return ::link(o, n); });
 }
 
 error Symlink(std::string_view oldname, std::string_view newname) {
-    return link_call("symlink", oldname, newname, [](const char* o, const char* n) { return ::symlink(o, n); });
+    return link_call(
+        "symlink", oldname, newname, IORING_OP_SYMLINKAT,
+        [](io_uring_sqe* sqe, const char* o, const char* n) { io_uring_prep_symlinkat(sqe, o, AT_FDCWD, n); },
+        [](const char* o, const char* n) { return ::symlink(o, n); });
 }
 
 std::pair<string, error> Readlink(std::string_view name) {

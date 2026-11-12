@@ -9,11 +9,13 @@
 //     fmt::Fprintln(*f, "hello");
 //     err = f->Close();
 //
-// Calls on regular files and directories block their thread, which hands
-// its processor to another thread meanwhile, as Go does around system
-// calls. Pipes, and descriptors that NewFile is given in non-blocking mode,
-// use the network poller: a read waiting for data parks only its fiber,
-// and deadlines apply.
+// Calls on regular files and paths go through io_uring when the kernel has
+// it and the thread has other fibers to run: the calling fiber parks until
+// the call completes. Otherwise they block their thread, which hands its
+// processor to another thread meanwhile, as Go does around system calls
+// (GOPP_IOURING=0 always does that). Pipes, and descriptors that NewFile
+// is given in non-blocking mode, use the network poller: a read waiting
+// for data parks only its fiber, and deadlines apply.
 #pragma once
 
 // The module interfaces (modules/) import these instead.
