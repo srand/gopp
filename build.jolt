@@ -102,9 +102,21 @@ class Mandelbrot(Example):
     sources = ["examples/mandelbrot/*.cpp"]
 
 
+class TCPEcho(Example):
+    """ Concurrent TCP echo server using the net package. """
+    name = "examples/tcp-echo"
+    sources = ["examples/tcp-echo/*.cpp"]
+
+
+class UDPEcho(Example):
+    """ UDP datagram echo server using the net package. """
+    name = "examples/udp-echo"
+    sources = ["examples/udp-echo/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot"]
+    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot", "examples/tcp-echo", "examples/udp-echo"]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):
