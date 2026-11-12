@@ -34,7 +34,7 @@ TEST(Net, SplitHostPort) {
 TEST(Net, EchoServer) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err) << err;
-    string addr = ln->Addr();
+    string addr = ln->Addr()->String();
 
     go([ln] {
         for (;;) {
@@ -68,7 +68,7 @@ TEST(Net, ReadDeadline) {
     ASSERT_FALSE(err);
     auto accepted = make_chan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
-    auto [c, derr] = net::Dial("tcp", ln->Addr());
+    auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
     ASSERT_FALSE(derr);
     auto server_side = accepted.recv();
 
@@ -88,7 +88,7 @@ TEST(Net, CloseUnblocksReader) {
     ASSERT_FALSE(err);
     auto accepted = make_chan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
-    auto [c, derr] = net::Dial("tcp", ln->Addr());
+    auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
     ASSERT_FALSE(derr);
     auto server_side = accepted.recv();
 
@@ -115,7 +115,7 @@ TEST(Net, PeerCloseGivesEOF) {
             c->Close();
         }
     });
-    auto [c, derr] = net::Dial("tcp", ln->Addr());
+    auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
     ASSERT_FALSE(derr);
     auto [data, rerr] = io::ReadAll(*c);
     EXPECT_FALSE(rerr);
@@ -129,7 +129,7 @@ namespace {
 std::pair<ptr<net::Conn>, ptr<net::Conn>> tcp_pair(const ptr<net::Listener>& ln) {
     auto accepted = make_chan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
-    auto [c, err] = net::Dial("tcp", ln->Addr());
+    auto [c, err] = net::Dial("tcp", ln->Addr()->String());
     EXPECT_FALSE(err) << err;
     return {c, accepted.recv()};
 }
@@ -233,7 +233,7 @@ TEST(Net, ZeroByteRead) {
 TEST(Net, DialRefused) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    string addr = ln->Addr();
+    string addr = ln->Addr()->String();
     ln->Close();
     auto [c, derr] = net::Dial("tcp", addr);
     EXPECT_FALSE(c);

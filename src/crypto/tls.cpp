@@ -315,8 +315,10 @@ Conn::Conn(ptr<net::Conn> conn, const Config& config, bool is_client) : conn_(st
         // The name to verify: from the config, or the host of the address.
         std::string name(config.ServerName.view());
         if (name.empty()) {
-            auto [host, port, herr] = net::SplitHostPort(conn_->RemoteAddr());
-            if (!herr) name = std::string(host.view());
+            if (auto ra = conn_->RemoteAddr()) {
+                auto [host, port, herr] = net::SplitHostPort(ra->String().view());
+                if (!herr) name = std::string(host.view());
+            }
         }
         in6_addr a6;
         in_addr a4;
@@ -488,7 +490,7 @@ public:
         return {Server(c, config_), nullptr};
     }
     gopp::error Close() override { return inner_->Close(); }
-    string Addr() const override { return inner_->Addr(); }
+    ptr<net::Addr> Addr() const override { return inner_->Addr(); }
 
 private:
     ptr<net::Listener> inner_;

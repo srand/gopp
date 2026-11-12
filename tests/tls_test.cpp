@@ -45,7 +45,7 @@ string echo_server(const tls::Config& cfg, ptr<net::Listener>& out) {
             });
         }
     });
-    return ln->Addr();
+    return ln->Addr()->String();
 }
 
 }  // namespace
@@ -160,7 +160,7 @@ TEST(Tls, CloseNotifyGivesEOF) {
         io::WriteString(*c, "bye");
         c->Close();
     });
-    auto [c, derr] = tls::Dial("tcp", ln->Addr(), client_config());
+    auto [c, derr] = tls::Dial("tcp", ln->Addr()->String(), client_config());
     ASSERT_FALSE(derr) << derr;
     auto [data, rerr] = io::ReadAll(*c);
     EXPECT_FALSE(rerr) << rerr;

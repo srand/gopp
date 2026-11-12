@@ -104,8 +104,8 @@ public:
     std::pair<isize, error> Write(std::span<const byte> p) override;
     // Sends close_notify and closes the connection.
     error Close() override;
-    string LocalAddr() const override { return conn_->LocalAddr(); }
-    string RemoteAddr() const override { return conn_->RemoteAddr(); }
+    ptr<net::Addr> LocalAddr() const override { return conn_->LocalAddr(); }
+    ptr<net::Addr> RemoteAddr() const override { return conn_->RemoteAddr(); }
     error SetDeadline(time::Time t) override { return conn_->SetDeadline(t); }
     error SetReadDeadline(time::Time t) override { return conn_->SetReadDeadline(t); }
     error SetWriteDeadline(time::Time t) override { return conn_->SetWriteDeadline(t); }

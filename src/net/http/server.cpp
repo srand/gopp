@@ -541,7 +541,7 @@ void conn::close_write_and_wait() {
 }
 
 void conn::serve() {
-    RemoteAddr = rwc->RemoteAddr();
+    if (auto ra = rwc->RemoteAddr()) RemoteAddr = ra->String();
     struct closer {
         conn* c;
         ~closer() {

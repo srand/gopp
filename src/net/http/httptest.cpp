@@ -111,7 +111,7 @@ ptr<net::Listener> local_listener() {
 void Server::start(bool tls) {
     if (done_) panic("httptest: Server already started");
     ptr<net::Listener> ln = Listener;
-    URL = (tls ? "https://" : "http://") + ln->Addr();
+    URL = (tls ? "https://" : "http://") + ln->Addr()->String();
     transport_ = make_ptr<http::Transport>();
     client_.Transport = transport_;
     transport_->Protocols = Config.Protocols;

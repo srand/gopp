@@ -1,10 +1,11 @@
+// Listening, dialing and connections, after Go's net/net.go, dial.go,
+// sock_posix.go, ipsock_posix.go, tcpsock*.go and udpsock*.go.
 #include "fd.hpp"
+#include "ipsock.hpp"
 
 #include <gopp/runtime.hpp>
 #include <gopp/strings.hpp>
 
-#include <arpa/inet.h>
-#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
@@ -12,137 +13,41 @@
 
 #include <cerrno>
 #include <cstdio>
-#include <cstring>
 #include <string>
-#include <vector>
 
 namespace gopp::net {
 
 const error ErrClosed = errors::New("use of closed network connection");
-
-string OpError::Error() const {
-    std::string s(Op.view());
-    if (!Net.empty()) {
-        s += ' ';
-        s += Net.view();
-    }
-    if (!Source.empty()) {
-        s += ' ';
-        s += Source.view();
-    }
-    if (!Addr.empty()) {
-        s += Source.empty() ? " " : "->";
-        s += Addr.view();
-    }
-    s += ": ";
-    s += Err.Error().view();
-    return string(s);
-}
-
+const error ErrWriteToConnected = errors::New("use of WriteTo with pre-connected connection");
 
 namespace {
 
-gopp::error op_error(std::string_view op, const string& network, const string& source, const string& addr, gopp::error err) {
+const error errMissingAddress = errors::New("missing address");
+
+}  // namespace
+
+string OpError::Error() const {
+    string s = Op;
+    if (!Net.empty()) s = s + " " + Net;
+    if (Source) s = s + " " + Source->String();
+    if (Addr) {
+        s = s + (Source ? "->" : " ");
+        s = s + Addr->String();
+    }
+    return s + ": " + Err.Error();
+}
+
+namespace {
+
+gopp::error op_error(std::string_view op, const string& network, ptr<Addr> source, ptr<Addr> addr, gopp::error err) {
     if (!err || err == io::EOF_) return err;
     auto e = make_ptr<OpError>();
     e->Op = string(op);
     e->Net = network;
-    e->Source = source;
-    e->Addr = addr;
+    e->Source = std::move(source);
+    e->Addr = std::move(addr);
     e->Err = std::move(err);
     return e;
-}
-
-int family_for(std::string_view network) {
-    if (network == "tcp4") return AF_INET;
-    if (network == "tcp6") return AF_INET6;
-    return AF_UNSPEC;
-}
-
-// Resolves host:port to sockaddrs. Names other than numeric addresses and
-// "localhost" go through getaddrinfo as a blocking call.
-struct resolved {
-    sockaddr_storage sa;
-    socklen_t len;
-};
-
-std::pair<std::vector<resolved>, gopp::error> resolve(std::string_view network, std::string_view address, bool passive) {
-    auto [host, port, err] = SplitHostPort(address);
-    if (err) return {{}, err};
-    int family = family_for(network);
-    std::vector<resolved> out;
-
-    // Port: a number or a service name.
-    int portnum = -1;
-    if (auto [p, perr] = strconv::Atoi(port.view()); !perr && p >= 0 && p <= 65535) {
-        portnum = static_cast<int>(p);
-    }
-
-    auto add4 = [&](const in_addr& a, int p) {
-        resolved r{};
-        auto* in = reinterpret_cast<sockaddr_in*>(&r.sa);
-        in->sin_family = AF_INET;
-        in->sin_port = htons(static_cast<uint16_t>(p));
-        in->sin_addr = a;
-        r.len = sizeof(sockaddr_in);
-        out.push_back(r);
-    };
-    auto add6 = [&](const in6_addr& a, int p) {
-        resolved r{};
-        auto* in6 = reinterpret_cast<sockaddr_in6*>(&r.sa);
-        in6->sin6_family = AF_INET6;
-        in6->sin6_port = htons(static_cast<uint16_t>(p));
-        in6->sin6_addr = a;
-        r.len = sizeof(sockaddr_in6);
-        out.push_back(r);
-    };
-
-    if (portnum >= 0) {
-        std::string h(host.view());
-        in_addr a4;
-        in6_addr a6;
-        if (h.empty()) {
-            if (passive) {
-                // Listen on all addresses: IPv6 dual-stack when possible.
-                if (family != AF_INET) add6(in6addr_any, portnum);
-                if (family != AF_INET6) add4(in_addr{htonl(INADDR_ANY)}, portnum);
-            } else {
-                if (family != AF_INET6) add4(in_addr{htonl(INADDR_LOOPBACK)}, portnum);
-                if (family != AF_INET) add6(in6addr_loopback, portnum);
-            }
-            return {out, nullptr};
-        }
-        if (inet_pton(AF_INET, h.c_str(), &a4) == 1 && family != AF_INET6) {
-            add4(a4, portnum);
-            return {out, nullptr};
-        }
-        if (inet_pton(AF_INET6, h.c_str(), &a6) == 1 && family != AF_INET) {
-            add6(a6, portnum);
-            return {out, nullptr};
-        }
-        if (h == "localhost") {
-            if (family != AF_INET6) add4(in_addr{htonl(INADDR_LOOPBACK)}, portnum);
-            if (family != AF_INET) add6(in6addr_loopback, portnum);
-            return {out, nullptr};
-        }
-    }
-
-    addrinfo hints{};
-    hints.ai_family = family;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = passive ? AI_PASSIVE : 0;
-    addrinfo* res = nullptr;
-    std::string h(host.view()), p(port.view());
-    int rc = runtime::blocking([&] { return getaddrinfo(h.empty() ? nullptr : h.c_str(), p.c_str(), &hints, &res); });
-    if (rc != 0) return {{}, errors::New(string("lookup ") + host + ": " + gai_strerror(rc))};
-    for (addrinfo* ai = res; ai; ai = ai->ai_next) {
-        resolved r{};
-        std::memcpy(&r.sa, ai->ai_addr, ai->ai_addrlen);
-        r.len = ai->ai_addrlen;
-        out.push_back(r);
-    }
-    freeaddrinfo(res);
-    return {out, nullptr};
 }
 
 int listen_backlog() {
@@ -158,6 +63,57 @@ int listen_backlog() {
     return backlog;
 }
 
+bool is_tcp(std::string_view n) { return n == "tcp" || n == "tcp4" || n == "tcp6"; }
+bool is_udp(std::string_view n) { return n == "udp" || n == "udp4" || n == "udp6"; }
+
+// The sockaddr of a TCPAddr or UDPAddr for family; len 0 for nullptr.
+error addr_sockaddr(const Addr* a, int family, sockaddr_storage* sa, socklen_t* len) {
+    *len = 0;
+    if (!a) return nullptr;
+    ip_port ip = ip_port_of(a);
+    return ip_to_sockaddr(family, ip.ip, ip.port, ip.zone.view(), sa, len);
+}
+
+// Go's internetSocket and socket: a socket of the favorite family for the
+// addresses, bound to laddr and listening (stream) for listen, or
+// connected to raddr when it's given.
+std::pair<ptr<netfd>, error> internet_socket(std::string_view net, const Addr* laddr, const Addr* raddr, int sotype,
+                                             bool listen, int64 deadline) {
+    bool ipv6only;
+    int family = favorite_family(net, laddr, raddr, listen, &ipv6only);
+    int s = ::socket(family, sotype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (s < 0) return {nullptr, os::NewSyscallError("socket", errno_error(errno))};
+    int one = 1, v6only = ipv6only;
+    if (family == AF_INET6) ::setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only));
+    if (sotype == SOCK_DGRAM) ::setsockopt(s, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
+    auto fd = make_ptr<netfd>(s, family, sotype, string(net));
+
+    sockaddr_storage lsa, rsa;
+    socklen_t llen, rlen;
+    if (error err = addr_sockaddr(laddr, family, &lsa, &llen)) return {nullptr, err};
+    if (error err = addr_sockaddr(raddr, family, &rsa, &rlen)) return {nullptr, err};
+    if (listen && sotype == SOCK_STREAM) ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    // A nil laddr listens on the wildcard address, with a port picked.
+    if (listen && llen == 0) ip_to_sockaddr(family, {}, 0, {}, &lsa, &llen);
+    if (llen != 0 && ::bind(s, reinterpret_cast<sockaddr*>(&lsa), llen) < 0) {
+        return {nullptr, os::NewSyscallError("bind", errno_error(errno))};
+    }
+    if (listen && sotype == SOCK_STREAM && ::listen(s, listen_backlog()) < 0) {
+        return {nullptr, os::NewSyscallError("listen", errno_error(errno))};
+    }
+    if (error err = fd->init()) return {nullptr, err};
+    if (rlen != 0) {
+        if (error err = fd->connect(&rsa, rlen, deadline)) {
+            if (errors::As<Errno>(err)) err = os::NewSyscallError("connect", err);
+            return {nullptr, err};
+        }
+        fd->set_addrs(&rsa);
+    } else {
+        fd->set_addrs();
+    }
+    return {fd, nullptr};
+}
+
 class TCPListener final : public Listener {
 public:
     explicit TCPListener(ptr<netfd> fd) : fd_(std::move(fd)) {}
@@ -165,117 +121,100 @@ public:
 
     std::pair<ptr<Conn>, error> Accept() override {
         auto [nfd, err] = fd_->accept();
-        if (err) return {nullptr, op_error("accept", fd_->network(), {}, fd_->LocalAddr, err)};
-        int one = 1;
-        setsockopt(nfd->sysfd(), IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+        if (err) return {nullptr, op_error("accept", fd_->network(), nullptr, fd_->laddr, err)};
+        nfd->setsockopt_int(IPPROTO_TCP, TCP_NODELAY, 1);
         return {make_ptr<TCPConn>(nfd), nullptr};
     }
 
     error Close() override {
-        if (error err = fd_->Close()) return op_error("close", fd_->network(), {}, fd_->LocalAddr, err);
+        if (error err = fd_->Close()) return op_error("close", fd_->network(), nullptr, fd_->laddr, err);
         return nullptr;
     }
 
-    string Addr() const override { return fd_->LocalAddr; }
+    ptr<net::Addr> Addr() const override { return fd_->laddr; }
 
 private:
     ptr<netfd> fd_;
 };
 
-}  // namespace
+std::pair<ptr<UDPConn>, error> listen_udp(std::string_view net, const Addr* laddr) {
+    auto [fd, err] = internet_socket(net, laddr, nullptr, SOCK_DGRAM, true, 0);
+    if (err) return {nullptr, err};
+    return {make_ptr<UDPConn>(fd), nullptr};
+}
 
-std::tuple<string, string, error> SplitHostPort(std::string_view hp) {
-    auto missing_port = [&] { return std::tuple<string, string, error>{{}, {}, errors::New(string("address ") + string(hp) + ": missing port in address")}; };
-    auto i = hp.rfind(':');
-    if (i == hp.npos) return missing_port();
-    std::string_view host, port = hp.substr(i + 1);
-    if (!hp.empty() && hp[0] == '[') {
-        auto end = hp.find(']');
-        if (end == hp.npos) return {{}, {}, errors::New(string("address ") + string(hp) + ": missing ']' in address")};
-        if (end + 1 != i) return missing_port();
-        host = hp.substr(1, end - 1);
-    } else {
-        host = hp.substr(0, i);
-        if (host.find(':') != host.npos) return {{}, {}, errors::New(string("address ") + string(hp) + ": too many colons in address")};
+std::pair<ptr<Conn>, error> dial_one(std::string_view net, const Addr* raddr, int64 deadline) {
+    if (is_udp(net)) {
+        auto [fd, err] = internet_socket(net, nullptr, raddr, SOCK_DGRAM, false, deadline);
+        if (err) return {nullptr, err};
+        return {make_ptr<UDPConn>(fd), nullptr};
     }
-    return {string(host), string(port), nullptr};
+    auto [fd, err] = internet_socket(net, nullptr, raddr, SOCK_STREAM, false, deadline);
+    if (err) return {nullptr, err};
+    fd->setsockopt_int(IPPROTO_TCP, TCP_NODELAY, 1);
+    return {make_ptr<TCPConn>(fd), nullptr};
 }
 
-string JoinHostPort(std::string_view host, std::string_view port) {
-    if (host.find(':') != host.npos) return string("[") + string(host) + "]:" + string(port);
-    return string(host) + ":" + string(port);
-}
+}  // namespace
 
 std::pair<ptr<Listener>, error> Listen(std::string_view network, std::string_view address) {
     string net(network);
-    if (network != "tcp" && network != "tcp4" && network != "tcp6") {
-        return {nullptr, op_error("listen", net, {}, string(address), errors::New("unknown network " + net))};
+    auto [addrs, rerr] = internet_addr_list(network, address);
+    if (rerr) return {nullptr, op_error("listen", net, nullptr, nullptr, rerr)};
+    ptr<Addr> la = first_ipv4(addrs);
+    if (!is_tcp(network)) {
+        return {nullptr, op_error("listen", net, nullptr, la,
+                                  make_ptr<AddrError>(string::from_static("unexpected address type"), string(address)))};
     }
-    auto [addrs, rerr] = resolve(network, address, true);
-    if (rerr) return {nullptr, op_error("listen", net, {}, string(address), rerr)};
+    auto [fd, err] = internet_socket(network, la.get(), nullptr, SOCK_STREAM, true, 0);
+    if (err) return {nullptr, op_error("listen", net, nullptr, la, err)};
+    return {make_ptr<TCPListener>(fd), nullptr};
+}
 
-    error last;
-    for (auto& a : addrs) {
-        int s = ::socket(a.sa.ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-        if (s < 0) {
-            last = errno_error(errno);
-            continue;
-        }
-        int one = 1, zero = 0;
-        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-        if (a.sa.ss_family == AF_INET6 && network == "tcp") setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &zero, sizeof(zero));
-        if (::bind(s, reinterpret_cast<sockaddr*>(&a.sa), a.len) < 0 || ::listen(s, listen_backlog()) < 0) {
-            last = errno_error(errno);
-            ::close(s);
-            continue;
-        }
-        auto fd = make_ptr<netfd>(s, a.sa.ss_family, net);
-        if (error err = fd->init()) return {nullptr, op_error("listen", net, {}, string(address), err)};
-        sockaddr_storage la;
-        socklen_t lalen = sizeof(la);
-        getsockname(s, reinterpret_cast<sockaddr*>(&la), &lalen);
-        fd->LocalAddr = sockaddr_string(&la);
-        return {make_ptr<TCPListener>(fd), nullptr};
+std::pair<ptr<PacketConn>, error> ListenPacket(std::string_view network, std::string_view address) {
+    string net(network);
+    auto [addrs, rerr] = internet_addr_list(network, address);
+    if (rerr) return {nullptr, op_error("listen", net, nullptr, nullptr, rerr)};
+    ptr<Addr> la = first_ipv4(addrs);
+    if (!is_udp(network)) {
+        return {nullptr, op_error("listen", net, nullptr, la,
+                                  make_ptr<AddrError>(string::from_static("unexpected address type"), string(address)))};
     }
-    return {nullptr, op_error("listen", net, {}, string(address), last ? last : errors::New("no suitable address"))};
+    auto [c, err] = listen_udp(network, la.get());
+    if (err) return {nullptr, op_error("listen", net, nullptr, la, err)};
+    return {c, nullptr};
+}
+
+std::pair<ptr<UDPConn>, error> ListenUDP(std::string_view network, const ptr<UDPAddr>& laddr) {
+    string net(network);
+    if (!is_udp(network)) return {nullptr, op_error("listen", net, nullptr, laddr, make_ptr<UnknownNetworkError>(net))};
+    auto [c, err] = listen_udp(network, laddr.get());
+    if (err) return {nullptr, op_error("listen", net, nullptr, laddr, err)};
+    return {c, nullptr};
+}
+
+std::pair<ptr<UDPConn>, error> DialUDP(std::string_view network, const ptr<UDPAddr>& laddr, const ptr<UDPAddr>& raddr) {
+    string net(network);
+    if (!is_udp(network)) return {nullptr, op_error("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
+    if (!raddr) return {nullptr, op_error("dial", net, laddr, nullptr, errMissingAddress)};
+    auto [fd, err] = internet_socket(network, laddr.get(), raddr.get(), SOCK_DGRAM, false, 0);
+    if (err) return {nullptr, op_error("dial", net, laddr, raddr, err)};
+    return {make_ptr<UDPConn>(fd), nullptr};
 }
 
 std::pair<ptr<Conn>, error> DialTimeout(std::string_view network, std::string_view address, time::Duration timeout) {
     string net(network);
-    if (network != "tcp" && network != "tcp4" && network != "tcp6") {
-        return {nullptr, op_error("dial", net, {}, string(address), errors::New("unknown network " + net))};
-    }
-    auto [addrs, rerr] = resolve(network, address, false);
-    if (rerr) return {nullptr, op_error("dial", net, {}, string(address), rerr)};
+    auto [addrs, rerr] = internet_addr_list(network, address);
+    if (rerr) return {nullptr, op_error("dial", net, nullptr, nullptr, rerr)};
     int64 deadline = timeout.ns > 0 ? runtime::nanotime() + timeout.ns : 0;
-
-    error last;
+    // Go's dialSerial: each address in turn; the first error is reported.
+    error first;
     for (auto& a : addrs) {
-        int s = ::socket(a.sa.ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-        if (s < 0) {
-            last = errno_error(errno);
-            continue;
-        }
-        auto fd = make_ptr<netfd>(s, a.sa.ss_family, net);
-        if (error err = fd->init()) {
-            last = err;
-            continue;
-        }
-        if (error err = fd->connect(&a.sa, a.len, deadline)) {
-            last = op_error("dial", net, {}, sockaddr_string(&a.sa), err);
-            fd->Close();
-            continue;
-        }
-        sockaddr_storage la;
-        socklen_t lalen = sizeof(la);
-        getsockname(s, reinterpret_cast<sockaddr*>(&la), &lalen);
-        fd->LocalAddr = sockaddr_string(&la);
-        fd->RemoteAddr = sockaddr_string(&a.sa);
-        int one = 1;
-        setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-        return {make_ptr<TCPConn>(fd), nullptr};
+        auto [c, err] = dial_one(network, a.get(), deadline);
+        if (!err) return {c, nullptr};
+        if (!first) first = op_error("dial", net, nullptr, a, err);
     }
-    return {nullptr, last ? last : op_error("dial", net, {}, string(address), errors::New("no suitable address"))};
+    return {nullptr, first};
 }
 
 std::pair<ptr<Conn>, error> Dial(std::string_view network, std::string_view address) {
@@ -283,49 +222,116 @@ std::pair<ptr<Conn>, error> Dial(std::string_view network, std::string_view addr
 }
 
 // ---------------------------------------------------------------------------
-// TCPConn
+// Connections
 
-TCPConn::TCPConn(ptr<netfd> fd) : fd_(std::move(fd)) {}
+conn_base::conn_base(ptr<netfd> fd) : fd_(std::move(fd)) {}
 
-TCPConn::~TCPConn() {
-    // A dropped connection is closed, as a garbage-collected one would be
-    // in Go eventually.
-    fd_->Close();
-}
+conn_base::~conn_base() { fd_->Close(); }
 
-std::pair<isize, error> TCPConn::Read(std::span<byte> p) {
+std::pair<isize, error> conn_base::Read(std::span<byte> p) {
     auto [n, err] = fd_->Read(p);
-    return {n, op_error("read", fd_->network(), fd_->LocalAddr, fd_->RemoteAddr, err)};
+    return {n, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
 }
 
-std::pair<isize, error> TCPConn::Write(std::span<const byte> p) {
+std::pair<isize, error> conn_base::Write(std::span<const byte> p) {
     auto [n, err] = fd_->Write(p);
-    return {n, op_error("write", fd_->network(), fd_->LocalAddr, fd_->RemoteAddr, err)};
+    return {n, op_error("write", fd_->network(), fd_->laddr, fd_->raddr, err)};
 }
 
-error TCPConn::Close() {
-    return op_error("close", fd_->network(), fd_->LocalAddr, fd_->RemoteAddr, fd_->Close());
+error conn_base::Close() { return op_error("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->Close()); }
+
+ptr<net::Addr> conn_base::LocalAddr() const { return fd_->laddr; }
+ptr<net::Addr> conn_base::RemoteAddr() const { return fd_->raddr; }
+
+error conn_base::SetDeadline(time::Time t) {
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'r' + 'w'));
+}
+error conn_base::SetReadDeadline(time::Time t) {
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'r'));
+}
+error conn_base::SetWriteDeadline(time::Time t) {
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'w'));
 }
 
-string TCPConn::LocalAddr() const { return fd_->LocalAddr; }
-string TCPConn::RemoteAddr() const { return fd_->RemoteAddr; }
+error conn_base::SetReadBuffer(int bytes) {
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockopt_int(SOL_SOCKET, SO_RCVBUF, bytes));
+}
+error conn_base::SetWriteBuffer(int bytes) {
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockopt_int(SOL_SOCKET, SO_SNDBUF, bytes));
+}
 
-error TCPConn::SetDeadline(time::Time t) { return fd_->SetDeadline(t, 'r' + 'w'); }
-error TCPConn::SetReadDeadline(time::Time t) { return fd_->SetDeadline(t, 'r'); }
-error TCPConn::SetWriteDeadline(time::Time t) { return fd_->SetDeadline(t, 'w'); }
-
-error TCPConn::CloseWrite() { return fd_->shutdown(SHUT_WR); }
+error TCPConn::CloseRead() {
+    return op_error("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_RD));
+}
+error TCPConn::CloseWrite() {
+    return op_error("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_WR));
+}
 
 error TCPConn::SetNoDelay(bool on) {
-    int v = on ? 1 : 0;
-    if (setsockopt(fd_->sysfd(), IPPROTO_TCP, TCP_NODELAY, &v, sizeof(v)) < 0) return errno_error(errno);
-    return nullptr;
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockopt_int(IPPROTO_TCP, TCP_NODELAY, on));
 }
 
 error TCPConn::SetKeepAlive(bool on) {
-    int v = on ? 1 : 0;
-    if (setsockopt(fd_->sysfd(), SOL_SOCKET, SO_KEEPALIVE, &v, sizeof(v)) < 0) return errno_error(errno);
-    return nullptr;
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockopt_int(SOL_SOCKET, SO_KEEPALIVE, on));
+}
+
+// ---------------------------------------------------------------------------
+// UDPConn
+
+std::tuple<isize, ptr<UDPAddr>, error> UDPConn::ReadFromUDP(std::span<byte> b) {
+    sockaddr_storage from;
+    auto [n, oobn, flags, err] = fd_->readMsg(b, {}, 0, &from);
+    if (err) return {n, nullptr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    ptr<Addr> a = sockaddr_to_addr(from, SOCK_DGRAM);
+    return {n, ptr<UDPAddr>(dynamic_cast<UDPAddr*>(a.get())), nullptr};
+}
+
+std::tuple<isize, ptr<net::Addr>, error> UDPConn::ReadFrom(std::span<byte> b) {
+    auto [n, addr, err] = ReadFromUDP(b);
+    return {n, addr, err};
+}
+
+std::tuple<isize, isize, int, ptr<UDPAddr>, error> UDPConn::ReadMsgUDP(std::span<byte> b, std::span<byte> oob) {
+    sockaddr_storage from;
+    auto [n, oobn, flags, err] = fd_->readMsg(b, oob, 0, &from);
+    if (err) return {n, oobn, flags, nullptr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    ptr<Addr> a = sockaddr_to_addr(from, SOCK_DGRAM);
+    return {n, oobn, flags, ptr<UDPAddr>(dynamic_cast<UDPAddr*>(a.get())), nullptr};
+}
+
+std::pair<isize, error> UDPConn::WriteToUDP(std::span<const byte> b, const ptr<UDPAddr>& addr) {
+    auto fail = [&](error err) {
+        return std::pair<isize, error>{0, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    };
+    if (fd_->raddr) return fail(ErrWriteToConnected);
+    if (!addr) return fail(errMissingAddress);
+    sockaddr_storage sa;
+    socklen_t len;
+    if (error err = addr_sockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
+    auto [n, oobn, err] = fd_->writeMsg(b, {}, &sa, len);
+    if (err) return {n, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    return {n, nullptr};
+}
+
+std::pair<isize, error> UDPConn::WriteTo(std::span<const byte> b, const ptr<net::Addr>& addr) {
+    auto* a = dynamic_cast<UDPAddr*>(addr.get());
+    if (!a) return {0, op_error("write", fd_->network(), fd_->laddr, addr, errno_error(EINVAL))};
+    return WriteToUDP(b, ptr<UDPAddr>(a));
+}
+
+std::tuple<isize, isize, error> UDPConn::WriteMsgUDP(std::span<const byte> b, std::span<const byte> oob,
+                                                     const ptr<UDPAddr>& addr) {
+    auto fail = [&](error err) {
+        return std::tuple<isize, isize, error>{0, 0, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    };
+    if (fd_->raddr && addr) return fail(ErrWriteToConnected);
+    if (!fd_->raddr && !addr) return fail(errMissingAddress);
+    sockaddr_storage sa;
+    socklen_t len = 0;
+    if (error err = addr_sockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
+    auto [n, oobn, err] = fd_->writeMsg(b, oob, addr ? &sa : nullptr, len);
+    if (err) return {n, oobn, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    return {n, oobn, nullptr};
 }
 
 }  // namespace gopp::net

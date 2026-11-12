@@ -97,18 +97,19 @@ all park instead of blocking the thread.
 | `encoding/json` | `Marshal`/`Unmarshal` of plain structs through C++26 reflection, with no macros and no registration. Struct tags as annotations (`omitempty`, `string`, `-`), `Encoder`/`Decoder` streams, `json::Value` for Go's `any`, Go's error messages and number formatting |
 | `database/sql` | Go's connection pool (`SetMaxOpenConns`, idle limits, lifetimes, waiting with context cancellation, bad-connection retries), `Query`/`QueryRow`/`Exec`, prepared `Stmt`s that follow connections, `Tx` rolled back when its context ends, `Conn`, `Rows`/`Scan` with Go's conversions, `Null*` types and `sql::Named`, and the `driver` interfaces |
 | `text/template` | Go's templates (`gopp::text::template_`, as `template` is a keyword): `{{if}}`, `{{range}}` over slices, maps in key order and integers, `{{with}}`, `{{define}}`/`{{template}}`/`{{block}}`, pipelines, variables, the builtins with Go's `printf` verbs, and plain C++ lambdas as functions. The data is any C++ struct, read by reflection: fields, const methods with arguments, containers and smart pointers |
-| `net`, `net/url` | TCP with deadlines, URL parsing and escaping |
+| `net`, `net/url` | TCP and UDP with deadlines: `Listen`/`Dial`, `ListenPacket`, `ListenUDP`/`DialUDP`, `UDPConn` with `ReadFrom`/`WriteTo` and `ReadMsgUDP`/`WriteMsgUDP`; addresses as `net::Addr` (`TCPAddr`, `UDPAddr`), `ResolveTCPAddr`/`ResolveUDPAddr`, `LookupPort`, `IP`/`IPMask`/`IPNet` with `ParseIP` and `ParseCIDR`, and Go's errors (`OpError`, `AddrError`, `DNSError`). URL parsing and escaping |
 | `context`, `sync`, `time` | Cancellation and deadlines; `Mutex`, `RWMutex`, `WaitGroup`, `Once`, `Cond`; `Timer`, `Ticker`, `AfterFunc` |
 | `os`, `io/fs` | Files, on io_uring when the kernel has it: `Open`/`Create`/`OpenFile`, `ReadFile`/`WriteFile`, `File` with `Read`/`Write`/`ReadAt`/`WriteAt`/`Seek`, `Stat`, `Truncate`, `Sync`, `ReadDir`/`Readdir`/`Readdirnames`; paths: `Stat`/`Lstat`, `Mkdir`/`MkdirAll`, `Remove`/`RemoveAll`, `Rename`, `Chmod`/`Chown`/`Chtimes`, links, `CreateTemp`/`MkdirTemp`, `Getwd`/`Chdir`; `Pipe` with deadlines. Go's errors (`PathError`, `IsNotExist`, `errors::Is(err, fs::ErrNotExist)`) and `FileMode`/`FileInfo`/`DirEntry`. A file call parks only its fiber, on io_uring, or blocks its thread, which hands its processor on, as in Go; pipes park only their fiber |
 | `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` |
 
-**Tested against Go's own tests.** 539 unit tests, 413 of them ported
+**Tested against Go's own tests.** 568 unit tests, 438 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
 vectors, `database/sql`'s pool, statement, transaction and conversion
 tests against Go's fake driver, `text/template`'s lexer, parser and
-executor tests, and `os`'s and `io/fs`'s file, directory, pipe and error
-tests. They keep Go's test names and tables.
+executor tests, `os`'s and `io/fs`'s file, directory, pipe and error
+tests, and `net`'s IP address, address resolution, UDP and packet
+connection tests. They keep Go's test names and tables.
 
 ## Get started
 
@@ -252,6 +253,9 @@ what it doesn't do yet:
 - **One global timer heap**, where Go keeps one per P.
 - **Sockets and pipes use epoll**; io_uring carries only file system calls so
   far.
+- **`net` has TCP and UDP**, but no Unix domain sockets, multicast
+  (`ListenMulticastUDP`), `net/netip`, `Interfaces` or `Resolver` yet. Names
+  resolve through getaddrinfo, as a blocking call.
 - **x86-64 only for now.** The code supports ARM64, but it isn't built or
   tested there yet.
 - **`flag` has only the Var forms** (`StringVar`, `IntVar`, ...).

@@ -107,7 +107,7 @@ public:
           handler_(std::move(h)),
           opts_(opts),
           tls_state_(std::move(tls_state)),
-          remote_addr_(conn_->RemoteAddr()),
+          remote_addr_(conn_->RemoteAddr() ? conn_->RemoteAddr()->String() : string()),
           framer_(br_),
           hdec_(initial_header_table_size, nullptr),
           henc_(&hbuf_) {

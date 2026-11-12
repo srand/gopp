@@ -3,44 +3,101 @@
 #include "../runtime/runtime.hpp"
 
 #include <arpa/inet.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 namespace gopp::net {
 
 namespace {
 
 constexpr uint64_t closed_bit = uint64_t(1) << 63;
+// Reads and writes of streams are capped like Go's maxRW.
+constexpr std::size_t max_rw = std::size_t(1) << 30;
+
+// Go's zoneCache: interface names and indexes.
+string zone_name(uint32_t index) {
+    if (index == 0) return {};
+    char name[IF_NAMESIZE];
+    if (if_indextoname(index, name)) return string(name);
+    return string(std::to_string(index));
+}
+
+uint32_t zone_index(std::string_view zone) {
+    if (zone.empty()) return 0;
+    std::string z(zone);
+    if (unsigned idx = if_nametoindex(z.c_str())) return idx;
+    uint32_t n = 0;
+    for (char c : zone) {
+        if (c < '0' || c > '9') return 0;
+        n = n * 10 + uint32_t(c - '0');
+    }
+    return n;
+}
 
 }  // namespace
 
-string sockaddr_string(const void* sa) {
-    char host[INET6_ADDRSTRLEN];
-    auto* s = static_cast<const sockaddr*>(sa);
-    if (s->sa_family == AF_INET) {
-        auto* in = static_cast<const sockaddr_in*>(sa);
-        inet_ntop(AF_INET, &in->sin_addr, host, sizeof(host));
-        return JoinHostPort(host, std::to_string(ntohs(in->sin_port)));
+ptr<Addr> sockaddr_to_addr(const sockaddr_storage& sa, int sotype) {
+    IP ip;
+    int port = 0;
+    string zone;
+    if (sa.ss_family == AF_INET) {
+        auto* in = reinterpret_cast<const sockaddr_in*>(&sa);
+        ip = IP(slice<byte>::of(std::span(reinterpret_cast<const byte*>(&in->sin_addr), 4)));
+        port = ntohs(in->sin_port);
+    } else if (sa.ss_family == AF_INET6) {
+        auto* in6 = reinterpret_cast<const sockaddr_in6*>(&sa);
+        ip = IP(slice<byte>::of(std::span(reinterpret_cast<const byte*>(&in6->sin6_addr), 16)));
+        port = ntohs(in6->sin6_port);
+        zone = zone_name(in6->sin6_scope_id);
+    } else {
+        return nullptr;
     }
-    if (s->sa_family == AF_INET6) {
-        auto* in6 = static_cast<const sockaddr_in6*>(sa);
-        if (IN6_IS_ADDR_V4MAPPED(&in6->sin6_addr)) {
-            inet_ntop(AF_INET, &in6->sin6_addr.s6_addr[12], host, sizeof(host));
-        } else {
-            inet_ntop(AF_INET6, &in6->sin6_addr, host, sizeof(host));
-        }
-        return JoinHostPort(host, std::to_string(ntohs(in6->sin6_port)));
+    if (sotype == SOCK_DGRAM) return make_ptr<UDPAddr>(std::move(ip), port, std::move(zone));
+    return make_ptr<TCPAddr>(std::move(ip), port, std::move(zone));
+}
+
+error ip_to_sockaddr(int family, const IP& ip0, int port, std::string_view zone, sockaddr_storage* sa,
+                     socklen_t* len) {
+    std::memset(sa, 0, sizeof(*sa));
+    IP ip = ip0;
+    if (family == AF_INET) {
+        if (ip.empty()) ip = IPv4zero;
+        IP ip4 = ip.To4();
+        if (ip4.empty()) return make_ptr<AddrError>(string::from_static("non-IPv4 address"), ip.String());
+        auto* in = reinterpret_cast<sockaddr_in*>(sa);
+        in->sin_family = AF_INET;
+        in->sin_port = htons(static_cast<uint16_t>(port));
+        std::memcpy(&in->sin_addr, ip4.data(), 4);
+        *len = sizeof(sockaddr_in);
+        return nullptr;
     }
-    return {};
+    if (family == AF_INET6) {
+        // An IPv4 wildcard as an IPv6 one, so that a dual-stack socket
+        // listens on both.
+        if (ip.empty() || ip.Equal(IPv4zero)) ip = IPv6zero;
+        IP ip6 = ip.To16();
+        if (ip6.empty()) return make_ptr<AddrError>(string::from_static("non-IPv6 address"), ip.String());
+        auto* in6 = reinterpret_cast<sockaddr_in6*>(sa);
+        in6->sin6_family = AF_INET6;
+        in6->sin6_port = htons(static_cast<uint16_t>(port));
+        in6->sin6_scope_id = zone_index(zone);
+        std::memcpy(&in6->sin6_addr, ip6.data(), 16);
+        *len = sizeof(sockaddr_in6);
+        return nullptr;
+    }
+    return make_ptr<InvalidAddrError>(string::from_static("unexpected socket family"));
 }
 
 netfd::~netfd() {
-    // Normally closed through close(); this handles an fd that never was.
+    // Normally closed through Close(); this handles an fd that never was.
     if (sysfd_ >= 0) {
         if (pd_) {
             runtime::poll_unblock(pd_);
@@ -55,6 +112,19 @@ error netfd::init() {
     pd_ = runtime::poll_open(sysfd_, &err);
     if (!pd_) return errno_error(err);
     return nullptr;
+}
+
+void netfd::set_addrs(const sockaddr_storage* raddr_sa) {
+    sockaddr_storage sa{};
+    socklen_t len = sizeof(sa);
+    if (getsockname(sysfd_, reinterpret_cast<sockaddr*>(&sa), &len) == 0) laddr = sockaddr_to_addr(sa, sotype_);
+    if (raddr_sa) {
+        raddr = sockaddr_to_addr(*raddr_sa, sotype_);
+        return;
+    }
+    sockaddr_storage pa{};
+    len = sizeof(pa);
+    if (getpeername(sysfd_, reinterpret_cast<sockaddr*>(&pa), &len) == 0) raddr = sockaddr_to_addr(pa, sotype_);
 }
 
 bool netfd::incref() noexcept {
@@ -99,18 +169,24 @@ error netfd::op_error(int pollerr) const {
 std::pair<isize, error> netfd::Read(std::span<byte> p) {
     std::lock_guard l(rmu_);
     if (!incref()) return {0, ErrClosed};
+    if (p.empty()) {
+        // As Go: a zero-byte read returns at once; read(2) would return 0,
+        // which looks like EOF.
+        decref();
+        return {0, nullptr};
+    }
     if (int pe = runtime::poll_reset(pd_, 'r')) {
         decref();
         return {0, op_error(pe)};
     }
-    // Large reads are capped like Go's maxRW.
-    if (p.size() > (1u << 30)) p = p.first(1u << 30);
+    if (sotype_ == SOCK_STREAM && p.size() > max_rw) p = p.first(max_rw);
     for (;;) {
         ssize_t n = ::read(sysfd_, p.data(), p.size());
         GOPP_STAT(read);
         if (n >= 0) {
             decref();
-            if (n == 0 && !p.empty()) return {0, io::EOF_};
+            // A zero-byte datagram isn't EOF.
+            if (n == 0 && sotype_ != SOCK_DGRAM) return {0, io::EOF_};
             return {static_cast<isize>(n), nullptr};
         }
         int e = errno;
@@ -135,14 +211,17 @@ std::pair<isize, error> netfd::Write(std::span<const byte> p) {
         decref();
         return {0, op_error(pe)};
     }
+    bool stream = sotype_ == SOCK_STREAM;
     isize nn = 0;
-    while (!p.empty()) {
-        std::size_t max = std::min<std::size_t>(p.size(), 1u << 30);
+    // A packet is sent whole, even an empty one; a stream in pieces.
+    do {
+        std::size_t max = stream ? std::min(p.size(), max_rw) : p.size();
         ssize_t n = ::send(sysfd_, p.data(), max, MSG_NOSIGNAL);
         GOPP_STAT(write);
-        if (n > 0) {
+        if (n >= 0 && (n > 0 || !stream)) {
             nn += n;
             p = p.subspan(static_cast<std::size_t>(n));
+            if (!stream) break;
             continue;
         }
         int e = errno;
@@ -157,9 +236,87 @@ std::pair<isize, error> netfd::Write(std::span<const byte> p) {
         }
         decref();
         return {nn, n == 0 ? io::ErrUnexpectedEOF : errno_error(e)};
-    }
+    } while (!p.empty());
     decref();
     return {nn, nullptr};
+}
+
+std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span<byte> oob, int flags,
+                                                    sockaddr_storage* from) {
+    std::lock_guard l(rmu_);
+    from->ss_family = AF_UNSPEC;
+    if (!incref()) return {0, 0, 0, ErrClosed};
+    if (int pe = runtime::poll_reset(pd_, 'r')) {
+        decref();
+        return {0, 0, 0, op_error(pe)};
+    }
+    for (;;) {
+        iovec iov{p.data(), p.size()};
+        msghdr msg{};
+        msg.msg_name = from;
+        msg.msg_namelen = sizeof(*from);
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        if (!oob.empty()) {
+            msg.msg_control = oob.data();
+            msg.msg_controllen = oob.size();
+        }
+        ssize_t n = ::recvmsg(sysfd_, &msg, flags | MSG_CMSG_CLOEXEC);
+        if (n >= 0) {
+            decref();
+            if (msg.msg_namelen == 0) from->ss_family = AF_UNSPEC;
+            return {static_cast<isize>(n), static_cast<isize>(msg.msg_controllen), msg.msg_flags, nullptr};
+        }
+        int e = errno;
+        if (e == EINTR) continue;
+        if (e == EAGAIN) {
+            if (int pe = runtime::poll_wait(pd_, 'r')) {
+                decref();
+                return {0, 0, 0, op_error(pe)};
+            }
+            continue;
+        }
+        decref();
+        return {0, 0, 0, errno_error(e)};
+    }
+}
+
+std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::span<const byte> oob, const void* sa,
+                                                unsigned salen) {
+    std::lock_guard l(wmu_);
+    if (!incref()) return {0, 0, ErrClosed};
+    if (int pe = runtime::poll_reset(pd_, 'w')) {
+        decref();
+        return {0, 0, op_error(pe)};
+    }
+    for (;;) {
+        iovec iov{const_cast<byte*>(p.data()), p.size()};
+        msghdr msg{};
+        msg.msg_name = const_cast<void*>(sa);
+        msg.msg_namelen = sa ? salen : 0;
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        if (!oob.empty()) {
+            msg.msg_control = const_cast<byte*>(oob.data());
+            msg.msg_controllen = oob.size();
+        }
+        ssize_t n = ::sendmsg(sysfd_, &msg, MSG_NOSIGNAL);
+        if (n >= 0) {
+            decref();
+            return {static_cast<isize>(n), static_cast<isize>(oob.size()), nullptr};
+        }
+        int e = errno;
+        if (e == EINTR) continue;
+        if (e == EAGAIN) {
+            if (int pe = runtime::poll_wait(pd_, 'w')) {
+                decref();
+                return {0, 0, op_error(pe)};
+            }
+            continue;
+        }
+        decref();
+        return {0, 0, errno_error(e)};
+    }
 }
 
 std::pair<ptr<netfd>, error> netfd::accept() {
@@ -170,18 +327,14 @@ std::pair<ptr<netfd>, error> netfd::accept() {
         return {nullptr, op_error(pe)};
     }
     for (;;) {
-        sockaddr_storage sa;
+        sockaddr_storage sa{};
         socklen_t salen = sizeof(sa);
         int s = ::accept4(sysfd_, reinterpret_cast<sockaddr*>(&sa), &salen, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if (s >= 0) {
             decref();
-            auto nfd = make_ptr<netfd>(s, sa.ss_family, net_);
+            auto nfd = make_ptr<netfd>(s, family_, sotype_, net_);
             if (error err = nfd->init()) return {nullptr, err};
-            sockaddr_storage la;
-            socklen_t lalen = sizeof(la);
-            getsockname(s, reinterpret_cast<sockaddr*>(&la), &lalen);
-            nfd->LocalAddr = sockaddr_string(&la);
-            nfd->RemoteAddr = sockaddr_string(&sa);
+            nfd->set_addrs(&sa);
             return {nfd, nullptr};
         }
         int e = errno;
@@ -236,6 +389,14 @@ error netfd::shutdown(int how) {
     int e = errno;
     decref();
     return r < 0 ? errno_error(e) : nullptr;
+}
+
+error netfd::setsockopt_int(int level, int name, int value) {
+    if (!incref()) return ErrClosed;
+    int r = ::setsockopt(sysfd_, level, name, &value, sizeof(value));
+    int e = errno;
+    decref();
+    return r < 0 ? os::NewSyscallError("setsockopt", errno_error(e)) : nullptr;
 }
 
 error netfd::SetDeadline(time::Time t, int mode) {

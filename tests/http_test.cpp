@@ -22,7 +22,7 @@ public:
     explicit TestServer(ptr<http::Handler> h, int max_header_bytes = 0) {
         auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
         EXPECT_FALSE(err) << err;
-        addr = ln->Addr();
+        addr = ln->Addr()->String();
         srv.Handler = std::move(h);
         srv.MaxHeaderBytes = max_header_bytes;
         done = make_chan<gopp::error>(1);
@@ -470,7 +470,7 @@ TEST(HttpClient, FollowsRedirects) {
 TEST(HttpClient, Errors) {
     auto [ln, lerr] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(lerr);
-    string addr = ln->Addr();
+    string addr = ln->Addr()->String();
     ln->Close();
     auto [r, err] = http::Get(fmt::Sprint("http://{}/", addr).view());
     ASSERT_TRUE(err);

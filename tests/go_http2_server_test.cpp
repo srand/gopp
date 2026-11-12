@@ -38,7 +38,7 @@ public:
         EXPECT_FALSE(err) << err;
         done = make_chan<gopp::error>(1);
         go([this, ln] { done.send(srv.Serve(ln)); });
-        auto [c, derr] = net::Dial("tcp", ln->Addr());
+        auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
         EXPECT_FALSE(derr) << derr;
         cc = c;
         br = make_ptr<bufio::Reader>(cc, 1 << 16);
