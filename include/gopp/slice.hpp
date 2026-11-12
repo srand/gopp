@@ -5,6 +5,8 @@
 // into it while capacity remains, exactly as in Go.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/base.hpp>
 #include <gopp/string.hpp>
 
@@ -15,6 +17,7 @@
 #include <new>
 #include <span>
 #include <utility>
+#endif
 
 namespace gopp {
 

@@ -14,6 +14,8 @@
 //         gopp::default_case([&] { }));      // default: }
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/base.hpp>
 
 #include <cstddef>
@@ -23,6 +25,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#endif
 
 namespace gopp {
 

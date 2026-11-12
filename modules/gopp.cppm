@@ -1,0 +1,29 @@
+// Module gopp: all of go++. Written by generate.py.
+export module gopp;
+
+export import gopp.base;
+export import gopp.bufio;
+export import gopp.chan;
+export import gopp.context;
+export import gopp.crypto.tls;
+export import gopp.database.sql;
+export import gopp.database.sql.driver;
+export import gopp.encoding.json;
+export import gopp.errors;
+export import gopp.flag;
+export import gopp.fmt;
+export import gopp.io;
+export import gopp.net;
+export import gopp.net.http;
+export import gopp.net.http.httptest;
+export import gopp.net.url;
+export import gopp.os;
+export import gopp.ptr;
+export import gopp.runtime;
+export import gopp.slice;
+export import gopp.string;
+export import gopp.strings;
+export import gopp.sync;
+export import gopp.text.template_;
+export import gopp.text.template_.parse;
+export import gopp.time;

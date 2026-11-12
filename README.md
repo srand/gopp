@@ -117,6 +117,7 @@ googletest. Your host compiler doesn't matter.
 ```sh
 jolt build examples/hello        # the hello-world server (-cert/-key for HTTPS and HTTP/2, -h2c)
 jolt build examples/fetch        # a small curl: fetch -i https://go.dev/
+jolt build examples/modules      # go++ imported as C++ modules
 jolt build test                  # run the unit tests
 jolt build benchmark             # go++ vs Go, report in report/benchmark.md
 ```
@@ -132,6 +133,29 @@ jolt build benchmark             # go++ vs Go, report in report/benchmark.md
 Requirements: Linux, x86-64. go++ is C++26 with static reflection (P2996),
 which GCC 16 implements (`-freflection`); Clang doesn't yet. Programs link
 libstdc++ statically.
+
+### As C++ modules
+
+Each header is also a named module: `<gopp/net/http.hpp>` is
+`gopp.net.http`, `<gopp/text/template.hpp>` is `gopp.text.template_`, and
+`gopp` imports them all. A module exports the modules it depends on, as a
+header includes them, but not the standard library: import that too.
+
+```cpp
+import std;
+import gopp.encoding.json;
+import gopp.fmt;
+```
+
+`jolt build gopp` publishes the compiled interfaces, with `std` and
+`std.compat`, so a Jolt task that requires `gopp` can import them; they need
+the same compiler and flags (`examples/modules`). Don't `#include` a go++
+header after an `import` in the same file: GCC can't merge the declarations
+in that order.
+
+The interfaces are in `modules/`, one per header. In module mode
+(`GOPP_MODULE`), a header skips its `#include`s, and the interface imports
+`std.compat` and the modules of the go++ headers it included.
 
 ## Coming from Go
 

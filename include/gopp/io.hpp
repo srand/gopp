@@ -4,6 +4,8 @@
 // implementations must not keep it after returning, as in Go.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/ptr.hpp>
 #include <gopp/slice.hpp>
@@ -11,6 +13,7 @@
 #include <span>
 #include <string_view>
 #include <utility>
+#endif
 
 namespace gopp::io {
 

@@ -4,6 +4,8 @@
 // socket is ready; the thread runs other fibers meanwhile.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/io.hpp>
 #include <gopp/ptr.hpp>
@@ -13,6 +15,7 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+#endif
 
 namespace gopp::net {
 

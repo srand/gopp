@@ -2,6 +2,8 @@
 // timers that work with channels.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/base.hpp>
 #include <gopp/chan.hpp>
 #include <gopp/errors.hpp>
@@ -12,6 +14,7 @@
 #include <compare>
 #include <format>
 #include <functional>
+#endif
 
 namespace gopp::time {
 

@@ -13,6 +13,8 @@
 // plain blocking code.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/bufio.hpp>
 #include <gopp/context.hpp>
 #include <gopp/crypto/tls.hpp>
@@ -31,6 +33,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#endif
 
 namespace gopp::http {
 

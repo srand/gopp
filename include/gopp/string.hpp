@@ -6,6 +6,8 @@
 // nothing.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/base.hpp>
 
 #include <atomic>
@@ -17,6 +19,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#endif
 
 namespace gopp {
 

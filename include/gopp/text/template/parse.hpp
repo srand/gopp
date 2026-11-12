@@ -8,6 +8,8 @@
 // and gopp::text::template_::parse.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/ptr.hpp>
 #include <gopp/string.hpp>
@@ -19,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#endif
 
 namespace gopp::text::template_::parse {
 

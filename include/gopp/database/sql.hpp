@@ -21,6 +21,8 @@
 // Go's convertAssign does.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/chan.hpp>
 #include <gopp/context.hpp>
 #include <gopp/database/sql/driver.hpp>
@@ -43,6 +45,7 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#endif
 
 namespace gopp::sql {
 

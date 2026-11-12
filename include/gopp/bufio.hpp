@@ -1,11 +1,14 @@
 // The bufio package.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/io.hpp>
 
 #include <memory>
 #include <span>
 #include <tuple>
+#endif
 
 namespace gopp::bufio {
 
@@ -13,7 +16,7 @@ extern const error ErrBufferFull;
 extern const error ErrNegativeCount;
 extern const error ErrInvalidUnreadByte;
 
-constexpr std::size_t DefaultBufSize = 4096;
+inline constexpr std::size_t DefaultBufSize = 4096;
 
 // bufio.Reader
 class Reader : public io::Reader {

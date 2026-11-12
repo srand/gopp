@@ -26,6 +26,8 @@
 // members encode themselves (json.Marshaler and json.Unmarshaler).
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/io.hpp>
 #include <gopp/ptr.hpp>
@@ -50,6 +52,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#endif
 
 namespace gopp::json {
 

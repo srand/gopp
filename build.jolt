@@ -53,6 +53,7 @@ class Gopp(GoppProject, ninja.CXXLibrary):
     incpaths = ["include", "src"]
     sources = [
         "include/gopp/**/*.hpp",
+        "modules/*.cppm",
         "src/**/*.hpp",
         "src/**/*.cpp",
     ]
@@ -83,9 +84,15 @@ class Fetch(Example):
     sources = ["examples/fetch/*.cpp"]
 
 
+class Modules(Example):
+    """ Imports go++ as C++ modules instead of including its headers. """
+    name = "examples/modules"
+    sources = ["examples/modules/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello", "examples/fetch"]
+    requires = ["examples/hello", "examples/fetch", "examples/modules"]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):

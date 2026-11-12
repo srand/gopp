@@ -6,6 +6,8 @@
 //     if (auto err = srv.ListenAndServe()) { fmt::Println("{}", err); }
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/base.hpp>
 #include <gopp/ptr.hpp>
 #include <gopp/string.hpp>
@@ -13,6 +15,7 @@
 #include <format>
 #include <ostream>
 #include <utility>
+#endif
 
 namespace gopp {
 

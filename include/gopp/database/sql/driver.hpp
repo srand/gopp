@@ -7,6 +7,8 @@
 // assertions.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/context.hpp>
 #include <gopp/errors.hpp>
 #include <gopp/ptr.hpp>
@@ -20,6 +22,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#endif
 
 namespace gopp::sql::driver {
 

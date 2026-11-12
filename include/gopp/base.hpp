@@ -1,9 +1,12 @@
 // Basic types shared by all packages.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#endif
 
 namespace gopp {
 

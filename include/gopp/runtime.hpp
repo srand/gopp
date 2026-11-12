@@ -8,11 +8,14 @@
 // the main thread, can use all of these too; they block the thread instead.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/base.hpp>
 
 #include <functional>
 #include <tuple>
 #include <utility>
+#endif
 
 namespace gopp {
 

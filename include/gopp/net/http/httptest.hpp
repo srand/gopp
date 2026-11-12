@@ -8,10 +8,13 @@
 //     auto [resp, err] = http::Get(ts->URL + "/items/1");
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/chan.hpp>
 #include <gopp/net/http.hpp>
 
 #include <string>
+#endif
 
 namespace gopp::httptest {
 

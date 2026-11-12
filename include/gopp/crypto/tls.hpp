@@ -13,6 +13,8 @@
 //     auto [conn, derr] = tls::Dial("tcp", "example.com:443", tls::Config{});
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/net.hpp>
 #include <gopp/ptr.hpp>
@@ -21,6 +23,7 @@
 #include <memory>
 #include <string_view>
 #include <vector>
+#endif
 
 namespace gopp::x509 {
 

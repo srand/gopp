@@ -1,12 +1,15 @@
 // The net/url package (the parts HTTP servers need).
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/string.hpp>
 
 #include <string_view>
 #include <utility>
 #include <vector>
+#endif
 
 namespace gopp::url {
 

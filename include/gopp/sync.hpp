@@ -1,12 +1,16 @@
 // The sync package: locks that park fibers instead of threads.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/base.hpp>
+#include <gopp/runtime.hpp>
 
 #include <atomic>
 #include <functional>
 #include <mutex>  // std::lock_guard and std::unique_lock work with these locks
 #include <utility>
+#endif
 
 namespace gopp::sync {
 
@@ -153,8 +157,6 @@ private:
 };
 
 }  // namespace gopp::sync
-
-#include <gopp/runtime.hpp>
 
 template <typename F>
 void gopp::sync::WaitGroup::Go(F&& f) {

@@ -50,6 +50,8 @@
 // templates once, not per request.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/encoding/json.hpp>
 #include <gopp/errors.hpp>
 #include <gopp/io.hpp>
@@ -75,6 +77,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#endif
 
 namespace gopp::text::template_ {
 
@@ -663,7 +666,7 @@ const std::span<const method_info> struct_methods() {
     static constexpr auto ms = methods_of<T>();
     static const auto arr = [] {
         std::array<method_info, ms.size()> a{};
-        std::size_t i = 0;
+        [[maybe_unused]] std::size_t i = 0;  // unused without methods
         template for (constexpr std::meta::info m : ms) {
             using G = method_glue<m>;
             a[i++] = method_info{std::define_static_string(std::meta::identifier_of(m)), std::span<const ops_fn>(G::params),

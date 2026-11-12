@@ -5,6 +5,8 @@
 // the object, so a ptr is one machine word and an object one allocation.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <string>
 #include <vector>
 #include <atomic>
@@ -12,6 +14,7 @@
 #include <functional>
 #include <type_traits>
 #include <utility>
+#endif
 
 namespace gopp {
 

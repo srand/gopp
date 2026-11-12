@@ -4,11 +4,14 @@
 // macros expand to themselves, as glibc's do.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/io.hpp>
 #include <gopp/string.hpp>
 
 #include <string_view>
 #include <vector>
+#endif
 
 namespace gopp::os {
 

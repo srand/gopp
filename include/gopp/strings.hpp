@@ -1,6 +1,8 @@
 // The strings and strconv packages (the parts used so far).
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/io.hpp>
 #include <gopp/slice.hpp>
@@ -9,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#endif
 
 namespace gopp::strings {
 

@@ -12,6 +12,8 @@
 // -name=false.
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/errors.hpp>
 #include <gopp/string.hpp>
 #include <gopp/time.hpp>
@@ -20,6 +22,7 @@
 #include <span>
 #include <string_view>
 #include <vector>
+#endif
 
 namespace gopp::flag {
 

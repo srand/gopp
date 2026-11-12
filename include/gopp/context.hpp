@@ -4,6 +4,8 @@
 //     select(recv(ctx->Done(), [&] { return ctx->Err(); }), ...);
 #pragma once
 
+// The module interfaces (modules/) import these instead.
+#ifndef GOPP_MODULE
 #include <gopp/chan.hpp>
 #include <gopp/errors.hpp>
 #include <gopp/ptr.hpp>
@@ -12,6 +14,7 @@
 #include <functional>
 #include <optional>
 #include <utility>
+#endif
 
 namespace gopp::context {
 
