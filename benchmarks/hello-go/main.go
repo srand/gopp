@@ -2,12 +2,16 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 )
 
 func main() {
+	addr := flag.String("addr", ":8080", "address to listen on")
+	flag.Parse()
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -18,11 +22,7 @@ func main() {
 		fmt.Fprintf(w, "Hello, %s!\n", r.PathValue("name"))
 	})
 
-	addr := ":8080"
-	if len(os.Args) > 1 {
-		addr = os.Args[1]
-	}
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{Addr: *addr, Handler: mux}
 	fmt.Println("listening on", srv.Addr)
 	if err := srv.ListenAndServe(); err != nil {
 		fmt.Println(err)

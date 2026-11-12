@@ -299,7 +299,7 @@ class Benchmark(Task):
         addr = f"127.0.0.1:{port}"
         senv = dict(os.environ, GOMAXPROCS=str(self.sprocs))
         cenv = dict(os.environ, GOMAXPROCS=str(self.cprocs))
-        srv = subprocess.Popen(["taskset", "-c", self.scpus, exe, addr], env=senv,
+        srv = subprocess.Popen(["taskset", "-c", self.scpus, exe, "-addr", addr], env=senv,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             _wait_for_port(port)
