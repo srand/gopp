@@ -96,9 +96,15 @@ class Prime(Example):
     sources = ["examples/prime/*.cpp"]
 
 
+class Mandelbrot(Example):
+    """ ASCII Mandelbrot renderer with a channel-based worker pool. """
+    name = "examples/mandelbrot"
+    sources = ["examples/mandelbrot/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime"]
+    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot"]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):
