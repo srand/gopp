@@ -11,6 +11,8 @@
 
 #include <boost/context/fiber.hpp>
 
+#include <sys/types.h>
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -106,16 +108,26 @@ struct G {
     // it blocks the thread on thread_sema.
     bool is_thread = false;
     std::atomic<uint32_t> thread_sema{0};
+
+    // Nonzero while the fiber runs runtime code that uses its M's P: the
+    // SIGURG handler then leaves the P alone. Only the thread running the
+    // fiber touches it; see nopreempt_guard in proc.cpp. It is kept on the
+    // G, not the M, because a fiber parks inside it and finishes it on
+    // whichever M resumes it.
+    uint32_t nopreempt = 0;
 };
 
 constexpr uint32_t runq_size = 256;
 
 struct P {
     int32_t id = 0;
-    bool running = false;
-    M* m = nullptr;
+    // running, m and schedtick are written by the M that holds the P (or
+    // the one acquiring it) and read by sysmon: relaxed atomics, one
+    // writer at a time.
+    std::atomic<bool> running{false};
+    std::atomic<M*> m{nullptr};
     P* link = nullptr;
-    uint32_t schedtick = 0;
+    std::atomic<uint32_t> schedtick{0};  // fibers started on this P
 
     // Local run queue, lock-free: the owner puts at the tail, anyone takes
     // from the head.
@@ -156,6 +168,14 @@ struct M {
     note park;
     M* schedlink = nullptr;
     uint64_t fastrand = 0;
+
+    // Preemption. tid is the M's thread, for tgkill. sysmon asks for the
+    // P with preempt_tick and then preempt_p; the SIGURG handler, on this
+    // M's thread, answers with the P it gave up in retaken.
+    pid_t tid = 0;
+    std::atomic<P*> preempt_p{nullptr};
+    std::atomic<uint32_t> preempt_tick{0};
+    std::atomic<P*> retaken{nullptr};
 };
 
 // A list of Gs linked through schedlink.

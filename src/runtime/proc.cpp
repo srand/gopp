@@ -105,6 +105,27 @@ int ncpu = 1;
 
 void schedule(M* m) noexcept;
 
+// Marks runtime code that uses the P from a fiber (see G::nopreempt): the
+// SIGURG handler doesn't take the P while it runs. The signal fences keep
+// the compiler from moving P accesses out of it; the handler runs on the
+// same thread, so nothing stronger is needed. gp is nullptr outside fibers.
+struct nopreempt_guard {
+    G* gp;
+    explicit nopreempt_guard(G* g) noexcept : gp(g) {
+        if (gp) gp->nopreempt++;
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+    }
+    ~nopreempt_guard() {
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        if (gp) gp->nopreempt--;
+    }
+    nopreempt_guard(const nopreempt_guard&) = delete;
+    nopreempt_guard& operator=(const nopreempt_guard&) = delete;
+};
+
+// The fiber m runs, for nopreempt_guard.
+G* fiber_of(M* m) noexcept { return m ? m->curg : nullptr; }
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -149,18 +170,18 @@ int64_t nanotime() noexcept {
 namespace {
 
 void acquirep(M* m, P* pp) noexcept {
-    if (m->p || pp->m) fatal("acquirep: invalid p state");
+    if (m->p || pp->m.load(std::memory_order_relaxed)) fatal("acquirep: invalid p state");
     m->p = pp;
-    pp->m = m;
-    pp->running = true;
+    pp->m.store(m, std::memory_order_relaxed);
+    pp->running.store(true, std::memory_order_relaxed);
 }
 
 P* releasep(M* m) noexcept {
     P* pp = m->p;
-    if (!pp || pp->m != m) fatal("releasep: invalid p state");
+    if (!pp || pp->m.load(std::memory_order_relaxed) != m) fatal("releasep: invalid p state");
     m->p = nullptr;
-    pp->m = nullptr;
-    pp->running = false;
+    pp->m.store(nullptr, std::memory_order_relaxed);
+    pp->running.store(false, std::memory_order_relaxed);
     return pp;
 }
 
@@ -277,7 +298,7 @@ uint32_t runqgrab(P* pp, std::atomic<G*>* batch, uint32_t batch_head, bool steal
         if (n == 0) {
             if (steal_runnext) {
                 if (G* next = pp->runnext.load(std::memory_order_acquire)) {
-                    if (pp->running) {
+                    if (pp->running.load(std::memory_order_relaxed)) {
                         // pp is running and likely about to schedule its
                         // runnext; give it a moment rather than thrash.
                         for (int i = 0; i < 50; i++) cpu_relax();
@@ -497,7 +518,7 @@ top:
     }
 
     // Check the global queue once in a while for fairness.
-    if (pp->schedtick % 61 == 0 && sched.runqsize.load(std::memory_order_relaxed) > 0) {
+    if (pp->schedtick.load(std::memory_order_relaxed) % 61 == 0 && sched.runqsize.load(std::memory_order_relaxed) > 0) {
         sched.lock.lock();
         G* gp = globrunqget(pp, 1);
         sched.lock.unlock();
@@ -690,6 +711,9 @@ G* gfget(P* pp) noexcept {
 
 boost::context::fiber gentry(G* gp, boost::context::fiber&& caller) {
     gp->caller = std::move(caller);
+    // The switch here held nopreempt (see mcall); newproc set it to 1.
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    gp->nopreempt--;
     try {
         gp->fn();
     } catch (const std::exception& e) {
@@ -698,6 +722,10 @@ boost::context::fiber gentry(G* gp, boost::context::fiber&& caller) {
         panic("uncaught exception");
     }
     gp->fn = nullptr;  // destroy captured state while still on the fiber
+    gp->nopreempt++;   // held across the switch, as in mcall
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    // execute frees the G to its M's P: get one back if it was taken.
+    if (!getm()->p) exitsyscall();
     gp->action = gaction::exit;
     return std::move(gp->caller);
 }
@@ -709,7 +737,7 @@ void execute(M* m, G* gp) noexcept {
         gp->m = m;
         gp->action = gaction::none;
         gp->status.store(gstatus::running, std::memory_order_relaxed);
-        m->p->schedtick++;
+        m->p->schedtick.store(m->p->schedtick.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
 
         gp->ctx = std::move(gp->ctx).resume();
 
@@ -770,15 +798,23 @@ void schedule(M* m) noexcept {
 
 void mstart(M* m) noexcept {
     tls_m = m;
+    m->tid = gettid();
     acquirep(m, m->nextp);
     m->nextp = nullptr;
     schedule(m);
 }
 
 // Switches from the running fiber to its M's scheduler context.
+// The switch holds nopreempt: from here until the scheduler context has
+// cleared m->curg, and from when execute sets m->curg until the fiber runs
+// again, the code that runs is the scheduler's, which uses the P.
 void mcall(G* gp, gaction action) noexcept {
+    gp->nopreempt++;
+    std::atomic_signal_fence(std::memory_order_seq_cst);
     gp->action = action;
     gp->caller = std::move(gp->caller).resume();
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    gp->nopreempt--;
 }
 
 // Times sysmon found the network unpolled with fibers or threads waiting
@@ -923,6 +959,7 @@ void ensure_init() noexcept {
 
 bool has_runnable() noexcept {
     M* m = getm();
+    nopreempt_guard g{fiber_of(m)};
     if (!m || !m->p) return false;
     return !runqempty(m->p) || sched.runqsize.load(std::memory_order_relaxed) != 0;
 }
@@ -942,9 +979,11 @@ namespace {
 void newproc(std::move_only_function<void()> fn) {
     ensure_init();
     M* m = getm();
+    nopreempt_guard g{fiber_of(m)};
     P* pp = m ? m->p : nullptr;
     G* gp = pp ? gfget(pp) : nullptr;
     if (!gp) gp = new G();
+    gp->nopreempt = 1;  // gentry drops it once the fiber runs
     gp->fn = std::move(fn);
     gp->goid = sched.goidgen.fetch_add(1, std::memory_order_relaxed) + 1;
     gp->ctx = boost::context::fiber(std::allocator_arg, stack_allocator(),
@@ -964,6 +1003,7 @@ void newproc(std::move_only_function<void()> fn) {
 void park(unlock_fn unlockf, void* arg) noexcept {
     G* gp = getg();
     if (!gp) fatal("park on scheduler stack");
+    nopreempt_guard g{gp->is_thread ? nullptr : gp};
     if (!gp->is_thread && !gp->m->p) exitsyscall();  // parking inside a blocking call
     gp->status.store(gstatus::waiting, std::memory_order_relaxed);
     if (gp->is_thread) {
@@ -997,6 +1037,7 @@ void ready(G* gp) noexcept {
     }
     gp->status.store(gstatus::runnable, std::memory_order_relaxed);
     M* m = getm();
+    nopreempt_guard g{fiber_of(m)};
     if (m && m->p) {
         runqput(m->p, gp, true);
     } else {
@@ -1011,6 +1052,7 @@ void injectglist(glist& list) noexcept {
     if (list.empty()) return;
     for (G* gp = list.head; gp; gp = gp->schedlink) gp->status.store(gstatus::runnable, std::memory_order_relaxed);
     M* m = getm();
+    nopreempt_guard g{fiber_of(m)};
     if (!m || !m->p) {
         int n = list.size;
         sched.lock.lock();
@@ -1040,12 +1082,14 @@ void Gosched() {
         sched_yield();
         return;
     }
+    nopreempt_guard g{gp};
     if (!gp->m->p) exitsyscall();
     mcall(gp, gaction::yield);
 }
 
 void entersyscall() noexcept {
     M* m = getm();
+    nopreempt_guard g{fiber_of(m)};
     if (!m || !m->p || !m->curg) return;
     P* pp = releasep(m);
     handoffp(pp);
@@ -1053,6 +1097,7 @@ void entersyscall() noexcept {
 
 void exitsyscall() noexcept {
     M* m = getm();
+    nopreempt_guard g{fiber_of(m)};
     if (!m || m->p || !m->curg) return;
     sched.lock.lock();
     P* pp = pidleget();
