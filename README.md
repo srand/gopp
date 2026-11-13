@@ -91,7 +91,7 @@ all park instead of blocking the thread.
 | Package | What you get |
 |---|---|
 | runtime | `go()`, M:N scheduler with work stealing (Go's `proc.go` design), epoll netpoller, timers, semaphores |
-| `net/http` | Server with Go 1.22 `ServeMux` patterns (`GET /items/{id}`, `{path...}`, `{$}`, conflict detection), keep-alive, pipelining, chunked encoding, content sniffing, timeouts, graceful `Shutdown`, HTTPS. HTTP/2 on both sides, negotiated over TLS or spoken as h2c (`http::Protocols`), with flow control, multiplexing and GOAWAY; tested against Go's client and server and curl. Client with `http::Get`/`Head`/`Post`, `Client` with redirects and timeouts, pooling `Transport`, HTTPS |
+| `net/http` | Server with Go 1.22 `ServeMux` patterns (`GET /items/{id}`, `{path...}`, `{$}`, conflict detection), keep-alive, pipelining, chunked encoding, content sniffing, timeouts, graceful `Shutdown`, HTTPS. HTTP/2 on both sides, negotiated over TLS or spoken as h2c (`http::Protocols`), with flow control, multiplexing and GOAWAY; tested against Go's client and server and curl. Client with `http::Get`/`Head`/`Post`, `Client` with redirects and timeouts, pooling `Transport`, HTTPS. File servers: `FileServer`/`FileServerFS` over `Dir`, `FS` or an `os::Root`, with index pages, directory listings and canonical-path redirects; `ServeFile`/`ServeFileFS`; `ServeContent` with ranges (`multipart/byteranges` for several) and the conditional requests (ETags, `If-Modified-Since`, `If-Range`, ...); `ParseTime` |
 | `net/http/httptest` | `NewRecorder`, `NewRequest`, `NewServer`, `NewTLSServer`, `NewUnstartedServer` |
 | `crypto/tls` | TLS 1.2/1.3 over any `net::Conn` (OpenSSL underneath), ALPN, SNI, certificate verification, `tls::Listen`/`Dial` |
 | `encoding/json` | `Marshal`/`Unmarshal` of plain structs through C++26 reflection, with no macros and no registration. Struct tags as annotations (`omitempty`, `string`, `-`), `Encoder`/`Decoder` streams, `json::Value` for Go's `any`, Go's error messages and number formatting |
@@ -99,6 +99,7 @@ all park instead of blocking the thread.
 | `text/template` | Go's templates (`gopp::text::tmpl`, as `template` is a keyword): `{{if}}`, `{{range}}` over slices, maps in key order and integers, `{{with}}`, `{{define}}`/`{{template}}`/`{{block}}`, pipelines, variables, the builtins with Go's `printf` verbs, and plain C++ lambdas as functions. The data is any C++ struct, read by reflection: fields, const methods with arguments, containers and smart pointers |
 | `net`, `net/url` | TCP, UDP, raw IP and Unix domain sockets with deadlines. `Dialer` with contexts, timeouts, Happy Eyeballs (RFC 6555) and `Control` hooks; `ListenConfig`; `Listen`/`Dial`, `ListenTCP`/`DialTCP`, `ListenUDP`/`DialUDP`, `ListenIP`/`DialIP`, `ListenUnix`/`DialUnix`; `TCPConn` with keep-alive settings (`KeepAliveConfig`), `SetLinger`, Multipath TCP, and `io::Copy` through `splice(2)` and `sendfile(2)`; `UDPConn` with `ReadFrom`/`WriteTo`, the `ReadMsg`/`WriteMsg` and `AddrPort` variants, and `ListenMulticastUDP`; `UnixConn` and `UnixListener` for `"unix"`, `"unixgram"` and `"unixpacket"`, with abstract names, autobind and descriptor passing (`syscall::UnixRights`); `SyscallConn`, `Buffers` (`writev(2)`), `Pipe`, `FileConn`/`FileListener`/`FilePacketConn`. Go's own resolver, from fibers on the poller: `Resolver` with `LookupHost`/`LookupIP`/`LookupNetIP`/`LookupCNAME`/`LookupMX`/`LookupNS`/`LookupSRV`/`LookupTXT`/`LookupAddr`, `/etc/hosts`, `resolv.conf` and `nsswitch.conf`, EDNS(0), UDP with TCP fallback, and RFC 6724 address sorting. `Interfaces`, `InterfaceAddrs`, `HardwareAddr`/`ParseMAC`; addresses as `net::Addr` (`TCPAddr`, `UDPAddr`, `IPAddr`, `UnixAddr`), `IP`/`IPMask`/`IPNet` with `ParseIP` and `ParseCIDR`, and Go's errors (`OpError`, `AddrError`, `DNSError`). URL parsing and escaping |
 | `net/netip` | `Addr`, `AddrPort` and `Prefix` as small comparable values: parsing, formatting, `Compare`, masking, `Contains`/`Overlaps`, text and binary marshaling |
+| `mime` | `TypeByExtension` from Go's built-in types and the system's (the shared MIME-info database, or `mime.types`), `ExtensionsByType`, `AddExtensionType`; `ParseMediaType` with RFC 2231 continuations and encodings, and `FormatMediaType` |
 | `context`, `sync`, `time` | Cancellation and deadlines; `Mutex`, `RWMutex`, `WaitGroup`, `Once`, `Cond`; `Timer`, `Ticker`, `AfterFunc` |
 | `os`, `io/fs` | Files, on io_uring when the kernel has it: `Open`/`Create`/`OpenFile`, `ReadFile`/`WriteFile`, `File` with `Read`/`Write`/`ReadAt`/`WriteAt`/`Seek`, `Stat`, `Truncate`, `Sync`, `ReadDir`/`Readdir`/`Readdirnames`; paths: `Stat`/`Lstat`, `Mkdir`/`MkdirAll`, `Remove`/`RemoveAll`, `Rename`, `Chmod`/`Chown`/`Chtimes`, links, `CreateTemp`/`MkdirTemp`, `Getwd`/`Chdir`; `Pipe` with deadlines; `io::Copy` between files with `copy_file_range(2)`, from sockets with `splice(2)` and to them with `sendfile(2)` (`File::ReadFrom`/`WriteTo`), and `SyscallConn`; `os::Root`, Go's escape-proof directory handle, resolving every name with `openat(2)` one element at a time (symbolic links followed only within it), and `OpenInRoot`; `DirFS`, `Root::FS` and `CopyFS`; the `io/fs` functions over any `fs::FS` (`ReadFile`, `ReadDir`, `Stat`, `Sub`, `Glob`, `WalkDir`, `ReadLink`, `Lstat`); processes: `StartProcess`/`FindProcess`, `Process` with `Wait`/`Signal`/`Kill`/`Release`, `ProcessState`, pidfds waited for through the poller; the environment (`Environ`, `Setenv`, `LookupEnv`, `ExpandEnv`, ...), `Getpid` and friends, `Hostname`, `Executable`, `UserHomeDir`/`UserCacheDir`/`UserConfigDir`. Go's errors (`PathError`, `IsNotExist`, `errors::Is(err, fs::ErrNotExist)`) and `FileMode`/`FileInfo`/`DirEntry`. A file call parks only its fiber, on io_uring, or blocks its thread, which hands its processor on, as in Go; pipes park only their fiber |
 | `os/exec` | `Command`/`CommandContext`, `Cmd` with `Run`/`Start`/`Wait`/`Output`/`CombinedOutput`, `StdinPipe`/`StdoutPipe`/`StderrPipe`, any `io::Reader`/`io::Writer` as standard streams (copied by fibers), `ExtraFiles`, `SysProcAttr` (namespaces, user namespace ID mappings, credentials, ambient capabilities, cgroups through `clone3(2)`, pidfds), `Cancel` and `WaitDelay`, `LookPath`, `ExitError`. Children are started with `clone(CLONE_VM\|CLONE_VFORK)`, safely from many threads, as Go does |
@@ -106,8 +107,9 @@ all park instead of blocking the thread.
 | `testing/fstest`, `testing/iotest` | `MapFS`, the in-memory file system, and `TestFS`, which checks an `fs::FS` implementation; `iotest::TestReader` |
 | `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
 
-**Tested against Go's own tests.** 1014 unit tests, 865 of them ported
+**Tested against Go's own tests.** 1108 unit tests, 956 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
+its file server tests (over HTTP/1.1, HTTPS and HTTP/2), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
 vectors, `database/sql`'s pool, statement, transaction and conversion
 tests against Go's fake driver, `text/template`'s lexer, parser and
@@ -130,18 +132,24 @@ dependency on first use: GCC 16, Boost.Context, liburing, OpenSSL and
 googletest. Your host compiler doesn't matter.
 
 ```sh
-jolt build examples/hello        # the hello-world server (-cert/-key for HTTPS and HTTP/2, -h2c)
-jolt build examples/fetch        # a small curl: fetch -i https://go.dev/
-jolt build examples/modules      # go++ imported as C++ modules
-jolt build examples/prime        # concurrent prime sieve using goroutines and channels
-jolt build examples/mandelbrot   # ASCII fractal rendered by a goroutine worker pool
-jolt build examples/tcp-echo     # TCP echo server; connect with: nc localhost 8081
-jolt build examples/udp-echo     # UDP echo server; try: nc -u -w1 localhost 8082
-jolt build examples/tcp-chat     # multi-client chat room; connect from multiple terminals with nc localhost 8083
-jolt build examples/template     # render a Markdown report from reflected C++ structs
-jolt build examples/json-file    # read and write a JSON task list; run with -file tasks.json
-jolt build test                  # run the unit tests
-jolt build benchmark             # go++ vs Go, report in report/benchmark.md
+jolt build examples/hello          # the hello-world server (-cert/-key for HTTPS and HTTP/2, -h2c); Ctrl-C shuts it down gracefully
+jolt build examples/fetch          # a small curl: fetch -i https://go.dev/, or a load generator: -n 1000 -c 50
+jolt build examples/httpfileserver # serve a directory: httpfileserver -dir ./public (an os::Root: nothing outside it)
+jolt build examples/proxy          # TCP proxy with splice(2): proxy -listen :8443 -to go.dev:443
+jolt build examples/lookup         # concurrent DNS lookups: lookup go.dev example.com
+jolt build examples/grep           # search a tree with fs::WalkDir and a pool of fibers: grep -dir src -ext .cpp TODO
+jolt build examples/parallel       # run shell commands concurrently, like xargs -P: ... | parallel -j 8
+jolt build examples/sandbox        # run a command in new namespaces, unprivileged: sandbox -net=false -- sh
+jolt build examples/modules        # go++ imported as C++ modules
+jolt build examples/prime          # concurrent prime sieve using goroutines and channels
+jolt build examples/mandelbrot     # ASCII fractal rendered by a goroutine worker pool
+jolt build examples/tcp-echo       # TCP echo server; connect with: nc localhost 8081
+jolt build examples/udp-echo       # UDP echo server; try: nc -u -w1 localhost 8082
+jolt build examples/tcp-chat       # multi-client chat room; connect from multiple terminals with nc localhost 8083
+jolt build examples/template       # render a Markdown report from reflected C++ structs
+jolt build examples/json-file      # a JSON task list, saved atomically: json-file -add "Buy milk"
+jolt build test                    # run the unit tests
+jolt build benchmark               # go++ vs Go, report in report/benchmark.md
 ```
 
 | Task | What it builds |
@@ -291,3 +299,5 @@ what it doesn't do yet:
 - **Request contexts** are canceled when the handler returns or a write to
   the client fails, not when the client disconnects while the handler is
   idle.
+- **`FileServer` copies files through user space**: the `ResponseWriter`
+  doesn't use `sendfile(2)` yet, as Go's does.
