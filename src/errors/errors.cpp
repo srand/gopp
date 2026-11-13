@@ -83,9 +83,39 @@ std::vector<std::string> live_objects_since(unsigned long since) {
 }
 #endif
 
+std::span<const error> error_interface::UnwrapList() const noexcept { return {}; }
+
 namespace errors {
 
+namespace detail {
+
+const error_interface* find(const error_interface* e, bool (*match)(const error_interface*, void*), void* ctx) noexcept {
+    for (; e; e = e->Unwrap()) {
+        if (match(e, ctx)) return e;
+        for (const error& u : e->UnwrapList()) {
+            if (auto* r = find(u.get(), match, ctx)) return r;
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace detail
+
 namespace {
+
+// Go's joinError.
+struct join_error final : error_interface {
+    std::vector<error> errs;
+    string Error() const override {
+        std::string s;
+        for (std::size_t i = 0; i < errs.size(); i++) {
+            if (i > 0) s += '\n';
+            s += errs[i].Error().view();
+        }
+        return string(s);
+    }
+    std::span<const error> UnwrapList() const noexcept override { return errs; }
+};
 
 struct error_string final : error_interface {
     explicit error_string(string s) : s(std::move(s)) {}
@@ -99,11 +129,26 @@ error New(string text) { return error(make_ptr<error_string>(std::move(text))); 
 
 bool Is(const error& err, const error& target) noexcept {
     if (!err || !target) return err == target;
-    for (const error_interface* e = err.get(); e; e = e->Unwrap()) {
-        if (e == target.get() || e->Is(target.get())) return true;
-    }
-    return false;
+    const error_interface* t = target.get();
+    return detail::find(
+               err.get(),
+               [](const error_interface* e, void* t) {
+                   auto* target = static_cast<const error_interface*>(t);
+                   return e == target || e->Is(target);
+               },
+               const_cast<error_interface*>(t)) != nullptr;
 }
+
+error Join(std::span<const error> errs) {
+    auto e = make_ptr<join_error>();
+    for (const error& err : errs) {
+        if (err) e->errs.push_back(err);
+    }
+    if (e->errs.empty()) return nullptr;
+    return error(std::move(e));
+}
+
+error Join(std::initializer_list<error> errs) { return Join(std::span<const error>(errs.begin(), errs.size())); }
 
 error Unwrap(const error& err) noexcept {
     if (!err) return nullptr;

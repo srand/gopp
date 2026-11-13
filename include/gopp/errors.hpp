@@ -13,17 +13,25 @@
 #include <gopp/string.hpp>
 
 #include <format>
+#include <initializer_list>
 #include <ostream>
+#include <span>
 #include <utility>
+#include <vector>
 #endif
 
 namespace gopp {
+
+class error;
 
 // The error interface. Implementations derive from it and return their
 // message from error(). Wrapping errors also implement unwrap().
 struct error_interface : public virtual object {
     virtual string Error() const = 0;
     virtual const error_interface* Unwrap() const noexcept { return nullptr; }
+    // Go's Unwrap() []error: the errors a joined error, or an Errorf with
+    // several fmt::W arguments, wraps. errors::Is and As search them too.
+    virtual std::span<const error> UnwrapList() const noexcept;
     // Optional: whether the error is a timeout (net.Error).
     virtual bool Timeout() const noexcept { return false; }
     // Optional: whether the error matches target for errors.Is, as an
@@ -70,14 +78,24 @@ error New(string text);
 // errors.Is: whether err or any error it wraps is target.
 bool Is(const error& err, const error& target) noexcept;
 
-// errors.As: the first error in err's chain that is an E, or nullptr.
+namespace detail {
+// The first error in the tree at e, depth first, that match says yes to.
+const error_interface* find(const error_interface* e, bool (*match)(const error_interface*, void*), void* ctx) noexcept;
+}  // namespace detail
+
+// errors.As: the first error in err's tree (its Unwrap chain, and the
+// lists of UnwrapList) that is an E, or nullptr.
 template <typename E>
 const E* As(const error& err) noexcept {
-    for (const error_interface* e = err.get(); e; e = e->Unwrap()) {
-        if (auto* t = dynamic_cast<const E*>(e)) return t;
-    }
-    return nullptr;
+    auto* e = detail::find(
+        err.get(), [](const error_interface* e, void*) { return dynamic_cast<const E*>(e) != nullptr; }, nullptr);
+    return e ? dynamic_cast<const E*>(e) : nullptr;
 }
+
+// errors.Join: an error wrapping the non-nil errs, whose message is
+// theirs joined by newlines; nil if there are none.
+error Join(std::span<const error> errs);
+error Join(std::initializer_list<error> errs);
 
 // errors.Unwrap
 error Unwrap(const error& err) noexcept;

@@ -4,6 +4,7 @@
 //     fmt::Println("listening on {}", addr);  // fmt.Printf(... + "\n")
 //     auto s = fmt::Sprint("{}:{}", host, port);
 //     return fmt::Errorf("bad port {}", port);
+//     return fmt::Errorf("open {}: {}", name, fmt::W(err));   // %w: wraps err
 #pragma once
 
 // The module interfaces (modules/) import these instead.
@@ -16,13 +17,27 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 #endif
 
 namespace gopp::fmt {
 
+// Go's %w verb: an Errorf argument that formats as the error does, and
+// that the error Errorf returns wraps (errors::Is and As find it). With
+// several, the error wraps them all, as Go's Unwrap() []error.
+struct W {
+    W(gopp::error e) noexcept : err(std::move(e)) {}
+    gopp::error err;
+};
+
 namespace detail {
 void write_stdout(std::string_view s);
-}
+// The error of Errorf: msg, wrapping the errors of its fmt::W arguments.
+error wrap_errors(string msg, std::vector<gopp::error> wrapped);
+inline void collect_wrapped(std::vector<gopp::error>& v, const W& w) { v.push_back(w.err); }
+template <typename T>
+void collect_wrapped(std::vector<gopp::error>&, const T&) {}
+}  // namespace detail
 
 // Arguments are forwarded, never moved from: formatting only reads them.
 
@@ -72,10 +87,25 @@ string Sprint(std::format_string<A...> f, A&&... a) {
     return string(std::format(f, std::forward<A>(a)...));
 }
 
-// An error with a formatted message (fmt.Errorf).
+// An error with a formatted message (fmt.Errorf); fmt::W arguments are
+// wrapped, as %w wraps in Go.
 template <typename... A>
 error Errorf(std::format_string<A...> f, A&&... a) {
-    return errors::New(Sprint(f, std::forward<A>(a)...));
+    constexpr bool wraps = (std::is_same_v<std::remove_cvref_t<A>, W> || ...);
+    if constexpr (wraps) {
+        std::vector<gopp::error> wrapped;
+        (detail::collect_wrapped(wrapped, a), ...);
+        return detail::wrap_errors(Sprint(f, std::forward<A>(a)...), std::move(wrapped));
+    } else {
+        return errors::New(Sprint(f, std::forward<A>(a)...));
+    }
 }
 
 }  // namespace gopp::fmt
+
+template <>
+struct std::formatter<gopp::fmt::W> : std::formatter<std::string_view> {
+    auto format(const gopp::fmt::W& w, auto& ctx) const {
+        return std::formatter<std::string_view>::format(w.err.Error().view(), ctx);
+    }
+};

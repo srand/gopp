@@ -218,4 +218,27 @@ void write_stdout(std::string_view s) {
     std::fflush(stdout);
 }
 
+namespace {
+
+// Go's fmt.wrapError and wrapErrors.
+struct wrap_error final : error_interface {
+    wrap_error(string m, std::vector<gopp::error> e) : msg(std::move(m)), errs(std::move(e)) {}
+    string Error() const override { return msg; }
+    const error_interface* Unwrap() const noexcept override { return errs.size() == 1 ? errs[0].get() : nullptr; }
+    std::span<const gopp::error> UnwrapList() const noexcept override {
+        if (errs.size() == 1) return {};
+        return errs;
+    }
+    string msg;
+    std::vector<gopp::error> errs;
+};
+
+}  // namespace
+
+error wrap_errors(string msg, std::vector<gopp::error> wrapped) {
+    // Go: a nil %w operand isn't wrapped.
+    std::erase_if(wrapped, [](const gopp::error& e) { return !e; });
+    return make_ptr<wrap_error>(std::move(msg), std::move(wrapped));
+}
+
 }  // namespace gopp::fmt::detail
