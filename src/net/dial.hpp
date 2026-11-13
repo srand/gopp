@@ -87,7 +87,7 @@ std::tuple<string, int, error> parseNetwork(const ptr<context::Context>& ctx, st
 
 // Go's Resolver.resolveAddrList: the addresses of addr for an op ("dial"
 // or "listen") on network; for a dial, those matching hint's family.
-std::pair<addrList, error> resolveAddrList(const ptr<context::Context>& ctx, std::string_view op,
+std::pair<addrList, error> resolveAddrList(Resolver* r, const ptr<context::Context>& ctx, std::string_view op,
                                            std::string_view network, std::string_view addr, const Addr* hint);
 
 // Go's partialDeadline: a share of the time left for one of

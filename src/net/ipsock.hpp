@@ -11,11 +11,6 @@ namespace gopp::net {
 
 using addr_list = std::vector<ptr<Addr>>;
 
-// Go's internetAddrList: the addresses of "host:port" for net ("tcp*",
-// "udp*"), as TCPAddrs or UDPAddrs; a missing host gives one with a nil
-// IP. Looks names up as a blocking call.
-std::pair<addr_list, error> internet_addr_list(const ptr<context::Context>& ctx, std::string_view net,
-                                               std::string_view addr);
 
 // The IP, port and zone of a TCPAddr or UDPAddr.
 struct ip_port {

@@ -1,6 +1,7 @@
 // Dialer and ListenConfig, after Go's net/dial.go and the address list
 // helpers of ipsock.go.
 #include "dial.hpp"
+#include "dnsclient.hpp"
 #include "ipsock.hpp"
 
 #include <gopp/runtime.hpp>
@@ -98,18 +99,6 @@ bool isWildcardIP(const Addr* a) {
     return ip.ip.empty() || ip.ip.IsUnspecified();
 }
 
-// dtoi: a decimal number at the start of s, and where it ended.
-std::tuple<int, std::size_t, bool> dtoi(std::string_view s) {
-    int n = 0;
-    std::size_t i = 0;
-    for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; i++) {
-        n = n * 10 + (s[i] - '0');
-        if (n >= 0xFFFFFF) return {0xFFFFFF, i, false};
-    }
-    if (i == 0) return {0, 0, false};
-    return {n, i, true};
-}
-
 }  // namespace
 
 // Go's lookupProtocol, in iprawsock's file once raw IP sockets are here.
@@ -189,7 +178,7 @@ std::tuple<string, int, error> parseNetwork(const ptr<context::Context>& ctx, st
     return {{}, 0, make_ptr<UnknownNetworkError>(string(network))};
 }
 
-std::pair<addrList, error> resolveAddrList(const ptr<context::Context>& ctx, std::string_view op,
+std::pair<addrList, error> resolveAddrList(Resolver* r, const ptr<context::Context>& ctx, std::string_view op,
                                            std::string_view network, std::string_view addr, const Addr* hint) {
     auto [afnet, proto, err] = parseNetwork(ctx, network, true);
     if (err) return {{}, err};
@@ -203,7 +192,7 @@ std::pair<addrList, error> resolveAddrList(const ptr<context::Context>& ctx, std
         }
         return {{ua}, nullptr};
     }
-    auto [addrs, aerr] = internet_addr_list(ctx, af, addr);
+    auto [addrs, aerr] = internetAddrList(r, ctx, af, addr);
     if (aerr || op != "dial" || !hint) return {addrs, aerr};
 
     // Only the addresses of the local address's family, unless one of
@@ -388,7 +377,7 @@ std::pair<ptr<Conn>, error> Dialer::DialContext(const ptr<context::Context>& ctx
     auto [ctx, cancel] = dialCtx(*this, ctx0);
     defer_t cancelCtx{[&] { cancel(); }};
     string net(network);
-    auto [addrs, err] = resolveAddrList(ctx, "dial", network, address, LocalAddr.get());
+    auto [addrs, err] = resolveAddrList(Resolver.get(), ctx, "dial", network, address, LocalAddr.get());
     if (err) return {nullptr, op_error("dial", net, nullptr, nullptr, err)};
     sysDialer sd{.d = *this, .network = net, .address = string(address)};
     addrList primaries, fallbacks;
@@ -469,7 +458,7 @@ void ListenConfig::SetMultipathTCP(bool use) { mptcpStatus = use ? 1 : 2; }
 std::pair<ptr<net::Listener>, error> ListenConfig::Listen(const ptr<context::Context>& ctx, std::string_view network,
                                                           std::string_view address) {
     string net(network);
-    auto [addrs, err] = resolveAddrList(ctx, "listen", network, address, nullptr);
+    auto [addrs, err] = resolveAddrList(nullptr, ctx, "listen", network, address, nullptr);
     if (err) return {nullptr, op_error("listen", net, nullptr, nullptr, err)};
     sysListener sl{.lc = *this, .network = net, .address = string(address)};
     ptr<Addr> la = first(addrs, isIPv4);
@@ -489,7 +478,7 @@ std::pair<ptr<net::Listener>, error> ListenConfig::Listen(const ptr<context::Con
 std::pair<ptr<net::PacketConn>, error> ListenConfig::ListenPacket(const ptr<context::Context>& ctx,
                                                                  std::string_view network, std::string_view address) {
     string net(network);
-    auto [addrs, err] = resolveAddrList(ctx, "listen", network, address, nullptr);
+    auto [addrs, err] = resolveAddrList(nullptr, ctx, "listen", network, address, nullptr);
     if (err) return {nullptr, op_error("listen", net, nullptr, nullptr, err)};
     sysListener sl{.lc = *this, .network = net, .address = string(address)};
     ptr<Addr> la = first(addrs, isIPv4);

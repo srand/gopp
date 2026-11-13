@@ -1,10 +1,11 @@
-// IP socket addresses and their resolution, after Go's net/ipsock.go,
-// tcpsock.go, udpsock.go, lookup.go and port.go.
+// IP socket addresses, after Go's net/ipsock.go, tcpsock.go, udpsock.go,
+// lookup.go (LookupPort) and port.go.
+#include "dial.hpp"
+#include "dnsclient.hpp"
 #include "ipsock.hpp"
 
 #include <gopp/runtime.hpp>
 
-#include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -117,58 +118,6 @@ std::pair<int, error> lookupPortMapWithNetwork(const std::string& network, std::
     return {0, e};
 }
 
-struct ip_zone {
-    IP ip;
-    string zone;
-};
-
-// Go's lookupIPAddr: an address literal (IPv6 with a zone too), or the
-// addresses of a name.
-std::pair<std::vector<ip_zone>, error> lookupIPAddr(std::string_view network, std::string_view host) {
-    if (IP ip = ParseIP(host); !ip.empty()) return {{{ip, {}}}, nullptr};
-    if (auto pct = host.rfind('%'); pct != host.npos && pct > 0 && host.substr(0, pct).find(':') != host.npos &&
-                                    pct + 1 < host.size()) {
-        if (IP ip = ParseIP(host.substr(0, pct)); !ip.empty() && ip.To4().empty()) {
-            return {{{ip, string(host.substr(pct + 1))}}, nullptr};
-        }
-    }
-    if (host == "localhost") return {{{IPv4(127, 0, 0, 1), {}}, {IPv6loopback, {}}}, nullptr};
-
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    if (!network.empty() && network.back() == '4') hints.ai_family = AF_INET;
-    if (!network.empty() && network.back() == '6') hints.ai_family = AF_INET6;
-    hints.ai_socktype = SOCK_STREAM;  // one entry per address
-    addrinfo* res = nullptr;
-    std::string h(host);
-    int rc = runtime::blocking([&] { return getaddrinfo(h.c_str(), nullptr, &hints, &res); });
-    if (rc != 0) {
-        auto e = make_ptr<DNSError>();
-        e->Err = rc == EAI_NONAME || rc == EAI_NODATA ? string::from_static("no such host") : string(gai_strerror(rc));
-        e->Name = string(host);
-        e->IsNotFound = rc == EAI_NONAME || rc == EAI_NODATA;
-        e->IsTemporary = rc == EAI_AGAIN;
-        return {{}, e};
-    }
-    std::vector<ip_zone> out;
-    for (addrinfo* ai = res; ai; ai = ai->ai_next) {
-        if (ai->ai_family == AF_INET) {
-            auto* in = reinterpret_cast<sockaddr_in*>(ai->ai_addr);
-            out.push_back({IP(slice<byte>::of(std::span(reinterpret_cast<const byte*>(&in->sin_addr), 4))), {}});
-        } else if (ai->ai_family == AF_INET6) {
-            auto* in6 = reinterpret_cast<sockaddr_in6*>(ai->ai_addr);
-            out.push_back({IP(slice<byte>::of(std::span(reinterpret_cast<const byte*>(&in6->sin6_addr), 16))), {}});
-        }
-    }
-    freeaddrinfo(res);
-    return {out, nullptr};
-}
-
-bool is_ipv4(const Addr* a) {
-    ip_port ip = ip_port_of(a);
-    return ip.ok && !ip.ip.To4().empty();
-}
-
 }  // namespace
 
 string TCPAddr::String() const { return ip_addr_string(IP, Port, Zone); }
@@ -242,73 +191,25 @@ std::pair<int, error> LookupPort(std::string_view network, std::string_view serv
 ip_port ip_port_of(const Addr* a) {
     if (auto* t = dynamic_cast<const TCPAddr*>(a)) return {t->IP, t->Port, t->Zone, true};
     if (auto* u = dynamic_cast<const UDPAddr*>(a)) return {u->IP, u->Port, u->Zone, true};
+    if (auto* i = dynamic_cast<const IPAddr*>(a)) return {i->IP, 0, i->Zone, true};
     return {};
 }
 
-std::pair<addr_list, error> internet_addr_list(const ptr<context::Context>& ctx, std::string_view net,
-                                               std::string_view addr) {
-    string host, port;
-    int portnum = 0;
-    bool udp;
-    if (net == "tcp" || net == "tcp4" || net == "tcp6") udp = false;
-    else if (net == "udp" || net == "udp4" || net == "udp6") udp = true;
-    else return {{}, make_ptr<UnknownNetworkError>(string(net))};
-    if (!addr.empty()) {
-        error err;
-        std::tie(host, port, err) = SplitHostPort(addr);
-        if (err) return {{}, err};
-        std::tie(portnum, err) = LookupPort(net, port.view());
-        if (err) return {{}, err};
-    }
-    auto inetaddr = [&](IP ip, string zone) -> ptr<Addr> {
-        if (udp) return make_ptr<UDPAddr>(std::move(ip), portnum, std::move(zone));
-        return make_ptr<TCPAddr>(std::move(ip), portnum, std::move(zone));
-    };
-    if (host.empty()) return {{inetaddr({}, {})}, nullptr};
-    auto [ips, err] = lookupIPAddr(net, host.view());
-    if (err) return {{}, err};
-    // Go 1.0: an IPv6 wildcard listens on IPv4 too.
-    if (ips.size() == 1 && ips[0].ip.Equal(IPv6unspecified)) ips.push_back({IPv4zero, {}});
-    addr_list out;
-    for (auto& ip : ips) {
-        if (net.back() == '4' && ip.ip.To4().empty()) continue;
-        if (net.back() == '6' && (ip.ip.size() != IPv6len || !ip.ip.To4().empty())) continue;
-        out.push_back(inetaddr(ip.ip, ip.zone));
-    }
-    if (out.empty()) return {{}, make_ptr<AddrError>(string::from_static("no suitable address found"), host)};
-    return {out, nullptr};
-}
-
 std::pair<ptr<TCPAddr>, error> ResolveTCPAddr(std::string_view network, std::string_view address) {
-    if (network.empty()) network = "tcp";  // Go 1.0
+    if (network.empty()) network = "tcp";  // a hint wildcard for Go 1.0 undocumented behavior
     else if (network != "tcp" && network != "tcp4" && network != "tcp6") return {nullptr, make_ptr<UnknownNetworkError>(string(network))};
-    auto [addrs, err] = internet_addr_list(context::Background(), network, address);
+    auto [addrs, err] = internetAddrList(nullptr, context::Background(), network, address);
     if (err) return {nullptr, err};
-    // Go's forResolve: an IPv6 address if the literal has '['.
-    bool want6 = network == "tcp" && address.find('[') != address.npos;
-    ptr<Addr> a = addrs.front();
-    for (auto& x : addrs) {
-        if (is_ipv4(x.get()) != want6) {
-            a = x;
-            break;
-        }
-    }
+    ptr<Addr> a = forResolve(addrs, network, address);
     return {ptr<TCPAddr>(dynamic_cast<TCPAddr*>(a.get())), nullptr};
 }
 
 std::pair<ptr<UDPAddr>, error> ResolveUDPAddr(std::string_view network, std::string_view address) {
-    if (network.empty()) network = "udp";  // Go 1.0
+    if (network.empty()) network = "udp";  // a hint wildcard for Go 1.0 undocumented behavior
     else if (network != "udp" && network != "udp4" && network != "udp6") return {nullptr, make_ptr<UnknownNetworkError>(string(network))};
-    auto [addrs, err] = internet_addr_list(context::Background(), network, address);
+    auto [addrs, err] = internetAddrList(nullptr, context::Background(), network, address);
     if (err) return {nullptr, err};
-    bool want6 = network == "udp" && address.find('[') != address.npos;
-    ptr<Addr> a = addrs.front();
-    for (auto& x : addrs) {
-        if (is_ipv4(x.get()) != want6) {
-            a = x;
-            break;
-        }
-    }
+    ptr<Addr> a = forResolve(addrs, network, address);
     return {ptr<UDPAddr>(dynamic_cast<UDPAddr*>(a.get())), nullptr};
 }
 

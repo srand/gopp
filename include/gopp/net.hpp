@@ -30,6 +30,7 @@
 #include <atomic>
 #include <format>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -167,6 +168,17 @@ struct UDPAddr final : Addr {
 // net.UDPAddrFromAddrPort
 ptr<UDPAddr> UDPAddrFromAddrPort(netip::AddrPort addr);
 
+// net.IPAddr: the address of an IP end point (raw IP sockets, and the
+// results of Resolver::LookupIPAddr).
+struct IPAddr final : Addr {
+    net::IP IP;
+    string Zone;  // IPv6 scoped addressing zone
+    IPAddr() = default;
+    IPAddr(net::IP ip, string zone = {}) : IP(std::move(ip)), Zone(std::move(zone)) {}
+    string Network() const override { return string::from_static("ip"); }
+    string String() const override;
+};
+
 // net.UnixAddr: the path of a Unix domain socket, or "@name" for one in
 // Linux's abstract namespace (and "@" for an unnamed one), and its network:
 // "unix", "unixgram" or "unixpacket".
@@ -190,6 +202,10 @@ std::pair<ptr<UDPAddr>, error> ResolveUDPAddr(std::string_view network, std::str
 
 // net.LookupPort: the port of a service ("http", "domain") or number.
 std::pair<int, error> LookupPort(std::string_view network, std::string_view service);
+
+// net.ResolveIPAddr: network is "ip", "ip4" or "ip6"; address a host
+// name or address.
+std::pair<ptr<IPAddr>, error> ResolveIPAddr(std::string_view network, std::string_view address);
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -254,7 +270,16 @@ struct DNSError : error_interface {
     bool IsNotFound = false;
     string Error() const override;
     bool Timeout() const noexcept override { return IsTimeout; }
+    // Whether the error is known to be temporary.
+    bool Temporary() const noexcept { return IsTimeout || IsTemporary; }
     const error_interface* Unwrap() const noexcept override { return UnwrapErr.get(); }
+};
+
+// net.DNSConfigError: no longer used, kept for compatibility.
+struct DNSConfigError : error_interface {
+    gopp::error Err;
+    string Error() const override { return "error reading DNS config: " + Err.Error(); }
+    const error_interface* Unwrap() const noexcept override { return Err.get(); }
 };
 
 // syscall.Errno, also known as net::Errno.
@@ -471,6 +496,98 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Name resolution
+
+// net.SRV: a DNS SRV record.
+struct SRV : public virtual object {
+    string Target;
+    uint16 Port = 0;
+    uint16 Priority = 0;
+    uint16 Weight = 0;
+};
+
+// net.MX: a DNS MX record.
+struct MX : public virtual object {
+    string Host;
+    uint16 Pref = 0;
+};
+
+// net.NS: a DNS NS record.
+struct NS : public virtual object {
+    string Host;
+};
+
+namespace detail {
+struct lookup_group;
+}
+
+// net.Resolver: looks up names and numbers. go++ has Go's own resolver
+// only (as GODEBUG=netdns=go): /etc/hosts, then DNS as /etc/resolv.conf
+// and /etc/nsswitch.conf configure it, with queries sent from fibers on
+// the poller. A zero Resolver is DefaultResolver's equivalent.
+class Resolver : public virtual object {
+public:
+    Resolver();
+    ~Resolver() override;
+
+    // Kept for Go compatibility: go++ always uses its own resolver.
+    bool PreferGo = false;
+    // With StrictErrors, a temporary error (a timeout, a SERVFAIL) fails
+    // the whole lookup, instead of returning the results that came.
+    bool StrictErrors = false;
+    // How DNS servers are dialed ("udp" or "tcp", "ip:port"); a Dialer
+    // when it's empty.
+    std::function<std::pair<ptr<Conn>, error>(const ptr<context::Context>& ctx, std::string_view network,
+                                              std::string_view address)>
+        Dial;
+
+    // The addresses of host, as text.
+    std::pair<std::vector<string>, error> LookupHost(const ptr<context::Context>& ctx, std::string_view host);
+    // The IPv4 and IPv6 addresses of host.
+    std::pair<std::vector<IPAddr>, error> LookupIPAddr(const ptr<context::Context>& ctx, std::string_view host);
+    // network is "ip", "ip4" or "ip6".
+    std::pair<std::vector<IP>, error> LookupIP(const ptr<context::Context>& ctx, std::string_view network,
+                                              std::string_view host);
+    std::pair<std::vector<netip::Addr>, error> LookupNetIP(const ptr<context::Context>& ctx, std::string_view network,
+                                                         std::string_view host);
+    std::pair<int, error> LookupPort(const ptr<context::Context>& ctx, std::string_view network,
+                                     std::string_view service);
+    // The canonical name of host, after CNAME records.
+    std::pair<string, error> LookupCNAME(const ptr<context::Context>& ctx, std::string_view host);
+    // _service._proto.name's SRV records, sorted by priority and shuffled
+    // by weight; with service and proto empty, name's. Returns the
+    // canonical name too.
+    std::tuple<string, std::vector<ptr<SRV>>, error> LookupSRV(const ptr<context::Context>& ctx,
+                                                               std::string_view service, std::string_view proto,
+                                                               std::string_view name);
+    // MX records, sorted by preference.
+    std::pair<std::vector<ptr<MX>>, error> LookupMX(const ptr<context::Context>& ctx, std::string_view name);
+    std::pair<std::vector<ptr<NS>>, error> LookupNS(const ptr<context::Context>& ctx, std::string_view name);
+    std::pair<std::vector<string>, error> LookupTXT(const ptr<context::Context>& ctx, std::string_view name);
+    // The names of addr (reverse lookup).
+    std::pair<std::vector<string>, error> LookupAddr(const ptr<context::Context>& ctx, std::string_view addr);
+
+    const std::shared_ptr<detail::lookup_group>& lookupGroupPtr() const { return group_; }
+
+private:
+    std::shared_ptr<detail::lookup_group> group_;
+};
+
+// net.DefaultResolver: the resolver of the package-level functions.
+extern const ptr<Resolver> DefaultResolver;
+
+// The package-level lookups, with DefaultResolver.
+std::pair<std::vector<string>, error> LookupHost(std::string_view host);
+std::pair<std::vector<IP>, error> LookupIP(std::string_view host);
+std::pair<string, error> LookupCNAME(std::string_view host);
+std::tuple<string, std::vector<ptr<SRV>>, error> LookupSRV(std::string_view service, std::string_view proto,
+                                                           std::string_view name);
+std::pair<std::vector<ptr<MX>>, error> LookupMX(std::string_view name);
+std::pair<std::vector<ptr<NS>>, error> LookupNS(std::string_view name);
+std::pair<std::vector<string>, error> LookupTXT(std::string_view name);
+std::pair<std::vector<string>, error> LookupAddr(std::string_view addr);
+
+// ---------------------------------------------------------------------------
 // Dialing and listening
 
 // The callbacks of Dialer and ListenConfig that see the socket before it
@@ -505,6 +622,8 @@ struct Dialer {
     // turns keep-alives off. Ignored when KeepAliveConfig.Enable.
     time::Duration KeepAlive{};
     net::KeepAliveConfig KeepAliveConfig{};
+    // The resolver for names; DefaultResolver if nil.
+    ptr<net::Resolver> Resolver{};
     // Deprecated: closing it cancels the dial; use DialContext.
     chan<empty> Cancel{};
     // Called with the socket before it connects.
