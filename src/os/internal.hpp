@@ -162,6 +162,13 @@ std::string join_path(std::string_view dir, std::string_view name);
 // Go's lstatat: the Lstat of name in the directory f.
 std::pair<ptr<FileInfo>, error> lstatat(File& f, file_impl& fi, std::string_view name);
 
+// Go's pidfdWorks: whether pidfd_open, pidfd_send_signal, waitid(P_PIDFD)
+// and clone(CLONE_PIDFD) work, checked once.
+bool pidfd_works();
+// A test hook: while set, the os package doesn't use pidfds, as on a
+// kernel without them.
+extern std::atomic<bool> pidfd_disabled;
+
 }  // namespace detail
 
 }  // namespace gopp::os

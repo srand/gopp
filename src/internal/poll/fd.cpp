@@ -414,4 +414,30 @@ error FD::SetDeadline(time::Time t, int mode) {
     return nullptr;
 }
 
+error FD::RawRead(const std::function<bool(int)>& f) {
+    std::lock_guard l(rmu_);
+    if (error err = incref()) return err;
+    bool polled = pollable();
+    if (polled) {
+        if (int pe = runtime::poll_reset(pd_, 'r')) {
+            decref();
+            return poll_error(pe);
+        }
+    }
+    for (;;) {
+        if (f(sysfd_)) {
+            decref();
+            return nullptr;
+        }
+        if (!polled) {
+            decref();
+            return errors::New("waiting for unsupported file type");
+        }
+        if (int pe = runtime::poll_wait(pd_, 'r')) {
+            decref();
+            return poll_error(pe);
+        }
+    }
+}
+
 }  // namespace gopp::poll

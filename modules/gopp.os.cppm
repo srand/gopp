@@ -11,6 +11,7 @@ export import gopp.io.fs;
 export import gopp.ptr;
 export import gopp.slice;
 export import gopp.string;
+export import gopp.syscall;
 export import gopp.time;
 
 export extern "C++" {

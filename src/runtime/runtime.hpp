@@ -280,8 +280,24 @@ int32_t netpoll_waiters() noexcept;
 void initsig() noexcept;
 
 // Go's sigpipe: after a write to standard output or error failed with
-// EPIPE, dies of SIGPIPE, unless SIGPIPE is ignored.
+// EPIPE, dies of SIGPIPE, unless SIGPIPE is ignored or os/signal's Notify
+// asked for it, which then gets it.
 void sigpipe() noexcept;
+
+// The runtime side of os/signal (Go's signal_enable and friends). Enable
+// installs the runtime's handler, which queues the signal for
+// signal_recv; disable restores the signal's earlier disposition; ignore
+// sets SIG_IGN.
+void signal_enable(uint32_t sig) noexcept;
+void signal_disable(uint32_t sig) noexcept;
+void signal_ignore(uint32_t sig) noexcept;
+bool signal_ignored(uint32_t sig) noexcept;
+// Parks until a signal enabled by signal_enable arrives, and returns it.
+// Only os/signal's loop fiber calls it.
+uint32_t signal_recv() noexcept;
+// Returns once the signals that arrived so far have been delivered by
+// os/signal's loop (Go's signalWaitUntilIdle).
+void signal_wait_until_idle() noexcept;
 
 // ---------------------------------------------------------------------------
 // Semaphores (sema.cpp), after Go's sema.Go.

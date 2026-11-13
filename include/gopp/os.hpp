@@ -1,5 +1,5 @@
 // The os package: files and directories, the standard streams, arguments,
-// exit and the environment.
+// exit, the environment, processes and signals.
 //
 //     auto [data, err] = os::ReadFile("config.json");
 //     if (os::IsNotExist(err)) ...
@@ -27,9 +27,15 @@
 #include <gopp/ptr.hpp>
 #include <gopp/slice.hpp>
 #include <gopp/string.hpp>
+#include <gopp/syscall.hpp>
 #include <gopp/time.hpp>
 
+#include <cstddef>
+#include <format>
+#include <functional>
 #include <memory>
+#include <optional>
+#include <ostream>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -298,10 +304,219 @@ int Getpagesize() noexcept;
 const std::vector<string>& Args();
 void SetArgs(int argc, char** argv);
 
-// os.Getenv
-string Getenv(std::string_view key);
-
 // os.Exit: exits at once, without running destructors.
 [[noreturn]] void Exit(int code);
 
+// ---------------------------------------------------------------------------
+// The environment. It's the C library's: changes are seen by C code and
+// inherited by processes started with the C library too.
+
+// os.Getenv: the value of the variable, or "" if it isn't set.
+string Getenv(std::string_view key);
+// os.LookupEnv: the value and whether the variable is set.
+std::pair<string, bool> LookupEnv(std::string_view key);
+// os.Setenv. Fails with EINVAL for an empty key or one with '=' or a NUL,
+// and a value with a NUL.
+error Setenv(std::string_view key, std::string_view value);
+// os.Unsetenv
+error Unsetenv(std::string_view key);
+// os.Clearenv: unsets all variables.
+void Clearenv();
+// os.Environ: the environment as "key=value" strings.
+slice<string> Environ();
+// os.Expand: replaces $var and ${var} in s with mapping(var), as a shell
+// does; also $1, $*, $# and the like.
+string Expand(std::string_view s, const std::function<string(std::string_view)>& mapping);
+// os.ExpandEnv: Expand with Getenv.
+string ExpandEnv(std::string_view s);
+
+// os.UserHomeDir: $HOME.
+std::pair<string, error> UserHomeDir();
+// os.UserCacheDir: $XDG_CACHE_HOME, or $HOME/.cache.
+std::pair<string, error> UserCacheDir();
+// os.UserConfigDir: $XDG_CONFIG_HOME, or $HOME/.config.
+std::pair<string, error> UserConfigDir();
+
+// os.Hostname
+std::pair<string, error> Hostname();
+// os.Executable: the path of the running program (/proc/self/exe).
+std::pair<string, error> Executable();
+
+// The ids of the process and its user.
+int Getpid() noexcept;
+int Getppid() noexcept;
+int Getuid() noexcept;
+int Geteuid() noexcept;
+int Getgid() noexcept;
+int Getegid() noexcept;
+// os.Getgroups: the supplementary groups.
+std::pair<std::vector<int>, error> Getgroups();
+
+// ---------------------------------------------------------------------------
+// Signals
+
+// The interface behind os::Signal values that aren't syscall::Signals:
+// Go's os.Signal interface, for signal types of a program's own.
+struct signal_interface : public virtual object {
+    virtual string String() const = 0;
+    virtual void Signal() const = 0;  // to tell signals from other Stringers
+};
+
+// os.Signal: an interface value, as gopp::error is. It's nil, a
+// syscall::Signal (held as its number, without allocating), or a
+// signal_interface. Values compare as Go compares interfaces: syscall
+// signals by number, others by identity.
+//
+//     auto c = make_chan<os::Signal>(1);
+//     signal::Notify(c, os::Interrupt, syscall::SIGTERM_);
+//     os::Signal s = c.recv();
+//     if (s == syscall::SIGTERM_) ...
+class Signal {
+public:
+    constexpr Signal() noexcept = default;
+    constexpr Signal(std::nullptr_t) noexcept {}
+    constexpr Signal(syscall::Signal s) noexcept : num_(s.value), sys_(true) {}
+    Signal(ptr<const signal_interface> p) noexcept : p_(std::move(p)) {}
+    template <typename T>
+        requires std::is_base_of_v<signal_interface, T>
+    Signal(ptr<T> p) noexcept : p_(std::move(p)) {}
+
+    // s.String(); "<nil>" for a nil Signal, as fmt prints it.
+    string String() const;
+
+    explicit operator bool() const noexcept { return sys_ || p_; }
+    bool is_nil() const noexcept { return !*this; }
+
+    // sig.(syscall.Signal): the signal and true if it holds a
+    // syscall::Signal.
+    std::pair<syscall::Signal, bool> as_syscall() const noexcept { return {syscall::Signal(num_), sys_}; }
+    // The signal_interface it holds, if any.
+    const signal_interface* get() const noexcept { return p_.get(); }
+
+    friend bool operator==(const Signal& a, const Signal& b) noexcept {
+        if (a.sys_ || b.sys_) return a.sys_ == b.sys_ && a.num_ == b.num_;
+        return a.p_.get() == b.p_.get();
+    }
+    friend bool operator==(const Signal& a, std::nullptr_t) noexcept { return !a; }
+    friend std::ostream& operator<<(std::ostream& os, const Signal& s) { return os << s.String(); }
+
+private:
+    ptr<const signal_interface> p_;
+    int num_ = 0;
+    bool sys_ = false;
+};
+
+// os.Interrupt and os.Kill: the signals every system has.
+inline const Signal Interrupt{syscall::SIGINT_};
+inline const Signal Kill{syscall::SIGKILL_};
+
+// ---------------------------------------------------------------------------
+// Processes
+
+// os.ErrProcessDone: "os: process already finished".
+extern const error ErrProcessDone;
+// os.ErrNoHandle: "os: process handle unavailable".
+extern const error ErrNoHandle;
+
+// os.ProcessState: how a process ended, as Wait reports it.
+class ProcessState final : public object {
+public:
+    ProcessState(int pid, syscall::WaitStatus status, const syscall::Rusage& rusage) noexcept
+        : pid_(pid), status_(status), rusage_(rusage) {}
+
+    // The process id of the exited process.
+    int Pid() const noexcept { return pid_; }
+    // Whether the program exited, rather than being killed by a signal.
+    bool Exited() const noexcept { return status_.Exited(); }
+    // Whether it exited with status 0.
+    bool Success() const noexcept { return status_.ExitStatus() == 0; }
+    // The exit code, or -1 if the process was killed by a signal. (Go's
+    // ExitCode of a nil *ProcessState, -1, has no equivalent: check the
+    // ptr.)
+    int ExitCode() const noexcept { return status_.ExitStatus(); }
+    // Go's Sys() any: the syscall::WaitStatus.
+    syscall::WaitStatus Sys() const noexcept { return status_; }
+    // Go's SysUsage() any: the resource usage of the process.
+    const syscall::Rusage* SysUsage() const noexcept { return &rusage_; }
+    // The user and system CPU time of the process and its children.
+    time::Duration UserTime() const noexcept { return time::Duration(rusage_.Utime.Nano()); }
+    time::Duration SystemTime() const noexcept { return time::Duration(rusage_.Stime.Nano()); }
+    // "exit status 1", "signal: killed", "stop signal: stopped", ...
+    string String() const;
+
+private:
+    int pid_;
+    syscall::WaitStatus status_;
+    syscall::Rusage rusage_;
+};
+
+namespace detail {
+struct process_impl;
+}
+
+// os.Process: a process started by StartProcess or found by FindProcess.
+// On Linux 5.4 and later it holds a pidfd, which Wait waits on through the
+// network poller, parking only its fiber; otherwise Wait blocks its thread,
+// which hands its processor to another, as Go does.
+class Process final : public object {
+public:
+    // The process id; -1 after Release.
+    int Pid = 0;
+
+    // Waits for the process to exit and reports how it ended. The process
+    // must be a child of this one. Releases the Process.
+    std::pair<ptr<ProcessState>, error> Wait();
+    // Sends sig (a syscall::Signal); ErrProcessDone if the process has
+    // been waited for, or has exited.
+    error Signal(const gopp::os::Signal& sig);
+    // Sends SIGKILL: the process exits at once.
+    error Kill();
+    // Releases the process's resources, its pidfd, if Wait isn't called.
+    error Release();
+    // Calls f with the pidfd, which refers to the process until f
+    // returns; ErrNoHandle without one.
+    error WithHandle(const std::function<void(uintptr)>& f);
+
+    ~Process() override;
+
+    // Made by StartProcess and FindProcess.
+    explicit Process(int pid, std::unique_ptr<detail::process_impl> impl) noexcept;
+
+private:
+    friend struct detail::process_impl;
+    std::unique_ptr<detail::process_impl> p_;
+};
+
+// os.ProcAttr: the attributes of a new process.
+struct ProcAttr {
+    // The working directory of the process, if not empty.
+    string Dir{};
+    // The environment, as Environ returns it; nil for this process's.
+    slice<string> Env{};
+    // The files of the process: descriptors 0, 1, 2, ... A nil entry
+    // closes that descriptor. Pollable files are put in blocking mode, so
+    // that the process inherits them so, which turns off their deadlines.
+    std::vector<ptr<File>> Files{};
+    // Linux's attributes; nullopt for none.
+    std::optional<syscall::SysProcAttr> Sys{};
+};
+
+// os.StartProcess: starts the program name with the arguments argv (argv[0]
+// is the program's name, normally) and attr. The errors are PathErrors.
+// It's safe in a program with many threads: the child is made with
+// clone(CLONE_VM|CLONE_VFORK) and runs only system calls until exec, as in
+// Go. os/exec is easier to use.
+std::pair<ptr<Process>, error> StartProcess(std::string_view name, std::span<const string> argv, const ProcAttr& attr);
+
+// os.FindProcess: a Process for pid, whether or not it exists. Signal(0)
+// tells whether it does.
+std::pair<ptr<Process>, error> FindProcess(int pid);
+
 }  // namespace gopp::os
+
+template <>
+struct std::formatter<gopp::os::Signal> : std::formatter<std::string_view> {
+    auto format(const gopp::os::Signal& s, auto& ctx) const {
+        return std::formatter<std::string_view>::format(s.String().view(), ctx);
+    }
+};

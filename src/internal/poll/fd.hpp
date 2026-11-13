@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 
 #include <atomic>
+#include <functional>
 #include <span>
 #include <utility>
 
@@ -73,6 +74,11 @@ public:
 
     // Deadlines; ErrNoDeadline for a descriptor that isn't pollable.
     error SetDeadline(time::Time t, int mode);
+
+    // Go's RawRead: calls f(fd) until it returns true, parking until the
+    // descriptor is readable after each false. For a descriptor that isn't
+    // pollable, a false is an error.
+    error RawRead(const std::function<bool(int)>& f);
 
     int Sysfd() const noexcept { return sysfd_; }
     bool pollable() const noexcept { return pd_ && !blocking_.load(std::memory_order_relaxed); }

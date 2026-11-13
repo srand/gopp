@@ -20,6 +20,8 @@ export import gopp.net.http.httptest;
 export import gopp.net.netip;
 export import gopp.net.url;
 export import gopp.os;
+export import gopp.os.exec;
+export import gopp.os.signal;
 export import gopp.ptr;
 export import gopp.runtime;
 export import gopp.slice;

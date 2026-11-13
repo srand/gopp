@@ -8,6 +8,7 @@
 
 #include <gopp/bufio.hpp>
 #include <gopp/fmt.hpp>
+#include <gopp/os/signal.hpp>
 
 #include <signal.h>
 #include <sys/wait.h>
@@ -77,11 +78,8 @@ TEST(GoOs, EPIPE) {
 TEST(GoOs, StdPipe) {
     if (const char* helper = std::getenv("GO_TEST_STD_PIPE_HELPER")) {
         if (std::getenv("GO_TEST_STD_PIPE_HELPER_SIGNAL")) {
-            // Go's signal.Notify(c, SIGPIPE): the program handles SIGPIPE
-            // itself.
-            struct sigaction sa{};
-            sa.sa_handler = [](int) {};
-            sigaction(SIGPIPE, &sa, nullptr);
+            auto c = make_chan<os::Signal>(1);
+            os::signal::Notify(c, syscall::SIGPIPE_);
         }
         switch (std::atoi(helper)) {
         case 1: os::Stdout.Write(b("stdout")); break;

@@ -205,6 +205,13 @@ std::pair<ptr<Context>, CancelFunc> WithCancel(ptr<Context> parent) {
     return {c, [c] { c->cancel(true, Canceled, nullptr); }};
 }
 
+std::pair<ptr<Context>, CancelCauseFunc> WithCancelCause(ptr<Context> parent) {
+    if (!parent) panic("cannot create context from nil parent");
+    ptr<cancel_ctx> c = make_ptr<cancel_ctx>(std::move(parent));
+    c->propagate_cancel();
+    return {c, [c](error cause) { c->cancel(true, Canceled, std::move(cause)); }};
+}
+
 std::pair<ptr<Context>, CancelFunc> WithDeadline(ptr<Context> parent, time::Time d) {
     if (!parent) panic("cannot create context from nil parent");
     if (auto cur = parent->Deadline(); cur && cur->Before(d)) return WithCancel(std::move(parent));

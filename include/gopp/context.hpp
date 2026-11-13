@@ -40,8 +40,14 @@ ptr<Context> Background();
 // context.TODO
 ptr<Context> TODO();
 
+// context.CancelCauseFunc: cancels with a cause, which Cause returns; a
+// nil cause means Canceled.
+using CancelCauseFunc = std::function<void(error cause)>;
+
 // context.WithCancel
 std::pair<ptr<Context>, CancelFunc> WithCancel(ptr<Context> parent);
+// context.WithCancelCause
+std::pair<ptr<Context>, CancelCauseFunc> WithCancelCause(ptr<Context> parent);
 // context.WithDeadline
 std::pair<ptr<Context>, CancelFunc> WithDeadline(ptr<Context> parent, time::Time d);
 // context.WithTimeout
