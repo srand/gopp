@@ -288,7 +288,8 @@ what it doesn't do yet:
   mid-code: it keeps running on its own thread, so `errno`, `thread_local`
   values and held locks stay valid, and it gets a processor back when it
   next blocks or yields. Meanwhile more threads than `GOMAXPROCS` can be
-  busy. As in Go, system calls made without `runtime::blocking` may fail
+  busy, at most twice as many from preemption: sysmon takes no more
+  processors while `GOMAXPROCS` fibers run without one. As in Go, system calls made without `runtime::blocking` may fail
   with `EINTR` from SIGURG. `GODEBUG=asyncpreemptoff=1` turns preemption
   off.
 - **Fixed-size fiber stacks**, set by `GOPP_STACK_SIZE` (256 KiB of

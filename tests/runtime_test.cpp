@@ -7,6 +7,8 @@
 
 #include <fcntl.h>
 #include <poll.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -16,6 +18,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -156,7 +159,11 @@ bool recv_within(const chan<T>& c, time::Duration d, T* out = nullptr) {
 int run_child(const std::string& name, const std::vector<std::string>& env) {
     std::string filter = "--gtest_filter=" + name;
     std::vector<std::string> envs = env;
-    for (char** e = environ; *e; e++) envs.emplace_back(*e);
+    // Not the parent's GTEST_ settings: a shard or output file of the
+    // parent's would make the child run nothing, or overwrite its report.
+    for (char** e = environ; *e; e++) {
+        if (!std::string_view(*e).starts_with("GTEST_")) envs.emplace_back(*e);
+    }
     std::vector<char*> envp;
     for (auto& e : envs) envp.push_back(e.data());
     envp.push_back(nullptr);
@@ -266,6 +273,53 @@ TEST(Runtime, PreemptUnderChurn) {
     children.Wait();
     EXPECT_GT(spawned.load(), 0);
     EXPECT_EQ(ran.load(), spawned.load());
+}
+
+TEST(Runtime, PreemptBoundsThreads) {
+    // Many fibers that each compute for 100ms: sysmon takes Ps from at
+    // most GOMAXPROCS of them at a time, so no more than about twice
+    // GOMAXPROCS run at once, where one thread per fiber would run them all.
+    int procs = runtime::GOMAXPROCS();
+    std::atomic<int> running{0}, most{0};
+    sync::WaitGroup wg;
+    for (int i = 0; i < 8 * procs; i++) {
+        wg.Go([&] {
+            int n = running.fetch_add(1) + 1;
+            for (int m = most.load(); n > m && !most.compare_exchange_weak(m, n);) {
+            }
+            spin_for(100ms);
+            running.fetch_sub(1);
+        });
+    }
+    wg.Wait();
+    EXPECT_GT(most.load(), procs);           // some were preempted
+    EXPECT_LE(most.load(), 2 * procs + 1);  // a request may be in flight
+}
+
+TEST(Runtime, PreemptWithSignalsBlocked) {
+    if (std::getenv("GOPP_TEST_PREEMPT_CHILD")) {
+        // SIGURG blocked before the runtime starts its threads, as a
+        // program that waits for signals with sigwait does: the threads
+        // unblock it for themselves.
+        sigset_t urg;
+        sigemptyset(&urg);
+        sigaddset(&urg, SIGURG);
+        pthread_sigmask(SIG_BLOCK, &urg, nullptr);
+        sync::WaitGroup wg;
+        wg.Go([] { spin_for(300ms); });
+        auto start = time::Now();
+        auto took = make_chan<time::Duration>(1);
+        go([took, start] {
+            time::Sleep(10 * time::Millisecond);
+            took.send(time::Since(start));
+        });
+        time::Duration elapsed = took.recv();
+        wg.Wait();
+        std::_Exit(elapsed < 150 * time::Millisecond ? 0 : 1);
+    }
+    int status = run_child("Runtime.PreemptWithSignalsBlocked", {"GOPP_TEST_PREEMPT_CHILD=1", "GOMAXPROCS=1"});
+    ASSERT_TRUE(WIFEXITED(status)) << status;
+    EXPECT_EQ(WEXITSTATUS(status), 0) << "the spinner wasn't preempted with SIGURG blocked in main";
 }
 
 TEST(Runtime, RawBlockingSyscallLosesP) {

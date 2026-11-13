@@ -127,7 +127,9 @@ struct P {
     std::atomic<bool> running{false};
     std::atomic<M*> m{nullptr};
     P* link = nullptr;
-    std::atomic<uint32_t> schedtick{0};  // fibers started on this P
+    // Fibers started on this P, and times an M acquired it: sysmon sees a
+    // P that changed hands as busy for a new run.
+    std::atomic<uint32_t> schedtick{0};
 
     // Local run queue, lock-free: the owner puts at the tail, anyone takes
     // from the head.
@@ -171,11 +173,17 @@ struct M {
 
     // Preemption. tid is the M's thread, for tgkill. sysmon asks for the
     // P with preempt_tick and then preempt_p; the SIGURG handler, on this
-    // M's thread, answers with the P it gave up in retaken.
+    // M's thread, answers with the P it gave up in retaken, or, if the
+    // fiber was inside the runtime, with the tick it declined in
+    // preempt_declined (1 << 32 | tick), so that sysmon asks again soon.
+    // preempted is set while the M runs its fiber without the P it lost,
+    // and only this M's thread touches it.
     pid_t tid = 0;
     std::atomic<P*> preempt_p{nullptr};
     std::atomic<uint32_t> preempt_tick{0};
     std::atomic<P*> retaken{nullptr};
+    std::atomic<uint64_t> preempt_declined{0};
+    bool preempted = false;
 };
 
 // A list of Gs linked through schedlink.
