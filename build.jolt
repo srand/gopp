@@ -18,7 +18,7 @@ import threading
 import time
 
 from jolt import Alias, BooleanParameter, IntParameter, ListParameter, Parameter, Task, attributes, influence
-from jolt.pkgs import boost, gcc, googletest, liburing, openssl, ssl  # noqa: F401
+from jolt.pkgs import boost, gcc, googletest, liburing, openssl, sqlite, ssl  # noqa: F401
 from jolt.plugins import cxx, golang, googletest, ninja
 from jolt.plugins.googletest import GTestRunner
 
@@ -64,6 +64,28 @@ class Gopp(GoppProject, cxx.Library):
             artifact.collect("gopp/**/*.hpp", "include/")
         artifact.cxxinfo.incpaths.append("include")
         artifact.cxxinfo.libraries.append("pthread")
+
+
+class GoppSQLite3(GoppProject, cxx.Library):
+    """
+    The SQLite driver for database/sql (<gopp/sqlite3.hpp>), after
+    mattn/go-sqlite3. A library of its own, so that programs that don't
+    use SQLite don't link it.
+    """
+    name = "gopp/sqlite3"
+    requires = ["gopp", "sqlite"]
+    incpaths = ["drivers/sqlite3/include", "drivers/sqlite3/src"]
+    sources = [
+        "drivers/sqlite3/include/gopp/*.hpp",
+        "drivers/sqlite3/src/*.hpp",
+        "drivers/sqlite3/src/*.cpp",
+    ]
+
+    def publish(self, artifact, tools):
+        super().publish(artifact, tools)
+        with tools.cwd("drivers/sqlite3/include"):
+            artifact.collect("gopp/*.hpp", "include/")
+        artifact.cxxinfo.incpaths.append("include")
 
 
 @attributes.common_metadata()
@@ -181,10 +203,10 @@ class Examples(Alias):
 class Tests(GoppProject, cxx.Executable):
     """ Unit tests of the library. """
     name = "gopp/tests"
-    requires = ["gopp:leaks={leaks}", "google/test/main"]
+    requires = ["gopp:leaks={leaks}", "gopp/sqlite3:leaks={leaks}", "google/test/main"]
     # Tests ported from Go's in-package tests use the internal headers.
-    incpaths = ["src"]
-    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp"]
+    incpaths = ["src", "drivers/sqlite3/src"]
+    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp"]
 
 
 @googletest.filter()
