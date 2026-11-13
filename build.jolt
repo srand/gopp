@@ -154,6 +154,13 @@ class JSONFile(Example):
     sources = ["examples/json-file/*.cpp"]
 
 
+class Todo(Example):
+    """ A JSON to-do API over SQLite, with database/sql and the sqlite3 driver. """
+    name = "examples/todo"
+    requires = ["gopp", "gopp/sqlite3"]
+    sources = ["examples/todo/*.cpp"]
+
+
 class HTTPFileServer(Example):
     """ Serves a directory with http.FileServerFS over an os.Root. """
     name = "examples/httpfileserver"
@@ -196,7 +203,7 @@ class Examples(Alias):
         "examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot",
         "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat", "examples/template", "examples/json-file",
         "examples/httpfileserver", "examples/proxy", "examples/lookup", "examples/grep", "examples/parallel",
-        "examples/sandbox",
+        "examples/sandbox", "examples/todo",
     ]
 
 

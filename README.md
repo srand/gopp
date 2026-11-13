@@ -96,6 +96,7 @@ all park instead of blocking the thread.
 | `crypto/tls` | TLS 1.2/1.3 over any `net::Conn` (OpenSSL underneath), ALPN, SNI, certificate verification, `tls::Listen`/`Dial` |
 | `encoding/json` | `Marshal`/`Unmarshal` of plain structs through C++26 reflection, with no macros and no registration. Struct tags as annotations (`omitempty`, `string`, `-`), `Encoder`/`Decoder` streams, `json::Value` for Go's `any`, Go's error messages and number formatting |
 | `database/sql` | Go's connection pool (`SetMaxOpenConns`, idle limits, lifetimes, waiting with context cancellation, bad-connection retries), `Query`/`QueryRow`/`Exec`, prepared `Stmt`s that follow connections, `Tx` rolled back when its context ends, `Conn`, `Rows`/`Scan` with Go's conversions, `Null*` types and `sql::Named`, and the `driver` interfaces |
+| `sqlite3` | A SQLite driver for `database/sql` after `mattn/go-sqlite3` (`<gopp/sqlite3.hpp>`, its own library `gopp/sqlite3`): `sql::Open("sqlite3", "app.db?_foreign_keys=1&_journal_mode=WAL")` with mattn's DSN options (`_busy_timeout`, `_txlock`, `_loc`, `_synchronous`, ... and `file:` URIs), multi-statement `Exec`, `?`, `$1`, `:name`/`@name`/`$name` parameters, mattn's type conversions (`DATETIME` columns as `time::Time`, `BOOLEAN` as `bool`), `sqlite3::Error` with result codes (`ErrConstraintUnique`, ...), and contexts that interrupt queries. SQLite calls run as blocking calls, so a slow query doesn't hold up other fibers |
 | `text/template` | Go's templates (`gopp::text::tmpl`, as `template` is a keyword): `{{if}}`, `{{range}}` over slices, maps in key order and integers, `{{with}}`, `{{define}}`/`{{template}}`/`{{block}}`, pipelines, variables, the builtins with Go's `printf` verbs, and plain C++ lambdas as functions. The data is any C++ struct, read by reflection: fields, const methods with arguments, containers and smart pointers |
 | `net`, `net/url` | TCP, UDP, raw IP and Unix domain sockets with deadlines. `Dialer` with contexts, timeouts, Happy Eyeballs (RFC 6555) and `Control` hooks; `ListenConfig`; `Listen`/`Dial`, `ListenTCP`/`DialTCP`, `ListenUDP`/`DialUDP`, `ListenIP`/`DialIP`, `ListenUnix`/`DialUnix`; `TCPConn` with keep-alive settings (`KeepAliveConfig`), `SetLinger`, Multipath TCP, and `io::Copy` through `splice(2)` and `sendfile(2)`; `UDPConn` with `ReadFrom`/`WriteTo`, the `ReadMsg`/`WriteMsg` and `AddrPort` variants, and `ListenMulticastUDP`; `UnixConn` and `UnixListener` for `"unix"`, `"unixgram"` and `"unixpacket"`, with abstract names, autobind and descriptor passing (`syscall::UnixRights`); `SyscallConn`, `Buffers` (`writev(2)`), `Pipe`, `FileConn`/`FileListener`/`FilePacketConn`. Go's own resolver, from fibers on the poller: `Resolver` with `LookupHost`/`LookupIP`/`LookupNetIP`/`LookupCNAME`/`LookupMX`/`LookupNS`/`LookupSRV`/`LookupTXT`/`LookupAddr`, `/etc/hosts`, `resolv.conf` and `nsswitch.conf`, EDNS(0), UDP with TCP fallback, and RFC 6724 address sorting. `Interfaces`, `InterfaceAddrs`, `HardwareAddr`/`ParseMAC`; addresses as `net::Addr` (`TCPAddr`, `UDPAddr`, `IPAddr`, `UnixAddr`), `IP`/`IPMask`/`IPNet` with `ParseIP` and `ParseCIDR`, and Go's errors (`OpError`, `AddrError`, `DNSError`). URL parsing and escaping |
 | `net/netip` | `Addr`, `AddrPort` and `Prefix` as small comparable values: parsing, formatting, `Compare`, masking, `Contains`/`Overlaps`, text and binary marshaling |
@@ -108,7 +109,7 @@ all park instead of blocking the thread.
 | `testing/fstest`, `testing/iotest` | `MapFS`, the in-memory file system, and `TestFS`, which checks an `fs::FS` implementation; `iotest::TestReader` |
 | `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
 
-**Tested against Go's own tests.** 1213 unit tests, 1049 of them ported
+**Tested against Go's own tests.** 1275 unit tests, 1049 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -119,18 +120,21 @@ process, environment, zero-copy, `DirFS`, `CopyFS` and `os.Root` tests
 (with the matrix that checks each `Root` operation against the plain
 `os` one), `testing/fstest`'s, `path`'s and `errors`' tests, `syscall`'s
 fork and exec tests (namespaces, ID mappings, ambient capabilities,
-cgroups, chroot), `os/signal`'s tests, `os/exec`'s tests, `time`'s format, calendar, monotonic clock and zoneinfo tests (against the system's tzdata) (which run
-the test program again as their helper commands), `net`'s
+cgroups, chroot), `os/signal`'s tests, `os/exec`'s tests (which run
+the test program again as their helper commands), `time`'s format,
+calendar, monotonic clock and zoneinfo tests (against the system's
+tzdata), `net`'s
 address, dialing and listening, TCP, UDP, Unix socket, raw IP, interface,
 DNS client and resolver configuration tests (against Go's fake DNS server
 and testdata), and `net/netip`'s and `dnsmessage`'s tests. They keep Go's
-test names and tables.
+test names and tables. The SQLite driver runs 59 tests ported from
+`mattn/go-sqlite3`'s.
 
 ## Get started
 
 go++ builds with [Jolt](https://github.com/srand/jolt), which builds every
-dependency on first use: GCC 16, Boost.Context, liburing, OpenSSL and
-googletest. Your host compiler doesn't matter.
+dependency on first use: GCC 16, Boost.Context, liburing, OpenSSL,
+SQLite and googletest. Your host compiler doesn't matter.
 
 ```sh
 jolt build examples/hello          # the hello-world server (-cert/-key for HTTPS and HTTP/2, -h2c); Ctrl-C shuts it down gracefully
@@ -149,6 +153,7 @@ jolt build examples/udp-echo       # UDP echo server; try: nc -u -w1 localhost 8
 jolt build examples/tcp-chat       # multi-client chat room; connect from multiple terminals with nc localhost 8083
 jolt build examples/template       # render a Markdown report from reflected C++ structs
 jolt build examples/json-file      # a JSON task list, saved atomically: json-file -add "Buy milk"
+jolt build examples/todo           # a JSON to-do API over SQLite: curl -d '{"title":"Buy milk"}' localhost:8080/todos
 jolt build test                    # run the unit tests
 jolt build benchmark               # go++ vs Go, report in report/benchmark.md
 ```
@@ -156,6 +161,7 @@ jolt build benchmark               # go++ vs Go, report in report/benchmark.md
 | Task | What it builds |
 |---|---|
 | `jolt build gopp` | the library: `libgopp.a` and `include/gopp/` |
+| `jolt build gopp/sqlite3` | the SQLite driver: `libgopp_sqlite3.a` and `<gopp/sqlite3.hpp>`, with SQLite 3.54 |
 | `jolt build examples` | the example programs |
 | `jolt build gopp/tests` | the unit test program |
 | `jolt build test` | runs the unit tests |
