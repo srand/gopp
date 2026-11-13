@@ -51,9 +51,13 @@ public:
     error raw_control(const std::function<void(uintptr)>& f);
     error raw_read(const std::function<bool(uintptr)>& f);
     error raw_write(const std::function<bool(uintptr)>& f);
-    // Waits until the socket is readable or writable ('r', 'w'), for
-    // callers doing their own non-blocking calls (splice, sendfile); the
-    // locks of Read or Write are taken by those callers through these.
+    // For callers doing their own non-blocking calls (splice, sendfile),
+    // as Go's pollDesc's prepare and wait: prepare ('r' or 'w') before
+    // the first call, and wait until the socket is readable or writable
+    // after one fails with EAGAIN. Waiting doesn't reset the readiness, so
+    // that an edge that came after the EAGAIN isn't lost. The locks of
+    // Read or Write are taken by those callers through these.
+    error prepare(int mode);
     error wait(int mode);
     sync::Mutex& read_lock() noexcept { return rmu_; }
     sync::Mutex& write_lock() noexcept { return wmu_; }

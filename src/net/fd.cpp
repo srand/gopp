@@ -672,10 +672,16 @@ error netfd::raw_write(const std::function<bool(uintptr)>& f) {
     return nullptr;
 }
 
-error netfd::wait(int mode) {
+error netfd::prepare(int mode) {
     if (!incref()) return ErrClosed;
     int pe = runtime::poll_reset(pd_, mode);
-    if (!pe) pe = runtime::poll_wait(pd_, mode);
+    decref();
+    return pe ? op_error(pe) : nullptr;
+}
+
+error netfd::wait(int mode) {
+    if (!incref()) return ErrClosed;
+    int pe = runtime::poll_wait(pd_, mode);
     decref();
     return pe ? op_error(pe) : nullptr;
 }

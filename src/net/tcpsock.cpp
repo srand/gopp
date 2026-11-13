@@ -115,6 +115,7 @@ std::pair<int, error> spliceDrain(int pipefd, netfd& sock, int max) {
     std::lock_guard l(sock.read_lock());
     fdref ref(sock);
     if (!ref.ok) return {0, ErrClosed};
+    if (error err = sock.prepare('r')) return {0, err};
     for (;;) {
         ssize_t n = ::splice(sock.sysfd(), nullptr, pipefd, nullptr, std::size_t(max), SPLICE_F_NONBLOCK);
         if (n >= 0) return {int(n), nullptr};
@@ -130,6 +131,7 @@ std::pair<int, error> splicePump(netfd& sock, int pipefd, int inPipe) {
     std::lock_guard l(sock.write_lock());
     fdref ref(sock);
     if (!ref.ok) return {0, ErrClosed};
+    if (error err = sock.prepare('w')) return {0, err};
     int written = 0;
     while (inPipe > 0) {
         ssize_t n = ::splice(pipefd, nullptr, sock.sysfd(), nullptr, std::size_t(inPipe), SPLICE_F_NONBLOCK);
@@ -221,6 +223,7 @@ std::tuple<int64, error, bool> sendFile(netfd& c, io::Reader& r0) {
     std::lock_guard l(c.write_lock());
     fdref ref(c);
     if (!ref.ok) return {0, ErrClosed, true};
+    if (error err = c.prepare('w')) return {0, err, true};
     int64 written = 0;
     for (;;) {
         std::size_t chunk = (std::size_t(1) << 31) - 1;
