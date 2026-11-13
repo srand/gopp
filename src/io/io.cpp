@@ -58,21 +58,28 @@ std::pair<int64, error> Copy(Writer& dst, Reader& src) {
     }
 }
 
+namespace {
+
+// Forwards to a reader that isn't reference counted (one on the stack),
+// so that a LimitedReader can hold it.
+struct reader_ref final : Reader {
+    Reader& r;
+    explicit reader_ref(Reader& r_) : r(r_) {}
+    std::pair<isize, error> Read(std::span<byte> p) override { return r.Read(p); }
+};
+
+}  // namespace
+
 std::pair<int64, error> CopyN(Writer& dst, Reader& src, int64 n) {
-    byte buf[32 * 1024];
-    int64 written = 0;
-    while (written < n) {
-        std::size_t want = static_cast<std::size_t>(std::min<int64>(n - written, sizeof(buf)));
-        auto [nr, er] = src.Read(std::span<byte>(buf, want));
-        if (nr > 0) {
-            auto [nw, ew] = dst.Write(std::span<const byte>(buf, static_cast<std::size_t>(nr)));
-            written += nw;
-            if (ew) return {written, ew};
-            if (nw != nr) return {written, ErrShortWrite};
-        }
-        if (er) return {written, er};
-    }
-    return {written, nullptr};
+    // Copy over a LimitedReader, as Go does: a ReaderFrom sees the limit
+    // and the reader under it, so that a part of an os::File goes to a
+    // socket with sendfile(2). A reader that someone holds a reference to
+    // is held here too; one that nobody does would be freed by it.
+    LimitedReader lr(src.use_count() > 0 ? ptr<Reader>(&src) : make_ptr<reader_ref>(src), n);
+    auto [written, err] = Copy(dst, lr);
+    if (written == n) return {n, nullptr};
+    if (written < n && !err) err = EOF_;  // src ended early
+    return {written, err};
 }
 
 std::pair<bytes, error> ReadAll(Reader& r) {
