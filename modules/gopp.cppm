@@ -15,6 +15,8 @@ export import gopp.flag;
 export import gopp.fmt;
 export import gopp.io;
 export import gopp.io.fs;
+export import gopp.log;
+export import gopp.log.slog;
 export import gopp.maps;
 export import gopp.mime;
 export import gopp.net;

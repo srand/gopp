@@ -1,6 +1,9 @@
 #include <gopp/fmt.hpp>
 #include <gopp/strings.hpp>
 
+#include "text/template/goconv.hpp"
+
+
 #include <unistd.h>
 
 #include <cerrno>
@@ -207,6 +210,11 @@ string Quote(std::string_view s) {
     }
     out.push_back('"');
     return string(out);
+}
+
+string FormatFloat(double f, char fmt, int prec, int bitSize) {
+    if (bitSize != 64) panic("strconv: illegal FormatFloat bitSize");
+    return string(text::tmpl::detail::format_float(f, fmt, prec));
 }
 
 }  // namespace gopp::strconv

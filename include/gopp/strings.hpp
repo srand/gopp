@@ -97,5 +97,9 @@ std::pair<uint64, error> ParseUint(std::string_view s, int base = 10, int bit_si
 std::pair<bool, error> ParseBool(std::string_view s);
 // strconv.Quote, for ASCII and UTF-8 text.
 string Quote(std::string_view s);
+// strconv.FormatFloat for fmt 'e', 'E', 'f', 'g' or 'G': prec digits, or
+// with prec -1 the fewest that read back as f. Only bitSize 64 is
+// supported; others panic.
+string FormatFloat(double f, char fmt, int prec, int bitSize);
 
 }  // namespace gopp::strconv
