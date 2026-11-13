@@ -29,8 +29,9 @@ struct answer {
     error err;
 };
 
-using query_fn = std::function<std::pair<std::vector<string>, error>(net::Resolver&, const ptr<context::Context>&,
-                                                                     std::string_view)>;
+using query_fn = std::function<std::pair<std::vector<string>, error>(
+    net::Resolver&, const ptr<context::Context>&,
+    std::string_view)>;
 
 // The record types, in the order they're printed.
 const std::vector<std::pair<std::string_view, query_fn>>& queries() {

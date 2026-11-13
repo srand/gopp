@@ -105,8 +105,12 @@ int main(int argc, char** argv) {
     // Wait for the server to fail, or for Ctrl-C.
     auto [ctx, stop] = signal::NotifyContext(context::Background(), os::Interrupt, syscall::SIGTERM_);
     error serve_err;
-    select(recv(served, [&](error e) { serve_err = e; }),
-           recv(ctx->Done(), [] {}));
+    select(
+        recv(served, [&](error e) { 
+            serve_err = e; 
+        }),
+        recv(ctx->Done(), [] {})
+    );
     stop();
     if (serve_err) {
         fmt::Println(os::Stderr, "httpfileserver: {}", serve_err);
