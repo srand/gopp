@@ -496,6 +496,63 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Interfaces
+
+// net.HardwareAddr: a physical hardware address (MAC-48, EUI-48, EUI-64
+// or a 20-octet IP over InfiniBand address).
+class HardwareAddr : public slice<byte> {
+public:
+    using slice<byte>::slice;
+    HardwareAddr() = default;
+    HardwareAddr(slice<byte> s) noexcept : slice<byte>(std::move(s)) {}
+    // "00:00:5e:00:53:01"; empty for none.
+    string String() const;
+};
+
+// net.ParseMAC: "00:00:5e:00:53:01", "00-00-5e-00-53-01",
+// "0000.5e00.5301" or "00005e005301", of 6, 8 or 20 octets.
+std::pair<HardwareAddr, error> ParseMAC(std::string_view s);
+
+// net.Flags: an interface's flags.
+struct Flags {
+    unsigned v = 0;
+    constexpr Flags() noexcept = default;
+    constexpr Flags(unsigned f) noexcept : v(f) {}
+    constexpr operator unsigned() const noexcept { return v; }
+    // "up|broadcast|multicast|running", or "0".
+    string String() const;
+};
+
+inline constexpr Flags FlagUp{1 << 0};            // administratively up
+inline constexpr Flags FlagBroadcast{1 << 1};     // supports broadcast
+inline constexpr Flags FlagLoopback{1 << 2};      // a loopback interface
+inline constexpr Flags FlagPointToPoint{1 << 3};  // a point-to-point link
+inline constexpr Flags FlagMulticast{1 << 4};     // supports multicast
+inline constexpr Flags FlagRunning{1 << 5};       // in running state
+
+// net.Interface: a network interface: a name and index mapping, and its
+// MTU, hardware address and flags.
+struct Interface : public object {
+    int Index = 0;  // positive integer that starts at one, zero is never used
+    int MTU = 0;    // maximum transmission unit
+    string Name;    // e.g., "lo", "eth0", "eth0.100"; may be empty
+    net::HardwareAddr HardwareAddr;  // IEEE MAC-48, EUI-48 and EUI-64 form
+    net::Flags Flags;                // e.g., FlagUp, FlagLoopback, FlagMulticast
+
+    // The interface's unicast addresses, as IPNets.
+    std::pair<std::vector<ptr<Addr>>, error> Addrs() const;
+    // The multicast groups it has joined, as IPAddrs.
+    std::pair<std::vector<ptr<Addr>>, error> MulticastAddrs() const;
+};
+
+// net.Interfaces: the system's network interfaces.
+std::pair<std::vector<Interface>, error> Interfaces();
+// net.InterfaceAddrs: the unicast addresses of all interfaces.
+std::pair<std::vector<ptr<Addr>>, error> InterfaceAddrs();
+std::pair<ptr<Interface>, error> InterfaceByIndex(int index);
+std::pair<ptr<Interface>, error> InterfaceByName(std::string_view name);
+
+// ---------------------------------------------------------------------------
 // Name resolution
 
 // net.SRV: a DNS SRV record.
@@ -699,6 +756,13 @@ std::pair<ptr<TCPConn>, error> DialTCP(std::string_view network, const ptr<TCPAd
 
 // net.ListenUDP: listens on laddr; nil, or a nil IP or port 0, picks one.
 std::pair<ptr<UDPConn>, error> ListenUDP(std::string_view network, const ptr<UDPAddr>& laddr);
+
+// net.ListenMulticastUDP: listens for the packets of the group gaddr
+// (with its port), on interface ifi or the system's choice if it's nil.
+// Several sockets can listen to the same group and port. Loopback of the
+// socket's own sends is off; other options can be set through SyscallConn.
+std::pair<ptr<UDPConn>, error> ListenMulticastUDP(std::string_view network, const ptr<Interface>& ifi,
+                                                  const ptr<UDPAddr>& gaddr);
 
 // net.DialUDP: a UDP socket connected to raddr, bound to laddr if it
 // isn't nil.
