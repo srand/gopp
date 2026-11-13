@@ -69,8 +69,12 @@ is the first one.
   passed to SQLite as part of the URI.
 - Types follow mattn: `INTEGER` → int64, `REAL` → double, `TEXT` → string,
   `BLOB` → bytes, `NULL` → nil. Columns declared `DATE`, `DATETIME` or
-  `TIMESTAMP` parse to `time::Time` using mattn's `SQLiteTimestampFormats`.
-  `BOOLEAN` columns read as bool. Times are written in mattn's format.
+  `TIMESTAMP` parse to `time::Time` using mattn's `SQLiteTimestampFormats`
+  (integers as Unix seconds or milliseconds, as mattn does). `BOOLEAN`
+  columns read as bool. Times are written in mattn's format. `_loc` takes
+  every value mattn takes ("auto" for `time::Local`, or a zone name for
+  `LoadLocation`). This builds on the time port
+  (`2026-11-13-time-zones-format-design.md`), which comes first.
 - Errors are `sqlite3::Error` with `Code`, `ExtendedCode` and the message,
   plus mattn's `ErrNo`/`ErrNoExtended` constants (`ErrConstraint`,
   `ErrConstraintUnique`, ...), so `errors::As` and `==` comparisons port.
