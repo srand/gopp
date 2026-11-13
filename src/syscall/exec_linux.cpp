@@ -8,6 +8,10 @@
 // The calling thread blocks all signals around the clone, and the child
 // resets the handlers to the default before it unblocks them, so that no
 // handler of this process runs in the child.
+//
+// clone3, which glibc doesn't wrap, starts the child through a trampoline
+// of a few instructions that calls child_main on the new stack, as glibc's
+// clone does.
 #include "exec_linux.hpp"
 
 #include <gopp/errors.hpp>
@@ -28,11 +32,82 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <optional>
 #include <string>
 #include <vector>
 
 #ifndef CLONE_PIDFD
 #define CLONE_PIDFD 0x00001000
+#endif
+#ifndef CLONE_INTO_CGROUP
+#define CLONE_INTO_CGROUP 0x200000000ULL
+#endif
+#ifndef SYS_clone3
+#define SYS_clone3 435
+#endif
+#ifndef PR_CAP_AMBIENT
+#define PR_CAP_AMBIENT 47
+#define PR_CAP_AMBIENT_RAISE 2
+#endif
+
+// gopp_clone3_trampoline(args, size, fn, arg): clone3(args, size); in the
+// child, on the stack args gives, exit(fn(arg)); in the parent, the result:
+// the child's pid or -errno.
+extern "C" long gopp_clone3_trampoline(void* args, unsigned long size, int (*fn)(void*), void* arg);
+
+#if defined(__x86_64__)
+// The syscall instruction keeps r8 and r9; the child starts with the
+// parent's registers and the stack pointer at the top of its stack.
+asm(R"(
+    .pushsection .text
+    .p2align 4
+    .globl gopp_clone3_trampoline
+    .hidden gopp_clone3_trampoline
+    .type gopp_clone3_trampoline, @function
+gopp_clone3_trampoline:
+    movq %rcx, %r8
+    movq %rdx, %r9
+    movl $435, %eax
+    syscall
+    testq %rax, %rax
+    jnz 1f
+    xorl %ebp, %ebp
+    movq %r8, %rdi
+    call *%r9
+    movl %eax, %edi
+    movl $60, %eax
+    syscall
+    hlt
+1:
+    ret
+    .size gopp_clone3_trampoline, .-gopp_clone3_trampoline
+    .popsection
+)");
+#elif defined(__aarch64__)
+asm(R"(
+    .pushsection .text
+    .p2align 2
+    .globl gopp_clone3_trampoline
+    .hidden gopp_clone3_trampoline
+    .type gopp_clone3_trampoline, %function
+gopp_clone3_trampoline:
+    mov x10, x2
+    mov x11, x3
+    mov x8, #435
+    svc #0
+    cbnz x0, 1f
+    mov x29, xzr
+    mov x30, xzr
+    mov x0, x11
+    blr x10
+    mov x8, #93
+    svc #0
+    brk #0
+1:
+    ret
+    .size gopp_clone3_trampoline, .-gopp_clone3_trampoline
+    .popsection
+)");
 #endif
 
 namespace gopp::syscall {
@@ -98,6 +173,27 @@ struct child_args {
     long ngroups;
     long ppid;
     const sigset_t* oldmask;  // the mask to restore
+    // The ID mappings: the pipe the parent reports writing them on, -1
+    // without; and what the child writes after unshare(CLONE_NEWUSER).
+    int map_pipe[2];
+    const char* uidmap;
+    long uidmap_len;
+    const char* gidmap;
+    long gidmap_len;
+    const char* setgroups;
+    long setgroups_len;
+};
+
+// The kernel's capabilities, version 3 (Go's caps).
+constexpr uint32_t linux_capability_version_3 = 0x20080522;
+struct cap_header {
+    uint32_t version;
+    int32_t pid;
+};
+struct cap_data {
+    uint32_t effective;
+    uint32_t permitted;
+    uint32_t inheritable;
 };
 
 // The child: system calls only, then exec. On failure, writes the errno
@@ -115,6 +211,25 @@ struct child_args {
         r = raw_syscall(__VA_ARGS__);       \
         if (r < 0 && r > -4096) goto childerror; \
     } while (0)
+
+    // Enable the "keep capabilities" flag to set ambient capabilities
+    // later.
+    if (!sys->AmbientCaps.empty()) CHILD_CALL(SYS_prctl, PR_SET_KEEPCAPS, 1, 0, 0, 0, 0);
+
+    // Wait for the User ID/Group ID mappings to be written.
+    if (a->map_pipe[0] >= 0) {
+        CHILD_CALL(SYS_close, a->map_pipe[1], 0, 0, 0, 0, 0);
+        int err2 = 0;
+        CHILD_CALL(SYS_read, a->map_pipe[0], reinterpret_cast<long>(&err2), sizeof(err2), 0, 0, 0);
+        if (r != sizeof(err2)) {
+            r = -EINVAL;
+            goto childerror;
+        }
+        if (err2 != 0) {
+            r = -err2;
+            goto childerror;
+        }
+    }
 
     // Session and process group.
     if (sys->Setsid) CHILD_CALL(SYS_setsid, 0, 0, 0, 0, 0, 0);
@@ -142,6 +257,29 @@ struct child_args {
 
     if (sys->Unshareflags != 0) {
         CHILD_CALL(SYS_unshare, static_cast<long>(sys->Unshareflags), 0, 0, 0, 0, 0);
+        // In a new user namespace, the child writes its own mappings.
+        if ((sys->Unshareflags & CLONE_NEWUSER_) != 0) {
+            struct {
+                const char* path;
+                const char* data;
+                long len;
+            } maps[3] = {};
+            int n = 0;
+            static const char setgroups_path[] = "/proc/self/setgroups";
+            static const char gid_map_path[] = "/proc/self/gid_map";
+            static const char uid_map_path[] = "/proc/self/uid_map";
+            if (a->gidmap) {
+                maps[n++] = {setgroups_path, a->setgroups, a->setgroups_len};
+                maps[n++] = {gid_map_path, a->gidmap, a->gidmap_len};
+            }
+            if (a->uidmap) maps[n++] = {uid_map_path, a->uidmap, a->uidmap_len};
+            for (int k = 0; k < n; k++) {
+                CHILD_CALL(SYS_openat, AT_FDCWD, reinterpret_cast<long>(maps[k].path), O_WRONLY, 0, 0, 0);
+                long fd1 = r;
+                CHILD_CALL(SYS_write, fd1, reinterpret_cast<long>(maps[k].data), maps[k].len, 0, 0, 0);
+                CHILD_CALL(SYS_close, fd1, 0, 0, 0, 0, 0);
+            }
+        }
         // Mount points shared with the parent's namespace stay shared
         // after unshare; Go makes / private, as unshare(1) does.
         if ((sys->Unshareflags & CLONE_NEWNS_) == CLONE_NEWNS_) {
@@ -156,11 +294,35 @@ struct child_args {
 
     // User and groups.
     if (sys->Credential) {
-        if (!sys->Credential->NoSetGroups) {
+        // With GidMappings and setgroups denied, an empty Groups is left
+        // alone: setgroups would fail.
+        if (!(!sys->GidMappings.empty() && !sys->GidMappingsEnableSetgroups && a->ngroups == 0) &&
+            !sys->Credential->NoSetGroups) {
             CHILD_CALL(SYS_setgroups, a->ngroups, reinterpret_cast<long>(a->groups), 0, 0, 0, 0);
         }
         CHILD_CALL(SYS_setgid, sys->Credential->Gid, 0, 0, 0, 0, 0);
         CHILD_CALL(SYS_setuid, sys->Credential->Uid, 0, 0, 0, 0, 0);
+    }
+
+    if (!sys->AmbientCaps.empty()) {
+        cap_header hdr{linux_capability_version_3, 0};
+        cap_data data[2] = {};
+        CHILD_CALL(SYS_capget, reinterpret_cast<long>(&hdr), reinterpret_cast<long>(data), 0, 0, 0, 0);
+        // Add each capability to the permitted and inheritable sets,
+        // otherwise it can't be added to the ambient set.
+        for (uintptr c : sys->AmbientCaps) {
+            uintptr idx = c >> 5;
+            if (idx >= 2) {
+                r = -EINVAL;
+                goto childerror;
+            }
+            data[idx].permitted |= uint32_t(1) << (c & 31);
+            data[idx].inheritable |= uint32_t(1) << (c & 31);
+        }
+        CHILD_CALL(SYS_capset, reinterpret_cast<long>(&hdr), reinterpret_cast<long>(data), 0, 0, 0, 0);
+        for (uintptr c : sys->AmbientCaps) {
+            CHILD_CALL(SYS_prctl, PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, static_cast<long>(c), 0, 0, 0);
+        }
     }
 
     if (a->dir) CHILD_CALL(SYS_chdir, reinterpret_cast<long>(a->dir), 0, 0, 0, 0, 0);
@@ -242,9 +404,25 @@ struct cstrings {
 
 const SysProcAttr zero_sys_proc_attr{};
 
-// Makes a child running child_main(args) with clone(2); returns its pid,
-// or -errno. Signals are blocked around it.
-long clone_child(child_args& args, int flags, int* pidfd) {
+// The kernel's struct clone_args, of clone3(2).
+struct clone_args_k {
+    uint64_t flags;
+    uint64_t pidfd;
+    uint64_t child_tid;
+    uint64_t parent_tid;
+    uint64_t exit_signal;
+    uint64_t stack;
+    uint64_t stack_size;
+    uint64_t tls;
+    uint64_t set_tid;
+    uint64_t set_tid_size;
+    uint64_t cgroup;
+};
+
+// Makes a child running child_main(args) with clone(2), or clone3(2) if
+// clone3 isn't null (its flags, pidfd and cgroup set); returns its pid, or
+// -errno. Signals are blocked around it.
+long clone_child(child_args& args, int flags, int* pidfd, clone_args_k* clone3) {
     void* stack = ::mmap(nullptr, child_stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK,
                          -1, 0);
     if (stack == MAP_FAILED) return -errno;
@@ -257,17 +435,64 @@ long clone_child(child_args& args, int flags, int* pidfd) {
         runtime::blocking_call b;
         pthread_sigmask(SIG_SETMASK, &all, &old);
         args.oldmask = &old;
-        pid = ::clone(child_main, static_cast<char*>(stack) + child_stack_size, flags, &args, pidfd, nullptr, nullptr);
-        if (pid < 0) pid = -errno;
+        if (clone3) {
+            clone3->stack = reinterpret_cast<uint64_t>(stack);
+            clone3->stack_size = child_stack_size;
+            pid = gopp_clone3_trampoline(clone3, sizeof(*clone3), child_main, &args);
+        } else {
+            pid = ::clone(child_main, static_cast<char*>(stack) + child_stack_size, flags, &args, pidfd, nullptr,
+                          nullptr);
+            if (pid < 0) pid = -errno;
+        }
         pthread_sigmask(SIG_SETMASK, &old, nullptr);
     }
     ::munmap(stack, child_stack_size);
     return pid;
 }
 
+// Go's formatIDMappings.
+std::string formatIDMappings(const std::vector<SysProcIDMap>& idMap) {
+    std::string data;
+    for (auto& im : idMap) {
+        data += std::to_string(im.ContainerID) + " " + std::to_string(im.HostID) + " " + std::to_string(im.Size) + "\n";
+    }
+    return data;
+}
+
+// Writes data to the file path; 0 or the errno.
+int writeProcFile(const std::string& path, std::string_view data) {
+    int fd = ::open(path.c_str(), O_RDWR | O_CLOEXEC);
+    if (fd < 0) return errno;
+    ssize_t n = ::write(fd, data.data(), data.size());
+    int e = n < 0 ? errno : 0;
+    if (::close(fd) < 0 && e == 0) e = errno;
+    return e;
+}
+
+// Go's writeUidGidMappings: the mappings of the child pid, from the
+// parent; 0 or the errno.
+int writeUidGidMappings(long pid, const SysProcAttr& sys, const std::string& uidmap, const std::string& gidmap) {
+    std::string proc = "/proc/" + std::to_string(pid);
+    if (!sys.UidMappings.empty()) {
+        if (int e = writeProcFile(proc + "/uid_map", uidmap)) return e;
+    }
+    if (!sys.GidMappings.empty()) {
+        // If the kernel is too old to support /proc/PID/setgroups,
+        // writing it fails with ENOENT; this is OK.
+        if (int e = writeProcFile(proc + "/setgroups", sys.GidMappingsEnableSetgroups ? "allow" : "deny");
+            e && e != ENOENT) {
+            return e;
+        }
+        if (int e = writeProcFile(proc + "/gid_map", gidmap)) return e;
+    }
+    return 0;
+}
+
 }  // namespace
 
 namespace detail {
+
+bool force_clone3 = false;
 
 bool check_clone_pidfd() {
     // A child that exits at once, without an exit signal, as in Go: a
@@ -340,10 +565,31 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     std::vector<gid_t> groups;
     if (sys->Credential) groups.assign(sys->Credential->Groups.begin(), sys->Credential->Groups.end());
 
-    int flags = static_cast<int>(sys->Cloneflags);
-    if (((sys->Cloneflags | sys->Unshareflags) & CLONE_NEWUSER_) == 0) flags |= CLONE_VFORK | CLONE_VM;
+    // The ID mappings, and what the child writes after unshare.
+    bool mappings = !sys->UidMappings.empty() || !sys->GidMappings.empty();
+    std::string uidmap = formatIDMappings(sys->UidMappings);
+    std::string gidmap = formatIDMappings(sys->GidMappings);
+    std::string setgroups = sys->GidMappingsEnableSetgroups ? "allow" : "deny";
+
+    uint64_t flags = sys->Cloneflags;
+    // With CLONE_VFORK the parent would wait for the child, while the
+    // child waits for the parent's mappings (Go would hang there); a new
+    // user namespace rules it out anyway.
+    if (((sys->Cloneflags | sys->Unshareflags) & CLONE_NEWUSER_) == 0 && !mappings) flags |= CLONE_VFORK | CLONE_VM;
     if (sys->PidFD) flags |= CLONE_PIDFD;
-    flags |= SIGCHLD;
+    int pidfd = -1;
+    // Whether to use clone3: CLONE_INTO_CGROUP and CLONE_NEWTIME need it.
+    std::optional<clone_args_k> clone3;
+    if (sys->UseCgroupFD || (flags & CLONE_NEWTIME_) != 0 || detail::force_clone3) {
+        clone3 = clone_args_k{};
+        clone3->flags = flags;
+        clone3->exit_signal = SIGCHLD;
+        if (sys->UseCgroupFD) {
+            clone3->flags |= CLONE_INTO_CGROUP;
+            clone3->cgroup = static_cast<uint64_t>(sys->CgroupFD);
+        }
+        if (sys->PidFD) clone3->pidfd = reinterpret_cast<uint64_t>(&pidfd);
+    }
 
     child_args args{};
     args.argv0 = argv0s.c_str();
@@ -358,6 +604,17 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     args.groups = groups.data();
     args.ngroups = static_cast<long>(groups.size());
     args.ppid = sys->Pdeathsig.value != 0 ? static_cast<long>(::getpid()) : 0;
+    args.map_pipe[0] = args.map_pipe[1] = -1;
+    if (!sys->UidMappings.empty()) {
+        args.uidmap = uidmap.c_str();
+        args.uidmap_len = static_cast<long>(uidmap.size());
+    }
+    if (!sys->GidMappings.empty()) {
+        args.gidmap = gidmap.c_str();
+        args.gidmap_len = static_cast<long>(gidmap.size());
+        args.setgroups = setgroups.c_str();
+        args.setgroups_len = static_cast<long>(setgroups.size());
+    }
 
     ForkLock.Lock();
     // The pipe the child reports an error on; exec closes it.
@@ -368,13 +625,36 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
         return {0, errno_error(e)};
     }
     args.pipe = p[1];
-    int pidfd = -1;
-    long pid = clone_child(args, flags, &pidfd);
+    // Another pipe for parent to child communication for synchronizing
+    // writing of User ID/Group ID mappings.
+    if (mappings && ::pipe2(args.map_pipe, O_CLOEXEC) < 0) {
+        int e = errno;
+        ForkLock.Unlock();
+        ::close(p[0]);
+        ::close(p[1]);
+        return {0, errno_error(e)};
+    }
+    long pid = clone_child(args, clone3 ? 0 : static_cast<int>(flags | SIGCHLD), &pidfd, clone3 ? &*clone3 : nullptr);
     ForkLock.Unlock();
     ::close(p[1]);
     if (pid < 0) {
         ::close(p[0]);
+        if (mappings) {
+            ::close(args.map_pipe[0]);
+            ::close(args.map_pipe[1]);
+        }
         return {0, errno_error(static_cast<int>(-pid))};
+    }
+
+    if (mappings) {
+        ::close(args.map_pipe[0]);
+        // The uid/gid mappings are written after fork, or by the child
+        // after unshare(2) of its user namespace.
+        int err2 = 0;
+        if ((sys->Unshareflags & CLONE_NEWUSER_) == 0) err2 = writeUidGidMappings(pid, *sys, uidmap, gidmap);
+        while (::write(args.map_pipe[1], &err2, sizeof(err2)) < 0 && errno == EINTR) {
+        }
+        ::close(args.map_pipe[1]);
     }
 
     // The child's error, or EOF if exec closed the pipe. Without

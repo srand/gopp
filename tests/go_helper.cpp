@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -28,9 +29,19 @@ std::map<std::string, helper_fn>& helpers() {
     return *m;
 }
 
-// This program's arguments, from /proc: main hasn't run yet when they're
-// needed.
+// This program's arguments: main hasn't run yet when they're needed.
+// The arguments, as glibc passes them to the functions of .init_array:
+// this one runs before the static initializers (priority 101), and works
+// where /proc isn't mounted (a child in a chroot).
+int init_argc = 0;
+char** init_argv = nullptr;
+[[gnu::constructor(101)]] void capture_args(int argc, char** argv, char**) {
+    init_argc = argc;
+    init_argv = argv;
+}
+
 std::vector<std::string> cmdline() {
+    if (init_argv) return std::vector<std::string>(init_argv, init_argv + init_argc);
     std::ifstream f("/proc/self/cmdline", std::ios::binary);
     std::string all((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     std::vector<std::string> args;
@@ -79,6 +90,8 @@ const bool helper_mode = [] {
     if (args.size() < 2 || args[1].empty() || args[1][0] == '-') return false;
     saved_stdout = ::fcntl(1, F_DUPFD_CLOEXEC, 100);
     int dn = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
+    // Without /dev/null (in a chroot), a file in memory.
+    if (dn < 0) dn = ::memfd_create("null", MFD_CLOEXEC);
     ::dup2(dn, 1);
     ::close(dn);
     testing::AddGlobalTestEnvironment(new helper_environment(std::move(args)));

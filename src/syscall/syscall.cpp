@@ -1,7 +1,10 @@
 #include <gopp/io/fs.hpp>
 #include <gopp/syscall.hpp>
 
+#include <gopp/runtime.hpp>
+
 #include <signal.h>
+#include <sys/mount.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -135,6 +138,58 @@ int Getegid() noexcept { return static_cast<int>(::getegid()); }
 gopp::error Kill(int pid, Signal sig) {
     if (::kill(static_cast<pid_t>(pid), sig.value) < 0) return errno_error(errno);
     return nullptr;
+}
+
+static_assert(MS_RDONLY == ::MS_RDONLY && MS_BIND == ::MS_BIND && MS_REC == ::MS_REC && MS_PRIVATE == ::MS_PRIVATE &&
+              MS_SHARED == ::MS_SHARED && MNT_FORCE == ::MNT_FORCE && MNT_DETACH == ::MNT_DETACH);
+
+namespace {
+
+// A C string of s: false if it holds a NUL (Go's BytePtrFromString, which
+// fails with EINVAL).
+bool cstr(std::string_view s, std::string& out) {
+    if (s.find('\0') != std::string_view::npos) return false;
+    out.assign(s);
+    return true;
+}
+
+// Runs a call that may block, retrying after EINTR; nil or its errno.
+template <typename F>
+gopp::error blocking(F&& f) {
+    for (;;) {
+        int r, e;
+        {
+            runtime::blocking_call b;
+            r = f();
+            e = errno;
+        }
+        if (r == 0) return nullptr;
+        if (e != EINTR) return errno_error(e);
+    }
+}
+
+}  // namespace
+
+gopp::error Chroot(std::string_view path) {
+    std::string p;
+    if (!cstr(path, p)) return EINVAL_;
+    return blocking([&] { return ::chroot(p.c_str()); });
+}
+
+gopp::error Mount(std::string_view source, std::string_view target, std::string_view fstype, uintptr flags,
+                  std::string_view data) {
+    std::string src, tgt, fst, dat;
+    if (!cstr(source, src) || !cstr(target, tgt) || !cstr(fstype, fst) || !cstr(data, dat)) return EINVAL_;
+    // Certain file systems get rather angry and EINVAL if you give them an
+    // empty string of data, rather than NULL.
+    const void* datap = data.empty() ? nullptr : dat.c_str();
+    return blocking([&] { return ::mount(src.c_str(), tgt.c_str(), fst.c_str(), flags, datap); });
+}
+
+gopp::error Unmount(std::string_view target, int flags) {
+    std::string tgt;
+    if (!cstr(target, tgt)) return EINVAL_;
+    return blocking([&] { return ::umount2(tgt.c_str(), flags); });
 }
 
 int CmsgLen(int datalen) { return static_cast<int>(CMSG_LEN(static_cast<unsigned>(datalen))); }

@@ -224,6 +224,7 @@ struct Rusage {
 
 // The flags of clone(2) and unshare(2), for SysProcAttr's Cloneflags and
 // Unshareflags.
+inline constexpr uintptr CLONE_NEWTIME_ = 0x00000080;  // clone3 and unshare only
 inline constexpr uintptr CLONE_VM_ = 0x00000100;
 inline constexpr uintptr CLONE_FS_ = 0x00000200;
 inline constexpr uintptr CLONE_FILES_ = 0x00000400;
@@ -251,9 +252,15 @@ struct Credential {
     bool NoSetGroups = false;    // don't set the supplementary groups
 };
 
-// syscall.SysProcAttr: Linux's attributes of a new process. Go's user
-// namespace mappings (UidMappings, GidMappings), AmbientCaps and
-// UseCgroupFD aren't supported.
+// syscall.SysProcIDMap: a mapping of IDs in a user namespace to IDs
+// outside it (user_namespaces(7)).
+struct SysProcIDMap {
+    int ContainerID = 0;  // the first ID in the namespace
+    int HostID = 0;       // the first ID outside it
+    int Size = 0;         // how many
+};
+
+// syscall.SysProcAttr: Linux's attributes of a new process.
 struct SysProcAttr {
     string Chroot{};
     std::optional<syscall::Credential> Credential{};
@@ -278,6 +285,22 @@ struct SysProcAttr {
     syscall::Signal Pdeathsig;
     uintptr Cloneflags = 0;    // more flags for clone(2)
     uintptr Unshareflags = 0;  // flags for unshare(2), in the child
+    // UidMappings and GidMappings: the ID mappings of the child's new user
+    // namespace (CLONE_NEWUSER in Cloneflags or Unshareflags), written by
+    // the parent before the child goes on, or by the child itself after
+    // unshare. Empty is none (Go's nil).
+    std::vector<SysProcIDMap> UidMappings{};
+    std::vector<SysProcIDMap> GidMappings{};
+    // GidMappingsEnableSetgroups allows setgroups(2) in the namespace;
+    // unprivileged processes can only map their gid with it off.
+    bool GidMappingsEnableSetgroups = false;
+    // AmbientCaps: capabilities the child keeps across exec, after a
+    // Credential change too (raised in its ambient set).
+    std::vector<uintptr> AmbientCaps{};
+    // UseCgroupFD starts the child in the cgroup of the directory
+    // descriptor CgroupFD (clone3 with CLONE_INTO_CGROUP).
+    bool UseCgroupFD = false;
+    int CgroupFD = 0;
     // PidFD, if not null, receives the pidfd of the child, or -1.
     int* PidFD = nullptr;
 };
@@ -313,6 +336,35 @@ int Getegid() noexcept;
 
 // syscall.Kill: sends sig to the process pid (or group, if negative).
 gopp::error Kill(int pid, Signal sig);
+
+// The flags of Mount (mount(2)) and Unmount (umount2(2)).
+inline constexpr uintptr MS_RDONLY = 0x1;
+inline constexpr uintptr MS_NOSUID = 0x2;
+inline constexpr uintptr MS_NODEV = 0x4;
+inline constexpr uintptr MS_NOEXEC = 0x8;
+inline constexpr uintptr MS_SYNCHRONOUS = 0x10;
+inline constexpr uintptr MS_REMOUNT = 0x20;
+inline constexpr uintptr MS_NOATIME = 0x400;
+inline constexpr uintptr MS_NODIRATIME = 0x800;
+inline constexpr uintptr MS_BIND = 0x1000;
+inline constexpr uintptr MS_MOVE = 0x2000;
+inline constexpr uintptr MS_REC = 0x4000;
+inline constexpr uintptr MS_PRIVATE = 0x40000;
+inline constexpr uintptr MS_SLAVE = 0x80000;
+inline constexpr uintptr MS_SHARED = 0x100000;
+inline constexpr int MNT_FORCE = 0x1;
+inline constexpr int MNT_DETACH = 0x2;
+inline constexpr int MNT_EXPIRE = 0x4;
+
+// syscall.Chroot: changes the root directory of this process.
+gopp::error Chroot(std::string_view path);
+// syscall.Mount: mounts source on target, a file system of type fstype,
+// with flags and data (none if empty, as some file systems want).
+gopp::error Mount(std::string_view source, std::string_view target, std::string_view fstype, uintptr flags,
+                  std::string_view data);
+// syscall.Unmount: unmounts target, with umount2(2)'s flags (MNT_FORCE,
+// MNT_DETACH, ...).
+gopp::error Unmount(std::string_view target, int flags);
 
 }  // namespace gopp::syscall
 
