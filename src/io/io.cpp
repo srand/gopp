@@ -5,7 +5,7 @@
 
 namespace gopp::io {
 
-const error EOF_ = errors::New("@@EOF_@@");
+const error EOF_ = errors::New("EOF");
 const error ErrUnexpectedEOF = errors::New("unexpected EOF");
 const error ErrShortWrite = errors::New("short write");
 const error ErrShortBuffer = errors::New("short buffer");
