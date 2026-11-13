@@ -62,6 +62,7 @@ public:
     std::pair<std::vector<ptr<fs::FileInfo>>, gopp::error> Readdir(int count) override { return f_->Readdir(count); }
     std::pair<ptr<fs::FileInfo>, gopp::error> Stat() override { return f_->Stat(); }
     std::pair<std::vector<ptr<fs::DirEntry>>, gopp::error> ReadDir(int count) override { return f_->ReadDir(count); }
+    os::File* os_file() const noexcept { return f_.get(); }
 
 private:
     ptr<os::File> f_;
@@ -105,9 +106,19 @@ public:
         return {std::move(list), nullptr};
     }
 
+    os::File* os_file() const noexcept { return dynamic_cast<os::File*>(file_.get()); }
+
 private:
     ptr<fs::File> file_;
 };
+
+// The os::File under a file of a Dir or an FS (os::DirFS, an os::Root's),
+// if there's one.
+os::File* os_file(File& f) {
+    if (auto* d = dynamic_cast<dir_file*>(&f)) return d->os_file();
+    if (auto* i = dynamic_cast<io_file*>(&f)) return i->os_file();
+    return nullptr;
+}
 
 // ioFS: an fs::FS as a FileSystem.
 class io_fs final : public FileSystem {
@@ -720,10 +731,16 @@ void serve_file(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bo
         return;
     }
 
-    // serve_content checks the modification time.
+    // serve_content checks the modification time. It's given the os::File
+    // under a Dir's or an FS's file, if there's one, so that the response
+    // copies it to the connection with sendfile(2).
     int64 size = d->Size();
-    serve_content(w, r, d->Name(), d->ModTime(), [size] { return std::pair<int64, gopp::error>(size, nullptr); }, *f,
-                  *f);
+    auto size_fn = [size] { return std::pair<int64, gopp::error>(size, nullptr); };
+    if (os::File* of = os_file(*f)) {
+        serve_content(w, r, d->Name(), d->ModTime(), size_fn, *of, *of);
+    } else {
+        serve_content(w, r, d->Name(), d->ModTime(), size_fn, *f, *f);
+    }
 }
 
 bool is_slash(char c) { return c == '/' || c == '\\'; }

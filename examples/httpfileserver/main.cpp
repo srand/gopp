@@ -14,6 +14,7 @@
 #include <gopp/context.hpp>
 #include <gopp/flag.hpp>
 #include <gopp/fmt.hpp>
+#include <gopp/io.hpp>
 #include <gopp/net/http.hpp>
 #include <gopp/os.hpp>
 #include <gopp/os/signal.hpp>
@@ -26,8 +27,9 @@ using namespace gopp;
 namespace signal = os::signal;
 
 // A ResponseWriter that records the status and size of the response, for
-// the access log.
-class logging_writer final : public http::ResponseWriter, public http::Flusher {
+// the access log. It's an io::ReaderFrom like the server's, which it hands
+// the copy to: the files still go out with sendfile(2).
+class logging_writer final : public http::ResponseWriter, public http::Flusher, public io::ReaderFrom {
 public:
     explicit logging_writer(http::ResponseWriter& w) : w_(w) {}
 
@@ -44,6 +46,13 @@ public:
     }
     void Flush() override {
         if (auto* f = dynamic_cast<http::Flusher*>(&w_)) f->Flush();
+    }
+    std::pair<int64, error> ReadFrom(io::Reader& r) override {
+        if (status == 0) status = http::StatusOK;
+        auto* rf = dynamic_cast<io::ReaderFrom*>(&w_);
+        auto [n, err] = rf ? rf->ReadFrom(r) : io::Copy(w_, r);
+        size += n;
+        return {n, err};
     }
 
     int status = 0;

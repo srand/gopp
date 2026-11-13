@@ -23,6 +23,7 @@ namespace gopp::http {
 namespace {
 
 constexpr std::size_t buffer_before_chunking = 2048;
+constexpr std::size_t sniff_len = 512;  // as DetectContentType reads
 constexpr int64 max_post_handler_read_bytes = 256 << 10;
 
 enum class conn_state : int { fresh, active, idle, closed };
@@ -216,7 +217,7 @@ std::pair<isize, gopp::error> expect_continue_reader::Read(std::span<byte> p) {
 // so that small responses get a Content-Length and a sniffed Content-Type,
 // then through the chunk writer (chunked encoding when the length isn't
 // known), into the connection's 4 KiB buffer.
-class response final : public ResponseWriter, public Flusher {
+class response final : public ResponseWriter, public Flusher, public io::ReaderFrom {
 public:
     response(conn* c, Request* req) : c_(c), req_(req) {
         wants_10_keep_alive_ = !req->ProtoAtLeast(1, 1) && internal::has_token(req->Header.Get("Connection"), "keep-alive");
@@ -283,6 +284,59 @@ public:
         flush_buf();
         if (!cw_wrote_) cw_write_header({});
         c_->bufw.Flush();
+    }
+
+    // response.ReadFrom: io::ReaderFrom, so that io::Copy and io::CopyN
+    // hand the body to the connection's ReadFrom once the header is out: a
+    // file goes to a TCP connection with sendfile(2).
+    std::pair<int64, gopp::error> ReadFrom(io::Reader& src) override {
+        struct writer_only final : io::Writer {
+            response& w;
+            explicit writer_only(response& w_) : w(w_) {}
+            std::pair<isize, gopp::error> Write(std::span<const byte> p) override { return w.Write(p); }
+        } wo(*this);
+
+        auto* rf = dynamic_cast<io::ReaderFrom*>(c_->rwc.get());
+        if (!rf) return io::Copy(wo, src);  // TLS
+
+        // Copy the first sniff_len bytes first: the header isn't sent
+        // before the source has data (Go issue 5660), and they're there for
+        // sniffing the Content-Type.
+        int64 n = 0;
+        if (!cw_wrote_) {
+            byte buf[sniff_len];
+            std::size_t got = 0;
+            while (got < sniff_len) {
+                auto [k, rerr] = src.Read(std::span<byte>(buf + got, sniff_len - got));
+                if (k > 0) {
+                    auto [m, werr] = Write(std::span<const byte>(buf + got, static_cast<std::size_t>(k)));
+                    n += m;
+                    if (werr) return {n, werr};
+                    got += static_cast<std::size_t>(k);
+                }
+                if (rerr == io::EOF_) return {n, nullptr};
+                if (rerr) return {n, rerr};
+            }
+        }
+
+        // Out with what's buffered and the header; chunking_ is decided now.
+        flush_buf();
+        if (!cw_wrote_) cw_write_header({});
+        c_->bufw.Flush();
+
+        if (!chunking_ && body_allowed_for_status(status_) && req_->Method != "HEAD") {
+            auto [m, err] = rf->ReadFrom(src);
+            n += m;
+            written_ += m;
+            if (err && !c_->werr) {
+                // As conn_writer does for the other writes.
+                c_->werr = err;
+                if (c_->cur_req) c_->cur_req->CancelContext();
+            }
+            return {n, err};
+        }
+        auto [m, err] = io::Copy(wo, src);
+        return {n + m, err};
     }
 
     void finish_request() {

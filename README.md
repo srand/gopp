@@ -91,7 +91,7 @@ all park instead of blocking the thread.
 | Package | What you get |
 |---|---|
 | runtime | `go()`, M:N scheduler with work stealing (Go's `proc.go` design), epoll netpoller, timers, semaphores |
-| `net/http` | Server with Go 1.22 `ServeMux` patterns (`GET /items/{id}`, `{path...}`, `{$}`, conflict detection), keep-alive, pipelining, chunked encoding, content sniffing, timeouts, graceful `Shutdown`, HTTPS. HTTP/2 on both sides, negotiated over TLS or spoken as h2c (`http::Protocols`), with flow control, multiplexing and GOAWAY; tested against Go's client and server and curl. Client with `http::Get`/`Head`/`Post`, `Client` with redirects and timeouts, pooling `Transport`, HTTPS. File servers: `FileServer`/`FileServerFS` over `Dir`, `FS` or an `os::Root`, with index pages, directory listings and canonical-path redirects; `ServeFile`/`ServeFileFS`; `ServeContent` with ranges (`multipart/byteranges` for several) and the conditional requests (ETags, `If-Modified-Since`, `If-Range`, ...); `ParseTime` |
+| `net/http` | Server with Go 1.22 `ServeMux` patterns (`GET /items/{id}`, `{path...}`, `{$}`, conflict detection), keep-alive, pipelining, chunked encoding, content sniffing, timeouts, graceful `Shutdown`, HTTPS. HTTP/2 on both sides, negotiated over TLS or spoken as h2c (`http::Protocols`), with flow control, multiplexing and GOAWAY; tested against Go's client and server and curl. Client with `http::Get`/`Head`/`Post`, `Client` with redirects and timeouts, pooling `Transport`, HTTPS. File servers: `FileServer`/`FileServerFS` over `Dir`, `FS` or an `os::Root`, with index pages, directory listings and canonical-path redirects; `ServeFile`/`ServeFileFS`; `ServeContent` with ranges (`multipart/byteranges` for several) and the conditional requests (ETags, `If-Modified-Since`, `If-Range`, ...); the `ResponseWriter` is an `io::ReaderFrom`, as Go's is, so files go out with `sendfile(2)`, from an `FS` too, where Go copies them; `ParseTime` |
 | `net/http/httptest` | `NewRecorder`, `NewRequest`, `NewServer`, `NewTLSServer`, `NewUnstartedServer` |
 | `crypto/tls` | TLS 1.2/1.3 over any `net::Conn` (OpenSSL underneath), ALPN, SNI, certificate verification, `tls::Listen`/`Dial` |
 | `encoding/json` | `Marshal`/`Unmarshal` of plain structs through C++26 reflection, with no macros and no registration. Struct tags as annotations (`omitempty`, `string`, `-`), `Encoder`/`Decoder` streams, `json::Value` for Go's `any`, Go's error messages and number formatting |
@@ -107,7 +107,7 @@ all park instead of blocking the thread.
 | `testing/fstest`, `testing/iotest` | `MapFS`, the in-memory file system, and `TestFS`, which checks an `fs::FS` implementation; `iotest::TestReader` |
 | `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
 
-**Tested against Go's own tests.** 1108 unit tests, 956 of them ported
+**Tested against Go's own tests.** 1110 unit tests, 957 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -299,5 +299,3 @@ what it doesn't do yet:
 - **Request contexts** are canceled when the handler returns or a write to
   the client fails, not when the client disconnects while the handler is
   idle.
-- **`FileServer` copies files through user space**: the `ResponseWriter`
-  doesn't use `sendfile(2)` yet, as Go's does.

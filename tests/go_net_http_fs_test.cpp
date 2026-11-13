@@ -1,14 +1,16 @@
 // Tests ported from Go 1.27.3's net/http/fs_test.go: FileServer, ServeFile
 // and ServeContent, over HTTP/1.1, HTTPS and HTTP/2 where Go runs them in
-// those modes. Left out: TestServeFileZippingResponseWriter (no
-// compress/gzip), TestLinuxSendfile (go++'s ResponseWriter doesn't
-// sendfile yet), the GODEBUG=httpservecontentkeepheaders=1 variants (no
-// GODEBUG), and the case of TestServeFileContentType that sets
-// Content-Type to no values (a go++ Header can't hold a key without one).
+// those modes; TestLinuxSendfile runs the server as a helper command (see
+// go_helper.hpp) under strace. Left out:
+// TestServeFileZippingResponseWriter (no compress/gzip), the
+// GODEBUG=httpservecontentkeepheaders=1 variants (no GODEBUG), and the
+// case of TestServeFileContentType that sets Content-Type to no values (a
+// go++ Header can't hold a key without one).
 //
 // Copyright 2010 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in Go's LICENSE file.
+#include "go_helper.hpp"
 #include "go_os_test_util.hpp"
 #include "net/http/internal.hpp"
 
@@ -18,7 +20,9 @@
 #include <gopp/mime.hpp>
 #include <gopp/net/http.hpp>
 #include <gopp/net/http/httptest.hpp>
+#include <gopp/net.hpp>
 #include <gopp/os.hpp>
+#include <gopp/os/exec.hpp>
 #include <gopp/path.hpp>
 #include <gopp/strings.hpp>
 #include <gopp/testing/fstest.hpp>
@@ -30,6 +34,7 @@
 #include <optional>
 
 using namespace gopp;
+namespace exec = gopp::os::exec;
 using os_test::Chdir;
 
 // Go's test modes: HTTP/1.1, HTTP/1.1 over TLS, and HTTP/2 over TLS. (Not
@@ -1207,4 +1212,86 @@ TEST(GoNetHttp, ParseTime) {
                                "Sun, 06 Nov 1994 24:49:37 GMT", "Sun, 06 Nov 1994 08:49:37 GMT extra", "yesterday"}) {
         EXPECT_TRUE(http::ParseTime(s).second) << s;
     }
+}
+
+namespace {
+
+// TestLinuxSendfileChild: serves os::TempDir() on the listener at
+// descriptor 3, until a request for /quit.
+void sendfile_child(const std::vector<std::string>&) {
+    auto [ln, err] = net::FileListener(os::NewFile(3, string::from_static("ephemeral-port-listener")));
+    if (err) panic(err.Error());
+    auto mux = make_ptr<http::ServeMux>();
+    mux->Handle("/", http::FileServer(http::Dir(os::TempDir())));
+    mux->HandleFunc("/quit", [](http::ResponseWriter&, http::Request&) { os::Exit(0); });
+    http::Server s;
+    s.Handler = mux;
+    if (auto serr = s.Serve(ln)) panic(serr.Error());
+}
+
+const bool sendfile_child_registered = go_helper::register_helper("sendfilechild", sendfile_child);
+
+}  // namespace
+
+// The file goes to the connection with sendfile(2): the server runs under
+// strace, which shows the call.
+TEST(GoNetHttp, LinuxSendfile) {
+    auto [strace, lerr] = exec::LookPath("strace");
+    if (lerr) GTEST_SKIP() << "skipping; strace not found in path";
+
+    auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
+    ASSERT_FALSE(err) << err;
+    auto [lnf, ferr] = static_cast<net::TCPListener&>(*ln).File();
+    ASSERT_FALSE(ferr) << ferr;
+
+    // Attempt to run strace, and skip on failure: this test requires
+    // SYS_PTRACE.
+    if (auto serr = exec::Command(strace.view(), "-f", "-q", "true")->Run()) {
+        GTEST_SKIP() << "skipping; failed to run strace: " << serr;
+    }
+
+    string filename = fmt::Sprint("1kb-{}", os::Getpid());
+    string filepath = path::Join(os::TempDir(), filename);
+    ASSERT_FALSE(os::WriteFile(filepath, to_bytes(std::string(1 << 10, 'a')), 0755));
+
+    auto child = go_helper::helper_command("sendfilechild");
+    child->Args = {strace, string::from_static("-f"), string::from_static("-q"), child->Path,
+                   string::from_static("sendfilechild")};
+    child->Path = strace;
+    child->ExtraFiles = {lnf};
+    auto buf = make_ptr<strings::Builder>();
+    child->Stdout = buf;
+    child->Stderr = buf;
+    if (auto serr = child->Start()) {
+        os::Remove(filepath);
+        GTEST_SKIP() << "skipping; failed to start straced child: " << serr;
+    }
+
+    // A timeout, which Go's test doesn't have: if the child is gone, the
+    // listener here keeps a request waiting.
+    http::Client client;
+    client.Timeout = 10 * time::Second;
+    string addr = ln->Addr()->String();
+    auto [res, gerr] = client.Get(str(fmt::Sprint("http://{}/{}", addr, filename)));
+    EXPECT_FALSE(gerr) << "http client error: " << gerr;
+    if (res) {
+        auto [body, rerr] = io::ReadAll(*res->Body);
+        EXPECT_FALSE(rerr) << "client body read error: " << rerr;
+        EXPECT_EQ(body.size(), std::size_t(1) << 10);
+        res->Body->Close();
+    }
+
+    // Force the child to exit cleanly. A POST, which isn't sent again on
+    // another connection when this one closes, as the child exits.
+    if (auto [qres, qerr] = client.Post(str(fmt::Sprint("http://{}/quit", addr)), "", nullptr); qres) {
+        qres->Body->Close();
+    }
+    child->Wait();
+    os::Remove(filepath);
+    ln->Close();
+
+    std::string_view out = buf->view();
+    EXPECT_TRUE(out.find("sendfile(") != out.npos || out.find("sendfile64(") != out.npos)
+        << "no sendfile system call found in:\n"
+        << out;
 }
