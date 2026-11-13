@@ -591,6 +591,14 @@ consteval auto fields_of() {
     return std::define_static_array(std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unprivileged()));
 }
 
+// Whether t is declared in namespace std (or one nested in it).
+consteval bool in_std(std::meta::info t) {
+    for (std::meta::info p = std::meta::parent_of(t); p != ^^::; p = std::meta::parent_of(p)) {
+        if (p == ^^std) return true;
+    }
+    return false;
+}
+
 consteval bool usable_method(std::meta::info m) {
     using namespace std::meta;
     if (!is_function(m) || is_special_member_function(m) || is_operator_function(m) || is_static_member(m)) return false;
@@ -599,6 +607,11 @@ consteval bool usable_method(std::meta::info m) {
     // Methods that return nothing aren't callable from templates (Go wants
     // one or two results).
     if (return_type_of(m) == ^^void) return false;
+    // Arguments are converted into copies of the parameters' types.
+    for (info p : parameters_of(m)) {
+        info t = remove_cvref(type_of(p));
+        if (!is_complete_type(t) || !is_copy_constructible_type(t)) return false;
+    }
     return true;
 }
 
@@ -649,7 +662,7 @@ const std::span<const field_info> struct_fields() {
     static constexpr auto fs = fields_of<T>();
     static const auto arr = [] {
         std::array<field_info, fs.size()> a{};
-        std::size_t i = 0;
+        [[maybe_unused]] std::size_t i = 0;  // unused without fields
         template for (constexpr std::meta::info m : fs) {
             a[i++] = field_info{std::define_static_string(std::meta::identifier_of(m)),
                                 [](const void* obj, const owner_t& owner) {
@@ -794,8 +807,12 @@ type_ops make_ops() {
     } else if constexpr (std::is_class_v<U>) {
         o.kind = Kind::Struct;
         if constexpr (std::equality_comparable<U>) o.equal = &equal_of<U>;
-        o.fields = struct_fields<U>();
-        o.methods = struct_methods<U>();
+        // The standard library's other classes are opaque: their members
+        // are its internals (std::any reaches std::type_info's).
+        if constexpr (!in_std(std::meta::dealias(^^U))) {
+            o.fields = struct_fields<U>();
+            o.methods = struct_methods<U>();
+        }
     } else {
         static_assert(sizeof(U) == 0, "text/template: unsupported type");
     }
