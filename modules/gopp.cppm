@@ -22,6 +22,7 @@ export import gopp.net.url;
 export import gopp.os;
 export import gopp.os.exec;
 export import gopp.os.signal;
+export import gopp.path;
 export import gopp.ptr;
 export import gopp.runtime;
 export import gopp.slice;
