@@ -492,6 +492,20 @@ TEST(HttpClient, Timeout) {
     EXPECT_LT(time::Since(start).Milliseconds(), 250);
 }
 
+// The timer of Client.Timeout stops when the body is closed, rather than
+// keeping the request's context until it fires.
+TEST(HttpClient, TimeoutStopsWhenBodyCloses) {
+    TestServer ts(client_mux());
+    http::Client c{.Timeout = time::Hour};
+    auto [resp, err] = c.Get(fmt::Sprint("http://{}/", ts.addr).view());
+    ASSERT_FALSE(err) << err;
+    auto ctx = resp->Request->Context();
+    io::ReadAll(*resp->Body);
+    EXPECT_FALSE(ctx->Err());
+    resp->Body->Close();
+    EXPECT_EQ(ctx->Err(), context::Canceled);
+}
+
 TEST(HttpClient, ConcurrentGets) {
     TestServer ts(client_mux());
     auto t = make_ptr<http::Transport>();

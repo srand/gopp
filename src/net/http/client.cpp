@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 namespace gopp::http {
 
@@ -553,24 +554,54 @@ std::pair<string, gopp::error> resolve_location(const url::URL& base, const stri
     return {u.String(), nullptr};
 }
 
+// Go's cancelTimerBody: the body of a response to a Client with a Timeout,
+// which stops the timer when it's closed.
+class cancel_timer_body final : public io::ReadCloser {
+public:
+    cancel_timer_body(ptr<io::ReadCloser> rc, context::CancelFunc stop) : rc_(std::move(rc)), stop_(std::move(stop)) {}
+    std::pair<isize, gopp::error> Read(std::span<byte> p) override { return rc_->Read(p); }
+    gopp::error Close() override {
+        gopp::error err = rc_->Close();
+        stop_();
+        return err;
+    }
+
+private:
+    ptr<io::ReadCloser> rc_;
+    context::CancelFunc stop_;
+};
+
 }  // namespace
 
 std::pair<ptr<Response>, gopp::error> Client::Do(ptr<Request> req) {
     if (!req) return {nullptr, errors::New("net/http: nil Request")};
     ptr<RoundTripper> rt = Transport ? Transport : ptr<RoundTripper>(DefaultTransport());
+    // The timeout covers the redirects and reading the body. Its timer
+    // stops when the request fails, or when the body is closed.
+    struct timer_stopper {
+        context::CancelFunc stop;
+        ~timer_stopper() {
+            if (stop) stop();
+        }
+    } timer;
     if (Timeout.ns > 0) {
         auto [ctx, cancel] = context::WithTimeout(req->Context(), Timeout);
         req = req->WithContext(ctx);
+        timer.stop = std::move(cancel);
     }
+    auto done = [&](ptr<Response> resp) -> std::pair<ptr<Response>, gopp::error> {
+        if (timer.stop) resp->Body = make_ptr<cancel_timer_body>(resp->Body, std::exchange(timer.stop, nullptr));
+        return {resp, nullptr};
+    };
     for (int redirects = 0;; redirects++) {
         auto [resp, err] = rt->RoundTrip(*req);
         if (err) return {nullptr, url_error(req->Method, req->URL, err)};
         resp->Request = req;
-        if (!is_redirect(resp->StatusCode) || MaxRedirects <= 0) return {resp, nullptr};
+        if (!is_redirect(resp->StatusCode) || MaxRedirects <= 0) return done(resp);
         string loc = resp->Header.Get("Location");
-        if (loc.empty()) return {resp, nullptr};
+        if (loc.empty()) return done(resp);
         // 307 and 308 resend the body, which only works without one.
-        if ((resp->StatusCode == 307 || resp->StatusCode == 308) && req->Body) return {resp, nullptr};
+        if ((resp->StatusCode == 307 || resp->StatusCode == 308) && req->Body) return done(resp);
         if (redirects + 1 > MaxRedirects) {
             resp->Body->Close();
             return {nullptr, url_error(req->Method, req->URL, errors::New("stopped after " + strconv::Itoa(MaxRedirects) + " redirects"))};
