@@ -90,7 +90,7 @@ all park instead of blocking the thread.
 
 | Package | What you get |
 |---|---|
-| runtime | `go()`, M:N scheduler with work stealing (Go's `proc.go` design), epoll netpoller, timers, semaphores |
+| runtime | `go()`, M:N scheduler with work stealing (Go's `proc.go` design), preemption of long-running fibers, epoll netpoller, timers, semaphores |
 | `net/http` | Server with Go 1.22 `ServeMux` patterns (`GET /items/{id}`, `{path...}`, `{$}`, conflict detection), keep-alive, pipelining, chunked encoding, content sniffing, timeouts, graceful `Shutdown`, HTTPS. HTTP/2 on both sides, negotiated over TLS or spoken as h2c (`http::Protocols`), with flow control, multiplexing and GOAWAY; tested against Go's client and server and curl. Client with `http::Get`/`Head`/`Post`, `Client` with redirects and timeouts, pooling `Transport`, HTTPS. File servers: `FileServer`/`FileServerFS` over `Dir`, `FS` or an `os::Root`, with index pages, directory listings and canonical-path redirects; `ServeFile`/`ServeFileFS`; `ServeContent` with ranges (`multipart/byteranges` for several) and the conditional requests (ETags, `If-Modified-Since`, `If-Range`, ...); the `ResponseWriter` is an `io::ReaderFrom`, as Go's is, so files go out with `sendfile(2)`, from an `FS` too, where Go copies them; `ParseTime` |
 | `net/http/httptest` | `NewRecorder`, `NewRequest`, `NewServer`, `NewTLSServer`, `NewUnstartedServer` |
 | `crypto/tls` | TLS 1.2/1.3 over any `net::Conn` (OpenSSL underneath), ALPN, SNI, certificate verification, `tls::Listen`/`Dial` |
@@ -282,8 +282,15 @@ what it doesn't do yet:
 - **HTTP/2** has no server push, RFC 9218 priorities or trailers yet. The
   server ignores priorities and schedules streams round-robin, as Go's does
   by default.
-- **No preemption.** A fiber that computes without blocking keeps its
-  thread until it blocks or calls `runtime::Gosched()`.
+- **Preemption moves the processor, not the fiber.** A fiber that computes
+  for more than 10 ms while other fibers wait loses its processor to
+  another thread, which runs them. The fiber itself is never switched out
+  mid-code: it keeps running on its own thread, so `errno`, `thread_local`
+  values and held locks stay valid, and it gets a processor back when it
+  next blocks or yields. Meanwhile more threads than `GOMAXPROCS` can be
+  busy. As in Go, system calls made without `runtime::blocking` may fail
+  with `EINTR` from SIGURG. `GODEBUG=asyncpreemptoff=1` turns preemption
+  off.
 - **Fixed-size fiber stacks**, set by `GOPP_STACK_SIZE` (256 KiB of
   virtual memory by default).
 - **One global timer heap**, where Go keeps one per P.
