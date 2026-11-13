@@ -19,13 +19,13 @@ import time
 
 from jolt import Alias, BooleanParameter, IntParameter, ListParameter, Parameter, Task, attributes, influence
 from jolt.pkgs import boost, gcc, googletest, liburing, openssl, ssl  # noqa: F401
-from jolt.plugins import golang, googletest, ninja
+from jolt.plugins import cxx, golang, googletest, ninja
 from jolt.plugins.googletest import GTestRunner
 
 
 @ninja.attributes.macros("macros_leaks_{leaks}")
 @attributes.requires("requires_toolchain")
-class GoppProject(ninja.CXXProject):
+class GoppProject(cxx.Compilation):
     """
     Settings shared by the library, examples and tests.
 
@@ -44,7 +44,7 @@ class GoppProject(ninja.CXXProject):
     macros_leaks_true = ["GOPP_DEBUG_LEAKS"]
 
 
-class Gopp(GoppProject, ninja.CXXLibrary):
+class Gopp(GoppProject, cxx.Library):
     """ The go++ library. """
     name = "gopp"
     # Only Boost.Context: the others aren't needed, and one of them,
@@ -67,7 +67,7 @@ class Gopp(GoppProject, ninja.CXXLibrary):
 
 
 @attributes.common_metadata()
-class Example(GoppProject, ninja.CXXExecutable):
+class Example(GoppProject, cxx.Executable):
     abstract = True
     requires = ["gopp"]
 
@@ -178,7 +178,7 @@ class Examples(Alias):
     ]
 
 
-class Tests(GoppProject, ninja.CXXExecutable):
+class Tests(GoppProject, cxx.Executable):
     """ Unit tests of the library. """
     name = "gopp/tests"
     requires = ["gopp:leaks={leaks}", "google/test/main"]
@@ -233,7 +233,7 @@ class LoadGo(GoBenchProgram):
     binary = "load"
 
 
-class LoadGopp(GoppProject, ninja.CXXExecutable):
+class LoadGopp(GoppProject, cxx.Executable):
     """ The load generator of the benchmark, ported to go++. """
     name = "benchmarks/load-gopp"
     binary = "load"
@@ -241,7 +241,7 @@ class LoadGopp(GoppProject, ninja.CXXExecutable):
     sources = ["benchmarks/load-gopp/*.cpp"]
 
 
-class FilesGopp(GoppProject, ninja.CXXExecutable):
+class FilesGopp(GoppProject, cxx.Executable):
     """ File system calls from many fibers, with and without io_uring (GOPP_IOURING=0). """
     name = "benchmarks/files-gopp"
     binary = "files"
