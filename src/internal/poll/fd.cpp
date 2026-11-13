@@ -440,4 +440,90 @@ error FD::RawRead(const std::function<bool(int)>& f) {
     }
 }
 
+error FD::RawWrite(const std::function<bool(int)>& f) {
+    std::lock_guard l(wmu_);
+    if (error err = incref()) return err;
+    bool polled = pollable();
+    if (polled) {
+        if (int pe = runtime::poll_reset(pd_, 'w')) {
+            decref();
+            return poll_error(pe);
+        }
+    }
+    for (;;) {
+        if (f(sysfd_)) {
+            decref();
+            return nullptr;
+        }
+        if (!polled) {
+            decref();
+            return errors::New("waiting for unsupported file type");
+        }
+        if (int pe = runtime::poll_wait(pd_, 'w')) {
+            decref();
+            return poll_error(pe);
+        }
+    }
+}
+
+error FD::RawControl(const std::function<void(int)>& f) {
+    if (error err = incref()) return err;
+    f(sysfd_);
+    decref();
+    return nullptr;
+}
+
+std::tuple<int64, bool, error> FD::CopyFileRange(FD& src, int64 remain) {
+    // The most copy_file_range copies at once (Go's maxCopyFileRangeRound).
+    constexpr int64 maxCopyFileRangeRound = 0x7ffff000;
+    int64 written = 0;
+    while (remain > 0) {
+        std::size_t max = std::size_t(std::min(remain, maxCopyFileRangeRound));
+        int64 n = 0;
+        int e = 0;
+        {
+            std::lock_guard wl(wmu_);
+            std::lock_guard rl(src.rmu_);
+            if (error err = incref()) return {written, written > 0, err};
+            if (error err = src.incref()) {
+                decref();
+                return {written, written > 0, err};
+            }
+            runtime::blocking_call b;
+            for (;;) {
+                ssize_t r = ::copy_file_range(src.sysfd_, nullptr, sysfd_, nullptr, max, 0);
+                if (r < 0 && errno == EINTR) continue;
+                n = r < 0 ? 0 : r;
+                e = r < 0 ? errno : 0;
+                break;
+            }
+            src.decref();
+            decref();
+        }
+        if (n > 0) {
+            remain -= n;
+            written += n;
+        }
+        // Go's handleCopyFileRangeErr: these say copy_file_range can't do
+        // it, and the caller copies instead; so does copying nothing at
+        // all (a file in /proc, say).
+        switch (e) {
+        case ENOSYS:
+        case EXDEV:
+        case EINVAL:
+        case EIO:
+        case EOPNOTSUPP:
+        case EPERM:
+            if (written == 0) return {0, false, nullptr};
+            return {written, true, errno_error(e)};
+        case 0:
+            if (n == 0) return {written, written > 0, nullptr};
+            break;
+        default:
+            return {written, true, errno_error(e)};
+        }
+    }
+    return {written, true, nullptr};
+}
+
 }  // namespace gopp::poll

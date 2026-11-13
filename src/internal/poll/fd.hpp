@@ -19,6 +19,7 @@
 #include <atomic>
 #include <functional>
 #include <span>
+#include <tuple>
 #include <utility>
 
 namespace gopp::poll {
@@ -79,6 +80,15 @@ public:
     // descriptor is readable after each false. For a descriptor that isn't
     // pollable, a false is an error.
     error RawRead(const std::function<bool(int)>& f);
+    // Go's RawWrite, waiting until the descriptor is writable.
+    error RawWrite(const std::function<bool(int)>& f);
+    // Go's RawControl: calls f(fd) with the descriptor kept open.
+    error RawControl(const std::function<void(int)>& f);
+
+    // Go's CopyFileRange: up to remain bytes from src with
+    // copy_file_range(2). handled is false if it can't be used for these
+    // files, with nothing copied.
+    std::tuple<int64, bool, error> CopyFileRange(FD& src, int64 remain);
 
     int Sysfd() const noexcept { return sysfd_; }
     bool pollable() const noexcept { return pd_ && !blocking_.load(std::memory_order_relaxed); }

@@ -147,7 +147,10 @@ class File final : public fs::ReadDirFile,
                    public io::Writer,
                    public io::Seeker,
                    public io::ReaderAt,
-                   public io::WriterAt {
+                   public io::WriterAt,
+                   public io::ReaderFrom,
+                   public io::WriterTo,
+                   public syscall::Conn {
 public:
     explicit File(std::unique_ptr<detail::file_impl> impl) noexcept;
     ~File() override;
@@ -201,6 +204,17 @@ public:
     error SetWriteDeadline(time::Time t);
 
     // The file descriptor, valid until Close. As in Go, a pollable file's
+    // ReadFrom: io::ReaderFrom. From another file it copies with
+    // copy_file_range(2), and from a TCP or Unix stream connection with
+    // splice(2), unless the file is in append mode; otherwise through a
+    // buffer. A LimitedReader of those works too.
+    std::pair<int64, error> ReadFrom(io::Reader& r) override;
+    // WriteTo: io::WriterTo. To a TCP or Unix stream connection it sends
+    // with sendfile(2); otherwise through a buffer.
+    std::pair<int64, error> WriteTo(io::Writer& w) override;
+    // SyscallConn: the file's descriptor, for calls go++ doesn't wrap.
+    std::pair<ptr<syscall::RawConn>, error> SyscallConn() override;
+
     // descriptor is put in blocking mode first, so that it can be used
     // directly, which turns off its deadlines.
     uintptr Fd();

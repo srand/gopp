@@ -78,8 +78,8 @@ std::pair<std::vector<int>, gopp::error> ParseUnixRights(const SocketControlMess
 // syscall.Socketpair: a connected pair of sockets, as socketpair(2).
 std::pair<std::array<int, 2>, gopp::error> Socketpair(int domain, int typ, int proto);
 
-// syscall.RawConn: access to a socket's descriptor (net::TCPConn's
-// SyscallConn and Dialer::Control).
+// syscall.RawConn: access to a descriptor (the SyscallConn of net's
+// connections and os::File, and Dialer::Control).
 struct RawConn : public virtual object {
     // Calls f with the descriptor, which stays open meanwhile.
     virtual gopp::error Control(std::function<void(uintptr)> f) = 0;
@@ -88,6 +88,12 @@ struct RawConn : public virtual object {
     virtual gopp::error Read(std::function<bool(uintptr)> f) = 0;
     // Likewise, waiting until it's writable.
     virtual gopp::error Write(std::function<bool(uintptr)> f) = 0;
+};
+
+// syscall.Conn: something with a descriptor (net's connections and
+// listeners, os::File).
+struct Conn : public virtual object {
+    virtual std::pair<ptr<RawConn>, gopp::error> SyscallConn() = 0;
 };
 
 // Go's errno constants, as errors (Linux's codes).

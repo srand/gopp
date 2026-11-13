@@ -323,7 +323,7 @@ class netfd;
 class Buffers;
 
 // The methods TCPConn, UDPConn and UnixConn share (Go's net.conn).
-class conn_base : public Conn {
+class conn_base : public Conn, public syscall::Conn {
 public:
     explicit conn_base(ptr<netfd> fd);
     // A dropped connection is closed, as a garbage-collected one would be
@@ -344,7 +344,7 @@ public:
     // A copy of the socket as a File; closing one doesn't close the other.
     std::pair<ptr<os::File>, error> File();
     // The socket's descriptor, for options go++ doesn't wrap.
-    std::pair<ptr<syscall::RawConn>, error> SyscallConn();
+    std::pair<ptr<syscall::RawConn>, error> SyscallConn() override;
 
     // Writes the buffers with writev(2) (Buffers::WriteTo uses it).
     std::pair<int64, error> writeBuffers(Buffers& v);
@@ -389,20 +389,20 @@ public:
 };
 
 // net.TCPListener
-class TCPListener final : public Listener {
+class TCPListener final : public Listener, public syscall::Conn {
 public:
     TCPListener(ptr<netfd> fd, KeepAliveConfig keepalive, time::Duration keepAliveIdle);
     ~TCPListener() override;
 
     std::pair<ptr<TCPConn>, error> AcceptTCP();
-    std::pair<ptr<Conn>, error> Accept() override;
+    std::pair<ptr<net::Conn>, error> Accept() override;
     error Close() override;
     ptr<net::Addr> Addr() const override;
     error SetDeadline(time::Time t);
     // A copy of the listener's socket as a File.
     std::pair<ptr<os::File>, error> File();
     // Control works; Read and Write fail with EINVAL.
-    std::pair<ptr<syscall::RawConn>, error> SyscallConn();
+    std::pair<ptr<syscall::RawConn>, error> SyscallConn() override;
 
 private:
     ptr<netfd> fd_;
@@ -497,20 +497,20 @@ public:
 
 // net.UnixListener. Closing it removes its socket file, unless
 // SetUnlinkOnClose(false) said otherwise or it came from FileListener.
-class UnixListener final : public Listener {
+class UnixListener final : public Listener, public syscall::Conn {
 public:
     UnixListener(ptr<netfd> fd, string path, bool unlink);
     ~UnixListener() override;
 
     std::pair<ptr<UnixConn>, error> AcceptUnix();
-    std::pair<ptr<Conn>, error> Accept() override;
+    std::pair<ptr<net::Conn>, error> Accept() override;
     error Close() override;
     ptr<net::Addr> Addr() const override;
     error SetDeadline(time::Time t);
     void SetUnlinkOnClose(bool unlink) { unlink_ = unlink; }
     // A copy of the listener's socket as a File.
     std::pair<ptr<os::File>, error> File();
-    std::pair<ptr<syscall::RawConn>, error> SyscallConn();
+    std::pair<ptr<syscall::RawConn>, error> SyscallConn() override;
 
 private:
     ptr<netfd> fd_;
