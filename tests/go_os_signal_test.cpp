@@ -649,3 +649,26 @@ TEST(GoOsSignal, NotifySIGPIPE) {
     EXPECT_TRUE(errors::Is(werr2, syscall::EPIPE_)) << werr2;
     w->Close();
 }
+
+// go++'s own: the runtime preempts long-running fibers with SIGURG, so its
+// handler is installed at startup and stays through Notify, Stop, Ignore
+// and Reset, as Go's does.
+TEST(GoOsSignal, SIGURGHandlerStaysInstalled) {
+    auto installed = [] {
+        struct sigaction sa{};
+        ::sigaction(SIGURG, nullptr, &sa);
+        return (sa.sa_flags & SA_SIGINFO) != 0;
+    };
+    EXPECT_TRUE(installed());  // from startup
+    auto c = make_chan<os::Signal>(10);
+    os::signal::Notify(c, syscall::SIGURG_);
+    kill_self(syscall::SIGURG_);
+    wait_sig(c, syscall::SIGURG_);
+    os::signal::Stop(c);
+    EXPECT_TRUE(installed());  // Stop keeps it
+    os::signal::Ignore(syscall::SIGURG_);
+    EXPECT_TRUE(installed());  // Ignore keeps it
+    EXPECT_TRUE(os::signal::Ignored(syscall::SIGURG_));
+    os::signal::Reset(syscall::SIGURG_);
+    EXPECT_TRUE(installed());
+}

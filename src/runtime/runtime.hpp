@@ -279,6 +279,10 @@ int32_t netpoll_waiters() noexcept;
 // ignored keeps it ignored. Runs before main.
 void initsig() noexcept;
 
+// The runtime's part of the SIGURG handler: preemption (proc.cpp).
+// Async-signal-safe.
+void preempt_signal() noexcept;
+
 // Go's sigpipe: after a write to standard output or error failed with
 // EPIPE, dies of SIGPIPE, unless SIGPIPE is ignored or os/signal's Notify
 // asked for it, which then gets it.

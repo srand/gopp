@@ -64,6 +64,9 @@ struct sig_state {
     struct sigaction fwd[nsig] = {};
     // SIGPIPE's handler was installed at startup: it stays.
     bool sigpipe_at_init = false;
+    // SIGURG's handler was installed at startup, for preemption: it stays
+    // through Stop, Reset and Ignore.
+    bool sigurg_at_init = false;
 };
 
 // Constant-initialized: initsig runs before dynamic initialization.
@@ -120,6 +123,7 @@ void raise_default(int s) noexcept {
 // the handler was installed, as Go's sigfwd does.
 void forward(int s, siginfo_t* info, void* ctx) noexcept {
     if (s == SIGPIPE) return;
+    if (s == SIGURG && test(sig.ignored, s)) return;  // Ignore kept the handler
     const struct sigaction& f = sig.fwd[s];
     if (f.sa_flags & SA_SIGINFO) {
         if (f.sa_sigaction) f.sa_sigaction(s, info, ctx);
@@ -135,6 +139,7 @@ void forward(int s, siginfo_t* info, void* ctx) noexcept {
 
 void sighandler(int s, siginfo_t* info, void* ctx) {
     int saved = errno;
+    if (s == SIGURG) preempt_signal();
     if (!sigsend(static_cast<uint32_t>(s))) forward(s, info, ctx);
     errno = saved;
 }
@@ -181,6 +186,13 @@ void initsig() noexcept {
         }
         // Otherwise SIGPIPE was ignored, a parent's choice, or has someone
         // else's handler: either stays.
+
+        // SIGURG preempts long-running fibers, so its handler goes in even
+        // if the program started with it ignored, as Go's does. A handler
+        // that was there before gets it forwarded.
+        install(SIGURG);
+        set(sig.handling, SIGURG, true);
+        sig.sigurg_at_init = true;
     });
 }
 
@@ -218,7 +230,8 @@ void signal_disable(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    if (can_notify(s) && test(sig.handling, s) && !(s == SIGPIPE && sig.sigpipe_at_init)) {
+    if (can_notify(s) && test(sig.handling, s) && !(s == SIGPIPE && sig.sigpipe_at_init) &&
+        !(s == SIGURG && sig.sigurg_at_init)) {
         // Back to the disposition before Notify.
         ::sigaction(static_cast<int>(s), &sig.fwd[s], nullptr);
         set(sig.handling, s, false);
@@ -233,7 +246,7 @@ void signal_ignore(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    if (can_notify(s)) {
+    if (can_notify(s) && !(s == SIGURG && sig.sigurg_at_init)) {
         if (!test(sig.handling, s)) ::sigaction(static_cast<int>(s), nullptr, &sig.fwd[s]);
         struct sigaction ign{};
         ign.sa_handler = SIG_IGN;

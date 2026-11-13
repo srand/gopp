@@ -1064,6 +1064,8 @@ void exitsyscall() noexcept {
     mcall(m->curg, gaction::exitsyscall);
 }
 
+void preempt_signal() noexcept {}
+
 int GOMAXPROCS() noexcept {
     ensure_init();
     return sched.gomaxprocs;
