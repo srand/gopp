@@ -147,6 +147,15 @@ public:
         return r;
     }
     slice Sub(size_type i) const { return Sub(i, n_); }
+    // s[i:j:k]: also limits the capacity to k - i.
+    slice Sub(size_type i, size_type j, size_type k) const {
+        if (i > j || j > k || k > cap_) panic("slice bounds out of range");
+        slice r(*this);
+        r.p_ = p_ + i;
+        r.n_ = j - i;
+        r.cap_ = k - i;
+        return r;
+    }
 
     operator std::span<T>() const noexcept { return {p_, n_}; }
     operator std::span<const T>() const noexcept { return {p_, n_}; }
