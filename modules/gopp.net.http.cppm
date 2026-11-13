@@ -9,6 +9,7 @@ export import gopp.context;
 export import gopp.crypto.tls;
 export import gopp.errors;
 export import gopp.io;
+export import gopp.io.fs;
 export import gopp.net;
 export import gopp.net.url;
 export import gopp.ptr;

@@ -132,4 +132,17 @@ std::pair<isize, error> StringReader::Read(std::span<byte> p) {
     return {static_cast<isize>(n), nullptr};
 }
 
+std::pair<int64, error> StringReader::Seek(int64 offset, int whence) {
+    int64 abs;
+    switch (whence) {
+    case SeekStart: abs = offset; break;
+    case SeekCurrent: abs = static_cast<int64>(i_) + offset; break;
+    case SeekEnd: abs = static_cast<int64>(s_.size()) + offset; break;
+    default: return {0, errors::New("strings.Reader.Seek: invalid whence")};
+    }
+    if (abs < 0) return {0, errors::New("strings.Reader.Seek: negative position")};
+    i_ = static_cast<std::size_t>(abs);
+    return {abs, nullptr};
+}
+
 }  // namespace gopp::io

@@ -231,6 +231,12 @@ string URL::String() const {
         }
         string ep = EscapedPath();
         if (!ep.empty() && ep[0] != '/' && !Host.empty()) s += '/';
+        // RFC 3986 section 4.2: a relative path whose first segment has a
+        // colon would read as a scheme; "./" keeps it a path.
+        if (s.empty()) {
+            std::string_view segment = ep.view().substr(0, ep.view().find('/'));
+            if (segment.find(':') != segment.npos) s += "./";
+        }
         s += ep.view();
     }
     if (!RawQuery.empty()) {

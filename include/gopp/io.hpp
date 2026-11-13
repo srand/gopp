@@ -120,12 +120,18 @@ ptr<Reader> LimitReader(ptr<Reader> r, int64 n);
 // io.NopCloser
 ptr<ReadCloser> NopCloser(ptr<Reader> r);
 
-// A Reader over a string (strings.NewReader).
-class StringReader : public Reader {
+// A Reader over a string (strings.NewReader, Go's strings.Reader).
+class StringReader : public Reader, public Seeker {
 public:
     explicit StringReader(string s) : s_(std::move(s)) {}
     std::pair<isize, error> Read(std::span<byte> p) override;
-    std::size_t len() const noexcept { return s_.size() - i_; }
+    // Seek: io::Seeker. The offset may go past the end, where Read
+    // returns io::EOF_.
+    std::pair<int64, error> Seek(int64 offset, int whence) override;
+    // The number of unread bytes (Len).
+    std::size_t len() const noexcept { return i_ < s_.size() ? s_.size() - i_ : 0; }
+    // The length of the whole string (Size).
+    int64 Size() const noexcept { return static_cast<int64>(s_.size()); }
 
 private:
     string s_;

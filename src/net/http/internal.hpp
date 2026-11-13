@@ -36,6 +36,10 @@ std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, 
 // Logs msg with a timestamp to stderr, like Go's log package.
 void logf(std::string_view msg);
 
+// scanETag (fs.cpp): the syntactically valid ETag at the start of s and
+// the text after it, or "", "".
+std::pair<std::string_view, std::string_view> scan_etag(std::string_view s);
+
 // Path cleaning, after path.Clean, keeping a trailing slash.
 string clean_path(const string& p);
 

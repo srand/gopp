@@ -20,12 +20,14 @@
 #include <gopp/crypto/tls.hpp>
 #include <gopp/errors.hpp>
 #include <gopp/io.hpp>
+#include <gopp/io/fs.hpp>
 #include <gopp/net.hpp>
 #include <gopp/net/url.hpp>
 #include <gopp/ptr.hpp>
 #include <gopp/string.hpp>
 #include <gopp/time.hpp>
 
+#include <concepts>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -77,8 +79,10 @@ enum status : int {
     StatusConflict = 409,
     StatusGone = 410,
     StatusLengthRequired = 411,
+    StatusPreconditionFailed = 412,
     StatusRequestEntityTooLarge = 413,
     StatusUnsupportedMediaType = 415,
+    StatusRequestedRangeNotSatisfiable = 416,
     StatusExpectationFailed = 417,
     StatusTooManyRequests = 429,
     StatusRequestHeaderFieldsTooLarge = 431,
@@ -284,6 +288,102 @@ ptr<Handler> StripPrefix(string prefix, ptr<Handler> h);
 
 // http.DetectContentType: the MIME type of data, from its first 512 bytes.
 string DetectContentType(std::span<const byte> data);
+
+// http.TimeFormat: the format of times in HTTP headers, always in UTC, as
+// time::Time::FormatHTTP writes them.
+inline constexpr std::string_view TimeFormat = "Mon, 02 Jan 2006 15:04:05 GMT";
+
+// http.ParseTime: parses a time header (Date, If-Modified-Since, ...) in
+// one of the three formats HTTP/1.1 allows: TimeFormat, RFC 850 ("Monday,
+// 02-Jan-06 15:04:05 GMT") or ANSI C's asctime ("Mon Jan  2 15:04:05 2006").
+std::pair<time::Time, gopp::error> ParseTime(std::string_view text);
+
+// ---------------------------------------------------------------------------
+// File servers
+//
+//     http::Handle("/", http::FileServer(http::Dir("/srv/www")));
+//
+//     auto [root, err] = os::OpenRoot("/srv/www");     // can't be escaped
+//     http::Handle("/", http::FileServerFS(root->FS()));
+
+// http.File: a file of a FileSystem, as FileServer serves it. The methods
+// behave as os::File's do.
+struct File : public io::Reader, public io::Seeker, public io::Closer {
+    // Reads up to count entries of a directory (all if count <= 0); with
+    // count > 0, io::EOF_ at the end.
+    virtual std::pair<std::vector<ptr<fs::FileInfo>>, gopp::error> Readdir(int count) = 0;
+    virtual std::pair<ptr<fs::FileInfo>, gopp::error> Stat() = 0;
+};
+
+// http.FileSystem: a collection of files, named by slash-separated paths
+// whatever the system's separator. The FS adapter turns an fs::FS into one.
+struct FileSystem : public virtual object {
+    virtual std::pair<ptr<File>, gopp::error> Open(std::string_view name) = 0;
+};
+
+// http.Dir: the FileSystem of the native file system tree at a directory
+// (an empty Dir is "."). It follows symbolic links that point out of the
+// tree, and serves names that start with a period, such as .git: serve an
+// os::Root's FS with FileServerFS to keep requests inside the tree.
+class Dir final : public FileSystem {
+public:
+    explicit Dir(string dir = {}) noexcept : dir_(std::move(dir)) {}
+    // Opens the file name, made relative to the directory with path::Clean,
+    // for reading.
+    std::pair<ptr<File>, gopp::error> Open(std::string_view name) override;
+    const string& String() const noexcept { return dir_; }
+
+private:
+    string dir_;
+};
+
+// http.FS: fsys as a FileSystem, for FileServer. Its files must be
+// io::Seekers; os::DirFS's, os::Root::FS's and fstest::MapFS's are.
+ptr<FileSystem> FS(ptr<fs::FS> fsys);
+
+// http.FileServer: a handler that serves the files of root, by request
+// path: files with ServeContent (ranges, conditional requests, the type
+// from the extension or the content), and directories as their
+// index.html or as an HTML listing. Paths are cleaned; a directory's path
+// is redirected to end in a slash, a file's not to, and ".../index.html"
+// to ".../".
+ptr<Handler> FileServer(ptr<FileSystem> root);
+inline ptr<Handler> FileServer(const Dir& root) { return FileServer(make_ptr<Dir>(root)); }
+
+// http.FileServerFS: FileServer(FS(root)).
+ptr<Handler> FileServerFS(ptr<fs::FS> root);
+
+// http.ServeFile: replies with the named file or directory of the native
+// file system; a relative name is relative to the working directory. It
+// doesn't use r.URL.Path to find the file, but refuses requests whose path
+// has a ".." element (400), and redirects ".../index.html" to ".../".
+void ServeFile(ResponseWriter& w, Request& r, std::string_view name);
+
+// http.ServeFileFS: ServeFile with the file name of fsys.
+void ServeFileFS(ResponseWriter& w, Request& r, ptr<fs::FS> fsys, std::string_view name);
+
+namespace detail {
+void serve_content(ResponseWriter& w, Request& r, std::string_view name, time::Time modtime, io::Reader& content,
+                   io::Seeker& seeker);
+}
+
+// http.ServeContent: replies with content, which must be a Reader and a
+// Seeker (an os::File, a strings::NewReader): its size is found by seeking
+// to the end. Over io::Copy, it handles Range requests (206 Partial
+// Content, multipart/byteranges for several ranges), the preconditions
+// If-Match, If-Unmodified-Since, If-None-Match, If-Modified-Since and
+// If-Range (with the ETag header that w has, if any, and modtime), and
+// sets Content-Type, unless w has one, from name's extension
+// (mime::TypeByExtension) or else from the content (DetectContentType).
+// A modtime that is zero or the Unix epoch is left out; otherwise it's the
+// Last-Modified header. On errors, such as an unsatisfiable range, it
+// replies with the error and drops the Cache-Control, Content-Encoding,
+// Etag and Last-Modified headers that were meant for the content.
+template <typename RS>
+    requires std::derived_from<RS, io::Reader> && std::derived_from<RS, io::Seeker>
+void ServeContent(ResponseWriter& w, Request& r, std::string_view name, time::Time modtime, RS& content) {
+    detail::serve_content(w, r, name, modtime, content, content);
+}
 
 // ---------------------------------------------------------------------------
 // ServeMux
