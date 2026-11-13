@@ -5,6 +5,7 @@
 #include <gopp/base.hpp>
 
 #include <sys/mman.h>
+#include <signal.h>
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
@@ -19,6 +20,8 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <string_view>
+#include <vector>
 
 namespace gopp {
 
@@ -103,6 +106,10 @@ thread_local uint64_t tls_rand = 0;
 
 int ncpu = 1;
 
+// GODEBUG=asyncpreemptoff=1: sysmon doesn't take Ps from long-running
+// fibers, and scheduling is purely cooperative.
+bool preempt_off = false;
+
 void schedule(M* m) noexcept;
 
 // Marks runtime code that uses the P from a fiber (see G::nopreempt): the
@@ -172,7 +179,7 @@ namespace {
 void acquirep(M* m, P* pp) noexcept {
     if (m->p || pp->m.load(std::memory_order_relaxed)) fatal("acquirep: invalid p state");
     m->p = pp;
-    pp->m.store(m, std::memory_order_relaxed);
+    pp->m.store(m, std::memory_order_release);  // sysmon then sees m->tid
     pp->running.store(true, std::memory_order_relaxed);
 }
 
@@ -817,6 +824,64 @@ void mcall(G* gp, gaction action) noexcept {
     gp->nopreempt--;
 }
 
+// Preemption: sysmon takes the P from a fiber that has run for
+// force_preempt while other work waits, and hands it to another M. The
+// fiber keeps running on its thread without a P, and gets one back when it
+// next parks, yields or returns from a blocking call. It is never switched
+// out at an arbitrary instruction, so errno, thread_local values and locks
+// stay valid.
+constexpr int64_t force_preempt = 10'000'000;  // ns
+
+std::atomic<uint64_t> sysmon_retakes{0};
+
+// Whether fibers wait that pp's M doesn't get to: pp's own queue, or the
+// global one while no P is idle to take them.
+bool work_waiting(P* pp) noexcept {
+    return !runqempty(pp) ||
+           (sched.runqsize.load(std::memory_order_relaxed) > 0 && sched.npidle.load(std::memory_order_relaxed) == 0);
+}
+
+// sysmon's view of a P: the schedtick it last saw and when.
+struct sysmon_pdesc {
+    uint32_t schedtick = 0;
+    int64_t schedwhen = 0;
+};
+
+// Asks the M of each P that has run one fiber for force_preempt, while
+// work waits, to give the P up. Returns whether it asked any.
+bool retake(std::vector<sysmon_pdesc>& pd, int64_t now) noexcept {
+    bool asked = false;
+    for (int32_t i = 0; i < sched.gomaxprocs; i++) {
+        P* pp = &sched.allp[i];
+        uint32_t t = pp->schedtick.load(std::memory_order_relaxed);
+        M* mp = pp->m.load(std::memory_order_acquire);
+        if (!pp->running.load(std::memory_order_relaxed) || !mp || t != pd[i].schedtick) {
+            pd[i] = {t, now};
+            continue;
+        }
+        if (now - pd[i].schedwhen < force_preempt || !work_waiting(pp)) continue;
+        mp->preempt_tick.store(t, std::memory_order_relaxed);
+        mp->preempt_p.store(pp, std::memory_order_release);
+        ::tgkill(::getpid(), mp->tid, SIGURG);
+        pd[i].schedwhen = now;  // at most one request per force_preempt
+        asked = true;
+    }
+    return asked;
+}
+
+// Hands off the Ps that SIGURG handlers gave up. Returns how many.
+int handoff_retaken(std::vector<P*>& ps) noexcept {
+    ps.clear();
+    sched.lock.lock();
+    for (M* m = sched.allm; m; m = m->alllink) {
+        if (P* pp = m->retaken.exchange(nullptr, std::memory_order_acquire)) ps.push_back(pp);
+    }
+    sched.lock.unlock();
+    for (P* pp : ps) handoffp(pp);
+    sysmon_retakes.fetch_add(ps.size(), std::memory_order_relaxed);
+    return static_cast<int>(ps.size());
+}
+
 // Times sysmon found the network unpolled with fibers or threads waiting
 // on it, and polled it (schedtrace's sysmon_poll).
 std::atomic<uint64_t> sysmon_polls{0};
@@ -830,6 +895,9 @@ void sysmon() {
     constexpr int64_t force_poll = 10'000'000;  // ns
     int64_t delay = 20'000;                     // ns; backs off to 10ms
     int idle = 0;
+    std::vector<sysmon_pdesc> pd(sched.gomaxprocs);
+    std::vector<P*> retaken;
+    retaken.reserve(sched.gomaxprocs);
     for (;;) {
         std::this_thread::sleep_for(std::chrono::nanoseconds(delay));
         int64_t now = nanotime();
@@ -855,6 +923,10 @@ void sysmon() {
             sysmon_timers.fetch_add(1, std::memory_order_relaxed);
             polled = true;
         }
+        // Ps given up since the last round, then new requests: a request
+        // keeps the delay short, so that its answer is handed off soon.
+        if (handoff_retaken(retaken) > 0) polled = true;
+        if (!preempt_off && retake(pd, now)) polled = true;
         if (polled) {
             idle = 0;
             delay = 20'000;
@@ -901,7 +973,8 @@ void schedtrace(int ms) {
                            " pollwaiters=" + std::to_string(netpoll_waiters()) +
                            " polling=" + std::to_string(sched.lastpoll.load() == 0) +
                            " sysmon_poll=" + std::to_string(sysmon_polls.load(std::memory_order_relaxed)) +
-                           " sysmon_timers=" + std::to_string(sysmon_timers.load(std::memory_order_relaxed));
+                           " sysmon_timers=" + std::to_string(sysmon_timers.load(std::memory_order_relaxed)) +
+                           " retake=" + std::to_string(sysmon_retakes.load(std::memory_order_relaxed));
         for (int i = 0; i < nfields; i++) {
             line += " " + std::string(names[i]) + "=" + std::to_string(static_cast<uint64_t>((cur[i] - prev[i]) / secs));
             prev[i] = cur[i];
@@ -925,6 +998,15 @@ void init() noexcept {
     for (int i = procs - 1; i >= 0; i--) {
         sched.allp[i].id = i;
         pidleput(&sched.allp[i]);
+    }
+    if (const char* s = std::getenv("GODEBUG")) {
+        // Comma-separated name=value settings; the last one wins, as in Go.
+        std::string_view v(s);
+        while (!v.empty()) {
+            std::string_view kv = v.substr(0, v.find(','));
+            v.remove_prefix(std::min(v.size(), kv.size() + 1));
+            if (kv.starts_with("asyncpreemptoff=")) preempt_off = kv == "asyncpreemptoff=1";
+        }
     }
     netpoll_init();
     inited.store(true, std::memory_order_release);
@@ -1109,7 +1191,22 @@ void exitsyscall() noexcept {
     mcall(m->curg, gaction::exitsyscall);
 }
 
-void preempt_signal() noexcept {}
+// The SIGURG handler's part, on the thread of the M sysmon asked: gives up
+// the P if the M still runs the same fiber on it and the fiber is outside
+// the runtime. It only moves the P to m->retaken; sysmon hands it off.
+void preempt_signal() noexcept {
+    M* m = tls_m;
+    if (!m) return;
+    P* pp = m->preempt_p.exchange(nullptr, std::memory_order_acquire);
+    if (!pp || pp != m->p) return;
+    if (pp->schedtick.load(std::memory_order_relaxed) != m->preempt_tick.load(std::memory_order_relaxed)) return;
+    G* gp = m->curg;
+    if (!gp || gp->nopreempt != 0) return;
+    m->p = nullptr;
+    pp->m.store(nullptr, std::memory_order_relaxed);
+    pp->running.store(false, std::memory_order_relaxed);
+    m->retaken.store(pp, std::memory_order_release);
+}
 
 int GOMAXPROCS() noexcept {
     ensure_init();

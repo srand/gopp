@@ -5,10 +5,19 @@
 
 #include <gtest/gtest.h>
 
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
 #include <atomic>
+#include <cerrno>
+#include <cstdlib>
 #include <mutex>
 #include <set>
+#include <string>
 #include <thread>
+#include <vector>
 
 using namespace gopp;
 using namespace std::chrono_literals;
@@ -113,4 +122,191 @@ TEST(Runtime, PingPong) {
     EXPECT_EQ(v, 10000);
     auto [x, ok] = pong.recv2();
     EXPECT_FALSE(ok);
+}
+
+// ---------------------------------------------------------------------------
+// Preemption: a P that runs one fiber for 10ms while other work waits is
+// handed to another thread.
+
+namespace {
+
+// Busy for d, without a call into the runtime.
+void spin_for(std::chrono::milliseconds d) {
+    auto end = std::chrono::steady_clock::now() + d;
+    while (std::chrono::steady_clock::now() < end) {
+    }
+}
+
+// Receives from c within d; false on timeout.
+template <typename T>
+bool recv_within(const chan<T>& c, time::Duration d, T* out = nullptr) {
+    bool got = false;
+    select(recv(c,
+                [&](T v) {
+                    got = true;
+                    if (out) *out = v;
+                }),
+           recv(time::After(d), [] {}));
+    return got;
+}
+
+// Runs this test program's test `name` as a child with the extra
+// environment variables (ahead of the inherited ones, so they win) and
+// returns its wait status. After run_child in go_os_pipe_test.cpp.
+int run_child(const std::string& name, const std::vector<std::string>& env) {
+    std::string filter = "--gtest_filter=" + name;
+    std::vector<std::string> envs = env;
+    for (char** e = environ; *e; e++) envs.emplace_back(*e);
+    std::vector<char*> envp;
+    for (auto& e : envs) envp.push_back(e.data());
+    envp.push_back(nullptr);
+    char self[] = "/proc/self/exe";
+    char* argv[] = {self, filter.data(), nullptr};
+    pid_t pid = ::fork();
+    if (pid == 0) {
+        ::execve(self, argv, envp.data());
+        ::_exit(127);
+    }
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    return status;
+}
+
+}  // namespace
+
+TEST(Runtime, PreemptSpinnersDontStarveSleeper) {
+    sync::WaitGroup wg;
+    for (int i = 0; i < runtime::GOMAXPROCS(); i++) wg.Go([] { spin_for(500ms); });
+    auto start = time::Now();
+    auto took = make_chan<time::Duration>(1);
+    go([took, start] {
+        time::Sleep(10 * time::Millisecond);
+        took.send(time::Since(start));
+    });
+    time::Duration elapsed = took.recv();
+    EXPECT_LT(elapsed.ns, (100 * time::Millisecond).ns) << elapsed.String();
+    wg.Wait();
+}
+
+TEST(Runtime, PreemptSpinnersDontStarveNewFiber) {
+    sync::WaitGroup wg;
+    for (int i = 0; i < runtime::GOMAXPROCS(); i++) wg.Go([] { spin_for(500ms); });
+    std::this_thread::sleep_for(20ms);  // let the spinners take every P
+    auto ran = make_chan<int>(1);
+    go([ran] {
+        auto ping = make_chan<int>();
+        auto pong = make_chan<int>();
+        go([ping, pong] {
+            for (int v : ping) pong.send(v + 1);
+            pong.close();
+        });
+        int v = 0;
+        for (int i = 0; i < 100; i++) {
+            ping.send(v);
+            v = pong.recv();
+        }
+        ping.close();
+        ran.send(v);
+    });
+    int v = 0;
+    EXPECT_TRUE(recv_within(ran, 100 * time::Millisecond, &v));
+    EXPECT_EQ(v, 100);
+    wg.Wait();
+}
+
+TEST(Runtime, PreemptedFiberParksAndResumes) {
+    // Each spinner loses its P while another fiber waits, then parks, is
+    // woken and spins again on whatever P it gets back.
+    int procs = runtime::GOMAXPROCS();
+    std::vector<chan<int>> cs;
+    for (int i = 0; i < procs; i++) cs.push_back(make_chan<int>(1));
+    auto done = make_chan<int>(procs);
+    for (int i = 0; i < procs; i++) {
+        go([c = cs[i], done, i] {
+            spin_for(300ms);
+            int v = c.recv();
+            spin_for(50ms);
+            done.send(i + v);
+        });
+    }
+    std::this_thread::sleep_for(20ms);
+    auto waiter = make_chan<int>(1);
+    go([waiter] { waiter.send(1); });
+    EXPECT_TRUE(recv_within(waiter, 100 * time::Millisecond));
+    std::this_thread::sleep_for(300ms);
+    for (auto& c : cs) c.send(1000);
+    std::set<int> got;
+    for (int k = 0; k < procs; k++) {
+        int v = 0;
+        if (recv_within(done, 2 * time::Second, &v)) got.insert(v);
+    }
+    EXPECT_EQ(got.size(), static_cast<std::size_t>(procs));
+}
+
+TEST(Runtime, PreemptUnderChurn) {
+    // Fibers that start fibers for 15ms at a time without parking, so
+    // that SIGURG lands while they're in newproc and runqput; then they
+    // sleep, get a P back and do it again. Every fiber must still run.
+    std::atomic<int64_t> spawned{0}, ran{0};
+    sync::WaitGroup children, workers;
+    for (int w = 0; w < 2 * runtime::GOMAXPROCS(); w++) {
+        workers.Go([&] {
+            for (int round = 0; round < 20; round++) {
+                auto end = std::chrono::steady_clock::now() + 15ms;
+                while (std::chrono::steady_clock::now() < end) {
+                    spawned.fetch_add(1);
+                    children.Go([&] { ran.fetch_add(1); });
+                }
+                time::Sleep(time::Millisecond);
+            }
+        });
+    }
+    workers.Wait();
+    children.Wait();
+    EXPECT_GT(spawned.load(), 0);
+    EXPECT_EQ(ran.load(), spawned.load());
+}
+
+TEST(Runtime, RawBlockingSyscallLosesP) {
+    // Fibers blocked in a system call made without runtime::blocking keep
+    // their thread, but not their P.
+    sync::WaitGroup wg;
+    for (int i = 0; i < runtime::GOMAXPROCS(); i++) {
+        wg.Go([] {
+            auto end = std::chrono::steady_clock::now() + 300ms;
+            for (;;) {
+                auto left = std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::steady_clock::now());
+                if (left.count() <= 0) break;
+                ::poll(nullptr, 0, static_cast<int>(left.count()));  // EINTR from SIGURG: go on
+            }
+        });
+    }
+    std::this_thread::sleep_for(20ms);
+    auto ran = make_chan<int>(1);
+    go([ran] { ran.send(1); });
+    EXPECT_TRUE(recv_within(ran, 100 * time::Millisecond));
+    wg.Wait();
+}
+
+TEST(Runtime, PreemptOffSwitch) {
+    if (std::getenv("GOPP_TEST_PREEMPT_CHILD")) {
+        // GOMAXPROCS=1 and GODEBUG=asyncpreemptoff=1: the sleeper waits
+        // for the spinner.
+        sync::WaitGroup wg;
+        wg.Go([] { spin_for(300ms); });
+        auto start = time::Now();
+        auto took = make_chan<time::Duration>(1);
+        go([took, start] {
+            time::Sleep(10 * time::Millisecond);
+            took.send(time::Since(start));
+        });
+        time::Duration elapsed = took.recv();
+        wg.Wait();
+        std::_Exit(elapsed >= 250 * time::Millisecond ? 0 : 1);
+    }
+    int status = run_child("Runtime.PreemptOffSwitch",
+                           {"GOPP_TEST_PREEMPT_CHILD=1", "GODEBUG=asyncpreemptoff=1", "GOMAXPROCS=1"});
+    ASSERT_TRUE(WIFEXITED(status)) << status;
+    EXPECT_EQ(WEXITSTATUS(status), 0) << "the fiber was preempted with asyncpreemptoff=1";
 }
