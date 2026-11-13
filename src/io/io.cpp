@@ -33,6 +33,10 @@ std::pair<isize, error> ReadFull(Reader& r, std::span<byte> buf) {
 }
 
 std::pair<int64, error> Copy(Writer& dst, Reader& src) {
+    // If the reader has a WriteTo method, use it to do the copy; it avoids
+    // an allocation and a copy. Likewise ReadFrom on the writer.
+    if (auto* wt = dynamic_cast<WriterTo*>(&src)) return wt->WriteTo(dst);
+    if (auto* rf = dynamic_cast<ReaderFrom*>(&dst)) return rf->ReadFrom(src);
     byte buf[32 * 1024];
     int64 written = 0;
     for (;;) {
@@ -109,10 +113,10 @@ Writer& Discard() {
 }
 
 std::pair<isize, error> LimitedReader::Read(std::span<byte> p) {
-    if (n_ <= 0) return {0, EOF_};
-    if (static_cast<int64>(p.size()) > n_) p = p.first(static_cast<std::size_t>(n_));
-    auto [n, err] = r_->Read(p);
-    n_ -= n;
+    if (N <= 0) return {0, EOF_};
+    if (static_cast<int64>(p.size()) > N) p = p.first(static_cast<std::size_t>(N));
+    auto [n, err] = R->Read(p);
+    N -= n;
     return {n, err};
 }
 

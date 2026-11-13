@@ -4,8 +4,11 @@ module;
 export module gopp.net;
 
 import std.compat;
+export import gopp.chan;
+export import gopp.context;
 export import gopp.errors;
 export import gopp.io;
+export import gopp.net.netip;
 export import gopp.os;
 export import gopp.ptr;
 export import gopp.slice;

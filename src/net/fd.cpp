@@ -2,17 +2,22 @@
 
 #include "../runtime/runtime.hpp"
 
+#include <gopp/chan.hpp>
+#include <gopp/runtime.hpp>
+
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <sys/un.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -470,6 +475,230 @@ error netfd::SetDeadline(time::Time t, int mode) {
     runtime::poll_set_deadline(pd_, d, mode);
     decref();
     return nullptr;
+}
+
+error netfd::connect(const ptr<context::Context>& ctx, const void* sa, unsigned salen, sockaddr_storage* peer,
+                     bool* havePeer) {
+    *havePeer = false;
+    if (!incref()) return ErrClosed;
+    struct guard {
+        netfd* fd;
+        ~guard() { fd->decref(); }
+    } g{this};
+
+    int e = 0;
+    for (;;) {
+        e = ::connect(sysfd_, static_cast<const sockaddr*>(sa), salen) == 0 ? 0 : errno;
+        if (e != EINTR) break;
+    }
+    switch (e) {
+    case EINPROGRESS:
+    case EALREADY:
+        break;
+    case 0:
+    case EISCONN:
+        if (ctx->Err()) return mapErr(ctx->Err());
+        return nullptr;
+    default:
+        return os::NewSyscallError("connect", errno_error(e));
+    }
+
+    // Done when ctx is: a write deadline in the past wakes the wait (Go's
+    // context.AfterFunc). 0: waiting, 1: fired, 2: stopped.
+    auto done = ctx->Done();
+    auto state = std::make_shared<std::atomic<int>>(0);
+    chan<empty> stop;
+    if (done) {
+        if (auto d = ctx->Deadline()) SetDeadline(*d, 'w');
+        stop = make_chan<empty>();
+        ptr<netfd> self(this);
+        go([done, stop, state, self] {
+            select(recv(done, [&](empty) {
+                       int want = 0;
+                       if (state->compare_exchange_strong(want, 1)) runtime::poll_set_deadline(self->pd_, -1, 'w');
+                   }),
+                   recv(stop, [](empty) {}));
+        });
+    }
+    auto finish = [&](error ret) -> error {
+        if (done) {
+            int want = 0;
+            bool stopped = state->compare_exchange_strong(want, 2);
+            stop.close();
+            runtime::poll_set_deadline(pd_, 0, 'w');
+            if (!stopped && !ret) ret = mapErr(ctx->Err());
+        }
+        return ret;
+    };
+
+    for (;;) {
+        if (int pe = runtime::poll_wait(pd_, 'w')) {
+            if (done && ctx->Err()) return finish(mapErr(ctx->Err()));
+            return finish(op_error(pe));
+        }
+        int soerr = 0;
+        socklen_t len = sizeof(soerr);
+        if (getsockopt(sysfd_, SOL_SOCKET, SO_ERROR, &soerr, &len) < 0) {
+            return finish(os::NewSyscallError("getsockopt", errno_error(errno)));
+        }
+        switch (soerr) {
+        case EINPROGRESS:
+        case EALREADY:
+        case EINTR:
+            continue;
+        case EISCONN:
+            return finish(nullptr);
+        case 0: {
+            // The connection may have been refused yet look connected;
+            // getpeername tells.
+            socklen_t plen = sizeof(*peer);
+            std::memset(peer, 0, sizeof(*peer));
+            if (getpeername(sysfd_, reinterpret_cast<sockaddr*>(peer), &plen) == 0) {
+                *havePeer = true;
+                return finish(nullptr);
+            }
+            continue;
+        }
+        default:
+            return finish(os::NewSyscallError("connect", errno_error(soerr)));
+        }
+    }
+}
+
+std::pair<int64, error> netfd::writeBuffers(std::vector<slice<byte>>& v) {
+    std::lock_guard l(wmu_);
+    if (!incref()) return {0, ErrClosed};
+    if (int pe = runtime::poll_reset(pd_, 'w')) {
+        decref();
+        return {0, op_error(pe)};
+    }
+    // Go's maxVec: the iovecs of one writev(2).
+    constexpr std::size_t max_vec = 1024;
+    int64 total = 0;
+    error err;
+    std::vector<iovec> iovs;
+    std::size_t first = 0;  // the first buffer not yet written in full
+    std::size_t off = 0;    // bytes of it written
+    for (;;) {
+        while (first < v.size() && v[first].size() == off) {
+            first++;
+            off = 0;
+        }
+        if (first == v.size()) break;
+        iovs.clear();
+        for (std::size_t i = first; i < v.size() && iovs.size() < max_vec; i++) {
+            std::size_t skip = i == first ? off : 0;
+            if (v[i].size() == skip) continue;
+            iovs.push_back({v[i].data() + skip, v[i].size() - skip});
+        }
+        ssize_t n = ::writev(sysfd_, iovs.data(), static_cast<int>(iovs.size()));
+        if (n < 0) {
+            int e = errno;
+            if (e == EINTR) continue;
+            if (e == EAGAIN) {
+                if (int pe = runtime::poll_wait(pd_, 'w')) {
+                    err = op_error(pe);
+                    break;
+                }
+                continue;
+            }
+            err = os::NewSyscallError("writev", errno_error(e));
+            break;
+        }
+        total += n;
+        // Consume n bytes.
+        std::size_t left = static_cast<std::size_t>(n);
+        while (left > 0) {
+            std::size_t room = v[first].size() - off;
+            if (left < room) {
+                off += left;
+                left = 0;
+            } else {
+                left -= room;
+                first++;
+                off = 0;
+            }
+        }
+    }
+    decref();
+    // Drop what was written.
+    std::vector<slice<byte>> rest;
+    for (std::size_t i = first; i < v.size(); i++) rest.push_back(i == first ? v[i].Sub(off) : v[i]);
+    v = std::move(rest);
+    return {total, err};
+}
+
+error netfd::raw_control(const std::function<void(uintptr)>& f) {
+    if (!incref()) return ErrClosed;
+    f(static_cast<uintptr>(sysfd_));
+    decref();
+    return nullptr;
+}
+
+error netfd::raw_read(const std::function<bool(uintptr)>& f) {
+    std::lock_guard l(rmu_);
+    if (!incref()) return ErrClosed;
+    if (int pe = runtime::poll_reset(pd_, 'r')) {
+        decref();
+        return op_error(pe);
+    }
+    for (;;) {
+        if (f(static_cast<uintptr>(sysfd_))) break;
+        if (int pe = runtime::poll_wait(pd_, 'r')) {
+            decref();
+            return op_error(pe);
+        }
+    }
+    decref();
+    return nullptr;
+}
+
+error netfd::raw_write(const std::function<bool(uintptr)>& f) {
+    std::lock_guard l(wmu_);
+    if (!incref()) return ErrClosed;
+    if (int pe = runtime::poll_reset(pd_, 'w')) {
+        decref();
+        return op_error(pe);
+    }
+    for (;;) {
+        if (f(static_cast<uintptr>(sysfd_))) break;
+        if (int pe = runtime::poll_wait(pd_, 'w')) {
+            decref();
+            return op_error(pe);
+        }
+    }
+    decref();
+    return nullptr;
+}
+
+error netfd::wait(int mode) {
+    if (!incref()) return ErrClosed;
+    int pe = runtime::poll_reset(pd_, mode);
+    if (!pe) pe = runtime::poll_wait(pd_, mode);
+    decref();
+    return pe ? op_error(pe) : nullptr;
+}
+
+error netfd::getsockopt_int(int level, int name, int* value) {
+    if (!incref()) return ErrClosed;
+    socklen_t len = sizeof(*value);
+    int r = ::getsockopt(sysfd_, level, name, value, &len);
+    int e = errno;
+    decref();
+    return r < 0 ? errno_error(e) : nullptr;
+}
+
+error netfd::setsockopt_linger(int sec) {
+    if (!incref()) return ErrClosed;
+    linger l{};
+    if (sec >= 0) {
+        l.l_onoff = 1;
+        l.l_linger = sec;
+    }
+    int r = ::setsockopt(sysfd_, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
+    int e = errno;
+    decref();
+    return r < 0 ? os::NewSyscallError("setsockopt", errno_error(e)) : nullptr;
 }
 
 }  // namespace gopp::net

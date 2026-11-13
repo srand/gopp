@@ -62,6 +62,18 @@ struct WriterAt : public virtual object {
     virtual std::pair<isize, error> WriteAt(std::span<const byte> p, int64 off) = 0;
 };
 
+// io.ReaderFrom: reads from r until EOF or an error; io::Copy uses it
+// (net::TCPConn does, with splice(2) and sendfile(2)).
+struct ReaderFrom : public virtual object {
+    virtual std::pair<int64, error> ReadFrom(Reader& r) = 0;
+};
+
+// io.WriterTo: writes to w until there's nothing left or an error; io::Copy
+// uses it.
+struct WriterTo : public virtual object {
+    virtual std::pair<int64, error> WriteTo(Writer& w) = 0;
+};
+
 struct ReadWriter : public Reader, public Writer {};
 struct ReadSeeker : public Reader, public Seeker {};
 struct ReadWriteSeeker : public Reader, public Writer, public Seeker {};
@@ -78,7 +90,8 @@ std::pair<isize, error> ReadFull(Reader& r, std::span<byte> buf);
 // io.ReadAtLeast
 std::pair<isize, error> ReadAtLeast(Reader& r, std::span<byte> buf, isize min);
 
-// io.Copy
+// io.Copy: with src.WriteTo if src is a WriterTo, else dst.ReadFrom if
+// dst is a ReaderFrom, else through a buffer.
 std::pair<int64, error> Copy(Writer& dst, Reader& src);
 
 // io.CopyN: copies exactly n bytes, or fewer and an error (io::EOF_ if
@@ -91,16 +104,15 @@ std::pair<bytes, error> ReadAll(Reader& r);
 // io.Discard
 Writer& Discard();
 
-// io.LimitReader: reads at most n bytes from r.
+// io.LimitedReader: reads at most N bytes from R, counting N down.
 class LimitedReader : public Reader {
 public:
-    LimitedReader(ptr<Reader> r, int64 n) : r_(std::move(r)), n_(n) {}
+    LimitedReader(ptr<Reader> r, int64 n) : R(std::move(r)), N(n) {}
     std::pair<isize, error> Read(std::span<byte> p) override;
-    int64 Remaining() const noexcept { return n_; }
+    int64 Remaining() const noexcept { return N; }
 
-private:
-    ptr<Reader> r_;
-    int64 n_;
+    ptr<Reader> R;  // underlying reader
+    int64 N;        // max bytes remaining
 };
 
 ptr<Reader> LimitReader(ptr<Reader> r, int64 n);

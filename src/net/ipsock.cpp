@@ -169,22 +169,6 @@ bool is_ipv4(const Addr* a) {
     return ip.ok && !ip.ip.To4().empty();
 }
 
-bool supports_ipv6() {
-    static bool ok = [] {
-        int s = ::socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (s < 0) return false;
-        ::close(s);
-        return true;
-    }();
-    return ok;
-}
-
-int addr_family(const ip_port& a) {
-    if (a.ip.empty() || a.ip.size() <= IPv4len) return AF_INET;
-    if (!a.ip.To4().empty()) return AF_INET;
-    return AF_INET6;
-}
-
 }  // namespace
 
 string TCPAddr::String() const { return ip_addr_string(IP, Port, Zone); }
@@ -261,7 +245,8 @@ ip_port ip_port_of(const Addr* a) {
     return {};
 }
 
-std::pair<addr_list, error> internet_addr_list(std::string_view net, std::string_view addr) {
+std::pair<addr_list, error> internet_addr_list(const ptr<context::Context>& ctx, std::string_view net,
+                                               std::string_view addr) {
     string host, port;
     int portnum = 0;
     bool udp;
@@ -294,36 +279,10 @@ std::pair<addr_list, error> internet_addr_list(std::string_view net, std::string
     return {out, nullptr};
 }
 
-ptr<Addr> first_ipv4(const addr_list& addrs) {
-    for (auto& a : addrs) {
-        if (is_ipv4(a.get())) return a;
-    }
-    return addrs.front();
-}
-
-int favorite_family(std::string_view network, const Addr* laddr, const Addr* raddr, bool listen, bool* ipv6only) {
-    *ipv6only = false;
-    if (!network.empty() && network.back() == '4') return AF_INET;
-    if (!network.empty() && network.back() == '6') {
-        *ipv6only = true;
-        return AF_INET6;
-    }
-    ip_port la = laddr ? ip_port_of(laddr) : ip_port{};
-    ip_port ra = raddr ? ip_port_of(raddr) : ip_port{};
-    if (listen && (!laddr || la.ip.empty() || la.ip.IsUnspecified())) {
-        // A wildcard: a dual-stack socket listens on IPv4 and IPv6.
-        if (supports_ipv6()) return AF_INET6;
-        if (!laddr) return AF_INET;
-        return addr_family(la);
-    }
-    if ((!laddr || addr_family(la) == AF_INET) && (!raddr || addr_family(ra) == AF_INET)) return AF_INET;
-    return AF_INET6;
-}
-
 std::pair<ptr<TCPAddr>, error> ResolveTCPAddr(std::string_view network, std::string_view address) {
     if (network.empty()) network = "tcp";  // Go 1.0
     else if (network != "tcp" && network != "tcp4" && network != "tcp6") return {nullptr, make_ptr<UnknownNetworkError>(string(network))};
-    auto [addrs, err] = internet_addr_list(network, address);
+    auto [addrs, err] = internet_addr_list(context::Background(), network, address);
     if (err) return {nullptr, err};
     // Go's forResolve: an IPv6 address if the literal has '['.
     bool want6 = network == "tcp" && address.find('[') != address.npos;
@@ -340,7 +299,7 @@ std::pair<ptr<TCPAddr>, error> ResolveTCPAddr(std::string_view network, std::str
 std::pair<ptr<UDPAddr>, error> ResolveUDPAddr(std::string_view network, std::string_view address) {
     if (network.empty()) network = "udp";  // Go 1.0
     else if (network != "udp" && network != "udp4" && network != "udp6") return {nullptr, make_ptr<UnknownNetworkError>(string(network))};
-    auto [addrs, err] = internet_addr_list(network, address);
+    auto [addrs, err] = internet_addr_list(context::Background(), network, address);
     if (err) return {nullptr, err};
     bool want6 = network == "udp" && address.find('[') != address.npos;
     ptr<Addr> a = addrs.front();

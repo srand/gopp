@@ -1,6 +1,5 @@
 // Unix domain sockets, after Go's net/unixsock.go and unixsock_posix.go.
-#include "fd.hpp"
-#include "unixsock.hpp"
+#include "dial.hpp"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -26,44 +25,6 @@ ptr<UnixAddr> as_unix(const ptr<Addr>& a) { return ptr<UnixAddr>(dynamic_cast<Un
 std::pair<ptr<UnixAddr>, error> ResolveUnixAddr(std::string_view network, std::string_view address) {
     if (unix_sotype(network) < 0) return {nullptr, make_ptr<UnknownNetworkError>(string(network))};
     return {make_ptr<UnixAddr>(string(address), string(network)), nullptr};
-}
-
-std::pair<ptr<netfd>, error> unix_socket(std::string_view net, const UnixAddr* laddr, const UnixAddr* raddr,
-                                         bool listen) {
-    int sotype = unix_sotype(net);
-    if (sotype < 0) return {nullptr, make_ptr<UnknownNetworkError>(string(net))};
-    if (!listen) {
-        // Unnamed addresses don't count when dialing.
-        if (laddr && laddr->Name.empty()) laddr = nullptr;
-        if (raddr && raddr->Name.empty()) raddr = nullptr;
-        if (!raddr && (sotype != SOCK_DGRAM || !laddr)) return {nullptr, errMissingAddress};
-    }
-    int s = ::socket(AF_UNIX, sotype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-    if (s < 0) return {nullptr, os::NewSyscallError("socket", errno_error(errno))};
-    auto fd = make_ptr<netfd>(s, AF_UNIX, sotype, string(net));
-    if (laddr) {
-        sockaddr_storage sa;
-        socklen_t len;
-        if (error err = unix_sockaddr(laddr->Name.view(), &sa, &len)) return {nullptr, err};
-        if (::bind(s, reinterpret_cast<sockaddr*>(&sa), len) < 0) {
-            return {nullptr, os::NewSyscallError("bind", errno_error(errno))};
-        }
-    }
-    if (listen && sotype != SOCK_DGRAM && ::listen(s, SOMAXCONN) < 0) {
-        return {nullptr, os::NewSyscallError("listen", errno_error(errno))};
-    }
-    if (error err = fd->init()) return {nullptr, err};
-    if (raddr) {
-        sockaddr_storage sa;
-        socklen_t len;
-        if (error err = unix_sockaddr(raddr->Name.view(), &sa, &len)) return {nullptr, err};
-        if (error err = fd->connect(&sa, len, 0)) {
-            if (errors::As<Errno>(err)) err = os::NewSyscallError("connect", err);
-            return {nullptr, err};
-        }
-    }
-    fd->set_addrs();
-    return {fd, nullptr};
 }
 
 // ---------------------------------------------------------------------------
@@ -174,11 +135,29 @@ std::pair<ptr<os::File>, error> UnixListener::File() {
     return {f, nullptr};
 }
 
-std::pair<ptr<UnixListener>, error> listen_unix(std::string_view net, const UnixAddr* laddr) {
-    auto [fd, err] = unix_socket(net, laddr, nullptr, true);
+std::pair<ptr<syscall::RawConn>, error> UnixListener::SyscallConn() { return {newRawConn(fd_, true), nullptr}; }
+
+// ---------------------------------------------------------------------------
+// Dialing and listening
+
+std::pair<ptr<UnixConn>, error> sysDialer::dialUnix(const ptr<context::Context>& ctx, const UnixAddr* laddr,
+                                                    const UnixAddr* raddr) {
+    auto [fd, err] = unixSocket(ctx, network.view(), laddr, raddr, "dial", ctrlCtxFn());
+    if (err) return {nullptr, err};
+    return {make_ptr<UnixConn>(fd), nullptr};
+}
+
+std::pair<ptr<UnixListener>, error> sysListener::listenUnix(const ptr<context::Context>& ctx, const UnixAddr* laddr) {
+    auto [fd, err] = unixSocket(ctx, network.view(), laddr, nullptr, "listen", ctrlCtxFn());
     if (err) return {nullptr, err};
     string path = fd->laddr ? fd->laddr->String() : string();
     return {make_ptr<UnixListener>(fd, path, true), nullptr};
+}
+
+std::pair<ptr<UnixConn>, error> sysListener::listenUnixgram(const ptr<context::Context>& ctx, const UnixAddr* laddr) {
+    auto [fd, err] = unixSocket(ctx, network.view(), laddr, nullptr, "listen", ctrlCtxFn());
+    if (err) return {nullptr, err};
+    return {make_ptr<UnixConn>(fd), nullptr};
 }
 
 std::pair<ptr<UnixListener>, error> ListenUnix(std::string_view network, const ptr<UnixAddr>& laddr) {
@@ -187,7 +166,8 @@ std::pair<ptr<UnixListener>, error> ListenUnix(std::string_view network, const p
         return {nullptr, op_error("listen", net, nullptr, laddr, make_ptr<UnknownNetworkError>(net))};
     }
     if (!laddr) return {nullptr, op_error("listen", net, nullptr, nullptr, errMissingAddress)};
-    auto [ln, err] = listen_unix(network, laddr.get());
+    sysListener sl{.lc = {}, .network = net, .address = laddr->String()};
+    auto [ln, err] = sl.listenUnix(context::Background(), laddr.get());
     if (err) return {nullptr, op_error("listen", net, nullptr, laddr, err)};
     return {ln, nullptr};
 }
@@ -196,18 +176,20 @@ std::pair<ptr<UnixConn>, error> ListenUnixgram(std::string_view network, const p
     string net(network);
     if (network != "unixgram") return {nullptr, op_error("listen", net, nullptr, laddr, make_ptr<UnknownNetworkError>(net))};
     if (!laddr) return {nullptr, op_error("listen", net, nullptr, nullptr, errMissingAddress)};
-    auto [fd, err] = unix_socket(network, laddr.get(), nullptr, true);
+    sysListener sl{.lc = {}, .network = net, .address = laddr->String()};
+    auto [c, err] = sl.listenUnixgram(context::Background(), laddr.get());
     if (err) return {nullptr, op_error("listen", net, nullptr, laddr, err)};
-    return {make_ptr<UnixConn>(fd), nullptr};
+    return {c, nullptr};
 }
 
 std::pair<ptr<UnixConn>, error> DialUnix(std::string_view network, const ptr<UnixAddr>& laddr,
                                          const ptr<UnixAddr>& raddr) {
     string net(network);
     if (unix_sotype(network) < 0) return {nullptr, op_error("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
-    auto [fd, err] = unix_socket(network, laddr.get(), raddr.get(), false);
+    sysDialer sd{.d = {}, .network = net, .address = raddr ? raddr->String() : string()};
+    auto [c, err] = sd.dialUnix(context::Background(), laddr.get(), raddr.get());
     if (err) return {nullptr, op_error("dial", net, laddr, raddr, err)};
-    return {make_ptr<UnixConn>(fd), nullptr};
+    return {c, nullptr};
 }
 
 }  // namespace gopp::net

@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <span>
 #include <utility>
@@ -64,5 +65,17 @@ std::pair<std::vector<int>, gopp::error> ParseUnixRights(const SocketControlMess
 
 // syscall.Socketpair: a connected pair of sockets, as socketpair(2).
 std::pair<std::array<int, 2>, gopp::error> Socketpair(int domain, int typ, int proto);
+
+// syscall.RawConn: access to a socket's descriptor (net::TCPConn's
+// SyscallConn and Dialer::Control).
+struct RawConn : public virtual object {
+    // Calls f with the descriptor, which stays open meanwhile.
+    virtual gopp::error Control(std::function<void(uintptr)> f) = 0;
+    // Calls f with the descriptor until it returns true; after each false
+    // it waits until the descriptor is readable.
+    virtual gopp::error Read(std::function<bool(uintptr)> f) = 0;
+    // Likewise, waiting until it's writable.
+    virtual gopp::error Write(std::function<bool(uintptr)> f) = 0;
+};
 
 }  // namespace gopp::syscall
