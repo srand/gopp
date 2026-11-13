@@ -261,15 +261,18 @@ struct resolverConfig {
     std::string path = "/etc/resolv.conf";
     bool rechecks = true;
     std::atomic<bool> checking{false};  // Go's ch semaphore
+    sync::Once initOnce;
 };
 
 resolverConfig& resolvConf() {
-    static auto* r = [] {
-        auto* r = new resolverConfig;
+    // Loaded under a sync::Once, not by the static's initializer: loading
+    // parks the fiber, and fibers waiting on a static's guard block their
+    // threads, and with them the Ps the loading fiber needs to finish.
+    static auto* r = new resolverConfig;
+    r->initOnce.Do([] {
         r->conf = dnsReadConfig(r->path);
         r->lastChecked = time::Now();
-        return r;
-    }();
+    });
     return *r;
 }
 
@@ -531,15 +534,18 @@ struct nsswitchConfig {
     time::Time lastChecked;
     bool forced = false;
     std::atomic<bool> checking{false};
+    sync::Once initOnce;
 };
 
 nsswitchConfig& nssConfig() {
-    static auto* c = [] {
-        auto* c = new nsswitchConfig;
+    // Loaded under a sync::Once, not by the static's initializer: loading
+    // parks the fiber, and fibers waiting on a static's guard block their
+    // threads, and with them the Ps the loading fiber needs to finish.
+    static auto* c = new nsswitchConfig;
+    c->initOnce.Do([] {
         c->conf = parseNSSConfFile("/etc/nsswitch.conf");
         c->lastChecked = time::Now();
-        return c;
-    }();
+    });
     return *c;
 }
 

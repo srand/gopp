@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include <gopp/runtime.hpp>
+#include <gopp/sync.hpp>
 
 #include <cctype>
 #include <fstream>
@@ -23,34 +24,46 @@ namespace {
 constexpr std::size_t maxProtoLength = sizeof("RSVP-E2E-IGNORE") - 1 + 10;
 
 // The minimal mappings, completed from /etc/protocols on first use.
-const std::map<std::string, int, std::less<>>& protocols() {
-    static std::map<std::string, int, std::less<>> m = [] {
-        std::map<std::string, int, std::less<>> p = {
-            {"icmp", 1}, {"igmp", 2}, {"tcp", 6}, {"udp", 17}, {"ipv6-icmp", 58},
-        };
-        runtime::blocking([&] {
-            std::ifstream f("/etc/protocols");
-            std::string line;
-            while (std::getline(f, line)) {
-                // tcp    6   TCP    # transmission control protocol
-                if (auto h = line.find('#'); h != line.npos) line.resize(h);
-                std::istringstream in(line);
-                std::string name, num, alias;
-                if (!(in >> name >> num)) continue;
-                int proto = 0;
-                std::size_t i = 0;
-                for (; i < num.size() && std::isdigit(static_cast<unsigned char>(num[i])); i++) {
-                    proto = proto * 10 + (num[i] - '0');
-                }
-                if (i == 0) continue;
-                p.emplace(name, proto);
-                while (in >> alias) p.emplace(alias, proto);
+using protocol_map = std::map<std::string, int, std::less<>>;
+
+protocol_map load_protocols() {
+    protocol_map p = {
+        {"icmp", 1}, {"igmp", 2}, {"tcp", 6}, {"udp", 17}, {"ipv6-icmp", 58},
+    };
+    runtime::blocking([&] {
+        std::ifstream f("/etc/protocols");
+        std::string line;
+        while (std::getline(f, line)) {
+            // tcp    6   TCP    # transmission control protocol
+            if (auto h = line.find('#'); h != line.npos) line.resize(h);
+            std::istringstream in(line);
+            std::string name, num, alias;
+            if (!(in >> name >> num)) continue;
+            int proto = 0;
+            std::size_t i = 0;
+            for (; i < num.size() && std::isdigit(static_cast<unsigned char>(num[i])); i++) {
+                proto = proto * 10 + (num[i] - '0');
             }
-            return 0;
-        });
-        return p;
-    }();
-    return m;
+            if (i == 0) continue;
+            p.emplace(name, proto);
+            while (in >> alias) p.emplace(alias, proto);
+        }
+        return 0;
+    });
+    return p;
+}
+
+const protocol_map& protocols() {
+    // Loaded under a sync::Once, not by the static's initializer: loading
+    // parks the fiber, and fibers waiting on a static's guard block their
+    // threads, and with them the Ps the loading fiber needs to finish.
+    struct table {
+        sync::Once once;
+        protocol_map m;
+    };
+    static auto* t = new table;
+    t->once.Do([] { t->m = load_protocols(); });
+    return t->m;
 }
 
 }  // namespace

@@ -1,11 +1,15 @@
 #include <gopp/bufio.hpp>
+#include <gopp/context.hpp>
 #include <gopp/fmt.hpp>
 #include <gopp/io.hpp>
 #include <gopp/net.hpp>
 #include <gopp/runtime.hpp>
 #include <gopp/sync.hpp>
+#include <gopp/time.hpp>
 
 #include <gtest/gtest.h>
+
+#include "go_helper.hpp"
 
 #include <atomic>
 #include <vector>
@@ -277,4 +281,39 @@ TEST(Net, DialRefused) {
     auto [c, derr] = net::Dial("tcp", addr);
     EXPECT_FALSE(c);
     ASSERT_TRUE(derr);
+}
+
+// The resolver's configuration (resolv.conf, nsswitch.conf) and the
+// services and protocols tables load on first use. Fibers that get there
+// together must wait for the load by parking, not on a C++ static's guard:
+// that blocks their threads, and with them the Ps the loading fiber needs
+// to finish. Run in a fresh process with one P and no preemption, where
+// that hangs.
+namespace {
+
+const bool first_use_helper = go_helper::register_helper("net-first-use", [](const std::vector<std::string>&) {
+    sync::WaitGroup wg;
+    for (int i = 0; i < 16; i++) {
+        wg.Go([i] {
+            switch (i % 4) {
+            case 0: net::DefaultResolver->LookupHost(context::Background(), "localhost"); break;
+            case 1: net::DefaultResolver->LookupNetIP(context::Background(), "ip", "localhost"); break;
+            case 2: net::LookupPort("tcp", "http"); break;
+            case 3: net::ResolveIPAddr("ip4:icmp", "127.0.0.1"); break;
+            }
+        });
+    }
+    wg.Wait();
+    os::Exit(0);
+});
+
+}  // namespace
+
+TEST(Net, ConcurrentFirstUse) {
+    auto [ctx, cancel] = context::WithTimeout(context::Background(), 10 * time::Second);
+    auto cmd = go_helper::helper_command_context(ctx, "net-first-use");
+    cmd->Env = append(cmd->Environ(), string("GOMAXPROCS=1"), string("GODEBUG=asyncpreemptoff=1"));
+    auto err = cmd->Run();
+    EXPECT_FALSE(err) << err << ": the fibers deadlocked on first use";
+    cancel();
 }

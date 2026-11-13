@@ -5,6 +5,7 @@
 #include "ipsock.hpp"
 
 #include <gopp/runtime.hpp>
+#include <gopp/sync.hpp>
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -65,37 +66,49 @@ std::pair<int, bool> parsePort(std::string_view service) {
 
 // Go's services, completed from /etc/services on first use, as its
 // pure-Go resolver does (port_unix.go).
-std::map<std::string, std::map<std::string, int>>& services() {
-    static std::map<std::string, std::map<std::string, int>> m = [] {
-        std::map<std::string, std::map<std::string, int>> s = {
-            {"udp", {{"domain", 53}}},
-            {"tcp",
-             {{"ftp", 21}, {"ftps", 990}, {"gopher", 70}, {"http", 80}, {"https", 443}, {"imap2", 143},
-              {"imap3", 220}, {"imaps", 993}, {"pop3", 110}, {"pop3s", 995}, {"smtp", 25}, {"submissions", 465},
-              {"ssh", 22}, {"telnet", 23}}},
-        };
-        runtime::blocking([&] {
-            std::ifstream f("/etc/services");
-            std::string line;
-            while (std::getline(f, line)) {
-                // "http 80/tcp www # comment"
-                if (auto h = line.find('#'); h != line.npos) line.resize(h);
-                std::istringstream in(line);
-                std::string name, portnet, alias;
-                if (!(in >> name >> portnet)) continue;
-                auto slash = portnet.find('/');
-                if (slash == portnet.npos) continue;
-                auto [port, needs] = parsePort(std::string_view(portnet).substr(0, slash));
-                if (needs || port <= 0) continue;
-                auto& m = s[portnet.substr(slash + 1)];
-                m.emplace(name, port);
-                while (in >> alias) m.emplace(alias, port);
-            }
-            return 0;
-        });
-        return s;
-    }();
-    return m;
+using services_map = std::map<std::string, std::map<std::string, int>>;
+
+services_map load_services() {
+    services_map s = {
+        {"udp", {{"domain", 53}}},
+        {"tcp",
+         {{"ftp", 21}, {"ftps", 990}, {"gopher", 70}, {"http", 80}, {"https", 443}, {"imap2", 143},
+          {"imap3", 220}, {"imaps", 993}, {"pop3", 110}, {"pop3s", 995}, {"smtp", 25}, {"submissions", 465},
+          {"ssh", 22}, {"telnet", 23}}},
+    };
+    runtime::blocking([&] {
+        std::ifstream f("/etc/services");
+        std::string line;
+        while (std::getline(f, line)) {
+            // "http 80/tcp www # comment"
+            if (auto h = line.find('#'); h != line.npos) line.resize(h);
+            std::istringstream in(line);
+            std::string name, portnet, alias;
+            if (!(in >> name >> portnet)) continue;
+            auto slash = portnet.find('/');
+            if (slash == portnet.npos) continue;
+            auto [port, needs] = parsePort(std::string_view(portnet).substr(0, slash));
+            if (needs || port <= 0) continue;
+            auto& m = s[portnet.substr(slash + 1)];
+            m.emplace(name, port);
+            while (in >> alias) m.emplace(alias, port);
+        }
+        return 0;
+    });
+    return s;
+}
+
+services_map& services() {
+    // Loaded under a sync::Once, not by the static's initializer: loading
+    // parks the fiber, and fibers waiting on a static's guard block their
+    // threads, and with them the Ps the loading fiber needs to finish.
+    struct table {
+        sync::Once once;
+        services_map m;
+    };
+    static auto* t = new table;
+    t->once.Do([] { t->m = load_services(); });
+    return t->m;
 }
 
 std::pair<int, error> lookupPortMapWithNetwork(const std::string& network, std::string_view errNetwork,
