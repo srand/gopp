@@ -1,7 +1,10 @@
 // tcp-chat: a small multi-client chat room. Connect with: nc localhost 8083
 // The manager owns the client list; fibers send it join, message and leave events.
+//
+//     $ tcp-chat [-addr :8083]
 #include <gopp/bufio.hpp>
 #include <gopp/chan.hpp>
+#include <gopp/flag.hpp>
 #include <gopp/fmt.hpp>
 #include <gopp/net.hpp>
 #include <gopp/os.hpp>
@@ -24,8 +27,12 @@ struct Event {
     ptr<net::Conn> conn;
 };
 
-int main() {
-    auto [listener, err] = net::Listen("tcp", ":8083");
+int main(int argc, char** argv) {
+    string addr = ":8083";
+    flag::StringVar(&addr, "addr", addr, "the address to listen on");
+    flag::Parse(argc, argv);
+
+    auto [listener, err] = net::Listen("tcp", addr);
     if (err) {
         fmt::Println(os::Stderr, "tcp-chat: {}", err);
         return 1;

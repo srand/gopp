@@ -3,10 +3,12 @@
 //
 //     $ modules
 //     {"Name":"gopher","Count":3}
+//     application/json
 //     gopher has 3 items
 import std;
 import gopp.encoding.json;
 import gopp.fmt;
+import gopp.mime;
 import gopp.os;
 import gopp.text.tmpl;
 
@@ -26,7 +28,8 @@ int main() {
         fmt::Println("{}", err);
         return 1;
     }
-    fmt::Println("{}", std::string_view(reinterpret_cast<const char*>(b.data()), b.size()));
+    fmt::Println("{}", as_string_view(b));
+    fmt::Println("{}", mime::TypeByExtension(".json"));
 
     auto t = tmpl::Must(tmpl::New("inventory")->Parse("{{.Name}} has {{.Count}} items\n"));
     if (auto err = t->Execute(os::Stdout, inv)) {

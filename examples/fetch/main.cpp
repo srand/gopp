@@ -4,16 +4,24 @@
 //     $ fetch -i https://go.dev/
 //     $ fetch -h2c -X POST -d hello http://localhost:8080/echo
 //     $ fetch -n 1000 -c 50 https://localhost:8443/    # load: n requests, c at a time
+//
+// Ctrl-C cancels the requests in flight through their context.
+#include <gopp/context.hpp>
 #include <gopp/flag.hpp>
 #include <gopp/fmt.hpp>
 #include <gopp/io.hpp>
 #include <gopp/net/http.hpp>
 #include <gopp/os.hpp>
+#include <gopp/os/signal.hpp>
 #include <gopp/strings.hpp>
 #include <gopp/sync.hpp>
+#include <gopp/syscall.hpp>
 #include <gopp/time.hpp>
 
+#include <algorithm>
+
 using namespace gopp;
+namespace signal = os::signal;
 
 int main(int argc, char** argv) {
     string method = "GET", data;
@@ -47,10 +55,11 @@ int main(int argc, char** argv) {
     if (insecure) tr->TLSClientConfig = tls::Config{.InsecureSkipVerify = true};
     tr->MaxIdleConnsPerHost = static_cast<int>(c);
     http::Client client{.Transport = tr};
+    auto [ctx, stop] = signal::NotifyContext(context::Background(), os::Interrupt, syscall::SIGTERM_);
 
     auto fetch = [&](bool print) -> gopp::error {
         ptr<io::Reader> body = data.empty() ? nullptr : strings::NewReader(data);
-        auto [req, err] = http::NewRequest(method, url, body);
+        auto [req, err] = http::NewRequestWithContext(ctx, method, url, body);
         if (err) return err;
         auto [resp, derr] = client.Do(req);
         if (derr) return derr;
@@ -78,8 +87,9 @@ int main(int argc, char** argv) {
     sync::WaitGroup wg;
     for (int64 i = 0; i < c; i++) {
         wg.Go([&] {
-            while (next.fetch_add(1) < n) {
+            while (!ctx->Err() && next.fetch_add(1) < n) {
                 if (auto err = fetch(false)) {
+                    if (ctx->Err()) break;
                     if (failed.fetch_add(1) == 0) fmt::Println(os::Stderr, "fetch: {}", err);
                 }
             }
@@ -87,6 +97,8 @@ int main(int argc, char** argv) {
     }
     wg.Wait();
     double secs = time::Since(start).Seconds();
-    fmt::Println("{} requests, {} failed, {:.3f}s, {:.0f} req/s", n, failed.load(), secs, static_cast<double>(n) / secs);
-    return failed.load() ? 1 : 0;
+    int64 done = std::min(next.load(), n);
+    fmt::Println("{} requests, {} failed, {:.3f}s, {:.0f} req/s{}", done, failed.load(), secs,
+                 static_cast<double>(done) / secs, ctx->Err() ? " (interrupted)" : "");
+    return failed.load() || ctx->Err() ? 1 : 0;
 }

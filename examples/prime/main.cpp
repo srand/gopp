@@ -38,6 +38,8 @@ int main() {
     }
     fmt::Println("");
 
-    // Let each finite stage drain and close its output before exiting.
+    // Drain the last stage, whose output nobody else reads, so that every
+    // stage gets to the end of its input and closes its output.
+    for (int n : input) (void)n;
     filters.Wait();
 }

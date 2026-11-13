@@ -127,14 +127,55 @@ class TemplateExample(Example):
 
 
 class JSONFile(Example):
-    """ JSON task list persisted with os.ReadFile and os.WriteFile. """
+    """ JSON task list, saved atomically with os.CreateTemp and os.Rename. """
     name = "examples/json-file"
     sources = ["examples/json-file/*.cpp"]
 
 
+class HTTPFileServer(Example):
+    """ Serves a directory with http.FileServerFS over an os.Root. """
+    name = "examples/httpfileserver"
+    sources = ["examples/httpfileserver/*.cpp"]
+
+
+class Proxy(Example):
+    """ TCP proxy: net.Dialer, splice(2) through io.Copy, half-close. """
+    name = "examples/proxy"
+    sources = ["examples/proxy/*.cpp"]
+
+
+class Lookup(Example):
+    """ Concurrent DNS lookups with net.Resolver and a context deadline. """
+    name = "examples/lookup"
+    sources = ["examples/lookup/*.cpp"]
+
+
+class Grep(Example):
+    """ Searches a tree with fs.WalkDir over os.DirFS and a fiber pool. """
+    name = "examples/grep"
+    sources = ["examples/grep/*.cpp"]
+
+
+class Parallel(Example):
+    """ Runs shell commands concurrently with os/exec, like xargs -P. """
+    name = "examples/parallel"
+    sources = ["examples/parallel/*.cpp"]
+
+
+class Sandbox(Example):
+    """ Runs a command in new namespaces with SysProcAttr, unprivileged. """
+    name = "examples/sandbox"
+    sources = ["examples/sandbox/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
-    requires = ["examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot", "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat", "examples/template", "examples/json-file"]
+    requires = [
+        "examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot",
+        "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat", "examples/template", "examples/json-file",
+        "examples/httpfileserver", "examples/proxy", "examples/lookup", "examples/grep", "examples/parallel",
+        "examples/sandbox",
+    ]
 
 
 class Tests(GoppProject, ninja.CXXExecutable):
