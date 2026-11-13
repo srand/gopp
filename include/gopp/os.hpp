@@ -333,6 +333,18 @@ std::pair<string, bool> LookupEnv(std::string_view key);
 // and a value with a NUL.
 error Setenv(std::string_view key, std::string_view value);
 // os.Unsetenv
+// os.DirFS: the file system of the tree at dir, an fs::FS that also
+// implements fs::StatFS, ReadFileFS, ReadDirFS and ReadLinkFS. Its names
+// are ones fs::ValidPath accepts, joined to dir; like dir itself, they can
+// follow symbolic links out of the tree (os.Root doesn't).
+ptr<fs::FS> DirFS(std::string_view dir);
+// os.CopyFS: copies fsys into the directory dir, creating it if needed:
+// files with mode 0666 plus their permissions, before umask, directories
+// with 0777, and symbolic links as they are. Files that already exist are
+// an error (fs::ErrExist); so are files that are neither regular files,
+// directories nor links.
+error CopyFS(std::string_view dir, fs::FS& fsys);
+
 error Unsetenv(std::string_view key);
 // os.Clearenv: unsets all variables.
 void Clearenv();

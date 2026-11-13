@@ -1,9 +1,13 @@
 // The io/fs package: the interfaces and types of file systems, which the
-// os package implements.
+// os package implements, and functions over any FS.
 //
 //     auto [info, err] = os::Stat("go.mod");
 //     if (errors::Is(err, fs::ErrNotExist)) ...
 //     fmt::Println("{} {}", info->Mode(), info->Size());   // -rw-r--r-- 42
+//
+//     auto fsys = os::DirFS("/etc");
+//     auto [data, err] = fs::ReadFile(*fsys, "hostname");
+//     fs::WalkDir(*fsys, ".", [](std::string_view path, const ptr<fs::DirEntry>& d, error err) -> error { ... });
 #pragma once
 
 // The module interfaces (modules/) import these instead.
@@ -12,10 +16,12 @@
 #include <gopp/errors.hpp>
 #include <gopp/io.hpp>
 #include <gopp/ptr.hpp>
+#include <gopp/slice.hpp>
 #include <gopp/string.hpp>
 #include <gopp/time.hpp>
 
 #include <format>
+#include <functional>
 #include <ostream>
 #include <string_view>
 #include <utility>
@@ -141,6 +147,80 @@ struct PathError : error_interface {
 // fs.ValidPath: whether name is valid for fs.FS.Open: unrooted, slash
 // separated, without "." or ".." elements or empty ones, or ".".
 bool ValidPath(std::string_view name);
+
+// fs.FS: a hierarchical file system. Names are slash-separated and
+// unrooted, as ValidPath says: "dir/file.txt", or "." for the root.
+struct FS : public virtual object {
+    // Open: the named file; a *PathError with Op "open" if it can't be
+    // opened (ErrInvalid for a name that isn't valid).
+    virtual std::pair<ptr<File>, error> Open(std::string_view name) = 0;
+};
+
+// fs.ReadFileFS: an FS with its own ReadFile.
+struct ReadFileFS : public virtual FS {
+    virtual std::pair<bytes, error> ReadFile(std::string_view name) = 0;
+};
+
+// fs.ReadDirFS: an FS with its own ReadDir, which sorts by name.
+struct ReadDirFS : public virtual FS {
+    virtual std::pair<std::vector<ptr<DirEntry>>, error> ReadDir(std::string_view name) = 0;
+};
+
+// fs.StatFS: an FS with its own Stat.
+struct StatFS : public virtual FS {
+    virtual std::pair<ptr<FileInfo>, error> Stat(std::string_view name) = 0;
+};
+
+// fs.SubFS: an FS with its own Sub.
+struct SubFS : public virtual FS {
+    virtual std::pair<ptr<FS>, error> Sub(std::string_view dir) = 0;
+};
+
+// fs.GlobFS: an FS with its own Glob.
+struct GlobFS : public virtual FS {
+    virtual std::pair<std::vector<string>, error> Glob(std::string_view pattern) = 0;
+};
+
+// fs.ReadLinkFS: an FS with symbolic links.
+struct ReadLinkFS : public virtual FS {
+    // ReadLink: the destination of the named link.
+    virtual std::pair<string, error> ReadLink(std::string_view name) = 0;
+    // Lstat: the FileInfo of the named file, not following a final link.
+    virtual std::pair<ptr<FileInfo>, error> Lstat(std::string_view name) = 0;
+};
+
+// fs.ReadFile: the contents of the named file.
+std::pair<bytes, error> ReadFile(FS& fsys, std::string_view name);
+// fs.ReadDir: the entries of the named directory, sorted by name.
+std::pair<std::vector<ptr<DirEntry>>, error> ReadDir(FS& fsys, std::string_view name);
+// fs.Stat: the FileInfo of the named file.
+std::pair<ptr<FileInfo>, error> Stat(FS& fsys, std::string_view name);
+// fs.Sub: the FS of the subtree at dir.
+std::pair<ptr<FS>, error> Sub(const ptr<FS>& fsys, std::string_view dir);
+// fs.Glob: the names that match pattern (path::Match), in lexical order
+// per directory; path::ErrBadPattern if it's malformed.
+std::pair<std::vector<string>, error> Glob(FS& fsys, std::string_view pattern);
+// fs.ReadLink: a link's destination; ErrInvalid if fsys has no links.
+std::pair<string, error> ReadLink(FS& fsys, std::string_view name);
+// fs.Lstat: as Stat, not following a final link where fsys has them.
+std::pair<ptr<FileInfo>, error> Lstat(FS& fsys, std::string_view name);
+
+// fs.SkipDir and fs.SkipAll: what a WalkDirFunc returns to skip the
+// current directory, or everything that's left.
+extern const error SkipDir;
+extern const error SkipAll;
+
+// fs.WalkDirFunc: called by WalkDir for each file or directory (d), or
+// with the error of reading a directory or of the root's Stat (then d is
+// nil for the root).
+using WalkDirFunc = std::function<error(std::string_view path, const ptr<DirEntry>& d, error err)>;
+
+// fs.WalkDir: walks the tree at root in lexical order, calling fn for each
+// file and directory.
+error WalkDir(FS& fsys, std::string_view root, const WalkDirFunc& fn);
+
+// fs.FileInfoToDirEntry: a DirEntry of info; nil for nil.
+ptr<DirEntry> FileInfoToDirEntry(const ptr<FileInfo>& info);
 
 // fs.FormatFileInfo: "-rw-r--r-- 100 1970-01-01 12:00:00 hello.go", with
 // the modification time in UTC, as go++ formats times.

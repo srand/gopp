@@ -8,6 +8,7 @@ export import gopp.base;
 export import gopp.errors;
 export import gopp.io;
 export import gopp.ptr;
+export import gopp.slice;
 export import gopp.string;
 export import gopp.time;
 
