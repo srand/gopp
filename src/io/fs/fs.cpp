@@ -63,13 +63,7 @@ string FormatFileInfo(const FileInfo& info) {
     b += ' ';
     b += std::to_string(info.Size());
     b += ' ';
-    // time.DateTime, in UTC: go++'s Time has no location.
-    std::time_t t = static_cast<std::time_t>(info.ModTime().Unix());
-    std::tm tm{};
-    gmtime_r(&t, &tm);
-    char ts[32];
-    std::strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm);
-    b += ts;
+    b += info.ModTime().Format(time::DateTime).view();
     b += ' ';
     b += name.view();
     if (info.IsDir()) b += '/';

@@ -230,7 +230,6 @@ public:
     }
     void write_base64(std::span<const byte> b);
     void write_value(const Value& v);
-    void write_time(const time::Time& t);
     // Appends the output of a MarshalJSON member, validated and compacted.
     void write_marshaled(std::pair<bytes, gopp::error> r, std::string_view type);
     void cycle_error(std::string_view type);
@@ -265,7 +264,6 @@ public:
     // Whether the array has another element.
     bool next_element() noexcept;
     void read_value(Value& v);
-    bool read_time(time::Time& t);
     bool read_base64(bytes& b);
 
     // Records a mismatch and skips the value.
@@ -526,8 +524,6 @@ void encode(encoder& e, const T& v) {
         else e.write_base64(v);
     } else if constexpr (std::is_same_v<U, Value>) {
         e.write_value(v);
-    } else if constexpr (std::is_same_v<U, time::Time>) {
-        e.write_time(v);
     } else if constexpr (std::is_same_v<U, time::Duration>) {
         e.write_int(v.ns);
     } else if constexpr (std::is_same_v<U, std::nullptr_t>) {
@@ -754,9 +750,6 @@ void decode(decoder& d, T& v) {
     } else if constexpr (std::is_same_v<U, time::Duration>) {
         if (d.consume_null()) return;
         decode_number(d, v.ns);
-    } else if constexpr (std::is_same_v<U, time::Time>) {
-        if (d.consume_null()) return;
-        if (!d.read_time(v)) d.mismatch("time.Time");
     } else if constexpr (std::is_same_v<U, gopp::string> || std::is_same_v<U, std::string>) {
         if (d.consume_null()) return;
         if (d.peek() != '"') {

@@ -33,12 +33,9 @@ using internal::logf;
 }  // namespace
 
 void internal::logf(std::string_view msg) {
-    std::time_t t = std::time(nullptr);
-    std::tm tm;
-    localtime_r(&t, &tm);
-    char ts[32];
-    std::strftime(ts, sizeof(ts), "%Y/%m/%d %H:%M:%S", &tm);
-    std::fprintf(stderr, "%s %.*s\n", ts, static_cast<int>(msg.size()), msg.data());
+    // As Go's log package writes it, in local time.
+    string ts = time::Now().Format("2006/01/02 15:04:05");
+    std::fprintf(stderr, "%.*s %.*s\n", static_cast<int>(ts.size()), ts.data(), static_cast<int>(msg.size()), msg.data());
 }
 
 namespace {

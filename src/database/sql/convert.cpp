@@ -105,25 +105,7 @@ std::pair<double, error> parse_float(std::string_view s, int bits) {
     return {neg ? -v : v, nullptr};
 }
 
-std::string format_rfc3339_nano(const time::Time& t) {
-    int64 ns = t.UnixNano();
-    int64 sec = ns >= 0 ? ns / 1000000000 : -((-ns + 999999999) / 1000000000);
-    int64 frac = ns - sec * 1000000000;
-    std::time_t tt = static_cast<std::time_t>(sec);
-    std::tm tm;
-    gmtime_r(&tt, &tm);
-    char buf[64];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm);
-    std::string s = buf;
-    if (frac) {
-        char f[16];
-        std::snprintf(f, sizeof(f), ".%09lld", static_cast<long long>(frac));
-        std::string fs = f;
-        while (fs.back() == '0') fs.pop_back();
-        s += fs;
-    }
-    return s + "Z";
-}
+std::string format_rfc3339_nano(const time::Time& t) { return std::string(t.Format(time::RFC3339Nano).view()); }
 
 namespace {
 

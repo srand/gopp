@@ -8,6 +8,7 @@ export import gopp.base;
 export import gopp.chan;
 export import gopp.errors;
 export import gopp.ptr;
+export import gopp.slice;
 export import gopp.string;
 
 export extern "C++" {

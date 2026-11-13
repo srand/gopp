@@ -141,7 +141,8 @@ TEST(Json, Containers) {
 }
 
 TEST(Json, TimeAndDuration) {
-    EXPECT_EQ(marshal_str(time::Time::Unix(1700000000, 500000000)), R"("2023-11-14T22:13:20.5Z")");
+    EXPECT_EQ(marshal_str(time::Time::Unix(1700000000, 500000000).UTC()), R"("2023-11-14T22:13:20.5Z")");
+    EXPECT_EQ(marshal_str(time::Time::Unix(1700000000, 0).In(time::FixedZone("", 3600))), R"("2023-11-14T23:13:20+01:00")");
     EXPECT_EQ(marshal_str(1500 * time::Millisecond), "1500000000");
     time::Time t;
     ASSERT_FALSE(json::Unmarshal(R"("2023-11-14T23:13:20.25+01:00")", &t));

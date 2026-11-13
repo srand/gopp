@@ -1,4 +1,5 @@
 #include "../runtime/runtime.hpp"
+#include "internal.hpp"
 
 #include <gopp/strings.hpp>
 #include <gopp/time.hpp>
@@ -10,7 +11,8 @@
 namespace gopp::time {
 
 namespace {
-string strconv_quote(std::string_view s) { return strconv::Quote(s); }
+// Go's parseDurationError quotes with the time package's quote.
+string strconv_quote(std::string_view s) { return string(quote(s)); }
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -180,39 +182,10 @@ std::pair<Duration, error> ParseDuration(std::string_view s) {
 Time Now() noexcept {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
-    Time t;
-    t.wall_ = static_cast<int64>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-    t.mono_ = runtime::nanotime();
+    Time t = Time::internal::make(static_cast<int64>(ts.tv_sec) + Time::unixToInternal, static_cast<int32>(ts.tv_nsec),
+                                  Local);
+    Time::internal::setMono(t, runtime::nanotime());
     return t;
-}
-
-string Time::FormatHTTP() const {
-    static const char days[7][4] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    static const char months[12][4] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    time_t sec = static_cast<time_t>(Unix());
-    struct tm tm;
-    gmtime_r(&sec, &tm);
-    char buf[40];
-    int n = std::snprintf(buf, sizeof(buf), "%s, %02d %s %04d %02d:%02d:%02d GMT", days[tm.tm_wday], tm.tm_mday,
-                          months[tm.tm_mon], tm.tm_year + 1900, tm.tm_hour, tm.tm_min, tm.tm_sec);
-    return string(buf, static_cast<std::size_t>(n));
-}
-
-string Time::FormatRFC3339() const {
-    time_t sec = static_cast<time_t>(Unix());
-    struct tm tm;
-    gmtime_r(&sec, &tm);
-    char buf[48];
-    int n = std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                          tm.tm_hour, tm.tm_min, tm.tm_sec);
-    int64 frac = wall_ - Unix() * 1000000000;
-    if (frac != 0) {
-        n += std::snprintf(buf + n, sizeof(buf) - n, ".%09lld", static_cast<long long>(frac));
-        while (buf[n - 1] == '0') n--;
-    }
-    buf[n++] = 'Z';
-    return string(buf, static_cast<std::size_t>(n));
 }
 
 // ---------------------------------------------------------------------------

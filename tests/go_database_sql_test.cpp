@@ -2407,9 +2407,10 @@ TEST(SqlConvert, Conversions) {
     to_str(int64(123), "123");
     to_str(1.5, "1.5");
     // From time.Time.
-    to_str(time::Time::Unix(1, 0), "1970-01-01T00:00:01Z");
-    to_str(time::Time::Unix(1, 2), "1970-01-01T00:00:01.000000002Z");
-    to_bytes(time::Time::Unix(1, 2), "1970-01-01T00:00:01.000000002Z");
+    to_str(time::Time::Unix(1, 0).UTC(), "1970-01-01T00:00:01Z");
+    to_str(time::Time::Unix(1453874597, 0).In(time::FixedZone("here", -3600 * 8)), "2016-01-26T22:03:17-08:00");
+    to_str(time::Time::Unix(1, 2).UTC(), "1970-01-01T00:00:01.000000002Z");
+    to_bytes(time::Time::Unix(1, 2).UTC(), "1970-01-01T00:00:01.000000002Z");
     // To []byte.
     to_bytes(nullptr, std::nullopt);
     to_bytes(string("string"), "string");
@@ -2422,7 +2423,7 @@ TEST(SqlConvert, Conversions) {
     to_raw(string("string"), "string");
     to_raw(int64(123), "123");
     to_raw(1.5, "1.5");
-    to_raw(time::Time::Unix(2, 5), "1970-01-01T00:00:02.000000005Z");
+    to_raw(time::Time::Unix(2, 5).UTC(), "1970-01-01T00:00:02.000000005Z");
     // Strings to integers.
     auto u8 = [&](Value s, int want, std::string wanterr = "") {
         tests.push_back({s, [&, s] { return sql::convert_assign(&scanuint8, s); },

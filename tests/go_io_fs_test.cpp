@@ -47,7 +47,7 @@ struct format_case {
 };
 
 std::vector<format_case> format_tests() {
-    time::Time noon = time::Time::Unix(12 * 3600, 0);  // 1970-01-01 12:00:00 UTC
+    time::Time noon = time::Date(1970, time::January, 1, 12, 0, 0, 0, time::UTC);
     return {
         {{"hello.go", 100, 0644, noon, false}, "-rw-r--r-- 100 1970-01-01 12:00:00 hello.go", "- hello.go"},
         {{"home/gopher", 0, fs::ModeDir | 0755, noon, true},

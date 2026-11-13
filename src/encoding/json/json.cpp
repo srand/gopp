@@ -482,8 +482,6 @@ void encoder::write_value(const Value& v) {
     }
 }
 
-void encoder::write_time(const time::Time& t) { WriteString(t.FormatRFC3339()); }
-
 void encoder::write_marshaled(std::pair<bytes, gopp::error> r, std::string_view type) {
     auto fail = [&](gopp::error e) {
         if (!err) {
@@ -809,51 +807,6 @@ void decoder::read_value(Value& root) {
             }
         }
     }
-}
-
-bool decoder::read_time(time::Time& t) {
-    if (peek() != '"') return false;
-    std::string s;
-    ReadString(s);
-    // RFC 3339: 2006-01-02T15:04:05[.999999999](Z|+07:00)
-    int Y, M, D, h, m, sec;
-    int n = 0;
-    if (std::sscanf(s.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%n", &Y, &M, &D, &h, &m, &sec, &n) != 6 || n != 19) return false;
-    std::size_t i = 19;
-    int64 nsec = 0;
-    if (i < s.size() && s[i] == '.') {
-        i++;
-        int digits = 0;
-        while (i < s.size() && is_digit(s[i])) {
-            if (digits < 9) {
-                nsec = nsec * 10 + (s[i] - '0');
-                digits++;
-            }
-            i++;
-        }
-        for (; digits < 9; digits++) nsec *= 10;
-    }
-    int64 offset = 0;
-    if (i < s.size() && (s[i] == 'Z' || s[i] == 'z')) {
-        i++;
-    } else if (i + 6 == s.size() && (s[i] == '+' || s[i] == '-') && s[i + 3] == ':') {
-        int oh = (s[i + 1] - '0') * 10 + (s[i + 2] - '0');
-        int om = (s[i + 4] - '0') * 10 + (s[i + 5] - '0');
-        offset = (oh * 3600 + om * 60) * (s[i] == '-' ? -1 : 1);
-        i += 6;
-    } else {
-        return false;
-    }
-    if (i != s.size()) return false;
-    struct tm tm{};
-    tm.tm_year = Y - 1900;
-    tm.tm_mon = M - 1;
-    tm.tm_mday = D;
-    tm.tm_hour = h;
-    tm.tm_min = m;
-    tm.tm_sec = sec;
-    t = time::Time::Unix(static_cast<int64>(timegm(&tm)) - offset, nsec);
-    return true;
 }
 
 bool decoder::read_base64(bytes& b) {
