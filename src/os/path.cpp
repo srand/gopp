@@ -159,6 +159,8 @@ error remove_all_from(int parent_fd, const std::string& base) {
 
 }  // namespace
 
+error detail::remove_all_from(int parent_fd, const std::string& base) { return os::remove_all_from(parent_fd, base); }
+
 error RemoveAll(std::string_view path) {
     if (path.empty()) return nullptr;  // fail silently to retain compatibility
     // The rmdir system call doesn't permit removing ".", so we don't permit

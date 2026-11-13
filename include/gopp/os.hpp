@@ -135,6 +135,7 @@ inline constexpr std::string_view DevNull = "/dev/null";
 
 namespace detail {
 struct file_impl;
+struct root_impl;
 }
 
 // os.File: an open file descriptor. The descriptor is closed by Close, or
@@ -203,7 +204,6 @@ public:
     error SetReadDeadline(time::Time t);
     error SetWriteDeadline(time::Time t);
 
-    // The file descriptor, valid until Close. As in Go, a pollable file's
     // ReadFrom: io::ReaderFrom. From another file it copies with
     // copy_file_range(2), and from a TCP or Unix stream connection with
     // splice(2), unless the file is in append mode; otherwise through a
@@ -215,6 +215,7 @@ public:
     // SyscallConn: the file's descriptor, for calls go++ doesn't wrap.
     std::pair<ptr<syscall::RawConn>, error> SyscallConn() override;
 
+    // The file descriptor, valid until Close. As in Go, a pollable file's
     // descriptor is put in blocking mode first, so that it can be used
     // directly, which turns off its deadlines.
     uintptr Fd();
@@ -224,6 +225,77 @@ private:
     error wrap_err(std::string_view op, error err) const;
     std::unique_ptr<detail::file_impl> f_;
 };
+
+// os.Root: a directory that file system operations can't escape. Names
+// are relative to it; ".." and symbolic links may be used within it, but
+// not to reach outside it (the error is "path escapes from parent"), and
+// absolute names are refused. It holds the directory open, so renaming or
+// moving the directory doesn't change what a Root refers to.
+//
+//     auto [root, err] = os::OpenRoot("/srv/data");
+//     auto [f, err] = root->Open(request_path);   // can't leave /srv/data
+//
+// Go's caveats apply: a bind mount or the like within the tree can lead out
+// of it, and a Root doesn't stop other processes from changing the tree.
+class Root final : public object {
+public:
+    explicit Root(std::unique_ptr<detail::root_impl> impl) noexcept;
+    ~Root() override;
+    Root(const Root&) = delete;
+    Root& operator=(const Root&) = delete;
+
+    // The name the Root was opened with (joined to its parent's, for a
+    // Root opened in a Root).
+    const string& Name() const noexcept;
+    // Closes the Root: later operations fail with ErrClosed. Files opened
+    // in it stay open.
+    error Close();
+
+    // Root.Open, Create and OpenFile: as os::Open, Create and OpenFile.
+    // OpenFile's perm can only have permission bits.
+    std::pair<ptr<File>, error> Open(std::string_view name);
+    std::pair<ptr<File>, error> Create(std::string_view name);
+    std::pair<ptr<File>, error> OpenFile(std::string_view name, int flag, FileMode perm);
+    // A Root of the directory name, within this one.
+    std::pair<ptr<Root>, error> OpenRoot(std::string_view name);
+
+    // As the os functions of the same names, within the Root. A symbolic
+    // link that is the last element of the name is followed (or not, by
+    // Lchown, Lstat, Readlink, Remove, RemoveAll, Rename, Link and
+    // Symlink), but only within the Root. Symlink's oldname, the link's
+    // destination, isn't checked: it's only resolved when used.
+    error Chmod(std::string_view name, FileMode mode);
+    error Mkdir(std::string_view name, FileMode perm);
+    error MkdirAll(std::string_view name, FileMode perm);
+    error Chown(std::string_view name, int uid, int gid);
+    error Lchown(std::string_view name, int uid, int gid);
+    error Chtimes(std::string_view name, time::Time atime, time::Time mtime);
+    error Remove(std::string_view name);
+    error RemoveAll(std::string_view name);
+    std::pair<ptr<FileInfo>, error> Stat(std::string_view name);
+    std::pair<ptr<FileInfo>, error> Lstat(std::string_view name);
+    std::pair<string, error> Readlink(std::string_view name);
+    error Rename(std::string_view oldname, std::string_view newname);
+    error Link(std::string_view oldname, std::string_view newname);
+    error Symlink(std::string_view oldname, std::string_view newname);
+    std::pair<bytes, error> ReadFile(std::string_view name);
+    error WriteFile(std::string_view name, std::span<const byte> data, FileMode perm);
+    error WriteFile(std::string_view name, std::string_view data, FileMode perm);
+
+    // The Root as an fs::FS (with StatFS, ReadFileFS, ReadDirFS and
+    // ReadLinkFS), which holds it.
+    ptr<fs::FS> FS();
+
+private:
+    friend struct detail::root_impl;
+    std::unique_ptr<detail::root_impl> r_;
+};
+
+// os.OpenRoot: a Root of the directory name.
+std::pair<ptr<Root>, error> OpenRoot(std::string_view name);
+// os.OpenInRoot: opens name within the directory dir, as OpenRoot(dir)
+// then Open(name) would, without keeping the Root.
+std::pair<ptr<File>, error> OpenInRoot(std::string_view dir, std::string_view name);
 
 // os.Stdin, os.Stdout, os.Stderr: files on descriptors 0, 1 and 2.
 extern File& Stdin;
@@ -260,6 +332,18 @@ bool SameFile(const ptr<FileInfo>& fi1, const ptr<FileInfo>& fi2) noexcept;
 
 // os.ReadDir: the entries of the directory, sorted by name.
 std::pair<std::vector<ptr<DirEntry>>, error> ReadDir(std::string_view name);
+
+// os.DirFS: the file system of the tree at dir, an fs::FS that also
+// implements fs::StatFS, ReadFileFS, ReadDirFS and ReadLinkFS. Its names
+// are ones fs::ValidPath accepts, joined to dir; like dir itself, they can
+// follow symbolic links out of the tree (os.Root doesn't).
+ptr<fs::FS> DirFS(std::string_view dir);
+// os.CopyFS: copies fsys into the directory dir, creating it if needed:
+// files with mode 0666 plus their permissions, before umask, directories
+// with 0777, and symbolic links as they are. Files that already exist are
+// an error (fs::ErrExist); so are files that are neither regular files,
+// directories nor links.
+error CopyFS(std::string_view dir, fs::FS& fsys);
 
 // os.Mkdir: creates the directory with perm (before umask).
 error Mkdir(std::string_view name, FileMode perm);
@@ -333,18 +417,6 @@ std::pair<string, bool> LookupEnv(std::string_view key);
 // and a value with a NUL.
 error Setenv(std::string_view key, std::string_view value);
 // os.Unsetenv
-// os.DirFS: the file system of the tree at dir, an fs::FS that also
-// implements fs::StatFS, ReadFileFS, ReadDirFS and ReadLinkFS. Its names
-// are ones fs::ValidPath accepts, joined to dir; like dir itself, they can
-// follow symbolic links out of the tree (os.Root doesn't).
-ptr<fs::FS> DirFS(std::string_view dir);
-// os.CopyFS: copies fsys into the directory dir, creating it if needed:
-// files with mode 0666 plus their permissions, before umask, directories
-// with 0777, and symbolic links as they are. Files that already exist are
-// an error (fs::ErrExist); so are files that are neither regular files,
-// directories nor links.
-error CopyFS(std::string_view dir, fs::FS& fsys);
-
 error Unsetenv(std::string_view key);
 // os.Clearenv: unsets all variables.
 void Clearenv();

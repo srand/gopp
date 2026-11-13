@@ -1,4 +1,5 @@
 // Ported from Go 1.27.3's os tests of DirFS and CopyFS: TestDirFS,
+// TestRootDirFS,
 // TestDirFSRootDir, TestDirFSEmptyDir, TestDirFSPathsValid,
 // TestDirFSReadFileProc, TestCopyFS and TestCopyFSWithSymlinks of
 // os_test.go, and file_test.go, with Go's test names.
@@ -67,6 +68,14 @@ void testDirFS(const ptr<fs::FS>& fsys, const std::string& parent) {
 TEST(GoOsDirFS, DirFS) {
     dirfsData td;
     testDirFS(os::DirFS(td.dir), td.tmp.path());
+}
+
+TEST(GoOsDirFS, RootDirFS) {
+    dirfsData td;
+    auto [r, err] = os::OpenRoot(td.dir);
+    ASSERT_FALSE(err) << err;
+    testDirFS(r->FS(), td.tmp.path());
+    r->Close();
 }
 
 TEST(GoOsDirFS, DirFSRootDir) {

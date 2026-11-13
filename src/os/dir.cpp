@@ -125,7 +125,8 @@ std::pair<std::vector<ptr<DirEntry>>, error> File::ReadDir(int n) {
     std::vector<ptr<DirEntry>> dirents;
     error err = readdir(*this, *f_, n, dirents, [&](std::string_view name, unsigned char t) -> error {
         FileMode typ = dirent_type(t);
-        if (typ != FileMode(~uint32(0))) {
+        // In a Root, the lazy Lstat of a name can't be used: lstatat now.
+        if (typ != FileMode(~uint32(0)) && !f_->in_root) {
             dirents.push_back(make_ptr<unix_dirent>(f_->name, string(name), typ));
             return nullptr;
         }

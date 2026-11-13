@@ -25,14 +25,7 @@ namespace {
 
 const error errWriteAtInAppendMode = errors::New("os: invalid use of WriteAt on file opened with O_APPEND");
 
-// Go's syscallMode: the mode bits of FileMode for open, mkdir and chmod.
-mode_t syscall_mode(FileMode m) {
-    mode_t o = static_cast<mode_t>(uint32(m.Perm()));
-    if (m & ModeSetuid) o |= S_ISUID;
-    if (m & ModeSetgid) o |= S_ISGID;
-    if (m & ModeSticky) o |= S_ISVTX;
-    return o;
-}
+using detail::syscall_mode;
 
 bool set_nonblock(int fd, bool nonblocking) {
     int fl = ::fcntl(fd, F_GETFL);
@@ -97,6 +90,33 @@ ptr<File> new_file(int fd, string name, file_kind kind, bool non_blocking, bool 
         if (set_nonblock(fd, false)) impl->nonblock.store(false, std::memory_order_relaxed);
     }
     return make_ptr<File>(std::move(impl));
+}
+
+mode_t syscall_mode(FileMode m) {
+    mode_t o = static_cast<mode_t>(uint32(m.Perm()));
+    if (m & ModeSetuid) o |= S_ISUID;
+    if (m & ModeSetgid) o |= S_ISGID;
+    if (m & ModeSticky) o |= S_ISVTX;
+    return o;
+}
+
+void chtimes_utimes(time::Time atime, time::Time mtime, timespec ts[2]) {
+    auto set = [](timespec& t, const time::Time& tm) {
+        if (tm.IsZero()) {
+            t.tv_sec = 0;
+            t.tv_nsec = UTIME_OMIT;
+        } else {
+            int64 ns = tm.UnixNano();
+            t.tv_sec = ns / 1000000000;
+            t.tv_nsec = ns % 1000000000;
+            if (t.tv_nsec < 0) {
+                t.tv_sec--;
+                t.tv_nsec += 1000000000;
+            }
+        }
+    };
+    set(ts[0], atime);
+    set(ts[1], mtime);
 }
 
 std::string join_path(std::string_view dir, std::string_view name) {
@@ -404,22 +424,7 @@ error Lchown(std::string_view name, int uid, int gid) {
 
 error Chtimes(std::string_view name, time::Time atime, time::Time mtime) {
     timespec ts[2];
-    auto set = [](timespec& t, const time::Time& tm) {
-        if (tm.IsZero()) {
-            t.tv_sec = 0;
-            t.tv_nsec = UTIME_OMIT;
-        } else {
-            int64 ns = tm.UnixNano();
-            t.tv_sec = ns / 1000000000;
-            t.tv_nsec = ns % 1000000000;
-            if (t.tv_nsec < 0) {
-                t.tv_sec--;
-                t.tv_nsec += 1000000000;
-            }
-        }
-    };
-    set(ts[0], atime);
-    set(ts[1], mtime);
+    detail::chtimes_utimes(atime, mtime, ts);
     return path_call("chtimes", name, [&](const char* p) { return ::utimensat(AT_FDCWD, p, ts, 0); });
 }
 

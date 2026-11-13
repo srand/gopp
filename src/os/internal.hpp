@@ -38,6 +38,8 @@ enum class file_kind { new_file, open_file, pipe, no_poll };
 
 struct file_impl {
     file_impl(int fd, string name) : pfd(fd), name(std::move(name)) {}
+    // The insides of f.
+    static file_impl& of(File& f) noexcept { return *f.f_; }
 
     poll::FD pfd;
     string name;
@@ -46,6 +48,7 @@ struct file_impl {
     std::atomic<bool> nonblock{false};  // whether the descriptor is in non-blocking mode
     bool stdout_or_err = false;
     bool append_mode = false;
+    bool in_root = false;  // opened in a Root: ReadDir lstats each entry (Go's inRoot)
 
     // A standard stream given in non-blocking mode registers with the poller
     // on first use: it's made before main, when the runtime may not be.
@@ -155,6 +158,20 @@ extern const error errPatternHasSeparator;
 
 // Go's splitPath: the parent directory and the base name of path.
 std::pair<std::string_view, std::string_view> split_path(std::string_view path);
+
+// Go's errPathEscapes: the error of a Root operation whose name leads out
+// of the Root (export_test's ErrPathEscapes).
+extern const error errPathEscapes;
+
+// Go's removeAllFrom: removes base, and what it holds, in parent_fd.
+error remove_all_from(int parent_fd, const std::string& base);
+
+// Go's syscallMode: the mode bits of FileMode for open, mkdir and chmod.
+mode_t syscall_mode(FileMode m);
+
+// The timespecs of Chtimes's times (Go's chtimesUtimes): UTIME_OMIT for a
+// zero Time.
+void chtimes_utimes(time::Time atime, time::Time mtime, timespec ts[2]);
 
 // Go's joinPath.
 std::string join_path(std::string_view dir, std::string_view name);
