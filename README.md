@@ -100,19 +100,24 @@ all park instead of blocking the thread.
 | `net`, `net/url` | TCP, UDP, raw IP and Unix domain sockets with deadlines. `Dialer` with contexts, timeouts, Happy Eyeballs (RFC 6555) and `Control` hooks; `ListenConfig`; `Listen`/`Dial`, `ListenTCP`/`DialTCP`, `ListenUDP`/`DialUDP`, `ListenIP`/`DialIP`, `ListenUnix`/`DialUnix`; `TCPConn` with keep-alive settings (`KeepAliveConfig`), `SetLinger`, Multipath TCP, and `io::Copy` through `splice(2)` and `sendfile(2)`; `UDPConn` with `ReadFrom`/`WriteTo`, the `ReadMsg`/`WriteMsg` and `AddrPort` variants, and `ListenMulticastUDP`; `UnixConn` and `UnixListener` for `"unix"`, `"unixgram"` and `"unixpacket"`, with abstract names, autobind and descriptor passing (`syscall::UnixRights`); `SyscallConn`, `Buffers` (`writev(2)`), `Pipe`, `FileConn`/`FileListener`/`FilePacketConn`. Go's own resolver, from fibers on the poller: `Resolver` with `LookupHost`/`LookupIP`/`LookupNetIP`/`LookupCNAME`/`LookupMX`/`LookupNS`/`LookupSRV`/`LookupTXT`/`LookupAddr`, `/etc/hosts`, `resolv.conf` and `nsswitch.conf`, EDNS(0), UDP with TCP fallback, and RFC 6724 address sorting. `Interfaces`, `InterfaceAddrs`, `HardwareAddr`/`ParseMAC`; addresses as `net::Addr` (`TCPAddr`, `UDPAddr`, `IPAddr`, `UnixAddr`), `IP`/`IPMask`/`IPNet` with `ParseIP` and `ParseCIDR`, and Go's errors (`OpError`, `AddrError`, `DNSError`). URL parsing and escaping |
 | `net/netip` | `Addr`, `AddrPort` and `Prefix` as small comparable values: parsing, formatting, `Compare`, masking, `Contains`/`Overlaps`, text and binary marshaling |
 | `context`, `sync`, `time` | Cancellation and deadlines; `Mutex`, `RWMutex`, `WaitGroup`, `Once`, `Cond`; `Timer`, `Ticker`, `AfterFunc` |
-| `os`, `io/fs` | Files, on io_uring when the kernel has it: `Open`/`Create`/`OpenFile`, `ReadFile`/`WriteFile`, `File` with `Read`/`Write`/`ReadAt`/`WriteAt`/`Seek`, `Stat`, `Truncate`, `Sync`, `ReadDir`/`Readdir`/`Readdirnames`; paths: `Stat`/`Lstat`, `Mkdir`/`MkdirAll`, `Remove`/`RemoveAll`, `Rename`, `Chmod`/`Chown`/`Chtimes`, links, `CreateTemp`/`MkdirTemp`, `Getwd`/`Chdir`; `Pipe` with deadlines; processes: `StartProcess`/`FindProcess`, `Process` with `Wait`/`Signal`/`Kill`/`Release`, `ProcessState`, pidfds waited for through the poller; the environment (`Environ`, `Setenv`, `LookupEnv`, `ExpandEnv`, ...), `Getpid` and friends, `Hostname`, `Executable`, `UserHomeDir`/`UserCacheDir`/`UserConfigDir`. Go's errors (`PathError`, `IsNotExist`, `errors::Is(err, fs::ErrNotExist)`) and `FileMode`/`FileInfo`/`DirEntry`. A file call parks only its fiber, on io_uring, or blocks its thread, which hands its processor on, as in Go; pipes park only their fiber |
-| `os/exec` | `Command`/`CommandContext`, `Cmd` with `Run`/`Start`/`Wait`/`Output`/`CombinedOutput`, `StdinPipe`/`StdoutPipe`/`StderrPipe`, any `io::Reader`/`io::Writer` as standard streams (copied by fibers), `ExtraFiles`, `SysProcAttr`, `Cancel` and `WaitDelay`, `LookPath`, `ExitError`. Children are started with `clone(CLONE_VM\|CLONE_VFORK)`, safely from many threads, as Go does |
+| `os`, `io/fs` | Files, on io_uring when the kernel has it: `Open`/`Create`/`OpenFile`, `ReadFile`/`WriteFile`, `File` with `Read`/`Write`/`ReadAt`/`WriteAt`/`Seek`, `Stat`, `Truncate`, `Sync`, `ReadDir`/`Readdir`/`Readdirnames`; paths: `Stat`/`Lstat`, `Mkdir`/`MkdirAll`, `Remove`/`RemoveAll`, `Rename`, `Chmod`/`Chown`/`Chtimes`, links, `CreateTemp`/`MkdirTemp`, `Getwd`/`Chdir`; `Pipe` with deadlines; `io::Copy` between files with `copy_file_range(2)`, from sockets with `splice(2)` and to them with `sendfile(2)` (`File::ReadFrom`/`WriteTo`), and `SyscallConn`; `os::Root`, Go's escape-proof directory handle, resolving every name with `openat(2)` one element at a time (symbolic links followed only within it), and `OpenInRoot`; `DirFS`, `Root::FS` and `CopyFS`; the `io/fs` functions over any `fs::FS` (`ReadFile`, `ReadDir`, `Stat`, `Sub`, `Glob`, `WalkDir`, `ReadLink`, `Lstat`); processes: `StartProcess`/`FindProcess`, `Process` with `Wait`/`Signal`/`Kill`/`Release`, `ProcessState`, pidfds waited for through the poller; the environment (`Environ`, `Setenv`, `LookupEnv`, `ExpandEnv`, ...), `Getpid` and friends, `Hostname`, `Executable`, `UserHomeDir`/`UserCacheDir`/`UserConfigDir`. Go's errors (`PathError`, `IsNotExist`, `errors::Is(err, fs::ErrNotExist)`) and `FileMode`/`FileInfo`/`DirEntry`. A file call parks only its fiber, on io_uring, or blocks its thread, which hands its processor on, as in Go; pipes park only their fiber |
+| `os/exec` | `Command`/`CommandContext`, `Cmd` with `Run`/`Start`/`Wait`/`Output`/`CombinedOutput`, `StdinPipe`/`StdoutPipe`/`StderrPipe`, any `io::Reader`/`io::Writer` as standard streams (copied by fibers), `ExtraFiles`, `SysProcAttr` (namespaces, user namespace ID mappings, credentials, ambient capabilities, cgroups through `clone3(2)`, pidfds), `Cancel` and `WaitDelay`, `LookPath`, `ExitError`. Children are started with `clone(CLONE_VM\|CLONE_VFORK)`, safely from many threads, as Go does |
 | `os/signal` | `Notify`, `Stop`, `Ignore`, `Ignored`, `Reset`, `NotifyContext`, delivering `os::Signal`s to channels; the handler only queues the signal, and a fiber delivers it |
-| `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` |
+| `testing/fstest`, `testing/iotest` | `MapFS`, the in-memory file system, and `TestFS`, which checks an `fs::FS` implementation; `iotest::TestReader` |
+| `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
 
-**Tested against Go's own tests.** 879 unit tests, 732 of them ported
+**Tested against Go's own tests.** 1014 unit tests, 865 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
 vectors, `database/sql`'s pool, statement, transaction and conversion
 tests against Go's fake driver, `text/template`'s lexer, parser and
 executor tests, `os`'s and `io/fs`'s file, directory, pipe, error,
-process and environment tests, `os/signal`'s tests and `os/exec`'s tests
-(which run the test program again as their helper commands), `net`'s
+process, environment, zero-copy, `DirFS`, `CopyFS` and `os.Root` tests
+(with the matrix that checks each `Root` operation against the plain
+`os` one), `testing/fstest`'s, `path`'s and `errors`' tests, `syscall`'s
+fork and exec tests (namespaces, ID mappings, ambient capabilities,
+cgroups, chroot), `os/signal`'s tests and `os/exec`'s tests (which run
+the test program again as their helper commands), `net`'s
 address, dialing and listening, TCP, UDP, Unix socket, raw IP, interface,
 DNS client and resolver configuration tests (against Go's fake DNS server
 and testdata), and `net/netip`'s and `dnsmessage`'s tests. They keep Go's
@@ -283,10 +288,6 @@ what it doesn't do yet:
 - **x86-64 only for now.** The code supports ARM64, but it isn't built or
   tested there yet.
 - **`flag` has only the Var forms** (`StringVar`, `IntVar`, ...).
-- **`os` has no `os.Root` or `DirFS`**, and `File` has no
-  `ReadFrom`/`WriteTo` fast paths (`copy_file_range`, `splice`,
-  `sendfile`). `syscall::SysProcAttr` lacks Go's user namespace mappings
-  (`UidMappings`, `GidMappings`), `AmbientCaps` and `UseCgroupFD`.
 - **Request contexts** are canceled when the handler returns or a write to
   the client fails, not when the client disconnects while the handler is
   idle.
