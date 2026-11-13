@@ -17,6 +17,7 @@ export import gopp.io.fs;
 export import gopp.net;
 export import gopp.net.http;
 export import gopp.net.http.httptest;
+export import gopp.net.netip;
 export import gopp.net.url;
 export import gopp.os;
 export import gopp.ptr;
