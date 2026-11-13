@@ -195,6 +195,7 @@ std::pair<ptr<Conn>, error> FileConn(const ptr<os::File>& f) {
     if (err) return file_error<Conn>(f, err);
     if (dynamic_cast<TCPAddr*>(fd->laddr.get())) return {newTCPConn(fd, 15 * time::Second, KeepAliveConfig{}), nullptr};
     if (dynamic_cast<UDPAddr*>(fd->laddr.get())) return {make_ptr<UDPConn>(fd), nullptr};
+    if (dynamic_cast<IPAddr*>(fd->laddr.get())) return {make_ptr<IPConn>(fd), nullptr};
     if (dynamic_cast<UnixAddr*>(fd->laddr.get())) return {make_ptr<UnixConn>(fd), nullptr};
     fd->Close();
     return file_error<Conn>(f, errno_error(EINVAL));
@@ -214,6 +215,7 @@ std::pair<ptr<PacketConn>, error> FilePacketConn(const ptr<os::File>& f) {
     auto [fd, err] = new_file_fd(f);
     if (err) return file_error<PacketConn>(f, err);
     if (dynamic_cast<UDPAddr*>(fd->laddr.get())) return {make_ptr<UDPConn>(fd), nullptr};
+    if (dynamic_cast<IPAddr*>(fd->laddr.get())) return {make_ptr<IPConn>(fd), nullptr};
     if (dynamic_cast<UnixAddr*>(fd->laddr.get())) return {make_ptr<UnixConn>(fd), nullptr};
     fd->Close();
     return file_error<PacketConn>(f, errno_error(EINVAL));

@@ -347,6 +347,8 @@ std::pair<ptr<Conn>, error> sysDialer::dialSingle(const ptr<context::Context>& c
         std::tie(c, err) = d.MultipathTCP() ? dialMPTCP(ctx, tla, t) : dialTCP(ctx, tla, t);
     } else if (auto* u = dynamic_cast<const UDPAddr*>(ra.get())) {
         std::tie(c, err) = dialUDP(ctx, dynamic_cast<const UDPAddr*>(la), u);
+    } else if (auto* ip = dynamic_cast<const IPAddr*>(ra.get())) {
+        std::tie(c, err) = dialIP(ctx, dynamic_cast<const IPAddr*>(la), ip);
     } else if (auto* x = dynamic_cast<const UnixAddr*>(ra.get())) {
         std::tie(c, err) = dialUnix(ctx, dynamic_cast<const UnixAddr*>(la), x);
     } else {
@@ -434,6 +436,20 @@ std::pair<ptr<UnixConn>, error> Dialer::DialUnix(const ptr<context::Context>& ct
     return {c, nullptr};
 }
 
+std::pair<ptr<IPConn>, error> Dialer::DialIP(const ptr<context::Context>& ctx0, std::string_view network,
+                                             netip::Addr laddr, netip::Addr raddr) {
+    auto [ctx, cancel] = dialCtx(*this, ctx0);
+    defer_t cancelCtx{[&] { cancel(); }};
+    string net(network);
+    // Go's ipAddrFromAddr: an invalid Addr is a nil IP.
+    auto la = make_ptr<IPAddr>(IP(laddr.AsSlice()), laddr.Zone());
+    auto ra = make_ptr<IPAddr>(IP(raddr.AsSlice()), raddr.Zone());
+    sysDialer sd{.d = *this, .network = net, .address = ra->String()};
+    auto [c, err] = sd.dialIP(ctx, la.get(), ra.get());
+    if (err) return {nullptr, op_error("dial", net, la, ra, err)};
+    return {c, nullptr};
+}
+
 std::pair<ptr<Conn>, error> Dial(std::string_view network, std::string_view address) {
     Dialer d;
     return d.Dial(network, address);
@@ -485,6 +501,8 @@ std::pair<ptr<net::PacketConn>, error> ListenConfig::ListenPacket(const ptr<cont
     ptr<net::PacketConn> c;
     if (auto* u = dynamic_cast<const UDPAddr*>(la.get())) {
         std::tie(c, err) = sl.listenUDP(ctx, u);
+    } else if (auto* ip = dynamic_cast<const IPAddr*>(la.get())) {
+        std::tie(c, err) = sl.listenIP(ctx, ip);
     } else if (auto* x = dynamic_cast<const UnixAddr*>(la.get())) {
         std::tie(c, err) = sl.listenUnixgram(ctx, x);
     } else {

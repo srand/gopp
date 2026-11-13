@@ -441,6 +441,30 @@ public:
     error SetWriteDeadline(time::Time t) override { return conn_base::SetWriteDeadline(t); }
 };
 
+// net.IPConn: a raw IP socket ("ip4:icmp", "ip6:58", ...). Raw sockets
+// need CAP_NET_RAW.
+class IPConn final : public conn_base, public PacketConn {
+public:
+    using conn_base::conn_base;
+
+    // Reads a packet; on IPv4 its IP header is removed.
+    std::tuple<isize, ptr<IPAddr>, error> ReadFromIP(std::span<byte> b);
+    std::tuple<isize, ptr<net::Addr>, error> ReadFrom(std::span<byte> b) override;
+    // Reads a packet and its out-of-band data: n, oobn, flags, the
+    // sender, and an error.
+    std::tuple<isize, isize, int, ptr<IPAddr>, error> ReadMsgIP(std::span<byte> b, std::span<byte> oob);
+    std::pair<isize, error> WriteToIP(std::span<const byte> b, const ptr<IPAddr>& addr);
+    std::pair<isize, error> WriteTo(std::span<const byte> b, const ptr<net::Addr>& addr) override;
+    std::tuple<isize, isize, error> WriteMsgIP(std::span<const byte> b, std::span<const byte> oob,
+                                               const ptr<IPAddr>& addr);
+
+    error Close() override { return conn_base::Close(); }
+    ptr<net::Addr> LocalAddr() const override { return conn_base::LocalAddr(); }
+    error SetDeadline(time::Time t) override { return conn_base::SetDeadline(t); }
+    error SetReadDeadline(time::Time t) override { return conn_base::SetReadDeadline(t); }
+    error SetWriteDeadline(time::Time t) override { return conn_base::SetWriteDeadline(t); }
+};
+
 // net.UnixConn: a Unix domain socket, stream ("unix"), datagram
 // ("unixgram") or sequenced packet ("unixpacket").
 class UnixConn final : public conn_base, public PacketConn {
@@ -703,6 +727,8 @@ struct Dialer {
                                            netip::AddrPort laddr, netip::AddrPort raddr);
     std::pair<ptr<UnixConn>, error> DialUnix(const ptr<context::Context>& ctx, std::string_view network,
                                              const ptr<UnixAddr>& laddr, const ptr<UnixAddr>& raddr);
+    std::pair<ptr<IPConn>, error> DialIP(const ptr<context::Context>& ctx, std::string_view network,
+                                         netip::Addr laddr, netip::Addr raddr);
     // Whether "tcp" dials try Multipath TCP first; off by default.
     bool MultipathTCP() const;
     void SetMultipathTCP(bool use);
@@ -738,10 +764,12 @@ struct ListenConfig {
 // a socket path.
 std::pair<ptr<Listener>, error> Listen(std::string_view network, std::string_view address);
 
-// net.ListenPacket: network is "udp", "udp4", "udp6" or "unixgram".
+// net.ListenPacket: network is "udp", "udp4", "udp6", "ip:proto",
+// "ip4:proto", "ip6:proto" or "unixgram".
 std::pair<ptr<PacketConn>, error> ListenPacket(std::string_view network, std::string_view address);
 
 // net.Dial: network is "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6",
+// "ip:proto", "ip4:proto", "ip6:proto" (a protocol name or number),
 // "unix", "unixgram" or "unixpacket".
 std::pair<ptr<Conn>, error> Dial(std::string_view network, std::string_view address);
 
@@ -767,6 +795,14 @@ std::pair<ptr<UDPConn>, error> ListenMulticastUDP(std::string_view network, cons
 // net.DialUDP: a UDP socket connected to raddr, bound to laddr if it
 // isn't nil.
 std::pair<ptr<UDPConn>, error> DialUDP(std::string_view network, const ptr<UDPAddr>& laddr, const ptr<UDPAddr>& raddr);
+
+// net.ListenIP: a raw IP socket for network ("ip4:icmp", "ip6:ipv6-icmp",
+// "ip:6"), bound to laddr; nil or a nil IP is the wildcard address.
+std::pair<ptr<IPConn>, error> ListenIP(std::string_view network, const ptr<IPAddr>& laddr);
+
+// net.DialIP: a raw IP socket connected to raddr, from laddr if it isn't
+// nil.
+std::pair<ptr<IPConn>, error> DialIP(std::string_view network, const ptr<IPAddr>& laddr, const ptr<IPAddr>& raddr);
 
 // net.ListenUnix: network is "unix" or "unixpacket". An empty laddr Name
 // binds to an abstract name the kernel picks (Linux's autobind).

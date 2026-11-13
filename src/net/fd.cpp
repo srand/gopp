@@ -106,6 +106,7 @@ ptr<Addr> sockaddr_to_addr(const sockaddr_storage& sa, int sotype) {
         return nullptr;
     }
     if (sotype == SOCK_DGRAM) return make_ptr<UDPAddr>(std::move(ip), port, std::move(zone));
+    if (sotype == SOCK_RAW) return make_ptr<IPAddr>(std::move(ip), std::move(zone));
     return make_ptr<TCPAddr>(std::move(ip), port, std::move(zone));
 }
 
@@ -240,8 +241,8 @@ std::pair<isize, error> netfd::Read(std::span<byte> p) {
         GOPP_STAT(read);
         if (n >= 0) {
             decref();
-            // A zero-byte datagram isn't EOF.
-            if (n == 0 && sotype_ != SOCK_DGRAM) return {0, io::EOF_};
+            // A zero-byte datagram or raw packet isn't EOF.
+            if (n == 0 && sotype_ != SOCK_DGRAM && sotype_ != SOCK_RAW) return {0, io::EOF_};
             return {static_cast<isize>(n), nullptr};
         }
         int e = errno;
@@ -308,7 +309,7 @@ std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span
     // As Go's Recvmsg: with no buffer for data but some for control
     // messages, a stream socket reads one byte, which carries them.
     byte dummy;
-    bool use_dummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM;
+    bool use_dummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM && sotype_ != SOCK_RAW;
     for (;;) {
         iovec iov{use_dummy ? &dummy : p.data(), use_dummy ? 1 : p.size()};
         msghdr msg{};
@@ -325,7 +326,7 @@ std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span
             decref();
             if (msg.msg_namelen == 0) from->ss_family = AF_UNSPEC;
             // Go's eofError: no bytes from a connection-oriented socket.
-            error err = n == 0 && sotype_ != SOCK_DGRAM ? io::EOF_ : nullptr;
+            error err = n == 0 && sotype_ != SOCK_DGRAM && sotype_ != SOCK_RAW ? io::EOF_ : nullptr;
             return {static_cast<isize>(n), static_cast<isize>(msg.msg_controllen), msg.msg_flags, err};
         }
         int e = errno;
@@ -353,7 +354,7 @@ std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::sp
     // As Go's Sendmsg: control messages without data go with one byte on a
     // stream socket, which doesn't count.
     byte dummy = 0;
-    bool use_dummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM;
+    bool use_dummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM && sotype_ != SOCK_RAW;
     for (;;) {
         iovec iov{use_dummy ? &dummy : const_cast<byte*>(p.data()), use_dummy ? 1 : p.size()};
         msghdr msg{};

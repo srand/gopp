@@ -36,6 +36,7 @@ struct sysDialer {
                                            const UDPAddr* raddr);
     std::pair<ptr<UnixConn>, error> dialUnix(const ptr<context::Context>& ctx, const UnixAddr* laddr,
                                              const UnixAddr* raddr);
+    std::pair<ptr<IPConn>, error> dialIP(const ptr<context::Context>& ctx, const IPAddr* laddr, const IPAddr* raddr);
 };
 
 // Go's sysListener: a ListenConfig and the network and address.
@@ -50,6 +51,7 @@ struct sysListener {
     std::pair<ptr<UDPConn>, error> listenUDP(const ptr<context::Context>& ctx, const UDPAddr* laddr);
     std::pair<ptr<UnixListener>, error> listenUnix(const ptr<context::Context>& ctx, const UnixAddr* laddr);
     std::pair<ptr<UnixConn>, error> listenUnixgram(const ptr<context::Context>& ctx, const UnixAddr* laddr);
+    std::pair<ptr<IPConn>, error> listenIP(const ptr<context::Context>& ctx, const IPAddr* laddr);
 };
 
 // Go's socket: a socket of family, type and protocol; with laddr and no
