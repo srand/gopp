@@ -358,6 +358,9 @@ TEST(GoMime, ConsumeMediaParam) {
         {R"( ; key=value;  blah="value";name="foo" )", "key", "value", R"(;  blah="value";name="foo" )"},
         {R"(;  blah="value";name="foo" )", "blah", "value", R"(;name="foo" )"},
         {R"(;name="foo" )", "name", "foo", " "},
+        // go++: no value at the end of the input, as in Go's
+        // TestParseFormUnknownContentType of net/http.
+        {R"(; boundary=)", "", "", R"(; boundary=)"},
     };
     for (const auto& test : tests) {
         auto [attribute, value, rest] = mi::consume_media_param(test.v);

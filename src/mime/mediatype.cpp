@@ -152,7 +152,7 @@ std::pair<std::string_view, std::string_view> consume_token(std::string_view v) 
 // consumeValue: a token or a quoted string at the start of v, unquoted,
 // and the rest; an empty value and v if there is none.
 std::pair<string, std::string_view> consume_value(std::string_view v) {
-    if (v.empty()) return {{}, {}};
+    if (v.empty()) return {{}, v};
     if (v[0] != '"') {
         auto [tok, rest] = consume_token(v);
         return {string(tok), rest};
@@ -190,7 +190,7 @@ std::tuple<string, string, std::string_view> consume_media_param(std::string_vie
     if (!rest.starts_with('=')) return {{}, {}, v};
     rest = trimLeftSpace(rest.substr(1));
     auto [value, rest2] = consume_value(rest);
-    if (value.empty() && rest2.data() == rest.data() && rest2.size() == rest.size()) return {{}, {}, v};
+    if (value.empty() && rest2 == rest) return {{}, {}, v};
     return {param, value, rest2};
 }
 
