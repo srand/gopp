@@ -61,6 +61,13 @@ If you're new to go++, read them in this order:
 | [json-file](json-file/main.cpp) | A task list saved as JSON: `json::Marshal` by reflection, errors wrapped with `fmt::W` (Go's `%w`) and tested with `errors::Is`, and atomic saves with `os::CreateTemp` and `os::Rename` |
 | [template](template/main.cpp) | Renders a Markdown report from plain C++ structs with `text/template`, reading their fields by reflection, with a C++ lambda as a template function |
 
+## Command-line programs
+
+| Example | What it shows |
+|---|---|
+| [greet](greet/main.cpp) | The smallest `cmd` (cobra) program: a command with a subcommand, flags and an argument validator. Help, the `help` command, `--help`, error messages and shell completion come with it |
+| [kvctl](kvctl/main.cpp) | A kubectl-style client for a key/value store, and the store's server (`kvctl serve`), over HTTP: command groups, aliases, persistent flags (`--server`, `-o json`, `--timeout`), argument validators, suggestions for typos, a context that Ctrl-C cancels, and shell completion that asks the server for the keys (`source <(kvctl completion bash)`, then `kvctl get gr<TAB>`) |
+
 ## Using go++
 
 | Example | What it shows |

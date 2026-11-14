@@ -248,6 +248,18 @@ class Upload(Example):
     sources = ["examples/upload/*.cpp"]
 
 
+class Greet(Example):
+    """ The smallest cmd (cobra) program: a subcommand, flags and arguments. """
+    name = "examples/greet"
+    sources = ["examples/greet/*.cpp"]
+
+
+class Kvctl(Example):
+    """ A kubectl-style CLI with cmd, and the key/value server it talks to. """
+    name = "examples/kvctl"
+    sources = ["examples/kvctl/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
     requires = [
@@ -256,7 +268,7 @@ class Examples(Alias):
         "examples/httpfileserver", "examples/proxy", "examples/lookup", "examples/grep", "examples/parallel",
         "examples/sandbox", "examples/todo", "examples/panic",
         "examples/sha256sum", "examples/wordfreq", "examples/search", "examples/pnginfo", "examples/csvstats",
-        "examples/upload",
+        "examples/upload", "examples/greet", "examples/kvctl",
     ]
 
 
