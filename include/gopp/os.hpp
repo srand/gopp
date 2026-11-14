@@ -398,7 +398,8 @@ std::tuple<ptr<File>, ptr<File>, error> Pipe();
 // os.Getpagesize
 int Getpagesize() noexcept;
 
-// os.Args, as given to os::SetArgs (flag::Parse calls it).
+// os.Args: the program's command line, set before main; os::SetArgs
+// replaces it (flag::Parse calls it).
 const std::vector<string>& Args();
 void SetArgs(int argc, char** argv);
 

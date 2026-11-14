@@ -21,6 +21,16 @@ std::vector<string>& argvStorage() {
     return *v;
 }
 
+// glibc passes the program's arguments to the functions in .init_array,
+// so os.Args is set before main, as in Go.
+void initArgs(int argc, char** argv, char**) {
+    auto& v = argvStorage();
+    if (v.empty()) {
+        for (int i = 0; i < argc; i++) v.emplace_back(argv[i]);
+    }
+}
+[[gnu::section(".init_array"), gnu::used]] void (*initArgsEntry)(int, char**, char**) = &initArgs;
+
 }  // namespace
 
 const std::vector<string>& Args() { return argvStorage(); }
