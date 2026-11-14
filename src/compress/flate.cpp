@@ -31,12 +31,6 @@ public:
     ~decompressor() override { inflateEnd(&strm_); }
 
     std::pair<isize, error> Read(std::span<byte> p) override {
-        if (pending_) {
-            // The end of the stream, or an error, after the data returned
-            // last.
-            pending_ = false;
-            return {0, err_};
-        }
         if (err_) return {0, err_};
         if (p.empty()) return {0, nullptr};
         for (;;) {
@@ -74,11 +68,9 @@ public:
                 err_ = make_ptr<InternalError>(string(strm_.msg ? strm_.msg : "inflate failed"));
                 break;
             }
-            if (n > 0) {
-                pending_ = true;
-                return {n, nullptr};
-            }
-            return {0, err_};
+            // As Go's: the end of the stream, or an error, comes with the
+            // last data.
+            return {n, err_};
         }
     }
 
@@ -92,7 +84,6 @@ public:
         setReader(std::move(r));
         setDict(dict);
         err_ = nullptr;
-        pending_ = false;
         roffset_ = 0;
         return nullptr;
     }
@@ -114,7 +105,6 @@ private:
     z_stream strm_;
     ptr<bufio::Reader> br_;
     error err_;
-    bool pending_ = false;  // err_ is to be returned on the next Read
     int64 roffset_ = 0;
 };
 
