@@ -131,6 +131,12 @@ extern const gopp::error ErrBodyNotAllowed;
 extern const gopp::error ErrContentLength;
 extern const gopp::error ErrBodyReadAfterClose;
 extern const gopp::error ErrHandlerTimeout;
+// http.ErrAbortHandler: a handler throws it to abort the response, as a
+// Go handler panics with it: the server drops the connection (resets the
+// HTTP/2 stream), so that the client sees the response cut short, and
+// logs nothing. Other exceptions thrown by handlers are logged.
+//
+//     if (err) throw http::ErrAbortHandler;
 extern const gopp::error ErrAbortHandler;
 // http.ErrNotMultipart: the request's Content-Type isn't multipart/form-data.
 extern const gopp::error ErrNotMultipart;

@@ -17,6 +17,7 @@
 #include <ctime>
 #include <exception>
 #include <mutex>
+#include <optional>
 #include <unordered_set>
 
 namespace gopp::http {
@@ -674,11 +675,20 @@ void conn::serve() {
 
         response w(this, req.get());
         cur_req = req.get();
+        // A handler that throws, as a Go handler panics, drops the
+        // connection; throwing ErrAbortHandler does so without a log.
+        std::optional<std::string> panicked;
         try {
             handler_->ServeHTTP(w, *req);
+        } catch (const gopp::error& e) {
+            panicked = e == ErrAbortHandler ? std::string() : std::string(e.Error().view());
         } catch (const std::exception& e) {
-            logf("http: panic serving " + std::string(RemoteAddr.view()) + ": " + e.what());
+            panicked = e.what();
+        }
+        if (panicked) {
+            if (!panicked->empty()) logf("http: panic serving " + std::string(RemoteAddr.view()) + ": " + *panicked);
             req->CancelContext();
+            if (req->MultipartForm) req->MultipartForm->RemoveAll();
             cur_req = nullptr;
             return;  // like Go: drop the connection
         }

@@ -14,6 +14,7 @@
 #include <cstring>
 #include <exception>
 #include <map>
+#include <optional>
 #include <unordered_map>
 
 namespace gopp::http {
@@ -932,15 +933,26 @@ void server_conn::scheduleHandler(ptr<stream> st, ptr<Request> req, int status_o
     ptr<Handler> h = handler_;
     go([self, st, req, h, status_override, msg] {
         response_writer rw(self, st, req.get());
+        // A handler that throws, as a Go handler panics, resets the stream;
+        // throwing ErrAbortHandler does so without a log.
+        std::optional<std::string> panicked;
         try {
             if (status_override) {
                 http::Error(rw, msg, status_override);
             } else {
                 h->ServeHTTP(rw, *req);
             }
+        } catch (const gopp::error& e) {
+            panicked = e == ErrAbortHandler ? std::string() : std::string(e.Error().view());
         } catch (const std::exception& e) {
-            internal::logf("http2: panic serving " + std::string(self->remote_addr_.view()) + ": " + e.what());
+            panicked = e.what();
+        }
+        if (panicked) {
+            if (!panicked->empty()) {
+                internal::logf("http2: panic serving " + std::string(self->remote_addr_.view()) + ": " + *panicked);
+            }
             req->CancelContext();
+            if (req->MultipartForm) req->MultipartForm->RemoveAll();
             writeRequest wr;
             wr.kind = writeRequest::rst;
             wr.st = st;
