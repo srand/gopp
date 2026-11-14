@@ -50,6 +50,8 @@ export import gopp.os.signal;
 export import gopp.path;
 export import gopp.path.filepath;
 export import gopp.ptr;
+export import gopp.regexp;
+export import gopp.regexp.syntax;
 export import gopp.runtime;
 export import gopp.slice;
 export import gopp.slices;
