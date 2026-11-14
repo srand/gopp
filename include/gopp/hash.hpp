@@ -27,4 +27,14 @@ struct Hash : io::Writer {
     virtual isize BlockSize() const = 0;
 };
 
+// hash.Hash32: a Hash of 32 bits, such as crc32's and adler32's.
+struct Hash32 : Hash {
+    virtual uint32 Sum32() const = 0;
+};
+
+// hash.Hash64: a Hash of 64 bits.
+struct Hash64 : Hash {
+    virtual uint64 Sum64() const = 0;
+};
+
 }  // namespace gopp::hash

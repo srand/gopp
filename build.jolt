@@ -18,7 +18,7 @@ import threading
 import time
 
 from jolt import Alias, BooleanParameter, IntParameter, ListParameter, Parameter, Task, attributes, influence
-from jolt.pkgs import boost, gcc, googletest, liburing, openssl, sqlite, ssl  # noqa: F401
+from jolt.pkgs import boost, gcc, googletest, liburing, openssl, sqlite, ssl, zlib  # noqa: F401
 from jolt.plugins import cxx, golang, googletest, ninja
 from jolt.plugins.googletest import GTestRunner
 
@@ -56,7 +56,7 @@ class Gopp(GoppProject, cxx.Library):
     name = "gopp"
     # Only Boost.Context: the others aren't needed, and one of them,
     # boost_stacktrace_from_exception, conflicts with static libstdc++.
-    requires = ["boost:libraries=context", "liburing", "virtual/ssl"]
+    requires = ["boost:libraries=context", "liburing", "virtual/ssl", "zlib"]
     incpaths = ["include", "src"]
     sources = [
         "include/gopp/**/*.hpp",

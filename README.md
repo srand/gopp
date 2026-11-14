@@ -96,6 +96,8 @@ all park instead of blocking the thread.
 | `crypto/tls` | TLS 1.2/1.3 over any `net::Conn` (OpenSSL underneath), ALPN, SNI, certificate verification, `tls::Listen`/`Dial` |
 | `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `hash` | Go's digests on OpenSSL's EVP: `sha256::Sum256(data)` as a `std::array<byte, 32>`, and `New()` for a running `hash::Hash` whose `Sum` doesn't stop it; SHA-224/256, SHA-384/512 and SHA-512/224 and /256, SHA-1 and MD5. `hmac::New(sha256::New, key)` over any `hash::Hash`, and `hmac::Equal` |
 | `crypto/rand`, `crypto/subtle` | Random bytes from `getrandom(2)`: `rand::Read` (which never fails, as in Go 1.24) and `rand::Reader`, and `rand::Text` for 128-bit tokens. Constant-time comparisons: `ConstantTimeCompare`, `ConstantTimeSelect`, `ConstantTimeEq`, `ConstantTimeCopy`, `ConstantTimeLessOrEq` and `XORBytes` |
+| `compress/gzip`, `compress/zlib`, `compress/flate` | Go's gzip and zlib formats, ported, over DEFLATE from zlib: `gzip::NewReader` with the `Header` (name, comment, modification time, extra data) and multistream files, `gzip::NewWriter`/`NewWriterLevel` with `Flush`; `zlib::NewReaderDict`/`NewWriterLevelDict` with preset dictionaries; `flate::NewReader`/`NewWriter` with Go's levels and `HuffmanOnly`, and `Resetter`. Readers read no further than their stream: from a `bufio::Reader`, or seeking a source back |
+| `hash/crc32`, `hash/adler32` | `crc32::ChecksumIEEE` (zlib's fast CRC), `MakeTable` with `Castagnoli` (slicing-by-8) and `Koopman`, `New`/`NewIEEE` as `hash::Hash32`; `adler32::Checksum` and `New` |
 | `encoding/hex`, `encoding/base64` | Go's hex: `EncodeToString`/`DecodeString`, `Encode`/`Decode`, the append forms, `Dump` and `Dumper` (like `hexdump -C`), streaming `NewEncoder`/`NewDecoder`. Go's base64: `StdEncoding`, `URLEncoding`, `RawStdEncoding` and `RawURLEncoding` as `constexpr` values, `NewEncoding`, `WithPadding`, `Strict`, and streaming encoders and decoders |
 | `encoding/json` | `Marshal`/`Unmarshal` of plain structs through C++26 reflection, with no macros and no registration. Struct tags as annotations (`omitempty`, `string`, `-`), `Encoder`/`Decoder` streams, `json::Value` for Go's `any`, Go's error messages and number formatting |
 | `database/sql` | Go's connection pool (`SetMaxOpenConns`, idle limits, lifetimes, waiting with context cancellation, bad-connection retries), `Query`/`QueryRow`/`Exec`, prepared `Stmt`s that follow connections, `Tx` rolled back when its context ends, `Conn`, `Rows`/`Scan` with Go's conversions, `Null*` types and `sql::Named`, and the `driver` interfaces |
@@ -119,7 +121,7 @@ all park instead of blocking the thread.
 | `path/filepath` | Linux paths: `Abs`, `Rel`, `EvalSymlinks`, `Glob`, `Walk`/`WalkDir`, `IsLocal`, `Localize`, `SplitList`, and `path`'s lexical functions (`Join`, `Clean`, `Split`, `Base`, `Dir`, `Ext`, `Match`) |
 | `io`, `bufio`, `fmt`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `io`'s `Pipe` (parking fibers), `MultiReader`, `MultiWriter`, `TeeReader`, `SectionReader` and `OffsetWriter`, and `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
 
-**Tested against Go's own tests.** 1803 unit tests, 1568 of them ported
+**Tested against Go's own tests.** 1834 unit tests, 1598 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), its form, multipart request and `MaxBytesReader` tests, `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -136,7 +138,7 @@ calendar, monotonic clock and zoneinfo tests (against the system's
 tzdata), `net`'s
 address, dialing and listening, TCP, UDP, Unix socket, raw IP, interface,
 DNS client and resolver configuration tests (against Go's fake DNS server
-and testdata), `net/netip`'s and `dnsmessage`'s tests, `sort`'s, `slices`', `maps`' and `cmp`'s tests, `log`'s and `log/slog`'s tests, `io`'s pipe, multi-reader and section reader tests, `net/textproto`'s, `mime/quotedprintable`'s and `mime/multipart`'s tests, `strings`', `bytes`', `unicode`'s, `unicode/utf8`'s and `path/filepath`'s tests, and the test vectors and tests of `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `rand` and `subtle`, `encoding/hex` and `encoding/base64`. They keep Go's
+and testdata), `net/netip`'s and `dnsmessage`'s tests, `sort`'s, `slices`', `maps`' and `cmp`'s tests, `log`'s and `log/slog`'s tests, `io`'s pipe, multi-reader and section reader tests, `net/textproto`'s, `mime/quotedprintable`'s and `mime/multipart`'s tests, `strings`', `bytes`', `unicode`'s, `unicode/utf8`'s and `path/filepath`'s tests, and the test vectors and tests of `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `rand` and `subtle`, `encoding/hex` and `encoding/base64`, `compress/gzip`'s, `compress/zlib`'s and `compress/flate`'s decoding tests and vectors, and `hash/crc32`'s and `hash/adler32`'s golden values. They keep Go's
 test names and tables. The SQLite driver runs 59 tests ported from
 `mattn/go-sqlite3`'s.
 
