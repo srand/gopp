@@ -64,7 +64,7 @@ struct ExitError : error_interface {
     explicit ExitError(ptr<os::ProcessState> ps) : ProcessState(std::move(ps)) {}
     ptr<os::ProcessState> ProcessState;
     // Some of the standard error of the command, if Output collected it.
-    bytes Stderr;
+    slice<byte> Stderr;
 
     string Error() const override { return ProcessState->String(); }
     int ExitCode() const noexcept { return ProcessState->ExitCode(); }
@@ -139,9 +139,9 @@ public:
     gopp::error Wait();
     // Runs the command and returns its standard output. If Stderr is nil,
     // an ExitError gets some of the standard error.
-    std::pair<bytes, gopp::error> Output();
+    std::pair<slice<byte>, gopp::error> Output();
     // Runs the command and returns its standard output and error.
-    std::pair<bytes, gopp::error> CombinedOutput();
+    std::pair<slice<byte>, gopp::error> CombinedOutput();
     // Pipes to the standard input, from standard output and error, for
     // use between Start and Wait, which closes them. Go returns them as
     // io.WriteCloser and io.ReadCloser; os::File is both.

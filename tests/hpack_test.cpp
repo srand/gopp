@@ -50,7 +50,7 @@ std::string hex(std::string_view s) {
     return out;
 }
 
-std::span<const byte> bytes(std::string_view s) { return {reinterpret_cast<const byte*>(s.data()), s.size()}; }
+std::span<const byte> byte_span(std::string_view s) { return {reinterpret_cast<const byte*>(s.data()), s.size()}; }
 
 std::vector<HeaderField> reverse_copy(const hpack::detail::dynamic_table& dt) {
     std::vector<HeaderField> hf;
@@ -69,7 +69,7 @@ void test_decode_series(uint32 size, std::vector<enc_and_want> steps) {
     Decoder d(size, nullptr);
     for (std::size_t i = 0; i < steps.size(); i++) {
         auto& step = steps[i];
-        auto [hf, err] = d.decode_full(bytes(step.enc));
+        auto [hf, err] = d.decode_full(byte_span(step.enc));
         ASSERT_FALSE(err) << "step " << i << ": " << err;
         ASSERT_EQ(hf, step.want) << "step " << i;
         EXPECT_EQ(reverse_copy(d.dynamic_table()), step.want_dyn_tab) << "step " << i;
@@ -102,7 +102,7 @@ TEST(Hpack, DecoderDecode) {
     };
     for (auto& tt : tests) {
         Decoder d(4096, nullptr);
-        auto [hf, err] = d.decode_full(bytes(tt.in));
+        auto [hf, err] = d.decode_full(byte_span(tt.in));
         ASSERT_FALSE(err) << tt.name << ": " << err;
         EXPECT_EQ(hf, tt.want) << tt.name;
         EXPECT_EQ(reverse_copy(d.dynamic_table()), tt.want_dyn_tab) << tt.name;
@@ -116,20 +116,20 @@ TEST(Hpack, DynamicTableAt) {
         std::string in;
         append_var_int(in, 7, static_cast<uint64>(i));
         in[0] = static_cast<char>(in[0] | 0x80);
-        auto [hf, err] = d.decode_full(bytes(in));
+        auto [hf, err] = d.decode_full(byte_span(in));
         EXPECT_FALSE(err) << err;
         return hf.empty() ? HeaderField{} : hf[0];
     };
     EXPECT_EQ(at(2), P(":method", "GET"));
     std::string lit = dehex("4003 666f 6f03 6261 72");  // foo: bar, indexed
-    ASSERT_FALSE(d.decode_full(bytes(lit)).second);
+    ASSERT_FALSE(d.decode_full(byte_span(lit)).second);
     EXPECT_EQ(at(62), P("foo", "bar"));
     std::string lit2 = dehex("4004 626c 6168 0362 617a");  // blah: baz, indexed
-    ASSERT_FALSE(d.decode_full(bytes(lit2)).second);
+    ASSERT_FALSE(d.decode_full(byte_span(lit2)).second);
     EXPECT_EQ(at(62), P("blah", "baz"));
     EXPECT_EQ(at(63), P("foo", "bar"));
     std::string bad = "\xc0";  // index 64: past the end
-    auto [hf, err] = d.decode_full(bytes(bad));
+    auto [hf, err] = d.decode_full(byte_span(bad));
     ASSERT_TRUE(err);
     EXPECT_EQ(err.Error(), "decoding error: invalid indexed representation index 64");
 }
@@ -378,24 +378,24 @@ TEST(Hpack, HuffmanDecodeExcessPadding) {
         std::string("R\xbc" "0\xff\xff\xff\xff"),  // Padding ends on partial symbol.
     };
     for (std::size_t i = 0; i < std::size(tests); i++) {
-        EXPECT_EQ(huffman_decode_to_string(bytes(tests[i])).second, err_invalid_huffman) << "test-" << i;
+        EXPECT_EQ(huffman_decode_to_string(byte_span(tests[i])).second, err_invalid_huffman) << "test-" << i;
     }
 }
 
 TEST(Hpack, HuffmanDecodeEOS) {
     std::string in = "\xff\xff\xff\xff\xfc";  // {EOS, "?"}
-    EXPECT_EQ(huffman_decode_to_string(bytes(in)).second, err_invalid_huffman);
+    EXPECT_EQ(huffman_decode_to_string(byte_span(in)).second, err_invalid_huffman);
 }
 
 TEST(Hpack, HuffmanDecodeMaxLengthOnTrailingByte) {
     std::string in("\x00\x01", 2);  // {"0", "0", "0"}
     std::string buf;
-    EXPECT_EQ(huffman_decode(buf, 2, bytes(in)), err_string_length);
+    EXPECT_EQ(huffman_decode(buf, 2, byte_span(in)), err_string_length);
 }
 
 TEST(Hpack, HuffmanDecodeCorruptPadding) {
     std::string in("\x00", 1);
-    EXPECT_EQ(huffman_decode_to_string(bytes(in)).second, err_invalid_huffman);
+    EXPECT_EQ(huffman_decode_to_string(byte_span(in)).second, err_invalid_huffman);
 }
 
 namespace {
@@ -416,7 +416,7 @@ const std::pair<const char*, const char*> huffman_vectors[] = {
 
 TEST(Hpack, HuffmanDecode) {
     for (auto [in_hex, want] : huffman_vectors) {
-        auto [got, err] = huffman_decode_to_string(bytes(dehex(in_hex)));
+        auto [got, err] = huffman_decode_to_string(byte_span(dehex(in_hex)));
         ASSERT_FALSE(err) << in_hex << ": " << err;
         EXPECT_EQ(got, want);
     }
@@ -436,11 +436,11 @@ TEST(Hpack, HuffmanMaxStrLen) {
     append_huffman_string(huff, msg);
     for (int max : {0, static_cast<int>(msg.size()), static_cast<int>(msg.size()) + 1}) {
         std::string out;
-        EXPECT_FALSE(huffman_decode(out, max, bytes(huff))) << max;
+        EXPECT_FALSE(huffman_decode(out, max, byte_span(huff))) << max;
         EXPECT_EQ(out, msg);
     }
     std::string out;
-    EXPECT_EQ(huffman_decode(out, static_cast<int>(msg.size()) - 1, bytes(huff)), err_string_length);
+    EXPECT_EQ(huffman_decode(out, static_cast<int>(msg.size()) - 1, byte_span(huff)), err_string_length);
 }
 
 TEST(Hpack, HuffmanRoundtripStress) {
@@ -450,7 +450,7 @@ TEST(Hpack, HuffmanRoundtripStress) {
         for (auto& c : input) c = static_cast<char>(rng());
         std::string huff;
         append_huffman_string(huff, input);
-        auto [out, err] = huffman_decode_to_string(bytes(huff));
+        auto [out, err] = huffman_decode_to_string(byte_span(huff));
         ASSERT_FALSE(err) << err;
         ASSERT_EQ(out, input);
     }
@@ -463,12 +463,12 @@ TEST(Hpack, HuffmanDecodeFuzz) {
     for (int i = 0; i < 50000; i++) {
         std::string in(1 + rng() % 49, '\0');
         for (auto& c : in) c = static_cast<char>(rng());
-        auto [out, err] = huffman_decode_to_string(bytes(in));
+        auto [out, err] = huffman_decode_to_string(byte_span(in));
         if (!err) {
             good++;
             std::string re;
             append_huffman_string(re, out);
-            ASSERT_EQ(huffman_decode_to_string(bytes(re)).first, out);
+            ASSERT_EQ(huffman_decode_to_string(byte_span(re)).first, out);
         } else {
             ASSERT_EQ(err, err_invalid_huffman);
         }
@@ -505,7 +505,7 @@ TEST(Hpack, ReadVarInt) {
         {1, overflow, 0, 0, err_varint_overflow},
     };
     for (auto& tt : tests) {
-        std::span<const byte> p = bytes(tt.p);
+        std::span<const byte> p = byte_span(tt.p);
         uint64 i = 0;
         gopp::error err = read_var_int(tt.n, p, i);
         EXPECT_EQ(err, tt.err) << hex(tt.p);
@@ -518,7 +518,7 @@ TEST(Hpack, ReadVarInt) {
 
 TEST(Hpack, HuffmanFuzzCrash) {
     // Originally reported at https://github.com/bradfitz/http2/issues/56
-    auto [got, err] = huffman_decode_to_string(bytes("00\x91\xff\xff\xff\xff\xc8"));
+    auto [got, err] = huffman_decode_to_string(byte_span("00\x91\xff\xff\xff\xff\xc8"));
     EXPECT_EQ(got, "");
     EXPECT_EQ(err, err_invalid_huffman);
 }
@@ -536,7 +536,7 @@ TEST(Hpack, EmitEnabled) {
     });
     dec = &d;
     EXPECT_TRUE(d.emit_enabled());
-    EXPECT_FALSE(d.Write(bytes(buf)).second);
+    EXPECT_FALSE(d.Write(byte_span(buf)).second);
     EXPECT_EQ(num_callback, 1);
     EXPECT_FALSE(d.emit_enabled());
 }
@@ -554,7 +554,7 @@ TEST(Hpack, SlowIncrementalDecode) {
         EXPECT_EQ(got.name, hf.name);
         EXPECT_EQ(got.value, hf.value);
     });
-    for (std::size_t i = 0; i < buf.size(); i++) dec.Write(bytes(std::string_view(buf).substr(i, 1)));
+    for (std::size_t i = 0; i < buf.size(); i++) dec.Write(byte_span(std::string_view(buf).substr(i, 1)));
     EXPECT_EQ(count, 1);
 }
 
@@ -568,13 +568,13 @@ TEST(Hpack, SaveBufLimit) {
     frag += "foo";
     append_var_int(frag, 7, 3);
     frag += "bar";
-    ASSERT_FALSE(dec.Write(bytes(frag)).second);
+    ASSERT_FALSE(dec.Write(byte_span(frag)).second);
     EXPECT_EQ(got, std::vector<HeaderField>{P("foo", "bar")});
 
     frag.assign(1, '\0');
     append_var_int(frag, 7, max_str * 3);
     frag += std::string(max_str * 3, '\0');
-    EXPECT_EQ(dec.Write(bytes(frag)).second, err_string_length);
+    EXPECT_EQ(dec.Write(byte_span(frag)).second, err_string_length);
 }
 
 TEST(Hpack, DynamicSizeUpdate) {
@@ -583,12 +583,12 @@ TEST(Hpack, DynamicSizeUpdate) {
     enc.set_max_dynamic_table_size(255);
     enc.write_field(P("foo", "bar"));
     Decoder d(4096, [](const HeaderField&) {});
-    ASSERT_FALSE(d.Write(bytes(buf)).second);
+    ASSERT_FALSE(d.Write(byte_span(buf)).second);
     d.Close();
     // A new header block.
-    ASSERT_FALSE(d.Write(bytes(buf)).second);
+    ASSERT_FALSE(d.Write(byte_span(buf)).second);
     // Must fail: the size update is not at the beginning of the block.
-    EXPECT_TRUE(d.Write(bytes(buf)).second);
+    EXPECT_TRUE(d.Write(byte_span(buf)).second);
 }
 
 // encode_test.Go
@@ -628,7 +628,7 @@ TEST(Hpack, EncoderWriteField) {
         buf.clear();
         got.clear();
         for (auto& hf : tests[i]) ASSERT_FALSE(e.write_field(hf));
-        EXPECT_FALSE(d.Write(bytes(buf)).second) << i;
+        EXPECT_FALSE(d.Write(byte_span(buf)).second) << i;
         EXPECT_EQ(got, tests[i]) << i;
     }
 }

@@ -469,7 +469,7 @@ public:
         return {dirs, rerr};
     }
 
-    std::pair<bytes, error> ReadFile(std::string_view name) override {
+    std::pair<slice<byte>, error> ReadFile(std::string_view name) override {
         if (!fs::ValidPath(name)) return {{}, path_error("readfile", name, ErrInvalid)};
         return r_->ReadFile(name);
     }
@@ -763,7 +763,7 @@ error Root::Symlink(std::string_view oldname, std::string_view newname) {
     return nullptr;
 }
 
-std::pair<bytes, error> Root::ReadFile(std::string_view name) {
+std::pair<slice<byte>, error> Root::ReadFile(std::string_view name) {
     auto [f, err] = Open(name);
     if (err) return {{}, err};
     int64 statSize = 0;

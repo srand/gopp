@@ -32,7 +32,7 @@ public:
         return {f, nullptr};
     }
 
-    std::pair<bytes, error> ReadFile(std::string_view name) override {
+    std::pair<slice<byte>, error> ReadFile(std::string_view name) override {
         auto [fullname, err] = join(name);
         if (err) return {{}, detail::path_error("readfile", name, err)};
         auto [b, rerr] = os::ReadFile(fullname);

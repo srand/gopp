@@ -150,8 +150,8 @@ inline ptr<PathError> path_error(std::string_view op, std::string_view path, err
 
 // Go's readFileContents: reads a file of stat_size bytes, by stat, with
 // read.
-std::pair<bytes, error> read_file_contents(int64 stat_size,
-                                           const std::function<std::pair<isize, error>(std::span<byte>)>& read);
+std::pair<slice<byte>, error> read_file_contents(int64 stat_size,
+                                                 const std::function<std::pair<isize, error>(std::span<byte>)>& read);
 
 // The error of a CreateTemp or MkdirTemp pattern with a '/'.
 extern const error errPatternHasSeparator;

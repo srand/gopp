@@ -5,6 +5,7 @@
 // what it batches up; handlers run on their own fibers and ask it to
 // write their responses over channels. Writes are batched: while the
 // writer is busy, frames queue up, and the next write sends them all.
+#include "ascii.hpp"
 #include "http2.hpp"
 
 #include <gopp/runtime.hpp>
@@ -912,7 +913,7 @@ gopp::error server_conn::NewRequest(stream& st, const Frame& f, ptr<Request>& ou
         if (cls.empty()) req->ContentLength = -1;
         st.body = make_ptr<pipe>();
         st.decl_body_bytes = req->ContentLength;
-        bool needs_continue = strings::EqualFold(req->Header.Get("Expect"), "100-continue");
+        bool needs_continue = ascii::EqualFold(req->Header.Get("Expect"), "100-continue");
         if (needs_continue) req->Header.Del("Expect");
         req->Body = make_ptr<request_body>(self, sp, st.body, needs_continue);
     } else {

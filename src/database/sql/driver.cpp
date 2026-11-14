@@ -52,7 +52,7 @@ string Format(const Value& v) {
         // Go's %v of a []byte: [104 105]
         std::string s = "[";
         bool first = true;
-        for (byte b : std::get<bytes>(v)) {
+        for (byte b : std::get<slice<byte>>(v)) {
             if (!first) s += ' ';
             s += std::to_string(b);
             first = false;
@@ -71,7 +71,7 @@ bool Equal(const Value& a, const Value& b) noexcept {
     case 1: return std::get<int64>(a) == std::get<int64>(b);
     case 2: return std::get<double>(a) == std::get<double>(b);
     case 3: return std::get<bool>(a) == std::get<bool>(b);
-    case 4: return as_string_view(std::get<bytes>(a).span()) == as_string_view(std::get<bytes>(b).span());
+    case 4: return as_string_view(std::get<slice<byte>>(a).span()) == as_string_view(std::get<slice<byte>>(b).span());
     case 5: return std::get<string>(a) == std::get<string>(b);
     default: return std::get<time::Time>(a).Equal(std::get<time::Time>(b));
     }
@@ -118,7 +118,7 @@ struct bool_type final : ValueConverter {
         case 3: return {src, nullptr};
         case 5:
         case 4: {
-            std::string_view s = src.index() == 5 ? std::get<string>(src).view() : as_string_view(std::get<bytes>(src).span());
+            std::string_view s = src.index() == 5 ? std::get<string>(src).view() : as_string_view(std::get<slice<byte>>(src).span());
             auto [b, err] = strconv::ParseBool(s);
             if (err) return {nullptr, errorf("sql/driver: couldn't convert " + sql::detail::quote(s).str() + " into type bool")};
             return {b, nullptr};

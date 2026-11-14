@@ -1,7 +1,7 @@
 // Ported from Go 1.27.3's path/path.go and path/match.go.
 #include <gopp/path.hpp>
 
-#include "../internal/utf8/utf8.hpp"
+#include <gopp/unicode/utf8.hpp>
 
 #include <string>
 #include <vector>

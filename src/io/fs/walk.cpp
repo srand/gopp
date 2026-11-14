@@ -32,13 +32,13 @@ private:
 
 }  // namespace
 
-std::pair<bytes, error> ReadFile(FS& fsys, std::string_view name) {
+std::pair<slice<byte>, error> ReadFile(FS& fsys, std::string_view name) {
     if (auto* rf = dynamic_cast<ReadFileFS*>(&fsys)) return rf->ReadFile(name);
     auto [file, err] = fsys.Open(name);
     if (err) return {{}, err};
     std::size_t size = 0;
     if (auto [info, serr] = file->Stat(); !serr && info->Size() > 0) size = std::size_t(info->Size());
-    bytes data = bytes::make(0, size + 1);
+    slice<byte> data = slice<byte>::make(0, size + 1);
     for (;;) {
         if (data.size() >= data.cap()) data = append(data, byte(0)).Sub(0, data.size());
         auto [n, rerr] = file->Read(std::span<byte>(data.data() + data.size(), data.cap() - data.size()));
@@ -116,7 +116,7 @@ public:
         return {dir, fixErr(rerr)};
     }
 
-    std::pair<bytes, error> ReadFile(std::string_view name) override {
+    std::pair<slice<byte>, error> ReadFile(std::string_view name) override {
         auto [full, err] = fullName("read", name);
         if (err) return {{}, err};
         auto [data, rerr] = fs::ReadFile(*fsys_, full.view());

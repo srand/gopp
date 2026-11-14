@@ -84,15 +84,15 @@ public:
 
     // Writes the EncodedLen(len(src)) characters of src into dst.
     void Encode(std::span<byte> dst, std::span<const byte> src) const noexcept;
-    bytes AppendEncode(bytes dst, std::span<const byte> src) const;
+    slice<byte> AppendEncode(slice<byte> dst, std::span<const byte> src) const;
     string EncodeToString(std::span<const byte> src) const;
 
     // Decodes src into dst, which must hold DecodedLen(len(src)) bytes;
     // returns the bytes written. New lines in src are ignored. On invalid
     // input, the error is a CorruptInputError.
     std::pair<isize, error> Decode(std::span<byte> dst, std::span<const byte> src) const;
-    std::pair<bytes, error> AppendDecode(bytes dst, std::span<const byte> src) const;
-    std::pair<bytes, error> DecodeString(std::string_view s) const;
+    std::pair<slice<byte>, error> AppendDecode(slice<byte> dst, std::span<const byte> src) const;
+    std::pair<slice<byte>, error> DecodeString(std::string_view s) const;
 
     // The padding character, or NoPadding.
     constexpr rune pad_char() const noexcept { return pad_char_; }

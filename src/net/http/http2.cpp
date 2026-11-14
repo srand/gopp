@@ -1,5 +1,6 @@
 // After Go's net/http/internal/http2: frame.Go, errors.Go, flow.Go and
 // pipe.Go.
+#include "ascii.hpp"
 #include "http2.hpp"
 
 #include <gopp/strings.hpp>
@@ -537,7 +538,7 @@ bool is_connection_header(std::string_view k) noexcept {
 
 string lower_header(std::string_view key) {
     // Common keys are canonical already; lower them without a table.
-    return strings::ToLower(key);
+    return ascii::ToLowerBytes(key);
 }
 
 bool valid_pseudo_path(std::string_view v) noexcept { return !v.empty() && (v[0] == '/' || v == "*"); }

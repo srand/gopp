@@ -5,7 +5,7 @@
 #include <gopp/testing/fstest.hpp>
 #include <gopp/testing/iotest.hpp>
 
-#include "../internal/utf8/utf8.hpp"
+#include <gopp/unicode/utf8.hpp>
 
 #include <algorithm>
 #include <set>
@@ -61,7 +61,7 @@ public:
     error Close() override { return nullptr; }
 
     std::pair<isize, error> Read(std::span<byte> b) override {
-        const bytes& data = info_->file().Data;
+        const slice<byte>& data = info_->file().Data;
         if (offset_ >= int64(data.size())) return {0, io::EOF_};
         if (offset_ < 0) return {0, pathError("read", path_.view(), fs::ErrInvalid)};
         std::size_t n = std::min(b.size(), data.size() - std::size_t(offset_));
@@ -83,7 +83,7 @@ public:
     }
 
     std::pair<isize, error> ReadAt(std::span<byte> b, int64 offset) override {
-        const bytes& data = info_->file().Data;
+        const slice<byte>& data = info_->file().Data;
         if (offset < 0 || offset > int64(data.size())) return {0, pathError("read", path_.view(), fs::ErrInvalid)};
         std::size_t n = std::min(b.size(), data.size() - std::size_t(offset));
         std::copy_n(data.data() + offset, n, b.data());
@@ -143,7 +143,7 @@ class noSub final : public fs::ReadFileFS,
 public:
     explicit noSub(ptr<MapFS> m) : m_(std::move(m)) {}
     std::pair<ptr<fs::File>, error> Open(std::string_view name) override { return m_->Open(name); }
-    std::pair<bytes, error> ReadFile(std::string_view name) override { return m_->ReadFile(name); }
+    std::pair<slice<byte>, error> ReadFile(std::string_view name) override { return m_->ReadFile(name); }
     std::pair<std::vector<ptr<fs::DirEntry>>, error> ReadDir(std::string_view name) override {
         return m_->ReadDir(name);
     }
@@ -302,7 +302,7 @@ std::pair<ptr<fs::FileInfo>, error> MapFS::lstat(std::string_view name) const {
     return {nullptr, fs::ErrNotExist};
 }
 
-std::pair<bytes, error> MapFS::ReadFile(std::string_view name) {
+std::pair<slice<byte>, error> MapFS::ReadFile(std::string_view name) {
     fsOnly f(*this);
     return fs::ReadFile(f, name);
 }
@@ -835,7 +835,7 @@ public:
         f->Close();
     }
 
-    void checkFileRead(const std::string& file, std::string_view desc, const bytes& data1, const bytes& data2) {
+    void checkFileRead(const std::string& file, std::string_view desc, const slice<byte>& data1, const slice<byte>& data2) {
         if (as_string_view(data1) != as_string_view(data2)) {
             errorf("{}: {}: different data returned\n\t{}\n\t{}", file, desc, strconv::Quote(as_string_view(data1)),
                    strconv::Quote(as_string_view(data2)));

@@ -113,7 +113,7 @@ namespace {
 std::string as_string(const driver::Value& src) {
     switch (src.index()) {
     case 5: return std::get<string>(src).str();
-    case 4: return std::string(as_string_view(std::get<bytes>(src).span()));
+    case 4: return std::string(as_string_view(std::get<slice<byte>>(src).span()));
     case 1: return std::to_string(std::get<int64>(src));
     case 2: return format_float_g(std::get<double>(src), 64);
     case 3: return std::get<bool>(src) ? "true" : "false";
@@ -129,7 +129,7 @@ bool append_text(std::string& buf, const driver::Value& src) {
     }
 }
 
-bytes bytes_of(std::string_view s) { return bytes::of(gopp::as_bytes(s)); }
+slice<byte> bytes_of(std::string_view s) { return slice<byte>::of(gopp::as_bytes(s)); }
 
 // strconvErr: the cause of a strconv.NumError.
 error strconv_err(const error& err) {
@@ -156,19 +156,19 @@ error unsupported_scan(const driver::Value& src, std::string_view dest_type) {
 error convert_string(const driver::Value& src, gopp::string& out) {
     switch (src.index()) {
     case 5: out = std::get<string>(src); return nullptr;
-    case 4: out = string(as_string_view(std::get<bytes>(src).span())); return nullptr;
+    case 4: out = string(as_string_view(std::get<slice<byte>>(src).span())); return nullptr;
     case 6: out = string(format_rfc3339_nano(std::get<time::Time>(src))); return nullptr;
     case 0: return null_unsupported("string");
     default: out = string(as_string(src)); return nullptr;
     }
 }
 
-error convert_bytes(const driver::Value& src, bytes& out) {
+error convert_bytes(const driver::Value& src, slice<byte>& out) {
     switch (src.index()) {
     case 5: out = bytes_of(std::get<string>(src)); return nullptr;
-    case 4: out = bytes::of(std::get<bytes>(src).span()); return nullptr;  // a copy
+    case 4: out = slice<byte>::of(std::get<slice<byte>>(src).span()); return nullptr;  // a copy
     case 6: out = bytes_of(format_rfc3339_nano(std::get<time::Time>(src))); return nullptr;
-    case 0: out = bytes(); return nullptr;
+    case 0: out = slice<byte>(); return nullptr;
     }
     std::string b;
     if (append_text(b, src)) {
@@ -180,13 +180,13 @@ error convert_bytes(const driver::Value& src, bytes& out) {
 
 error convert_raw_bytes(const driver::Value& src, RawBytes& out, Rows* rows) {
     auto append_raw = [&](std::string_view s) {
-        bytes buf = rows ? rows->rawbuf() : bytes();
-        bytes b = append_span(buf, gopp::as_bytes(s));
+        slice<byte> buf = rows ? rows->rawbuf() : slice<byte>();
+        slice<byte> b = append_span(buf, gopp::as_bytes(s));
         out = rows ? rows->setrawbuf(b) : RawBytes(b);
     };
     switch (src.index()) {
     case 5: append_raw(std::get<string>(src)); return nullptr;
-    case 4: out = RawBytes(std::get<bytes>(src)); return nullptr;  // the driver's memory, as in Go
+    case 4: out = RawBytes(std::get<slice<byte>>(src)); return nullptr;  // the driver's memory, as in Go
     case 6: append_raw(format_rfc3339_nano(std::get<time::Time>(src))); return nullptr;
     case 0: out = RawBytes(); return nullptr;
     }
@@ -205,8 +205,8 @@ error convert_bool(const driver::Value& src, bool& out) {
 }
 
 error convert_any(const driver::Value& src, driver::Value& out) {
-    if (auto* b = std::get_if<bytes>(&src)) {
-        out = bytes::of(b->span());  // a copy: the driver may reuse its memory
+    if (auto* b = std::get_if<slice<byte>>(&src)) {
+        out = slice<byte>::of(b->span());  // a copy: the driver may reuse its memory
         return nullptr;
     }
     out = src;

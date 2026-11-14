@@ -756,7 +756,7 @@ struct TimeStamp {
             *Time = t;
             return err;
         }
-        if (auto* b = std::get_if<bytes>(&value)) {
+        if (auto* b = std::get_if<slice<byte>>(&value)) {
             auto [t, err] = time::Parse(CurrentTimeStamp, std::string_view(reinterpret_cast<const char*>(b->data()), b->size()));
             *Time = t;
             return err;
@@ -828,15 +828,15 @@ TEST(GoSQLite3, NilAndEmptyBytes) {
         std::string name;
         std::string columnType;
         bool actualNil;  // insert nil itself, not a nil []byte
-        bytes insertBytes;
+        slice<byte> insertBytes;
         bool expectNil;
     } tests[] = {
-        {"actual nil blob", "blob", true, bytes{}, true},
-        {"referenced nil blob", "blob", false, bytes{}, true},
-        {"empty blob", "blob", false, bytes::make(0), false},
-        {"actual nil text", "text", true, bytes{}, true},
-        {"referenced nil text", "text", false, bytes{}, true},
-        {"empty text", "text", false, bytes::make(0), false},
+        {"actual nil blob", "blob", true, slice<byte>{}, true},
+        {"referenced nil blob", "blob", false, slice<byte>{}, true},
+        {"empty blob", "blob", false, slice<byte>::make(0), false},
+        {"actual nil text", "text", true, slice<byte>{}, true},
+        {"referenced nil text", "text", false, slice<byte>{}, true},
+        {"empty text", "text", false, slice<byte>::make(0), false},
     };
     int tsti = 0;
     for (const auto& tst : tests) {
@@ -850,7 +850,7 @@ TEST(GoSQLite3, NilAndEmptyBytes) {
         auto [rows, err] = db->Query(fmt::Sprint("select txt from tbl{}", tsti).str());
         ASSERT_FALSE(err) << tst.name;
         ASSERT_TRUE(rows->Next()) << tst.name << " no rows";
-        bytes scanBytes = bytes::make(1);
+        slice<byte> scanBytes = slice<byte>::make(1);
         ASSERT_FALSE(rows->Scan(&scanBytes)) << tst.name;
         ASSERT_FALSE(rows->Err()) << tst.name;
         rows->Close();
@@ -867,10 +867,10 @@ TEST(GoSQLite3, InsertNilByteSlice) {
     auto db = mustOpen(":memory:");
     close_after c{db};
     ASSERT_FALSE(db->Exec("create table blob_not_null (b blob not null)").second);
-    bytes nilSlice;
+    slice<byte> nilSlice;
     EXPECT_TRUE(db->Exec("insert into blob_not_null (b) values (?)", nilSlice).second)
         << "didn't expect INSERT to 'not null' column with a nil []byte slice to work";
-    bytes zeroLenSlice = bytes::make(0);
+    slice<byte> zeroLenSlice = slice<byte>::make(0);
     EXPECT_FALSE(db->Exec("insert into blob_not_null (b) values (?)", zeroLenSlice).second)
         << "failed to insert zero-length slice";
 }
@@ -994,14 +994,14 @@ protected:
     static inline std::string tempFilename;
 };
 
-std::string hex(const bytes& b) {
+std::string hex(const slice<byte>& b) {
     std::string s;
     for (byte c : b) s += std::format("{:02x}", c);
     return s;
 }
 
-bytes bytes_of(std::initializer_list<int> v) {
-    bytes b;
+slice<byte> bytes_of(std::initializer_list<int> v) {
+    slice<byte> b;
     for (int c : v) b = append(std::move(b), static_cast<byte>(c));
     return b;
 }
@@ -1023,12 +1023,12 @@ TEST_F(GoSQLite3Suite, Result) {
 }
 
 TEST_F(GoSQLite3Suite, Blobs) {
-    bytes blob = bytes_of({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
+    slice<byte> blob = bytes_of({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
     mustExec("create table foo (id integer primary key, bar blob[16])");
     mustExec("insert into foo (id, bar) values(?,?)", 0, blob);
 
     std::string want = hex(blob);
-    bytes b = bytes::make(16);
+    slice<byte> b = slice<byte>::make(16);
     error err = db->QueryRow("select bar from foo where id = ?", 0)->Scan(&b);
     EXPECT_FALSE(err) << "[]byte scan: " << S(err);
     EXPECT_EQ(hex(b), want);
@@ -1041,18 +1041,18 @@ TEST_F(GoSQLite3Suite, Blobs) {
 
 TEST_F(GoSQLite3Suite, MultiBlobs) {
     mustExec("create table foo (id integer primary key, bar blob[16])");
-    bytes blob0 = bytes_of({0, 1, 2, 3, 4, 5, 6, 7});
+    slice<byte> blob0 = bytes_of({0, 1, 2, 3, 4, 5, 6, 7});
     mustExec("insert into foo (id, bar) values(?,?)", 0, blob0);
-    bytes blob1 = bytes_of({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
+    slice<byte> blob1 = bytes_of({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
     mustExec("insert into foo (id, bar) values(?,?)", 1, blob1);
 
     auto [r, err] = db->Query("select bar from foo order by id");
     ASSERT_FALSE(err) << S(err);
     ASSERT_TRUE(r->Next()) << "expected one rows";
-    bytes b0 = bytes::make(8);
+    slice<byte> b0 = slice<byte>::make(8);
     ASSERT_FALSE(r->Scan(&b0));
     ASSERT_TRUE(r->Next()) << "expected one rows";
-    bytes b1 = bytes::make(16);
+    slice<byte> b1 = slice<byte>::make(16);
     ASSERT_FALSE(r->Scan(&b1));
     r->Close();
     EXPECT_EQ(hex(b0), hex(blob0));
@@ -1062,13 +1062,13 @@ TEST_F(GoSQLite3Suite, MultiBlobs) {
 TEST_F(GoSQLite3Suite, NullZeroLengthBlobs) {
     mustExec("create table foo (id integer primary key, bar blob[16])");
     mustExec("insert into foo (id, bar) values(?,?)", 0, nullptr);
-    mustExec("insert into foo (id, bar) values(?,?)", 1, bytes::make(0));
+    mustExec("insert into foo (id, bar) values(?,?)", 1, slice<byte>::make(0));
 
-    bytes b0 = bytes::make(1);
+    slice<byte> b0 = slice<byte>::make(1);
     ASSERT_FALSE(db->QueryRow("select bar from foo where id=0")->Scan(&b0));
     EXPECT_TRUE(b0.is_nil()) << "for id=0, got " << hex(b0) << "; want nil";
 
-    bytes b1;
+    slice<byte> b1;
     ASSERT_FALSE(db->QueryRow("select bar from foo where id=1")->Scan(&b1));
     EXPECT_FALSE(b1.is_nil()) << "for id=1, got nil; want zero-length slice";
     EXPECT_TRUE(b1.empty()) << "for id=1, got " << hex(b1) << "; want zero-length slice";

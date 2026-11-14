@@ -18,7 +18,7 @@ namespace gopp::hash {
 struct Hash : io::Writer {
     // Appends the hash of what was written to b and returns the result. It
     // doesn't change the state: writing can go on.
-    virtual bytes Sum(bytes b) const = 0;
+    virtual slice<byte> Sum(slice<byte> b) const = 0;
     // Back to the state of a new hash.
     virtual void Reset() = 0;
     // The number of bytes Sum appends.

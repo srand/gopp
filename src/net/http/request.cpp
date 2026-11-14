@@ -1,5 +1,6 @@
 // Reading requests: after Go's net/http/request.Go (readRequest),
 // transfer.Go and internal/chunked.Go.
+#include "ascii.hpp"
 #include "internal.hpp"
 
 #include <gopp/strings.hpp>
@@ -357,7 +358,7 @@ std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, 
     // Body framing.
     std::vector<string> te = req->Header.Values("Transfer-Encoding");
     if (!te.empty()) {
-        if (te.size() != 1 || !strings::EqualFold(te[0], "chunked")) {
+        if (te.size() != 1 || !ascii::EqualFold(te[0], "chunked")) {
             return {nullptr, make_ptr<status_error>(501, "unsupported transfer encoding: " + strconv::Quote(te[0]))};
         }
         req->TransferEncoding = {string::from_static("chunked")};

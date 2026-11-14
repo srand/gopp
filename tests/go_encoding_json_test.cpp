@@ -401,7 +401,7 @@ TEST(GoEncodingJson, MarshalRawMessageValue) {
         json::RawMessage M;
     };
     json::RawMessage raw_nil{};
-    json::RawMessage raw_empty{bytes::make(0)};
+    json::RawMessage raw_empty{slice<byte>::make(0)};
     json::RawMessage raw_text{to_bytes("\"foo\"")};
 
     // Test with nil RawMessage.
@@ -492,12 +492,12 @@ namespace {
 
 struct strMarshaler {
     string s;
-    std::pair<bytes, error> MarshalJSON() const { return {to_bytes(s), nullptr}; }
+    std::pair<slice<byte>, error> MarshalJSON() const { return {to_bytes(s), nullptr}; }
 };
 
 // Go's type C, whose MarshalJSON returns `"<&>"`.
 struct C {
-    std::pair<bytes, error> MarshalJSON() const { return {to_bytes("\"<&>\""), nullptr}; }
+    std::pair<slice<byte>, error> MarshalJSON() const { return {to_bytes("\"<&>\""), nullptr}; }
 };
 
 }  // namespace
@@ -680,11 +680,11 @@ TEST(GoEncodingJson, InvalidUnmarshal) {
 }
 
 TEST(GoEncodingJson, LargeByteSlice) {
-    bytes s0 = bytes::make(2000);
+    slice<byte> s0 = slice<byte>::make(2000);
     for (std::size_t i = 0; i < s0.len(); i++) s0[i] = static_cast<byte>(i);
     auto [b, err] = json::Marshal(s0);
     ASSERT_FALSE(err);
-    bytes s1;
+    slice<byte> s1;
     ASSERT_FALSE(json::Unmarshal(b, &s1));
     EXPECT_TRUE(std::equal(s0.begin(), s0.end(), s1.begin(), s1.end()));
 }

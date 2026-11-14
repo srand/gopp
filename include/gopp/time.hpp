@@ -284,7 +284,7 @@ public:
 
     // t written in layout (see Layout).
     string Format(std::string_view layout) const;
-    bytes AppendFormat(bytes b, std::string_view layout) const;
+    slice<byte> AppendFormat(slice<byte> b, std::string_view layout) const;
     // "2006-01-02 15:04:05.999999999 -0700 MST", with " m=+0.001" for the
     // monotonic reading.
     string String() const;
@@ -292,10 +292,10 @@ public:
     string GoString() const;
 
     // RFC 3339 with nanoseconds, as JSON strings and text.
-    std::pair<bytes, error> MarshalJSON() const;
+    std::pair<slice<byte>, error> MarshalJSON() const;
     error UnmarshalJSON(std::span<const byte> data);
-    std::pair<bytes, error> MarshalText() const;
-    std::pair<bytes, error> AppendText(bytes b) const;
+    std::pair<slice<byte>, error> MarshalText() const;
+    std::pair<slice<byte>, error> AppendText(slice<byte> b) const;
     error UnmarshalText(std::span<const byte> data);
 
     // RFC 1123 in UTC, as HTTP uses: "Mon, 02 Jan 2006 15:04:05 GMT".

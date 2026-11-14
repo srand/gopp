@@ -99,7 +99,7 @@ std::pair<int64, error> Copy(Writer& dst, Reader& src);
 std::pair<int64, error> CopyN(Writer& dst, Reader& src, int64 n);
 
 // io.ReadAll
-std::pair<bytes, error> ReadAll(Reader& r);
+std::pair<slice<byte>, error> ReadAll(Reader& r);
 
 // io.Discard
 Writer& Discard();

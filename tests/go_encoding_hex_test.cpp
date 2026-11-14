@@ -35,7 +35,7 @@ std::string str(const std::vector<byte>& b) { return std::string(b.begin(), b.en
 TEST(GoHex, Encode) {
     int i = 0;
     for (const auto& test : encDecTests) {
-        auto dst = bytes::make(static_cast<std::size_t>(hex::EncodedLen(static_cast<isize>(test.dec.size()))));
+        auto dst = slice<byte>::make(static_cast<std::size_t>(hex::EncodedLen(static_cast<isize>(test.dec.size()))));
         auto n = hex::Encode(dst, test.dec);
         EXPECT_EQ(n, static_cast<isize>(dst.len())) << "#" << i << ": bad return value";
         EXPECT_EQ(str(dst), test.enc) << "#" << i;
@@ -52,7 +52,7 @@ TEST(GoHex, Decode) {
     decTests.push_back({"F8F9FAFBFCFDFEFF", {0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff}});
     int i = 0;
     for (const auto& test : decTests) {
-        auto dst = bytes::make(static_cast<std::size_t>(hex::DecodedLen(static_cast<isize>(test.enc.size()))));
+        auto dst = slice<byte>::make(static_cast<std::size_t>(hex::DecodedLen(static_cast<isize>(test.enc.size()))));
         auto [n, err] = hex::Decode(dst, as_bytes(test.enc));
         EXPECT_FALSE(err) << "#" << i;
         EXPECT_EQ(str(dst), str(test.dec)) << "#" << i;
@@ -109,7 +109,7 @@ bool sameError(const error& got, const error& want) {
 
 TEST(GoHex, DecodeErr) {
     for (const auto& tt : errTests()) {
-        auto out = bytes::make(tt.in.size() + 10);
+        auto out = slice<byte>::make(tt.in.size() + 10);
         auto [n, err] = hex::Decode(out, as_bytes(tt.in));
         EXPECT_EQ(str(out.Sub(0, static_cast<std::size_t>(n))), tt.out) << "Decode(" << tt.in << ")";
         EXPECT_TRUE(sameError(err, tt.err)) << "Decode(" << tt.in << ") = " << err << ", want " << tt.err;

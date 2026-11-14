@@ -29,7 +29,7 @@ string Level::String() const {
     return str("ERROR", *this - LevelError);
 }
 
-std::pair<bytes, error> Level::MarshalJSON() const { return {to_bytes(conv::quote(String().view())), nullptr}; }
+std::pair<slice<byte>, error> Level::MarshalJSON() const { return {to_bytes(conv::quote(String().view())), nullptr}; }
 
 namespace {
 
@@ -62,17 +62,17 @@ error Level::UnmarshalJSON(std::span<const byte> data) {
     return parse_level(s, *this);
 }
 
-std::pair<bytes, error> Level::AppendText(bytes b) const { return {append_span(std::move(b), as_bytes(String().view())), nullptr}; }
+std::pair<slice<byte>, error> Level::AppendText(slice<byte> b) const { return {append_span(std::move(b), as_bytes(String().view())), nullptr}; }
 
-std::pair<bytes, error> Level::MarshalText() const { return AppendText(bytes()); }
+std::pair<slice<byte>, error> Level::MarshalText() const { return AppendText(slice<byte>()); }
 
 error Level::UnmarshalText(std::span<const byte> data) { return parse_level(as_string_view(data), *this); }
 
 string LevelVar::String() const { return fmt::Sprint("LevelVar({})", Level()); }
 
-std::pair<bytes, error> LevelVar::AppendText(bytes b) const { return Level().AppendText(std::move(b)); }
+std::pair<slice<byte>, error> LevelVar::AppendText(slice<byte> b) const { return Level().AppendText(std::move(b)); }
 
-std::pair<bytes, error> LevelVar::MarshalText() const { return AppendText(bytes()); }
+std::pair<slice<byte>, error> LevelVar::MarshalText() const { return AppendText(slice<byte>()); }
 
 error LevelVar::UnmarshalText(std::span<const byte> data) {
     slog::Level l;

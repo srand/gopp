@@ -270,9 +270,9 @@ std::pair<ptr<File>, error> OpenFile(std::string_view name, int flag, FileMode p
     return {detail::new_file(fd, string(name), detail::file_kind::open_file, flag & O_NONBLOCK, flag & O_APPEND), nullptr};
 }
 
-std::pair<bytes, error> ReadFile(std::string_view name) {
+std::pair<slice<byte>, error> ReadFile(std::string_view name) {
     auto [f, err] = Open(name);
-    if (err) return {bytes(), err};
+    if (err) return {slice<byte>(), err};
     int64 stat_size = 0;
     if (auto [fi, e] = f->Stat(); !e) stat_size = fi->Size();
     auto r = detail::read_file_contents(stat_size, [&](std::span<byte> p) { return f->Read(p); });
@@ -282,8 +282,8 @@ std::pair<bytes, error> ReadFile(std::string_view name) {
 
 namespace detail {
 
-std::pair<bytes, error> read_file_contents(int64 stat_size,
-                                           const std::function<std::pair<isize, error>(std::span<byte>)>& read) {
+std::pair<slice<byte>, error> read_file_contents(int64 stat_size,
+                                                 const std::function<std::pair<isize, error>(std::span<byte>)>& read) {
     // Room for the whole file and a byte for the read at its end, at least
     // 512 bytes: /proc's files claim size 0 but don't work if read in small
     // pieces.
@@ -291,7 +291,7 @@ std::pair<bytes, error> read_file_contents(int64 stat_size,
     bool zero_size = stat_size == 0;
     std::size_t size = static_cast<std::size_t>(stat_size) + 1;
     if (size < min_buf) size = min_buf;
-    bytes data = bytes::make(0, size);
+    slice<byte> data = slice<byte>::make(0, size);
     for (;;) {
         auto [n, e] = read(std::span<byte>(data.data() + data.len(), data.cap() - data.len()));
         data = data.Sub(0, data.len() + static_cast<std::size_t>(n));
@@ -303,7 +303,7 @@ std::pair<bytes, error> read_file_contents(int64 stat_size,
         // reads of zero-sized files always get a buffer of at least 512.
         std::size_t cap_remain = data.cap() - data.len();
         if (cap_remain == 0 || (zero_size && cap_remain < min_buf)) {
-            bytes grown = bytes::make(data.len(), data.cap() + std::max(data.cap(), min_buf));
+            slice<byte> grown = slice<byte>::make(data.len(), data.cap() + std::max(data.cap(), min_buf));
             std::copy(data.begin(), data.end(), grown.begin());
             data = std::move(grown);
         }

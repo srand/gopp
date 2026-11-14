@@ -140,7 +140,7 @@ TEST(GoBase64, Decode) {
     for (const auto& p : pairs) {
         for (const auto& tt : encodingTests) {
             std::string encoded = tt.conv(p.encoded);
-            auto dbuf = bytes::make(static_cast<std::size_t>(tt.enc.DecodedLen(static_cast<isize>(encoded.size()))));
+            auto dbuf = slice<byte>::make(static_cast<std::size_t>(tt.enc.DecodedLen(static_cast<isize>(encoded.size()))));
             auto [count, err] = tt.enc.Decode(dbuf, as_bytes(encoded));
             EXPECT_FALSE(err) << "Decode(" << encoded << ") = error " << err;
             EXPECT_EQ(count, static_cast<isize>(p.decoded.size())) << "Decode(" << encoded << ") = length";
@@ -167,7 +167,7 @@ TEST(GoBase64, Decode) {
 TEST(GoBase64, Decoder) {
     for (const auto& p : pairs) {
         auto decoder = base64::NewDecoder(base64::StdEncoding, strings::NewReader(string(p.encoded)));
-        auto dbuf = bytes::make(static_cast<std::size_t>(base64::StdEncoding.DecodedLen(static_cast<isize>(p.encoded.size()))));
+        auto dbuf = slice<byte>::make(static_cast<std::size_t>(base64::StdEncoding.DecodedLen(static_cast<isize>(p.encoded.size()))));
         auto [count, err] = decoder->Read(dbuf);
         ASSERT_TRUE(!err || err == io::EOF_) << "Read failed " << err;
         EXPECT_EQ(count, static_cast<isize>(p.decoded.size())) << "Read from " << p.encoded;
@@ -205,7 +205,7 @@ TEST(GoBase64, DecodeCorrupt) {
         {"AAAAAA=", 7},    {"YWJjZA=====", 8}, {"A!\n", 1},      {"A=\n", 1},
     };
     for (const auto& tc : testCases) {
-        auto dbuf = bytes::make(static_cast<std::size_t>(base64::StdEncoding.DecodedLen(static_cast<isize>(tc.input.size()))));
+        auto dbuf = slice<byte>::make(static_cast<std::size_t>(base64::StdEncoding.DecodedLen(static_cast<isize>(tc.input.size()))));
         auto [_, err] = base64::StdEncoding.Decode(dbuf, as_bytes(tc.input));
         if (tc.offset == -1) {
             EXPECT_FALSE(err) << "Decoder wrongly detected corruption in " << tc.input;

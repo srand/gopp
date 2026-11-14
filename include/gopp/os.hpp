@@ -278,7 +278,7 @@ public:
     error Rename(std::string_view oldname, std::string_view newname);
     error Link(std::string_view oldname, std::string_view newname);
     error Symlink(std::string_view oldname, std::string_view newname);
-    std::pair<bytes, error> ReadFile(std::string_view name);
+    std::pair<slice<byte>, error> ReadFile(std::string_view name);
     error WriteFile(std::string_view name, std::span<const byte> data, FileMode perm);
     error WriteFile(std::string_view name, std::string_view data, FileMode perm);
 
@@ -316,7 +316,7 @@ std::pair<ptr<File>, error> Create(std::string_view name);
 std::pair<ptr<File>, error> OpenFile(std::string_view name, int flag, FileMode perm);
 
 // os.ReadFile: the contents of the file.
-std::pair<bytes, error> ReadFile(std::string_view name);
+std::pair<slice<byte>, error> ReadFile(std::string_view name);
 // os.WriteFile: writes data to the file, creating it with perm (before
 // umask) or truncating it.
 error WriteFile(std::string_view name, std::span<const byte> data, FileMode perm);

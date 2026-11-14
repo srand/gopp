@@ -82,8 +82,8 @@ std::pair<int64, error> CopyN(Writer& dst, Reader& src, int64 n) {
     return {written, err};
 }
 
-std::pair<bytes, error> ReadAll(Reader& r) {
-    bytes b = bytes::make(0, 512);
+std::pair<slice<byte>, error> ReadAll(Reader& r) {
+    slice<byte> b = slice<byte>::make(0, 512);
     for (;;) {
         if (b.len() == b.cap()) b = append(b, byte(0)).Sub(0, b.len());
         auto [n, err] = r.Read(std::span<byte>(b.data() + b.len(), b.cap() - b.len()));

@@ -4,7 +4,7 @@
 
 #include <gopp/fmt.hpp>
 
-#include "internal/utf8/utf8.hpp"
+#include <gopp/unicode/utf8.hpp>
 #include "text/template/goconv.hpp"
 
 #include <mutex>

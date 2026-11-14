@@ -41,7 +41,7 @@ constexpr isize DecodedLen(isize n) noexcept { return n / 2; }
 // returns their count.
 isize Encode(std::span<byte> dst, std::span<const byte> src) noexcept;
 // Appends the hex digits of src to dst.
-bytes AppendEncode(bytes dst, std::span<const byte> src);
+slice<byte> AppendEncode(slice<byte> dst, std::span<const byte> src);
 // The lowercase hex digits of src.
 string EncodeToString(std::span<const byte> src);
 
@@ -50,9 +50,9 @@ string EncodeToString(std::span<const byte> src);
 // valid, an InvalidByteError or ErrLength.
 std::pair<isize, error> Decode(std::span<byte> dst, std::span<const byte> src);
 // Appends the decoding of src to dst.
-std::pair<bytes, error> AppendDecode(bytes dst, std::span<const byte> src);
+std::pair<slice<byte>, error> AppendDecode(slice<byte> dst, std::span<const byte> src);
 // The bytes of the hex digits of s.
-std::pair<bytes, error> DecodeString(std::string_view s);
+std::pair<slice<byte>, error> DecodeString(std::string_view s);
 
 // A hex dump of data, as `hexdump -C` writes it.
 string Dump(std::span<const byte> data);

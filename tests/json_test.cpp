@@ -62,7 +62,7 @@ struct with_box {
 // A type that encodes itself, like a json.Marshaler.
 struct celsius {
     double deg;
-    std::pair<bytes, error> MarshalJSON() const { return {to_bytes(fmt_deg()), nullptr}; }
+    std::pair<slice<byte>, error> MarshalJSON() const { return {to_bytes(fmt_deg()), nullptr}; }
     error UnmarshalJSON(std::span<const byte> d) {
         std::string_view s = as_string_view(d);
         if (s.size() < 3 || s.front() != '"' || !s.ends_with("C\"")) return errors::New("bad temperature");
@@ -219,7 +219,7 @@ TEST(Json, UnmarshalValues) {
     string s;
     ASSERT_FALSE(json::Unmarshal("\"a\\u00e9\\ud83d\\ude00\\n\"", &s));  // \u escapes and a surrogate pair
     EXPECT_EQ(s, "a\xc3\xa9\xf0\x9f\x98\x80\n");
-    bytes b;
+    slice<byte> b;
     ASSERT_FALSE(json::Unmarshal(R"("aGVsbG8=")", &b));
     EXPECT_EQ(as_string_view(b), "hello");
     std::map<int, bool> m;

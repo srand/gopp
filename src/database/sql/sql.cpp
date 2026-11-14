@@ -1649,7 +1649,7 @@ error Rows::Err() {
     return err;
 }
 
-RawBytes Rows::setrawbuf(bytes b) {
+RawBytes Rows::setrawbuf(slice<byte> b) {
     std::size_t off = raw_.len();
     raw_ = std::move(b);
     return RawBytes(raw_.Sub(off));

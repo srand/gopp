@@ -16,11 +16,11 @@ public:
         auto blocksize = static_cast<std::size_t>(inner_->BlockSize());
         ipad_.assign(blocksize, 0);
         opad_.assign(blocksize, 0);
-        bytes long_key;
+        slice<byte> long_key;
         if (key.size() > blocksize) {
             // If key is too big, hash it.
             outer_->Write(key);
-            long_key = outer_->Sum(bytes());
+            long_key = outer_->Sum(slice<byte>());
             key = long_key;
         }
         std::copy(key.begin(), key.end(), ipad_.begin());
@@ -32,7 +32,7 @@ public:
 
     std::pair<isize, error> Write(std::span<const byte> p) override { return inner_->Write(p); }
 
-    bytes Sum(bytes in) const override {
+    slice<byte> Sum(slice<byte> in) const override {
         std::size_t orig_len = in.len();
         in = inner_->Sum(std::move(in));
         outer_->Reset();

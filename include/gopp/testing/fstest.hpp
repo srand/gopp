@@ -32,7 +32,7 @@ namespace gopp::fstest {
 
 // fstest.MapFile: a file in a MapFS.
 struct MapFile {
-    bytes Data = {};            // file content or symlink destination
+    slice<byte> Data = {};            // file content or symlink destination
     fs::FileMode Mode = {};     // fs::FileInfo::Mode
     time::Time ModTime = {};    // fs::FileInfo::ModTime
     const void* Sys = nullptr;  // fs::FileInfo::Sys
@@ -65,7 +65,7 @@ public:
     std::size_t size() const noexcept { return files_.size(); }
 
     std::pair<ptr<fs::File>, error> Open(std::string_view name) override;
-    std::pair<bytes, error> ReadFile(std::string_view name) override;
+    std::pair<slice<byte>, error> ReadFile(std::string_view name) override;
     std::pair<std::vector<ptr<fs::DirEntry>>, error> ReadDir(std::string_view name) override;
     std::pair<ptr<fs::FileInfo>, error> Stat(std::string_view name) override;
     std::pair<std::vector<string>, error> Glob(std::string_view pattern) override;

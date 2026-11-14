@@ -8,6 +8,7 @@ export import gopp.errors;
 export import gopp.io;
 export import gopp.slice;
 export import gopp.string;
+export import gopp.unicode;
 
 export extern "C++" {
 #include <gopp/strings.hpp>

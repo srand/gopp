@@ -54,7 +54,7 @@ isize Encode(std::span<byte> dst, std::span<const byte> src) noexcept {
     return static_cast<isize>(src.size() * 2);
 }
 
-bytes AppendEncode(bytes dst, std::span<const byte> src) {
+slice<byte> AppendEncode(slice<byte> dst, std::span<const byte> src) {
     auto n = static_cast<std::size_t>(EncodedLen(static_cast<isize>(src.size())));
     std::size_t len = dst.len();
     dst = slices::Grow(std::move(dst), static_cast<isize>(n)).Sub(0, len + n);
@@ -83,7 +83,7 @@ std::pair<isize, error> Decode(std::span<byte> dst, std::span<const byte> src) {
     return {static_cast<isize>(i), nullptr};
 }
 
-std::pair<bytes, error> AppendDecode(bytes dst, std::span<const byte> src) {
+std::pair<slice<byte>, error> AppendDecode(slice<byte> dst, std::span<const byte> src) {
     auto n = static_cast<std::size_t>(DecodedLen(static_cast<isize>(src.size())));
     std::size_t len = dst.len();
     dst = slices::Grow(std::move(dst), static_cast<isize>(n)).Sub(0, len + n);
@@ -96,8 +96,8 @@ string EncodeToString(std::span<const byte> src) {
                          [&](char* p) { Encode(std::span<byte>(reinterpret_cast<byte*>(p), src.size() * 2), src); });
 }
 
-std::pair<bytes, error> DecodeString(std::string_view s) {
-    auto dst = bytes::make(static_cast<std::size_t>(DecodedLen(static_cast<isize>(s.size()))));
+std::pair<slice<byte>, error> DecodeString(std::string_view s) {
+    auto dst = slice<byte>::make(static_cast<std::size_t>(DecodedLen(static_cast<isize>(s.size()))));
     auto [n, err] = Decode(dst, as_bytes(s));
     return {dst.Sub(0, static_cast<std::size_t>(n)), err};
 }

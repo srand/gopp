@@ -39,10 +39,10 @@ void testGolden(const char* name, std::span<const golden_test> golden,
                 io::WriteString(*c, g.in);
             } else {
                 io::WriteString(*c, g.in.substr(0, g.in.size() / 2));
-                c->Sum(bytes());
+                c->Sum(slice<byte>());
                 io::WriteString(*c, g.in.substr(g.in.size() / 2));
             }
-            ASSERT_EQ(x(c->Sum(bytes())), g.out) << name << "[" << j << "](" << g.in << ")";
+            ASSERT_EQ(x(c->Sum(slice<byte>())), g.out) << name << "[" << j << "](" << g.in << ")";
             c->Reset();
         }
     }
@@ -60,7 +60,7 @@ void testLarge(ptr<hash::Hash> c, int N, const std::string& ok) {
             std::span<const byte> b(block.data() + offset, static_cast<std::size_t>(blockSize));
             c->Reset();
             for (int i = 0; i < blocks; i++) c->Write(b);
-            ASSERT_EQ(x(c->Sum(bytes())), ok) << "offset=" << offset << ", blockSize=" << blockSize;
+            ASSERT_EQ(x(c->Sum(slice<byte>())), ok) << "offset=" << offset << ", blockSize=" << blockSize;
         }
     }
 }
@@ -139,7 +139,7 @@ TEST(GoMd5, Golden) {
                 io::WriteString(*c, g.in);
             } else if (j == 2) {
                 io::WriteString(*c, g.in.substr(0, g.in.size() / 2));
-                c->Sum(bytes());
+                c->Sum(slice<byte>());
                 io::WriteString(*c, g.in.substr(g.in.size() / 2));
             } else {
                 // test unaligned write
@@ -147,7 +147,7 @@ TEST(GoMd5, Golden) {
                 std::copy(g.in.begin(), g.in.end(), buf.begin() + static_cast<std::ptrdiff_t>(start));
                 c->Write(std::span<const byte>(buf.data() + start, g.in.size()));
             }
-            ASSERT_EQ(x(c->Sum(bytes())), g.out) << "md5[" << j << "](" << g.in << ")";
+            ASSERT_EQ(x(c->Sum(slice<byte>())), g.out) << "md5[" << j << "](" << g.in << ")";
             c->Reset();
         }
     }
@@ -171,7 +171,7 @@ struct justHash final : hash::Hash {
     explicit justHash(ptr<hash::Hash> h) : h(std::move(h)) {}
     ptr<hash::Hash> h;
     std::pair<isize, error> Write(std::span<const byte> p) override { return h->Write(p); }
-    bytes Sum(bytes b) const override { return h->Sum(std::move(b)); }
+    slice<byte> Sum(slice<byte> b) const override { return h->Sum(std::move(b)); }
     void Reset() override { h->Reset(); }
     isize Size() const override { return h->Size(); }
     isize BlockSize() const override { return h->BlockSize(); }
@@ -189,7 +189,7 @@ TEST(GoHmac, HMAC) {
 
             // Repetitive Sum() calls should return the same value
             for (int k = 0; k < 2; k++) {
-                EXPECT_EQ(x(h->Sum(bytes())), tt.out) << "test " << i << "." << j << "." << k;
+                EXPECT_EQ(x(h->Sum(slice<byte>())), tt.out) << "test " << i << "." << j << "." << k;
             }
 
             // Second iteration: make sure reset works.

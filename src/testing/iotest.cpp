@@ -30,7 +30,7 @@ string q(std::span<const byte> b) { return strconv::Quote(as_string_view(b)); }
 
 bool equal(std::span<const byte> a, std::span<const byte> b) { return std::ranges::equal(a, b); }
 
-std::pair<bytes, error> readAllSmall(io::Reader& r) {
+std::pair<slice<byte>, error> readAllSmall(io::Reader& r) {
     smallByteReader s(r);
     return io::ReadAll(s);
 }

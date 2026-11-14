@@ -82,10 +82,10 @@ struct Level {
     // "DEBUG", "INFO", "WARN" or "ERROR", with the offset from the nearest
     // one below: "INFO+2", "DEBUG-2".
     string String() const;
-    std::pair<bytes, error> MarshalJSON() const;
+    std::pair<slice<byte>, error> MarshalJSON() const;
     error UnmarshalJSON(std::span<const byte> data);
-    std::pair<bytes, error> MarshalText() const;
-    std::pair<bytes, error> AppendText(bytes b) const;
+    std::pair<slice<byte>, error> MarshalText() const;
+    std::pair<slice<byte>, error> AppendText(slice<byte> b) const;
     // Parses the output of String, ignoring case: "warn", "Info+2".
     error UnmarshalText(std::span<const byte> data);
 
@@ -119,8 +119,8 @@ public:
     void Set(slog::Level l) noexcept { v_.store(l.value, std::memory_order_relaxed); }
     // "LevelVar(INFO)"
     string String() const;
-    std::pair<bytes, error> MarshalText() const;
-    std::pair<bytes, error> AppendText(bytes b) const;
+    std::pair<slice<byte>, error> MarshalText() const;
+    std::pair<slice<byte>, error> AppendText(slice<byte> b) const;
     error UnmarshalText(std::span<const byte> data);
 
 private:
@@ -339,13 +339,13 @@ concept has_log_value = requires(const T& t) {
 };
 
 template <typename T>
-concept text_appender = requires(const T& t, bytes b) {
-    { t.AppendText(b) } -> std::same_as<std::pair<bytes, gopp::error>>;
+concept text_appender = requires(const T& t, slice<byte> b) {
+    { t.AppendText(b) } -> std::same_as<std::pair<slice<byte>, gopp::error>>;
 };
 
 template <typename T>
 concept text_marshaler = requires(const T& t) {
-    { t.MarshalText() } -> std::same_as<std::pair<bytes, gopp::error>>;
+    { t.MarshalText() } -> std::same_as<std::pair<slice<byte>, gopp::error>>;
 };
 
 template <typename T>
@@ -418,7 +418,7 @@ struct any_holder final : any_value {
 
     error text(std::string& out, bool& raw) const override {
         if constexpr (text_appender<T>) {
-            auto [b, err] = v.AppendText(bytes());
+            auto [b, err] = v.AppendText(slice<byte>());
             if (err) return err;
             out = as_string_view(b);
         } else if constexpr (text_marshaler<T>) {
@@ -432,7 +432,7 @@ struct any_holder final : any_value {
                 return nullptr;
             }
             auto [b, err] = [&] {
-                if constexpr (ptr_to_text_appender<T>) return v->AppendText(bytes());
+                if constexpr (ptr_to_text_appender<T>) return v->AppendText(slice<byte>());
                 else return v->MarshalText();
             }();
             if (err) return err;

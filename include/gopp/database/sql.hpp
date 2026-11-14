@@ -92,10 +92,10 @@ struct TxOptions {
 
 // sql.RawBytes: bytes owned by the database, valid until the next call to
 // Next, Scan or Close.
-class RawBytes : public bytes {
+class RawBytes : public slice<byte> {
 public:
     RawBytes() = default;
-    RawBytes(bytes b) : bytes(std::move(b)) {}
+    RawBytes(slice<byte> b) : slice<byte>(std::move(b)) {}
 };
 
 // sql.Scanner: a type that scans itself from a column value. database/sql
@@ -191,8 +191,8 @@ detail::arg to_arg(const T& v) {
         return {{}, static_cast<double>(v), nullptr};
     } else if constexpr (std::is_same_v<U, gopp::string>) {
         return {{}, v, nullptr};
-    } else if constexpr (std::is_base_of_v<bytes, U>) {
-        return {{}, bytes(v), nullptr};
+    } else if constexpr (std::is_base_of_v<slice<byte>, U>) {
+        return {{}, slice<byte>(v), nullptr};
     } else if constexpr (std::is_same_v<U, time::Time>) {
         return {{}, v, nullptr};
     } else if constexpr (std::is_same_v<U, time::Duration>) {
@@ -326,7 +326,7 @@ struct dest {
 
 extern const error err_nil_ptr;  // "destination pointer is nil"
 
-error convert_bytes(const driver::Value& src, bytes& out);
+error convert_bytes(const driver::Value& src, slice<byte>& out);
 error convert_raw_bytes(const driver::Value& src, RawBytes& out, Rows* rows);
 error convert_any(const driver::Value& src, driver::Value& out);
 error unsupported_scan(const driver::Value& src, std::string_view dest_type);
@@ -352,7 +352,7 @@ std::string type_name() {
     else if constexpr (std::is_same_v<T, double>) return "float64";
     else if constexpr (std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string>) return "string";
     else if constexpr (std::is_same_v<T, RawBytes>) return "sql.RawBytes";
-    else if constexpr (std::is_same_v<T, bytes>) return "[]uint8";
+    else if constexpr (std::is_same_v<T, slice<byte>>) return "[]uint8";
     else if constexpr (std::is_same_v<T, time::Time>) return "time.Time";
     else if constexpr (std::is_same_v<T, driver::Value>) return "interface {}";
     else if constexpr (is_optional<T>::value) return "*" + type_name<typename T::value_type>();
@@ -374,7 +374,7 @@ error convert_assign(T* d, const driver::Value& src, Rows* rows) {
         return err;
     } else if constexpr (std::is_same_v<T, RawBytes>) {
         return detail::convert_raw_bytes(src, *d, rows);
-    } else if constexpr (std::is_same_v<T, bytes>) {
+    } else if constexpr (std::is_same_v<T, slice<byte>>) {
         return detail::convert_bytes(src, *d);
     } else if constexpr (std::is_same_v<T, bool>) {
         return detail::convert_bool(src, *d);
@@ -931,8 +931,8 @@ public:
     error scan(std::span<detail::dest> dest);
 
     // For RawBytes destinations (rawbuf and setrawbuf in Go).
-    bytes rawbuf() const { return raw_; }
-    RawBytes setrawbuf(bytes b);
+    slice<byte> rawbuf() const { return raw_; }
+    RawBytes setrawbuf(slice<byte> b);
 
 private:
     friend struct sql::test_access;
@@ -964,7 +964,7 @@ private:
     bool next_called_ = false;
     std::vector<driver::Value> lastcols_;
     std::size_t num_cols_ = 0;
-    bytes raw_;
+    slice<byte> raw_;
 };
 
 // sql.Row: the result of QueryRow.

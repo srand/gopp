@@ -135,8 +135,8 @@ struct name {
 struct text_ {
     std::string s;
     std::string String() const { return s; }  // should be ignored
-    std::pair<bytes, error> MarshalText() const {
-        if (s.empty()) return {bytes(), errors::New("text: empty string")};
+    std::pair<slice<byte>, error> MarshalText() const {
+        if (s.empty()) return {slice<byte>(), errors::New("text: empty string")};
         return {to_bytes("text{" + quote(s) + "}"), nullptr};
     }
 };
@@ -145,9 +145,9 @@ struct text_ {
 struct textAppend {
     std::string s;
     std::string String() const { return s; }
-    std::pair<bytes, error> MarshalText() const { return {to_bytes(s), nullptr}; }
-    std::pair<bytes, error> AppendText(bytes b) const {
-        if (s.empty()) return {bytes(), errors::New("textAppend: empty string")};
+    std::pair<slice<byte>, error> MarshalText() const { return {to_bytes(s), nullptr}; }
+    std::pair<slice<byte>, error> AppendText(slice<byte> b) const {
+        if (s.empty()) return {slice<byte>(), errors::New("textAppend: empty string")};
         b = append_span(std::move(b), as_bytes(std::string_view("textAppend{\"")));
         b = append_span(std::move(b), as_bytes(std::string_view(s)));
         b = append_span(std::move(b), as_bytes(std::string_view("\"}")));
@@ -159,8 +159,8 @@ struct textAppend {
 struct jsonMarshaler {
     std::string s;
     std::string String() const { return s; }  // should be ignored
-    std::pair<bytes, error> MarshalJSON() const {
-        if (s.empty()) return {bytes(), errors::New("json: empty string")};
+    std::pair<slice<byte>, error> MarshalJSON() const {
+        if (s.empty()) return {slice<byte>(), errors::New("json: empty string")};
         return json::Marshal(std::vector<std::string>{s});
     }
 };
@@ -437,7 +437,7 @@ TEST(GoSlog, LevelMarshalText) {
 }
 
 TEST(GoSlog, LevelAppendText) {
-    auto buf = bytes::make(4, 16);
+    auto buf = slice<byte>::make(4, 16);
     auto want = slog::LevelWarn - 3;
     auto [data, err] = want.AppendText(buf);
     ASSERT_FALSE(err) << err;
@@ -499,7 +499,7 @@ TEST(GoSlog, LevelVarMarshalText) {
 TEST(GoSlog, LevelVarAppendText) {
     slog::LevelVar v;
     v.Set(slog::LevelWarn);
-    auto buf = bytes::make(4, 16);
+    auto buf = slice<byte>::make(4, 16);
     auto [data, err] = v.AppendText(buf);
     ASSERT_FALSE(err) << err;
     slog::LevelVar v2;
@@ -771,7 +771,7 @@ TEST(GoSlog, JSONAndTextHandlers) {
         {"GroupValue as Attr value", removeKeys({slog::TimeKey, slog::LevelKey}), false, nullptr,
          withAttrs({Attr{"v", slog::AnyValue(slog::IntValue(3))}}), "msg=message v=3", R"({"msg":"message","v":3})"},
         {"byte slice", removeKeys({slog::TimeKey, slog::LevelKey}), false, nullptr,
-         withAttrs({slog::Any("bs", bytes{1, 2, 3, 4})}), R"(msg=message bs="\x01\x02\x03\x04")",
+         withAttrs({slog::Any("bs", slice<byte>{1, 2, 3, 4})}), R"(msg=message bs="\x01\x02\x03\x04")",
          R"({"msg":"message","bs":"AQIDBA=="})"},
         {"inline group", removeKeys({slog::TimeKey, slog::LevelKey}), false, nullptr,
          withAttrs({slog::Int("a", 1), slog::Group("", slog::Int("b", 2), slog::Int("c", 3)), slog::Int("d", 4)}),
@@ -1505,8 +1505,8 @@ TEST(GoSlog, Context) {
 // A type with MarshalText and MarshalJSON members, logged through a nil
 // pointer. (Go's test also checks that panics in them are recovered.)
 struct panicTextAndJsonMarshaler : object {
-    std::pair<bytes, error> MarshalText() const { panic("MarshalText"); }
-    std::pair<bytes, error> MarshalJSON() const { panic("MarshalJSON"); }
+    std::pair<slice<byte>, error> MarshalText() const { panic("MarshalText"); }
+    std::pair<slice<byte>, error> MarshalJSON() const { panic("MarshalJSON"); }
 };
 
 TEST(GoSlog, Panics) {

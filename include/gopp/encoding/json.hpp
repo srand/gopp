@@ -196,8 +196,8 @@ private:
 
 // json.RawMessage: encoded JSON, kept as is.
 struct RawMessage {
-    bytes data;
-    std::pair<bytes, gopp::error> MarshalJSON() const;
+    slice<byte> data;
+    std::pair<slice<byte>, gopp::error> MarshalJSON() const;
     gopp::error UnmarshalJSON(std::span<const byte> d);
 };
 
@@ -231,7 +231,7 @@ public:
     void write_base64(std::span<const byte> b);
     void write_value(const Value& v);
     // Appends the output of a MarshalJSON member, validated and compacted.
-    void write_marshaled(std::pair<bytes, gopp::error> r, std::string_view type);
+    void write_marshaled(std::pair<slice<byte>, gopp::error> r, std::string_view type);
     void cycle_error(std::string_view type);
 };
 
@@ -264,7 +264,7 @@ public:
     // Whether the array has another element.
     bool next_element() noexcept;
     void read_value(Value& v);
-    bool read_base64(bytes& b);
+    bool read_base64(slice<byte>& b);
 
     // Records a mismatch and skips the value.
     void mismatch(std::string_view type);
@@ -347,7 +347,7 @@ concept string_like = std::is_same_v<T, gopp::string> || std::is_same_v<T, std::
 
 template <typename T>
 concept marshaler = requires(const T& t) {
-    { t.MarshalJSON() } -> std::same_as<std::pair<bytes, gopp::error>>;
+    { t.MarshalJSON() } -> std::same_as<std::pair<slice<byte>, gopp::error>>;
 };
 template <typename T>
 concept unmarshaler = requires(T& t, std::span<const byte> d) {
@@ -519,7 +519,7 @@ void encode(encoder& e, const T& v) {
         e.WriteString(std::string_view(v));
     } else if constexpr (std::is_same_v<U, const char*> || std::is_same_v<U, char*>) {
         e.WriteString(v ? std::string_view(v) : std::string_view());
-    } else if constexpr (std::is_same_v<U, bytes>) {
+    } else if constexpr (std::is_same_v<U, slice<byte>>) {
         if (v.is_nil()) e.out.append("null");
         else e.write_base64(v);
     } else if constexpr (std::is_same_v<U, Value>) {
@@ -759,9 +759,9 @@ void decode(decoder& d, T& v) {
         std::string s;
         d.ReadString(s);
         v = U(s);
-    } else if constexpr (std::is_same_v<U, bytes>) {
+    } else if constexpr (std::is_same_v<U, slice<byte>>) {
         if (d.consume_null()) {
-            v = bytes();
+            v = slice<byte>();
             return;
         }
         if (d.peek() != '"' || !d.read_base64(v)) d.mismatch("[]byte");
@@ -834,19 +834,19 @@ void decode(decoder& d, T& v) {
 
 // json.Marshal
 template <typename T>
-std::pair<bytes, error> Marshal(const T& v) {
+std::pair<slice<byte>, error> Marshal(const T& v) {
     detail::encoder e;
     detail::encode(e, v);
-    if (e.err) return {bytes(), e.err};
+    if (e.err) return {slice<byte>(), e.err};
     return {to_bytes(e.out), nullptr};
 }
 
 // json.MarshalIndent
 template <typename T>
-std::pair<bytes, error> MarshalIndent(const T& v, std::string_view prefix, std::string_view indent) {
+std::pair<slice<byte>, error> MarshalIndent(const T& v, std::string_view prefix, std::string_view indent) {
     detail::encoder e;
     detail::encode(e, v);
-    if (e.err) return {bytes(), e.err};
+    if (e.err) return {slice<byte>(), e.err};
     std::string out;
     detail::indent(out, e.out, prefix, indent);
     return {to_bytes(out), nullptr};

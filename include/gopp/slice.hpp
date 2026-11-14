@@ -216,8 +216,6 @@ std::size_t Copy(std::span<T> dst, std::span<const T> src) {
     return n;
 }
 
-using bytes = slice<byte>;
-
 // Byte views of strings and back.
 inline std::span<const byte> as_bytes(std::string_view s) noexcept {
     return {reinterpret_cast<const byte*>(s.data()), s.size()};
@@ -231,6 +229,6 @@ inline std::string_view as_string_view(std::span<const byte> b) noexcept {
 inline string String(std::span<const byte> b) { return string(as_string_view(b)); }
 
 // []byte(s): copies the bytes.
-inline bytes to_bytes(std::string_view s) { return bytes::of(as_bytes(s)); }
+inline slice<byte> to_bytes(std::string_view s) { return slice<byte>::of(as_bytes(s)); }
 
 }  // namespace gopp

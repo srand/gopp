@@ -2,6 +2,7 @@
 //
 // Each connection runs on its own fiber: read a request, call the handler,
 // finish the response, repeat while the connection can be reused.
+#include "ascii.hpp"
 #include "internal.hpp"
 
 #include <gopp/chan.hpp>
@@ -655,9 +656,9 @@ void conn::serve() {
 
         string expect = req->Header.Get("Expect");
         if (!expect.empty()) {
-            if (strings::EqualFold(expect, "100-continue") && req->ProtoAtLeast(1, 1) && req->ContentLength != 0) {
+            if (ascii::EqualFold(expect, "100-continue") && req->ProtoAtLeast(1, 1) && req->ContentLength != 0) {
                 req->Body = make_ptr<expect_continue_reader>(this, req->Body);
-            } else if (!strings::EqualFold(expect, "100-continue")) {
+            } else if (!ascii::EqualFold(expect, "100-continue")) {
                 io::WriteString(*rwc, "HTTP/1.1 417 Expectation Failed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
                 return;
             }

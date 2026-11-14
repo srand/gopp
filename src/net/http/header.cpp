@@ -1,4 +1,5 @@
 // After Go's net/http/header.Go and net/textproto.
+#include "ascii.hpp"
 #include "internal.hpp"
 
 #include <gopp/fmt.hpp>
@@ -44,7 +45,7 @@ bool has_token(std::string_view v, std::string_view token) noexcept {
         std::string_view part = v.substr(0, comma);
         while (!part.empty() && (part.front() == ' ' || part.front() == '\t')) part.remove_prefix(1);
         while (!part.empty() && (part.back() == ' ' || part.back() == '\t')) part.remove_suffix(1);
-        if (strings::EqualFold(part, token)) return true;
+        if (ascii::EqualFold(part, token)) return true;
         if (comma == v.npos) break;
         v.remove_prefix(comma + 1);
     }
@@ -102,7 +103,7 @@ string CanonicalHeaderKey(std::string_view k) {
 
 string Header::Get(std::string_view key) const {
     for (auto& e : entries_) {
-        if (strings::EqualFold(e.key, key)) return e.value;
+        if (ascii::EqualFold(e.key, key)) return e.value;
     }
     return {};
 }
@@ -110,18 +111,18 @@ string Header::Get(std::string_view key) const {
 std::vector<string> Header::Values(std::string_view key) const {
     std::vector<string> out;
     for (auto& e : entries_) {
-        if (strings::EqualFold(e.key, key)) out.push_back(e.value);
+        if (ascii::EqualFold(e.key, key)) out.push_back(e.value);
     }
     return out;
 }
 
 bool Header::Has(std::string_view key) const {
-    return std::any_of(entries_.begin(), entries_.end(), [&](auto& e) { return strings::EqualFold(e.key, key); });
+    return std::any_of(entries_.begin(), entries_.end(), [&](auto& e) { return ascii::EqualFold(e.key, key); });
 }
 
 void Header::Set(std::string_view key, string value) {
     // Reuse the first entry of key and drop the others.
-    auto it = std::find_if(entries_.begin(), entries_.end(), [&](auto& e) { return strings::EqualFold(e.key, key); });
+    auto it = std::find_if(entries_.begin(), entries_.end(), [&](auto& e) { return ascii::EqualFold(e.key, key); });
     if (it == entries_.end()) {
         entries_.push_back({CanonicalHeaderKey(key), std::move(value)});
         return;
@@ -129,7 +130,7 @@ void Header::Set(std::string_view key, string value) {
     it->value = std::move(value);
     auto out = it + 1;
     for (auto in = it + 1; in != entries_.end(); ++in) {
-        if (!strings::EqualFold(in->key, key)) {
+        if (!ascii::EqualFold(in->key, key)) {
             if (out != in) *out = std::move(*in);
             ++out;
         }
@@ -140,7 +141,7 @@ void Header::Set(std::string_view key, string value) {
 void Header::Add(std::string_view key, string value) { entries_.push_back({CanonicalHeaderKey(key), std::move(value)}); }
 
 void Header::Del(std::string_view key) {
-    std::erase_if(entries_, [&](auto& e) { return strings::EqualFold(e.key, key); });
+    std::erase_if(entries_, [&](auto& e) { return ascii::EqualFold(e.key, key); });
 }
 
 void Header::WriteTo(std::string& out, std::initializer_list<std::string_view> exclude) const {
@@ -159,7 +160,7 @@ void Header::WriteTo(std::string& out, std::initializer_list<std::string_view> e
         const entry& e = *order[i];
         bool skip = false;
         for (auto x : exclude) {
-            if (strings::EqualFold(e.key, x)) {
+            if (ascii::EqualFold(e.key, x)) {
                 skip = true;
                 break;
             }
@@ -312,7 +313,7 @@ struct date_parser {
     template <std::size_t N>
     int lookup(const std::string_view (&names)[N]) {
         for (std::size_t i = 0; i < N; i++) {
-            if (value.size() >= names[i].size() && strings::EqualFold(value.substr(0, names[i].size()), names[i])) {
+            if (value.size() >= names[i].size() && ascii::EqualFold(value.substr(0, names[i].size()), names[i])) {
                 value.remove_prefix(names[i].size());
                 return static_cast<int>(i);
             }

@@ -136,7 +136,7 @@ std::string trimSpace(std::string_view s) {
     return std::string(s);
 }
 
-std::string out(const bytes& b) { return std::string(as_string_view(b)); }
+std::string out(const slice<byte>& b) { return std::string(as_string_view(b)); }
 
 // Go's testenv.MustHaveExecPath.
 bool haveExecPath(const std::string& name) { return !os::exec::LookPath(name).second; }

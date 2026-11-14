@@ -4,6 +4,7 @@
 // round trip writes the request and reads the response on the calling
 // fiber, which parks while the network is busy, and the response body
 // returns the connection to the pool once it is read to the end.
+#include "ascii.hpp"
 #include "internal.hpp"
 
 #include <gopp/strings.hpp>
@@ -200,7 +201,7 @@ private:
 string url_error_op(std::string_view method) {
     // "GET" -> "Get", as Go names client errors.
     if (method.empty()) return string::from_static("Get");
-    return string(method.substr(0, 1)) + strings::ToLower(method.substr(1));
+    return string(method.substr(0, 1)) + ascii::ToLowerBytes(method.substr(1));
 }
 
 gopp::error url_error(std::string_view method, const url::URL& u, gopp::error err) {
@@ -436,7 +437,7 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
         bool no_body = req.Method == "HEAD" || code == 204 || code == 304 || (code >= 100 && code < 200);
 
         std::vector<string> te = resp->Header.Values("Transfer-Encoding");
-        bool chunked = !te.empty() && strings::EqualFold(te.back(), "chunked");
+        bool chunked = !te.empty() && ascii::EqualFold(te.back(), "chunked");
         if (chunked) {
             resp->TransferEncoding = {string::from_static("chunked")};
             resp->Header.Del("Content-Length");

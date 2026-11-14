@@ -49,9 +49,9 @@ public:
         b_.insert(b_.end(), p.begin(), p.end());
         return {static_cast<isize>(p.size()), nullptr};
     }
-    bytes Bytes() {
+    slice<byte> Bytes() {
         std::lock_guard l(mu_);
-        return bytes::of(b_);
+        return slice<byte>::of(b_);
     }
 
 private:
@@ -87,18 +87,18 @@ public:
         return {lenp, nullptr};
     }
 
-    bytes Bytes() {
+    slice<byte> Bytes() {
         std::lock_guard l(mu_);
         std::vector<byte> out(prefix_);
         if (skipped_ == 0) {
             out.insert(out.end(), suffix_.begin(), suffix_.end());
-            return bytes::of(out);
+            return slice<byte>::of(out);
         }
         std::string mid = "\n... omitting " + std::to_string(skipped_) + " bytes ...\n";
         out.insert(out.end(), mid.begin(), mid.end());
         out.insert(out.end(), suffix_.begin() + static_cast<std::ptrdiff_t>(suffix_off_), suffix_.end());
         out.insert(out.end(), suffix_.begin(), suffix_.begin() + static_cast<std::ptrdiff_t>(suffix_off_));
-        return bytes::of(out);
+        return slice<byte>::of(out);
     }
 
 private:
@@ -591,8 +591,8 @@ error Cmd::await_goroutines(ptr<time::Timer> timer) {
     return err;
 }
 
-std::pair<bytes, error> Cmd::Output() {
-    if (Stdout) return {bytes(), errors::New("exec: Stdout already set")};
+std::pair<slice<byte>, error> Cmd::Output() {
+    if (Stdout) return {slice<byte>(), errors::New("exec: Stdout already set")};
     auto out = make_ptr<buffer>();
     Stdout = out;
 
@@ -609,9 +609,9 @@ std::pair<bytes, error> Cmd::Output() {
     return {out->Bytes(), err};
 }
 
-std::pair<bytes, error> Cmd::CombinedOutput() {
-    if (Stdout) return {bytes(), errors::New("exec: Stdout already set")};
-    if (Stderr) return {bytes(), errors::New("exec: Stderr already set")};
+std::pair<slice<byte>, error> Cmd::CombinedOutput() {
+    if (Stdout) return {slice<byte>(), errors::New("exec: Stdout already set")};
+    if (Stderr) return {slice<byte>(), errors::New("exec: Stderr already set")};
     auto b = make_ptr<buffer>();
     Stdout = b;
     Stderr = b;

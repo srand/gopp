@@ -30,7 +30,7 @@ int bindValue(sqlite3_stmt* s, int n, const driver::Value& value) {
     case 2: return sqlite3_bind_double(s, n, std::get<double>(value));                         // float64
     case 3: return sqlite3_bind_int(s, n, std::get<bool>(value) ? 1 : 0);                      // bool
     case 4: {                                                                                  // []byte
-        const bytes& v = std::get<bytes>(value);
+        const slice<byte>& v = std::get<slice<byte>>(value);
         if (v.is_nil()) return sqlite3_bind_null(s, n);
         if (v.empty()) return sqlite3_bind_blob64(s, n, placeHolder, 0, SQLITE_TRANSIENT);
         return sqlite3_bind_blob64(s, n, v.data(), v.size(), SQLITE_TRANSIENT);
@@ -337,7 +337,7 @@ error rows::readStepResult(std::span<driver::Value> dest, int rv) {
         case SQLITE_BLOB: {
             const void* p = sqlite3_column_blob(h, col);
             int n = sqlite3_column_bytes(h, col);
-            bytes b = bytes::make(0, static_cast<std::size_t>(n));  // not nil: []byte{} for an empty blob
+            slice<byte> b = slice<byte>::make(0, static_cast<std::size_t>(n));  // not nil: []byte{} for an empty blob
             if (p && n > 0) {
                 b = append_span(std::move(b), std::span<const byte>(static_cast<const byte*>(p), static_cast<std::size_t>(n)));
             }

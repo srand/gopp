@@ -316,7 +316,7 @@ std::pair<ptr<driver::Tx>, gopp::error> fake_conn::Begin() {
 // fakeDriverString: strings and bytes stay; others are printed.
 struct fake_driver_string final : driver::ValueConverter {
     std::pair<Value, gopp::error> ConvertValue(const Value& v) const override {
-        if (std::holds_alternative<string>(v) || std::holds_alternative<bytes>(v)) return {v, nullptr};
+        if (std::holds_alternative<string>(v) || std::holds_alternative<slice<byte>>(v)) return {v, nullptr};
         return {driver::Format(v), nullptr};
     }
 };
@@ -376,7 +376,7 @@ struct rows_cursor final : driver::Rows, driver::RowsNextResultSet, driver::Rows
     bool closed = false;
     int err_pos = -1;
     gopp::error err;
-    std::vector<bytes> driver_owned_memory;  // invalidated after each row
+    std::vector<slice<byte>> driver_owned_memory;  // invalidated after each row
     gopp::error close_err;
 
     void invalidate_driver_owned_memory() {
@@ -410,8 +410,8 @@ struct rows_cursor final : driver::Rows, driver::RowsNextResultSet, driver::Rows
         auto& row = rows[pos_set][static_cast<std::size_t>(pos_row)];
         for (std::size_t i = 0; i < row.size(); i++) {
             Value v = row[i];
-            if (auto* b = std::get_if<bytes>(&v)) {
-                bytes c = bytes::of(b->span());
+            if (auto* b = std::get_if<slice<byte>>(&v)) {
+                slice<byte> c = slice<byte>::of(b->span());
                 driver_owned_memory.push_back(c);
                 v = c;
             }
@@ -571,7 +571,7 @@ struct fake_stmt final : driver::Stmt, driver::StmtExecContext, driver::StmtQuer
                     int idx = t->column_index(wcol.column);
                     if (idx == -1) return {nullptr, errors::New("fakedb: invalid where clause column")};
                     Value tcol = trow[static_cast<std::size_t>(idx)];
-                    if (auto* b = std::get_if<bytes>(&tcol)) tcol = string(as_string_view(b->span()));
+                    if (auto* b = std::get_if<slice<byte>>(&tcol)) tcol = string(as_string_view(b->span()));
                     Value arg_value;
                     if (wcol.placeholder == "?") arg_value = args[static_cast<std::size_t>(wcol.ordinal - 1)].Value;
                     else arg_value = value_from_placeholder_name(args, std::string_view(wcol.placeholder).substr(1));
@@ -665,7 +665,7 @@ std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepare_insert(ptr<fake_stmt> 
         col_value cv;
         if (!nv[1].starts_with("?")) {
             if (*ctype == "string" || *ctype == "blob") {
-                cv.v = bytes::of(as_bytes(nv[1]));
+                cv.v = slice<byte>::of(as_bytes(nv[1]));
             } else if (*ctype == "int32") {
                 auto [i, err] = strconv::Atoi(nv[1]);
                 if (err) {
@@ -1065,7 +1065,7 @@ TEST(Sql, QueryRow) {
         EXPECT_EQ(name, "Alice");
         EXPECT_EQ(age, 1);
 
-        bytes photo;
+        slice<byte> photo;
         ASSERT_FALSE(db.QueryRow("SELECT|people|photo|name=?", "Alice")->Scan(&photo));
         EXPECT_EQ(as_string_view(photo.span()), "APHOTO");
     });
@@ -1428,7 +1428,7 @@ TEST(Sql, NullByteSlice) {
     test_database([](sql::DB& db) {
         exec(db, "CREATE|t|id=int32,name=nullstring");
         exec(db, "INSERT|t|id=10,name=?", nullptr);
-        bytes name;
+        slice<byte> name;
         ASSERT_FALSE(db.QueryRow("SELECT|t|name|id=?", 10)->Scan(&name));
         EXPECT_TRUE(name.is_nil()) << "name []byte should be nil for null column value";
         exec(db, "INSERT|t|id=11,name=?", "bob");
@@ -2329,11 +2329,11 @@ TEST(Sql, NullTypeScanErrorConsistency) {
         EXPECT_EQ(static_cast<bool>(err), want_err) << err;
         EXPECT_EQ(n.Valid, !err) << "Valid must be the opposite of whether Scan failed";
     };
-    bytes bad = bytes::of(as_bytes("not_a_number"));
+    slice<byte> bad = slice<byte>::of(as_bytes("not_a_number"));
     check(sql::NullInt32{}, bad, true);
     check(sql::NullInt64{}, bad, true);
-    check(sql::NullFloat64{}, bytes::of(as_bytes("not_a_float")), true);
-    check(sql::NullBool{}, bytes::of(as_bytes("not_a_bool")), true);
+    check(sql::NullFloat64{}, slice<byte>::of(as_bytes("not_a_float")), true);
+    check(sql::NullBool{}, slice<byte>::of(as_bytes("not_a_bool")), true);
     check(sql::NullInt32{}, int64(42), false);
     check(sql::NullInt64{}, int64(42), false);
     check(sql::NullFloat64{}, 3.14, false);
@@ -2357,7 +2357,7 @@ struct conversion_test {
 
 TEST(SqlConvert, Conversions) {
     string scanstr;
-    bytes scanbytes;
+    slice<byte> scanbytes;
     sql::RawBytes scanraw;
     int scanint = 0;
     uint8 scanuint8 = 0;
@@ -2393,7 +2393,7 @@ TEST(SqlConvert, Conversions) {
                          },
                          ""});
     };
-    auto b = [](std::string_view s) { return Value(bytes::of(as_bytes(s))); };
+    auto b = [](std::string_view s) { return Value(slice<byte>::of(as_bytes(s))); };
 
     // Exact conversions (destination pointer type matches source type).
     to_str(string("foo"), "foo");
@@ -2480,8 +2480,8 @@ TEST(SqlConvert, Conversions) {
         tests.push_back({v, [&, v] { return sql::convert_assign(&scaniface, v); }, [&, v] {
                              if (!driver::Equal(scaniface, v)) return std::string("interface ") + driver::Format(scaniface).str();
                              // A copy, not the source's bytes.
-                             if (auto* sb = std::get_if<bytes>(&v); sb && !sb->empty() &&
-                                                                     std::get<bytes>(scaniface).data() == sb->data()) {
+                             if (auto* sb = std::get_if<slice<byte>>(&v); sb && !sb->empty() &&
+                                                                     std::get<slice<byte>>(scaniface).data() == sb->data()) {
                                  return std::string("copy into interface{} didn't copy []byte data");
                              }
                              return std::string();
@@ -2503,7 +2503,7 @@ TEST(SqlConvert, Conversions) {
 
 TEST(SqlConvert, NullString) {
     sql::NullString ns;
-    sql::convert_assign(&ns, Value(bytes::of(as_bytes("foo"))));
+    sql::convert_assign(&ns, Value(slice<byte>::of(as_bytes("foo"))));
     EXPECT_TRUE(ns.Valid) << "expecting not null";
     EXPECT_EQ(ns.String, "foo");
     sql::convert_assign(&ns, Value(nullptr));
@@ -2568,7 +2568,7 @@ TEST(SqlDriver, ValueConverters) {
     std::vector<test> tests = {
         {driver::Bool, string("true"), true, ""},
         {driver::Bool, string("True"), true, ""},
-        {driver::Bool, bytes::of(as_bytes("t")), true, ""},
+        {driver::Bool, slice<byte>::of(as_bytes("t")), true, ""},
         {driver::Bool, true, true, ""},
         {driver::Bool, string("1"), true, ""},
         {driver::Bool, int64(1), true, ""},

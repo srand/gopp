@@ -158,7 +158,7 @@ struct FS : public virtual object {
 
 // fs.ReadFileFS: an FS with its own ReadFile.
 struct ReadFileFS : public virtual FS {
-    virtual std::pair<bytes, error> ReadFile(std::string_view name) = 0;
+    virtual std::pair<slice<byte>, error> ReadFile(std::string_view name) = 0;
 };
 
 // fs.ReadDirFS: an FS with its own ReadDir, which sorts by name.
@@ -190,7 +190,7 @@ struct ReadLinkFS : public virtual FS {
 };
 
 // fs.ReadFile: the contents of the named file.
-std::pair<bytes, error> ReadFile(FS& fsys, std::string_view name);
+std::pair<slice<byte>, error> ReadFile(FS& fsys, std::string_view name);
 // fs.ReadDir: the entries of the named directory, sorted by name.
 std::pair<std::vector<ptr<DirEntry>>, error> ReadDir(FS& fsys, std::string_view name);
 // fs.Stat: the FileInfo of the named file.

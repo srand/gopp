@@ -28,7 +28,7 @@ namespace gopp::sql::driver {
 
 // driver.Value: what drivers handle. Go's nil, int64, float64, bool,
 // []byte, string and time.Time.
-using Value = std::variant<std::nullptr_t, int64, double, bool, bytes, string, time::Time>;
+using Value = std::variant<std::nullptr_t, int64, double, bool, slice<byte>, string, time::Time>;
 
 // The Go type name of a Value: "<nil>", "int64", "float64", "bool",
 // "[]uint8", "string", "time.Time" (for errors in Go's words).

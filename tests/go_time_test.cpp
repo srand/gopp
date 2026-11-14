@@ -571,7 +571,7 @@ bool equalTimeAndZone(const Time& a, const Time& b) {
     return a.Equal(b) && aoffset == boffset && aname.view() == bname.view();
 }
 
-std::string bytes_str(const bytes& b) { return std::string(reinterpret_cast<const char*>(b.data()), b.size()); }
+std::string bytes_str(const slice<byte>& b) { return std::string(reinterpret_cast<const char*>(b.data()), b.size()); }
 
 }  // namespace
 
@@ -657,7 +657,7 @@ TEST_F(GoTime, MarshalInvalidTimes) {
         EXPECT_TRUE(b2.is_nil());
         EXPECT_EQ(S(err2), replace(tt.want, "JSON", "Text"));
 
-        auto [b3, err3] = tt.time.AppendText(bytes{});
+        auto [b3, err3] = tt.time.AppendText(slice<byte>{});
         EXPECT_TRUE(b3.is_nil());
         EXPECT_EQ(S(err3), replace(tt.want, "MarshalJSON", "AppendText"));
     }
@@ -942,7 +942,7 @@ TEST_F(GoTime, DurationAbs) {
 TEST_F(GoTime, DefaultLoc) {
     // Verify that all of Time's methods behave identically if loc is set
     // to nil or UTC.
-    auto eqb = [](std::pair<bytes, error> a, std::pair<bytes, error> b) {
+    auto eqb = [](std::pair<slice<byte>, error> a, std::pair<slice<byte>, error> b) {
         return bytes_str(a.first) == bytes_str(b.first) && S(a.second) == S(b.second);
     };
     struct {

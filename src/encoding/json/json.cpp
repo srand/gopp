@@ -482,7 +482,7 @@ void encoder::write_value(const Value& v) {
     }
 }
 
-void encoder::write_marshaled(std::pair<bytes, gopp::error> r, std::string_view type) {
+void encoder::write_marshaled(std::pair<slice<byte>, gopp::error> r, std::string_view type) {
     auto fail = [&](gopp::error e) {
         if (!err) {
             auto me = make_ptr<MarshalerError>();
@@ -809,13 +809,13 @@ void decoder::read_value(Value& root) {
     }
 }
 
-bool decoder::read_base64(bytes& b) {
+bool decoder::read_base64(slice<byte>& b) {
     std::string s;
     ReadString(s);
     std::string_view in = s;
     while (!in.empty() && in.back() == '=') in.remove_suffix(1);
     if ((s.size() - in.size()) > 2 || (in.size() % 4 == 1)) return false;
-    bytes out = bytes::make(0, in.size() * 3 / 4 + 3);
+    slice<byte> out = slice<byte>::make(0, in.size() * 3 / 4 + 3);
     uint32_t acc = 0;
     int bits = 0;
     for (char c : in) {
@@ -910,13 +910,13 @@ std::size_t Value::size() const noexcept {
     return 0;
 }
 
-std::pair<bytes, gopp::error> RawMessage::MarshalJSON() const {
+std::pair<slice<byte>, gopp::error> RawMessage::MarshalJSON() const {
     if (data.is_nil()) return {to_bytes("null"), nullptr};
     return {data, nullptr};
 }
 
 gopp::error RawMessage::UnmarshalJSON(std::span<const byte> d) {
-    data = bytes::of(d);
+    data = slice<byte>::of(d);
     return nullptr;
 }
 

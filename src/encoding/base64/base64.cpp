@@ -48,7 +48,7 @@ void Encoding::Encode(std::span<byte> dst, std::span<const byte> src) const noex
     }
 }
 
-bytes Encoding::AppendEncode(bytes dst, std::span<const byte> src) const {
+slice<byte> Encoding::AppendEncode(slice<byte> dst, std::span<const byte> src) const {
     auto n = static_cast<std::size_t>(EncodedLen(static_cast<isize>(src.size())));
     std::size_t len = dst.len();
     dst = slices::Grow(std::move(dst), static_cast<isize>(n)).Sub(0, len + n);
@@ -217,7 +217,7 @@ std::tuple<isize, isize, error> Encoding::decode_quantum(std::span<byte> dst, st
     return {static_cast<isize>(si), static_cast<isize>(dlen) - 1, err};
 }
 
-std::pair<bytes, error> Encoding::AppendDecode(bytes dst, std::span<const byte> src) const {
+std::pair<slice<byte>, error> Encoding::AppendDecode(slice<byte> dst, std::span<const byte> src) const {
     // Compute the output size without padding to avoid over allocating.
     std::size_t n = src.size();
     while (n > 0 && static_cast<rune>(src[n - 1]) == pad_char_) n--;
@@ -229,8 +229,8 @@ std::pair<bytes, error> Encoding::AppendDecode(bytes dst, std::span<const byte> 
     return {dst.Sub(0, len + static_cast<std::size_t>(m)), err};
 }
 
-std::pair<bytes, error> Encoding::DecodeString(std::string_view s) const {
-    auto dbuf = bytes::make(static_cast<std::size_t>(DecodedLen(static_cast<isize>(s.size()))));
+std::pair<slice<byte>, error> Encoding::DecodeString(std::string_view s) const {
+    auto dbuf = slice<byte>::make(static_cast<std::size_t>(DecodedLen(static_cast<isize>(s.size()))));
     auto [n, err] = Decode(dbuf, as_bytes(s));
     return {dbuf.Sub(0, static_cast<std::size_t>(n)), err};
 }

@@ -50,7 +50,7 @@ public:
         return {static_cast<isize>(p.size()), nullptr};
     }
 
-    bytes Sum(bytes b) const override {
+    slice<byte> Sum(slice<byte> b) const override {
         EVP_MD_CTX* c = EVP_MD_CTX_new();
         if (!c || EVP_MD_CTX_copy_ex(c, ctx_) != 1) evp_failed("EVP_MD_CTX_copy_ex");
         unsigned char out[EVP_MAX_MD_SIZE];

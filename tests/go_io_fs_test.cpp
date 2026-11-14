@@ -133,7 +133,7 @@ struct openOnly final : fs::FS {
 struct readFileOnly final : fs::ReadFileFS {
     explicit readFileOnly(ptr<fstest::MapFS> f_) : f(std::move(f_)) {}
     std::pair<ptr<fs::File>, error> Open(std::string_view) override { return {nullptr, fs::ErrNotExist}; }
-    std::pair<bytes, error> ReadFile(std::string_view name) override { return f->ReadFile(name); }
+    std::pair<slice<byte>, error> ReadFile(std::string_view name) override { return f->ReadFile(name); }
     ptr<fstest::MapFS> f;
 };
 
