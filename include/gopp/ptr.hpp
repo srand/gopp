@@ -76,69 +76,69 @@ private:
 };
 
 template <typename T>
-class intrusivePtr {
+class intrusive_ptr {
 public:
     using element_type = T;
 
-    constexpr intrusivePtr() noexcept = default;
-    constexpr intrusivePtr(std::nullptr_t) noexcept {}
+    constexpr intrusive_ptr() noexcept = default;
+    constexpr intrusive_ptr(std::nullptr_t) noexcept {}
 
-    explicit intrusivePtr(T* p) noexcept : p_(p) {
+    explicit intrusive_ptr(T* p) noexcept : p_(p) {
         if (p_) p_->addRef();
     }
 
-    intrusivePtr(const intrusivePtr& o) noexcept : p_(o.p_) {
+    intrusive_ptr(const intrusive_ptr& o) noexcept : p_(o.p_) {
         if (p_) p_->addRef();
     }
 
-    intrusivePtr(intrusivePtr&& o) noexcept : p_(o.p_) { o.p_ = nullptr; }
+    intrusive_ptr(intrusive_ptr&& o) noexcept : p_(o.p_) { o.p_ = nullptr; }
 
     // Upcasts: ptr<ServeMux> converts to ptr<Handler>.
     template <typename U>
         requires std::is_convertible_v<U*, T*>
-    intrusivePtr(const intrusivePtr<U>& o) noexcept : p_(o.get()) {
+    intrusive_ptr(const intrusive_ptr<U>& o) noexcept : p_(o.get()) {
         if (p_) p_->addRef();
     }
 
     template <typename U>
         requires std::is_convertible_v<U*, T*>
-    intrusivePtr(intrusivePtr<U>&& o) noexcept : p_(o.detach()) {}
+    intrusive_ptr(intrusive_ptr<U>&& o) noexcept : p_(o.detach()) {}
 
-    ~intrusivePtr() {
+    ~intrusive_ptr() {
         if (p_) p_->releaseRef();
     }
 
-    intrusivePtr& operator=(const intrusivePtr& o) noexcept {
-        intrusivePtr(o).swap(*this);
+    intrusive_ptr& operator=(const intrusive_ptr& o) noexcept {
+        intrusive_ptr(o).swap(*this);
         return *this;
     }
 
-    intrusivePtr& operator=(intrusivePtr&& o) noexcept {
-        intrusivePtr(std::move(o)).swap(*this);
+    intrusive_ptr& operator=(intrusive_ptr&& o) noexcept {
+        intrusive_ptr(std::move(o)).swap(*this);
         return *this;
     }
 
     template <typename U>
         requires std::is_convertible_v<U*, T*>
-    intrusivePtr& operator=(intrusivePtr<U> o) noexcept {
-        intrusivePtr(std::move(o)).swap(*this);
+    intrusive_ptr& operator=(intrusive_ptr<U> o) noexcept {
+        intrusive_ptr(std::move(o)).swap(*this);
         return *this;
     }
 
-    intrusivePtr& operator=(std::nullptr_t) noexcept {
+    intrusive_ptr& operator=(std::nullptr_t) noexcept {
         reset();
         return *this;
     }
 
-    void reset() noexcept { intrusivePtr().swap(*this); }
-    void swap(intrusivePtr& o) noexcept { std::swap(p_, o.p_); }
+    void reset() noexcept { intrusive_ptr().swap(*this); }
+    void swap(intrusive_ptr& o) noexcept { std::swap(p_, o.p_); }
 
     // Releases ownership without decrementing the count.
     T* detach() noexcept { return std::exchange(p_, nullptr); }
 
     // Takes ownership of a pointer whose count was already incremented.
-    static intrusivePtr adopt(T* p) noexcept {
-        intrusivePtr r;
+    static intrusive_ptr adopt(T* p) noexcept {
+        intrusive_ptr r;
         r.p_ = p;
         return r;
     }
@@ -149,7 +149,7 @@ public:
     explicit operator bool() const noexcept { return p_ != nullptr; }
 
     template <typename U>
-    bool operator==(const intrusivePtr<U>& o) const noexcept { return p_ == o.get(); }
+    bool operator==(const intrusive_ptr<U>& o) const noexcept { return p_ == o.get(); }
     bool operator==(std::nullptr_t) const noexcept { return p_ == nullptr; }
 
 private:
@@ -157,7 +157,7 @@ private:
 };
 
 template <typename T>
-using ptr = intrusivePtr<T>;
+using ptr = intrusive_ptr<T>;
 
 // Allocates a T, like Go's &T{...} or new(T).
 template <typename T, typename... Args>
@@ -185,6 +185,6 @@ ptr<T> ptrFromThis(T* self) noexcept {
 }  // namespace gopp
 
 template <typename T>
-struct std::hash<gopp::intrusivePtr<T>> {
-    size_t operator()(const gopp::intrusivePtr<T>& p) const noexcept { return std::hash<T*>()(p.get()); }
+struct std::hash<gopp::intrusive_ptr<T>> {
+    size_t operator()(const gopp::intrusive_ptr<T>& p) const noexcept { return std::hash<T*>()(p.get()); }
 };

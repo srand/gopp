@@ -436,10 +436,10 @@ struct pointer_traits<T*> {
     static const T* get(T* const& p) { return p; }
 };
 template <typename T>
-struct pointer_traits<gopp::intrusivePtr<T>> {
+struct pointer_traits<gopp::intrusive_ptr<T>> {
     static constexpr bool value = true;
     using elem = std::remove_cv_t<T>;
-    static const T* get(const gopp::intrusivePtr<T>& p) { return p.get(); }
+    static const T* get(const gopp::intrusive_ptr<T>& p) { return p.get(); }
 };
 template <typename T>
 struct pointer_traits<std::shared_ptr<T>> {
