@@ -21,6 +21,7 @@
 #include <gopp/errors.hpp>
 #include <gopp/io.hpp>
 #include <gopp/io/fs.hpp>
+#include <gopp/mime/multipart.hpp>
 #include <gopp/net.hpp>
 #include <gopp/net/url.hpp>
 #include <gopp/ptr.hpp>
@@ -33,6 +34,7 @@
 #include <optional>
 #include <source_location>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 #endif
@@ -130,6 +132,12 @@ extern const gopp::error ErrContentLength;
 extern const gopp::error ErrBodyReadAfterClose;
 extern const gopp::error ErrHandlerTimeout;
 extern const gopp::error ErrAbortHandler;
+// http.ErrNotMultipart: the request's Content-Type isn't multipart/form-data.
+extern const gopp::error ErrNotMultipart;
+// http.ErrMissingBoundary: a multipart Content-Type has no boundary.
+extern const gopp::error ErrMissingBoundary;
+// http.ErrMissingFile: FormFile found no file of that name.
+extern const gopp::error ErrMissingFile;
 
 // ---------------------------------------------------------------------------
 // Header
@@ -203,6 +211,15 @@ public:
     string Pattern;
     // The TLS connection the request came on, for server requests over TLS.
     std::optional<tls::ConnectionState> TLS;
+    // The parsed form: the URL query and the POST, PUT or PATCH body's
+    // fields, body fields first. Set by ParseForm.
+    url::Values Form;
+    // The fields of a POST, PUT or PATCH body. Set by ParseForm.
+    url::Values PostForm;
+    // The parsed multipart form, with its files. Set by
+    // ParseMultipartForm; the server removes its temporary files after the
+    // handler returns.
+    ptr<multipart::Form> MultipartForm;
 
     Request() = default;
     Request(const Request&);
@@ -219,8 +236,27 @@ public:
     string PathValue(std::string_view name) const;
     void SetPathValue(std::string_view name, string value);
 
-    // The first value of key in the URL query (r.FormValue without bodies).
-    string FormValue(std::string_view key) const;
+    // Parses the URL query into Form and, for POST, PUT and PATCH, an
+    // application/x-www-form-urlencoded body into PostForm and Form. A body
+    // is read up to 10 MB, unless it's a MaxBytesReader. Only the first
+    // call parses.
+    gopp::error ParseForm();
+    // Parses a multipart/form-data body into MultipartForm, Form and
+    // PostForm, after ParseForm, with up to maxMemory bytes of files in
+    // memory and the rest in temporary files (multipart::Reader::ReadForm).
+    gopp::error ParseMultipartForm(int64 maxMemory);
+    // The first value of key in Form, after ParseMultipartForm with 32 MiB
+    // if the form isn't parsed yet. Parse errors are ignored.
+    string FormValue(std::string_view key);
+    // The first value of key in PostForm, the body's fields only.
+    string PostFormValue(std::string_view key);
+    // The first file named key of the multipart form, after
+    // ParseMultipartForm with 32 MiB if needed; ErrMissingFile if there is
+    // none.
+    std::tuple<ptr<multipart::File>, ptr<multipart::FileHeader>, gopp::error> FormFile(std::string_view key);
+    // A multipart::Reader of a multipart/form-data or multipart/mixed body,
+    // to read it as a stream instead of with ParseMultipartForm.
+    std::pair<ptr<multipart::Reader>, gopp::error> MultipartReader();
     string UserAgent() const { return Header.Get("User-Agent"); }
     string Referer() const { return Header.Get("Referer"); }
     bool ProtoAtLeast(int major, int minor) const noexcept {
@@ -235,9 +271,14 @@ private:
     friend class Transport;
     friend std::pair<ptr<Request>, gopp::error> NewRequestWithContext(ptr<context::Context>, std::string_view,
                                                                          std::string_view, ptr<io::Reader>);
+    std::pair<ptr<multipart::Reader>, gopp::error> multipartReader(bool allowMixed);
+
     mutable ptr<context::Context> ctx_;
     mutable context::CancelFunc cancel_;
     std::vector<std::pair<string, string>> path_values_;
+    bool formParsed_ = false;      // Go's Form != nil
+    bool postFormParsed_ = false;  // Go's PostForm != nil
+    bool multipartByReader_ = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -274,6 +315,25 @@ private:
     handler_fn f_;
 };
 
+
+// http.MaxBytesError: the error of a MaxBytesReader past its limit.
+struct MaxBytesError : errorInterface {
+    explicit MaxBytesError(int64 limit) noexcept : Limit(limit) {}
+    string Error() const override { return string::fromStatic("http: request body too large"); }
+    int64 Limit;
+};
+
+// http.MaxBytesReader: r, limited to n bytes; reading more is a
+// *MaxBytesError, and tells the server to close the connection after the
+// response. Use it to limit request bodies:
+//
+//     r.Body = http::MaxBytesReader(w, r.Body, 1 << 20);
+//
+// w may be nil, outside of a server.
+ptr<io::ReadCloser> MaxBytesReader(ResponseWriter* w, ptr<io::ReadCloser> r, int64 n);
+inline ptr<io::ReadCloser> MaxBytesReader(ResponseWriter& w, ptr<io::ReadCloser> r, int64 n) {
+    return MaxBytesReader(&w, std::move(r), n);
+}
 
 // http.Error: replies with the message as plain text and the code.
 void Error(ResponseWriter& w, std::string_view msg, int code);
@@ -590,6 +650,8 @@ public:
     std::pair<ptr<Response>, gopp::error> Get(std::string_view url);
     std::pair<ptr<Response>, gopp::error> Head(std::string_view url);
     std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view content_type, ptr<io::Reader> body);
+    // Posts data, URL-encoded, as application/x-www-form-urlencoded.
+    std::pair<ptr<Response>, gopp::error> PostForm(std::string_view url, const url::Values& data);
     // Closes the transport's idle connections, if it is a Transport.
     void CloseIdleConnections();
 };
@@ -601,5 +663,7 @@ Client& DefaultClient();
 std::pair<ptr<Response>, gopp::error> Get(std::string_view url);
 std::pair<ptr<Response>, gopp::error> Head(std::string_view url);
 std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view content_type, ptr<io::Reader> body);
+// http.PostForm
+std::pair<ptr<Response>, gopp::error> PostForm(std::string_view url, const url::Values& data);
 
 }  // namespace gopp::http

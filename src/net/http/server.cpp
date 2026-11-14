@@ -215,7 +215,7 @@ std::pair<isize, gopp::error> expect_continue_reader::Read(std::span<byte> p) {
 // so that small responses get a Content-Length and a sniffed Content-Type,
 // then through the chunk writer (chunked encoding when the length isn't
 // known), into the connection's 4 KiB buffer.
-class response final : public ResponseWriter, public Flusher, public io::ReaderFrom {
+class response final : public ResponseWriter, public Flusher, public io::ReaderFrom, public internal::requestTooLarger {
 public:
     response(conn* c, Request* req) : c_(c), req_(req) {
         wants_10_keep_alive_ = !req->ProtoAtLeast(1, 1) && internal::hasToken(req->Header.Get("Connection"), "keep-alive");
@@ -223,6 +223,13 @@ public:
     }
 
     http::Header& Header() override { return handler_header_; }
+
+    // A MaxBytesReader hit its limit: the rest of the body won't be read,
+    // so the connection can't be reused.
+    void requestTooLarge() override {
+        close_after_reply_ = true;
+        if (!wrote_header_) handler_header_.Set("Connection", "close");
+    }
 
     void WriteHeader(int code) override {
         if (wrote_header_) {
@@ -677,6 +684,7 @@ void conn::serve() {
         }
         req->CancelContext();
         w.finish_request();
+        if (req->MultipartForm) req->MultipartForm->RemoveAll();
         cur_req = nullptr;
         if (!w.should_reuse_connection()) {
             if (w.closed_request_body_early()) closeWriteAndWait();

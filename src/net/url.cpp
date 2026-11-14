@@ -313,6 +313,14 @@ string Values::Get(std::string_view key) const {
     return {};
 }
 
+std::vector<string> Values::operator[](std::string_view key) const {
+    std::vector<string> vs;
+    for (const auto& [k, v] : kv_) {
+        if (k == key) vs.push_back(v);
+    }
+    return vs;
+}
+
 void Values::Set(string key, string value) {
     Del(key);
     kv_.emplace_back(std::move(key), std::move(value));

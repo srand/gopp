@@ -950,6 +950,7 @@ void server_conn::scheduleHandler(ptr<stream> st, ptr<Request> req, int status_o
         }
         req->CancelContext();
         rw.handler_done();
+        if (req->MultipartForm) req->MultipartForm->RemoveAll();
     });
 }
 

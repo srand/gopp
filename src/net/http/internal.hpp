@@ -46,6 +46,15 @@ string cleanPath(const string& p);
 // Appends an RFC 1123 date for now, cached per second.
 void appendDate(std::string& out);
 
+// Implemented by ResponseWriters that close the connection after the
+// response when a MaxBytesReader hits its limit (Go's requestTooLarger).
+struct requestTooLarger {
+    virtual void requestTooLarge() = 0;
+
+protected:
+    ~requestTooLarger() = default;
+};
+
 // The request body as the server provides it.
 class body_reader final : public io::ReadCloser {
 public:

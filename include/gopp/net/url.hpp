@@ -17,6 +17,8 @@ namespace gopp::url {
 class Values {
 public:
     string Get(std::string_view key) const;
+    // All the values of key, in order: Go's v[key].
+    std::vector<string> operator[](std::string_view key) const;
     void Set(string key, string value);
     void Add(string key, string value);
     void Del(std::string_view key);

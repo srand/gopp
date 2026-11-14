@@ -646,6 +646,10 @@ std::pair<ptr<Response>, gopp::error> Client::Post(std::string_view url, std::st
     return Do(req);
 }
 
+std::pair<ptr<Response>, gopp::error> Client::PostForm(std::string_view url, const url::Values& data) {
+    return Post(url, "application/x-www-form-urlencoded", strings::NewReader(data.Encode()));
+}
+
 void Client::CloseIdleConnections() {
     ptr<RoundTripper> rt = Transport ? Transport : ptr<RoundTripper>(DefaultTransport());
     if (auto t = dynamic_pointer_cast<http::Transport>(rt)) t->CloseIdleConnections();
@@ -660,6 +664,9 @@ std::pair<ptr<Response>, gopp::error> Get(std::string_view url) { return Default
 std::pair<ptr<Response>, gopp::error> Head(std::string_view url) { return DefaultClient().Head(url); }
 std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view content_type, ptr<io::Reader> body) {
     return DefaultClient().Post(url, content_type, std::move(body));
+}
+std::pair<ptr<Response>, gopp::error> PostForm(std::string_view url, const url::Values& data) {
+    return DefaultClient().PostForm(url, data);
 }
 
 }  // namespace gopp::http

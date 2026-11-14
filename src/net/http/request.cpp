@@ -30,8 +30,14 @@ Request::Request(const Request& o)
       RequestURI(o.RequestURI),
       Pattern(o.Pattern),
       TLS(o.TLS),
+      Form(o.Form),
+      PostForm(o.PostForm),
+      MultipartForm(o.MultipartForm),
       ctx_(o.ctx_),
-      path_values_(o.path_values_) {}
+      path_values_(o.path_values_),
+      formParsed_(o.formParsed_),
+      postFormParsed_(o.postFormParsed_),
+      multipartByReader_(o.multipartByReader_) {}
 
 Request::~Request() = default;
 
@@ -72,7 +78,6 @@ void Request::SetPathValue(std::string_view name, string value) {
     path_values_.emplace_back(string(name), std::move(value));
 }
 
-string Request::FormValue(std::string_view key) const { return URL.Query().Get(key); }
 
 namespace internal {
 
