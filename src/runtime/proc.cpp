@@ -552,10 +552,9 @@ G* findRunnable(M* m) noexcept {
 top:
     P* pp = m->p;
 
-    if (int64_t nt = nextTimer(); nt != INT64_MAX) {
-        int64_t now = nanotime();
-        if (nt <= now) runTimers(now);
-    }
+    // This P's timers first; those of other Ps once the run queues are
+    // empty.
+    if (pp->timers.next.load(std::memory_order_acquire) != INT64_MAX) runTimers(pp, nanotime());
 
     // Check the global queue once in a while for fairness.
     if (pp->schedtick.load(std::memory_order_relaxed) % 61 == 0 && sched.runqsize.load(std::memory_order_relaxed) > 0) {
@@ -572,6 +571,15 @@ top:
         G* gp = globrunqget(pp, 0);
         sched.lock.unlock();
         if (gp) return gp;
+    }
+
+    // Due timers of other Ps, whose Ms may be busy or gone.
+    if (int64_t nt = nextTimer(); nt != INT64_MAX) {
+        int64_t now = nanotime();
+        if (nt <= now) {
+            runDueTimers(now);
+            if (G* gp = runqget(pp)) return gp;
+        }
     }
 
     // Poll the network without blocking.
@@ -973,7 +981,7 @@ void sysmon() {
         // don't block.
         constexpr int64_t timer_slack = 1'000'000;  // ns
         if (int64_t nt = nextTimer(); nt != INT64_MAX && nt + timer_slack < now) {
-            runTimers(now);
+            runDueTimers(now);
             sysmon_timers.fetch_add(1, std::memory_order_relaxed);
             polled = true;
         }
@@ -1083,6 +1091,18 @@ void wakeNetpoller(int64_t when) noexcept {
     } else {
         wakep();
     }
+}
+
+P* timerP() noexcept {
+    ensureInit();
+    M* m = getm();
+    nopreemptGuard g{fiberOf(m)};
+    if (m && m->p) return m->p;
+    return &sched.allp[fastrand() % uint32_t(sched.gomaxprocs)];
+}
+
+std::span<P> allPs() noexcept {
+    return {sched.allp, std::size_t(sched.allp ? sched.gomaxprocs : 0)};
 }
 
 void ensurePoller() noexcept {

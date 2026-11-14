@@ -348,7 +348,6 @@ what it doesn't do yet:
   off.
 - **Fixed-size fiber stacks**, set by `GOPP_STACK_SIZE` (256 KiB of
   virtual memory by default).
-- **One global timer heap**, where Go keeps one per P.
 - **Sockets and pipes use epoll**; io_uring carries only file system calls so
   far.
 - **Name resolution is Go's own resolver only**, as `GODEBUG=netdns=go`

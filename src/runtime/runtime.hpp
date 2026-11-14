@@ -17,7 +17,9 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <string_view>
+#include <vector>
 
 namespace gopp::runtime {
 
@@ -154,6 +156,25 @@ struct G {
     pid_t tid = 0;
 };
 
+// Timers (timer.cpp): each P has a heap of them, like Go's.
+struct timer {
+    int64_t when = 0;
+    int64_t period = 0;
+    void (*f)(void* arg, uint64_t seq) = nullptr;
+    void* arg = nullptr;
+    uint64_t seq = 0;
+    int32_t idx = -1;                // position in its P's heap, -1 if not scheduled
+    std::atomic<P*> pp{nullptr};     // the P whose heap holds it; written under that heap's lock
+};
+
+// A P's timers: a heap by when, and the earliest when, for Ms that look
+// for due timers without the lock.
+struct ptimers {
+    lock_t lock;
+    std::vector<timer*> heap;
+    std::atomic<int64_t> next{INT64_MAX};
+};
+
 constexpr uint32_t runq_size = 256;
 
 struct P {
@@ -178,6 +199,9 @@ struct P {
     // Free Gs, for reuse.
     G* gfree = nullptr;
     int32_t gfreecnt = 0;
+
+    // Timers added by fibers running on this P.
+    ptimers timers;
 };
 
 // Scheduler counters, per M so that counting doesn't share cache lines.
@@ -290,24 +314,27 @@ bool hasRunnable() noexcept;
 // ---------------------------------------------------------------------------
 // Timers (timer.cpp)
 
-struct timer {
-    int64_t when = 0;
-    int64_t period = 0;
-    void (*f)(void* arg, uint64_t seq) = nullptr;
-    void* arg = nullptr;
-    uint64_t seq = 0;
-    int32_t idx = -1;  // position in the heap, -1 if not scheduled
-};
 
-// Schedules t to fire at t->when (nanotime). t must not be scheduled.
+
+// Schedules t to fire at t->when (nanotime), on the calling fiber's P
+// (any P on other threads). t must not be scheduled.
 void addTimer(timer* t) noexcept;
 // Unschedules t; returns whether it was scheduled.
 bool delTimer(timer* t) noexcept;
-// Reschedules t at when; returns whether it was scheduled before.
+// Reschedules t at when, on the P it's on (or as addTimer does); returns
+// whether it was scheduled before.
 bool modTimer(timer* t, int64_t when) noexcept;
-// Runs the timers that are due; returns the time of the next, or INT64_MAX.
-int64_t runTimers(int64_t now) noexcept;
+// Runs pp's timers that are due; returns the time of its next, or
+// INT64_MAX. Any M may run any P's timers.
+int64_t runTimers(P* pp, int64_t now) noexcept;
+// Runs the due timers of all Ps.
+void runDueTimers(int64_t now) noexcept;
+// The earliest timer of all Ps, or INT64_MAX.
 int64_t nextTimer() noexcept;
+// The P a new timer joins: the calling fiber's, or any (proc.cpp).
+P* timerP() noexcept;
+// All Ps (proc.cpp).
+std::span<P> allPs() noexcept;
 // Makes sure an M notices a timer that fires at when (proc.cpp).
 void wakeNetpoller(int64_t when) noexcept;
 // Makes sure an M runs the network poller, for threads that aren't Ms
