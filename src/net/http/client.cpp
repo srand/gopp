@@ -249,7 +249,15 @@ gopp::error writeRequest(persist_conn& pc, Request& req, bool close) {
     out.append(" HTTP/1.1\r\nHost: ");
     out.append(req.Host.empty() ? req.URL.Host.view() : req.Host.view());
     out.append("\r\n");
-    if (!req.Header.Has("User-Agent")) out.append("User-Agent: gopp-http-client/1.1\r\n");
+    // The caller's User-Agent, or the default; none if the caller's is
+    // empty, as in Go.
+    if (!req.Header.Has("User-Agent")) {
+        out.append("User-Agent: gopp-http-client/1.1\r\n");
+    } else if (string ua = req.Header.Get("User-Agent"); !ua.empty()) {
+        out.append("User-Agent: ");
+        out.append(ua.view());
+        out.append("\r\n");
+    }
     if (close && !req.Header.Has("Connection")) out.append("Connection: close\r\n");
     bool chunked = false;
     if (req.Body) {

@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
 #include <string>
 
 using namespace gopp;
@@ -524,4 +525,25 @@ TEST(HttpClient, ConcurrentGets) {
     }
     wg.Wait();
     EXPECT_EQ(ok.load(), 16 * 50);
+}
+
+// The client sends the caller's User-Agent, the default if there is none,
+// and none if it's empty, as Go's does.
+TEST(Http, ClientUserAgent) {
+    TestServer ts(make_ptr<http::HandlerFunc>([](http::ResponseWriter& w, http::Request& r) {
+        fmt::Print(w, "{}|{}", r.Header.Has("User-Agent"), r.UserAgent());
+    }));
+    auto get = [&](std::optional<std::string> ua) {
+        auto [req, _] = http::NewRequest("GET", "http://" + std::string(ts.addr.view()) + "/");
+        if (ua) req->Header.Set("User-Agent", string(*ua));
+        auto [res, err] = http::DefaultClient().Do(req);
+        EXPECT_FALSE(err) << err;
+        if (err) return std::string();
+        auto [b, _2] = io::ReadAll(*res->Body);
+        res->Body->Close();
+        return std::string(asStringView(b));
+    };
+    EXPECT_EQ(get("custom/1.0"), "true|custom/1.0");
+    EXPECT_EQ(get(std::nullopt), "true|gopp-http-client/1.1");
+    EXPECT_EQ(get(""), "false|");
 }
