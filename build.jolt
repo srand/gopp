@@ -24,6 +24,7 @@ from jolt.plugins.googletest import GTestRunner
 
 
 @ninja.attributes.macros("macros_leaks_{leaks}")
+@ninja.attributes.cxxflags("cxxflags_coverage_{coverage}")
 @attributes.requires("requires_toolchain")
 class GoppProject(cxx.Compilation):
     """
@@ -42,6 +43,12 @@ class GoppProject(cxx.Compilation):
 
     leaks = BooleanParameter(False, help="Count live objects (GOPP_DEBUG_LEAKS): the tests then report leaks.")
     macros_leaks_true = ["GOPP_DEBUG_LEAKS"]
+
+    coverage = BooleanParameter(False, help="Instrument for code coverage (gcov).")
+    # The runtime runs instrumented code on many threads: plain counter
+    # increments race, losing counts, and lcov rejects the inconsistent
+    # (negative) branch counts that result.
+    cxxflags_coverage_true = ["-fprofile-update=atomic"]
 
 
 class Gopp(GoppProject, cxx.Library):
@@ -237,7 +244,7 @@ class Examples(Alias):
 class Tests(GoppProject, cxx.Executable):
     """ Unit tests of the library. """
     name = "gopp/tests"
-    requires = ["gopp:leaks={leaks}", "gopp/sqlite3:leaks={leaks}", "google/test/main"]
+    requires = ["gopp:coverage={coverage},leaks={leaks}", "gopp/sqlite3:coverage={coverage},leaks={leaks}", "google/test/main"]
     # Tests ported from Go's in-package tests use the internal headers.
     incpaths = ["src", "drivers/sqlite3/src"]
     sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp"]
@@ -245,6 +252,8 @@ class Tests(GoppProject, cxx.Executable):
 
 @googletest.filter()
 @googletest.repeat(default=1)
+@ninja.attributes.coverage_data()
+@ninja.attributes.coverage_report_lcov(coverage_data=True)
 class Test(GTestRunner):
     """
     Runs the unit tests.
@@ -254,8 +263,12 @@ class Test(GTestRunner):
     that objects created once and kept (default clients, caches) don't count.
     """
     name = "test"
+    coverage = BooleanParameter(False, help="Enable coverage instrumentation.")
     leaks = BooleanParameter(False, help="Fail tests that leak objects.")
-    requires = ["gopp/tests:leaks={leaks}"]
+    requires = ["gopp/tests:coverage={coverage},leaks={leaks}"]
+    # jolt's list, plus inconsistent: GCC gives nested lambdas end lines
+    # that lcov 2.0 finds mismatched.
+    lcov_ignore_errors = ["empty", "inconsistent", "mismatch", "source", "source", "unused"]
 
 
 # ---------------------------------------------------------------------------
