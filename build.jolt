@@ -272,7 +272,6 @@ class Tests(GoppProject, cxx.Executable):
 @googletest.filter()
 @googletest.repeat(default=1)
 @ninja.attributes.coverage_data()
-@ninja.attributes.coverage_report_lcov(coverage_data=True)
 class Test(GTestRunner):
     """
     Runs the unit tests.
@@ -289,6 +288,15 @@ class Test(GTestRunner):
     # that lcov 2.0 finds mismatched.
     lcov_ignore_errors = ["empty", "inconsistent", "mismatch", "source", "source", "unused"]
 
+
+@ninja.attributes.coverage_report_lcov()
+class Coverage(Task):
+    """ Generate coverage report. """
+    requires = ["test:coverage=true"]
+
+
+class Default(Alias):
+    requires = ["examples", "test"]
 
 # ---------------------------------------------------------------------------
 # Benchmarks
