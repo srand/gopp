@@ -139,9 +139,10 @@ all park instead of blocking the thread.
 | `strings`, `bytes` | Go's functions over `gopp::string` and `slice<byte>`, Unicode-aware as Go's are: `Fields`, `Split`/`SplitN`/`SplitAfter`, `Cut`/`CutLast`/`CutPrefix`/`CutSuffix`, the `Trim` family, `EqualFold`, `ToUpper`/`ToLower`/`ToTitle` and their `Special` forms, `Replace`, `Map`, `Repeat`, `Index`/`IndexAny`/`IndexRune`/`IndexFunc` and the `Last` forms, `Count`, `ToValidUTF8`, and the iterators (`Lines`, `SplitSeq`, `FieldsSeq`, ...) as `std::generator`s. The parts they return share their input's buffer, as Go's substrings and subslices do. `bytes::Buffer` and `bytes::Reader`, and `strings::Builder` |
 | `unicode`, `unicode/utf8` | Go's Unicode 17.0.0 tables, generated from Go's and constant-initialized: the categories, scripts and properties as `RangeTable`s (`unicode::Is(unicode::Han, r)`, `unicode::Scripts["Greek"]`), `IsLetter`/`IsUpper`/`IsSpace`/`IsPunct`/..., `ToUpper`/`ToLower`/`ToTitle`, `SimpleFold` and `TurkishCase`. `utf8`'s decoding, encoding, counting and validation, `constexpr` |
 | `path/filepath` | Linux paths: `Abs`, `Rel`, `EvalSymlinks`, `Glob`, `Walk`/`WalkDir`, `IsLocal`, `Localize`, `SplitList`, and `path`'s lexical functions (`Join`, `Clean`, `Split`, `Base`, `Dir`, `Ext`, `Match`) |
+| `cmd`, `pflag` | Command-line programs as kubectl, gh and hugo write them: `cmd` is spf13/cobra (v1.10.2), ported, over `pflag`, spf13/pflag's GNU-style flags (`--name=x`, `-n x`, `-abc`, interspersed with arguments). `cmd::New({.Use = "get NAME", .Args = cmd::ExactArgs(1), .RunE = ...})` builds a tree of `Command`s, with subcommands, aliases and "did you mean" suggestions, persistent flags and pre/post run hooks, argument validators, required, required-together, one-required and mutually exclusive flags, command groups, `--help`, a `help` command and `--version`, and help and usage templates (text/template over the `Command`, with cobra's functions). Shell completion for bash, zsh, fish and PowerShell (the scripts are cobra's), with dynamic completions from `ValidArgsFunction` and `RegisterFlagCompletionFunc`, and active help. `pflag` has every pflag type: numbers, `Count`, durations, slices and arrays, maps (`StringToString`, ...), IPs and networks, bytes in hex or base64, `Time`, `Func`/`BoolFunc` and `TextVar`; `NoOptDefVal`, deprecated and hidden flags, name normalization. Help, errors and completion output match cobra's byte for byte |
 | `io`, `bufio`, `fmt`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `io`'s `Pipe` (parking fibers), `MultiReader`, `MultiWriter`, `TeeReader`, `SectionReader`, `OffsetWriter` and `RuneReader`/`RuneScanner` (`bufio::Reader` reads runes too), and `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
 
-**Tested against Go's own tests.** 2146 unit tests, 1877 of them ported
+**Tested against Go's own tests.** 2338 unit tests, 1877 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), its form, multipart request and `MaxBytesReader` tests, its Transport's gzip tests, `net/http/httputil`'s reverse proxy tests, `sync/atomic`'s tests, `container/heap`'s and `container/list`'s tests, `regexp`'s and `regexp/syntax`'s tests (with RE2's search tests and the AT&T POSIX tests), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -160,7 +161,7 @@ address, dialing and listening, TCP, UDP, Unix socket, raw IP, interface,
 DNS client and resolver configuration tests (against Go's fake DNS server
 and testdata), `net/netip`'s and `dnsmessage`'s tests, `sort`'s, `slices`', `maps`' and `cmp`'s tests, `log`'s and `log/slog`'s tests, `io`'s pipe, multi-reader and section reader tests, `net/textproto`'s, `mime/quotedprintable`'s and `mime/multipart`'s tests, `strings`', `bytes`', `unicode`'s, `unicode/utf8`'s and `path/filepath`'s tests, and the test vectors and tests of `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `rand` and `subtle`, `encoding/hex` and `encoding/base64`, `encoding/binary`'s and `encoding/csv`'s tests, `html`'s, `compress/gzip`'s, `compress/zlib`'s and `compress/flate`'s decoding tests and vectors, and `hash/crc32`'s and `hash/adler32`'s golden values. They keep Go's
 test names and tables. The SQLite driver runs 59 tests ported from
-`mattn/go-sqlite3`'s.
+`mattn/go-sqlite3`'s, and `cmd` and `pflag` 192 ported from cobra's and pflag's.
 
 ## Get started
 
@@ -254,6 +255,12 @@ The interfaces are in `modules/`, one per header. In module mode
 - **Interfaces are abstract classes**, and type assertions are
   `dynamic_cast`: `if (auto* f = dynamic_cast<http::Flusher*>(&w)) f->Flush();`.
 - **`fmt` uses `std::format`'s `{}`** instead of Go's verbs.
+- **cobra is `cmd`, pflag is `pflag`.** `&cobra.Command{Use: "get", RunE: ...}`
+  is `cmd::New({.Use = "get", .RunE = ...})`, with the fields in cobra's
+  order, as designated initializers want; callbacks take the command as
+  `cmd::Command&` and the arguments as a `std::span<const string>`.
+  `os::Args()` is set before `main`, as `os.Args` is, so `Execute()` needs
+  no `argc` and `argv`.
 - **Threads the runtime didn't start can join in.** The main thread, for
   example, can use channels, locks, timers and the network; it blocks the
   thread where a fiber would park.
