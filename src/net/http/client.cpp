@@ -129,7 +129,9 @@ namespace {
 const gopp::error err_malformed_response = errors::New("malformed HTTP response");
 
 // The body of a response. Reading it to the end returns the connection to
-// the pool; closing it early closes the connection, as in Go.
+// the pool; closing it early closes the connection, as in Go. Close may
+// come from another fiber during a Read: a Read holds its own references to
+// the connection, so that Close only closes it, which ends the Read.
 class client_body final : public io::ReadCloser {
 public:
     client_body(std::shared_ptr<Transport::impl> t, ptr<persist_conn> pc, ptr<io::Reader> src, io::LimitedReader* lr,
@@ -147,8 +149,17 @@ public:
     }
 
     std::pair<isize, gopp::error> Read(std::span<byte> p) override {
-        if (done_) return {0, closed_ ? ErrBodyReadAfterClose : io::EOF_};
-        auto [n, err] = src_->Read(p);
+        ptr<io::Reader> src;
+        ptr<persist_conn> pc;  // keeps the connection alive during the read
+        {
+            std::lock_guard l(mu_);
+            if (done_) return {0, closed_ ? ErrBodyReadAfterClose : io::EOF_};
+            src = src_;
+            pc = pc_;
+        }
+        auto [n, err] = src->Read(p);
+        std::lock_guard l(mu_);
+        if (done_) return {n, closed_ ? ErrBodyReadAfterClose : err ? err : io::EOF_};
         if (!err && lr_ && lr_->Remaining() == 0) {
             // The last bytes: release the connection now, so that the next
             // request can use it before the caller reads EOF.
@@ -166,12 +177,14 @@ public:
     }
 
     gopp::error Close() override {
+        std::lock_guard l(mu_);
         closed_ = true;
         if (!done_) finish(false);
         return nullptr;
     }
 
 private:
+    // Called with mu_ held, or from the destructor.
     void finish(bool reuse) {
         done_ = true;
         ptr<persist_conn> pc = std::move(pc_);
@@ -187,6 +200,7 @@ private:
         pc->conn->Close();
     }
 
+    sync::Mutex mu_;
     std::shared_ptr<Transport::impl> t_;
     ptr<persist_conn> pc_;
     ptr<io::Reader> src_;
