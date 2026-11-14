@@ -145,6 +145,33 @@ TEST(TextTemplateGopp, FuncMapLambdas) {
               R"(ERROR: template: t:1:13: executing "t" at <"y">: expected integer; found "y")");
 }
 
+namespace {
+
+struct Markdown : tmpl::NamedString {
+    using NamedString::NamedString;
+};
+
+}  // namespace
+
+// Go's named string types: strings to templates, of a type of their own.
+TEST(TextTemplateGopp, NamedStrings) {
+    struct data {
+        Markdown M{"*hi*"};
+        Markdown Empty;
+        std::vector<Markdown> List{Markdown("a"), Markdown("b")};
+    } dt;
+    tmpl::FuncMap funcs = {
+        {"kind", [](tmpl::Value v) { return string(v.Type() == tmpl::detail::opsOf<Markdown>() ? "markdown" : "other"); }},
+        {"md", [](string s) { return Markdown(s); }},
+        {"unwrap", [](Markdown m) { return m.value; }},
+    };
+    EXPECT_EQ(run("{{.M}} {{len .M}} {{printf \"%s|%q\" .M .M}} {{if .Empty}}x{{else}}empty{{end}}", Value::Ref(dt)),
+              "*hi* 4 *hi*|\"*hi*\" empty");
+    EXPECT_EQ(run("{{eq .M \"*hi*\"}} {{range .List}}{{.}}{{end}} {{index .M 0}}", Value::Ref(dt)), "true ab 42");
+    EXPECT_EQ(run("{{kind .M}} {{kind \"x\"}} {{kind (md \"y\")}} {{unwrap .M}} {{unwrap \"s\"}}", Value::Ref(dt), funcs),
+              "markdown other markdown *hi* s");
+}
+
 // Templates run on fibers, whose stacks are small: the deepest recursion
 // the executor allows must fit.
 TEST(TextTemplateGopp, DeepRecursionOnFiber) {

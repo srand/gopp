@@ -18,7 +18,8 @@
 //     size convert to one another when passed to functions (Go would
 //     insist on the exact type).
 //   - gopp::string, std::string, std::string_view and const char* are
-//     strings.
+//     strings; classes deriving from tmpl::NamedString are Go's named
+//     string types (type HTML string), strings of a type of their own.
 //   - Classes are structs: their public non-static data members are fields
 //     ({{.Name}}), and their public const non-static member functions are
 //     methods ({{.Method arg1 arg2}}) taking any of these types and
@@ -86,6 +87,24 @@ enum class Kind { Invalid, Bool, Int, Uint, Float, Complex, String, Slice, Array
 
 class Value;
 class Func;
+
+// A Go named string type (type HTML string): a class deriving from
+// NamedString is a string to templates (printed, compared, ranged over and
+// passed as one), with a type of its own, which functions can tell apart.
+//
+//     struct Markdown : tmpl::NamedString {
+//         using NamedString::NamedString;
+//     };
+struct NamedString {
+    string value;
+
+    NamedString() = default;
+    explicit NamedString(string s) : value(std::move(s)) {}
+    explicit NamedString(std::string_view s) : value(s) {}
+    explicit NamedString(const char* s) : value(s) {}
+    string String() const { return value; }
+    friend bool operator==(const NamedString& a, const NamedString& b) noexcept { return a.value == b.value; }
+};
 
 // The last parameter of a variadic method or function: Go's ...T.
 template <typename T>
@@ -466,6 +485,9 @@ inline constexpr bool is_string_like_v = std::is_same_v<T, gopp::string> || std:
                                          std::is_same_v<T, char*>;
 
 template <typename T>
+inline constexpr bool is_named_string_v = std::is_base_of_v<NamedString, T>;
+
+template <typename T>
 inline constexpr bool is_int_v = std::is_integral_v<T> && !std::is_same_v<T, bool> && std::is_signed_v<T>;
 template <typename T>
 inline constexpr bool is_uint_v = std::is_integral_v<T> && !std::is_same_v<T, bool> && std::is_unsigned_v<T>;
@@ -529,7 +551,8 @@ struct from_value {
 };
 
 template <typename T>
-inline constexpr bool is_object_v = !std::is_arithmetic_v<T> && !is_string_like_v<T> && !std::is_same_v<T, Value>;
+inline constexpr bool is_object_v =
+    !std::is_arithmetic_v<T> && !is_string_like_v<T> && !is_named_string_v<T> && !std::is_same_v<T, Value>;
 
 template <typename R>
 std::pair<Value, gopp::error> wrapResult(R&& r) {
@@ -740,7 +763,7 @@ type_ops makeOps() {
         o.kind = Kind::Float;
     } else if constexpr (std::is_same_v<U, std::complex<double>>) {
         o.kind = Kind::Complex;
-    } else if constexpr (is_string_like_v<U>) {
+    } else if constexpr (is_string_like_v<U> || is_named_string_v<U>) {
         o.kind = Kind::String;
     } else if constexpr (std::is_same_v<U, Value> || std::is_same_v<U, json::Value> || std::is_same_v<U, gopp::error>) {
         o.kind = Kind::Interface;
@@ -878,6 +901,8 @@ Value toValue(const T& v, const owner_t& owner) {
         return Value::scalarString(stringOps(), v ? string(v) : string());
     } else if constexpr (is_string_like_v<U>) {
         return Value::scalarString(stringOps(), string(v));
+    } else if constexpr (is_named_string_v<U>) {
+        return Value::scalarString(opsOf<U>(), v.value);
     } else if constexpr (std::is_array_v<U> && std::is_same_v<std::remove_cv_t<std::remove_extent_t<U>>, char>) {
         return Value::scalarString(stringOps(), string(std::string_view(v)));
     } else if constexpr (std::is_same_v<U, gopp::error>) {
@@ -911,6 +936,8 @@ P from_value<P>::get(const Value& v) {
         return v.Str().str();
     } else if constexpr (std::is_same_v<P, std::string_view>) {
         return v.Str().view();
+    } else if constexpr (is_named_string_v<P>) {
+        return P(v.Str());
     } else if constexpr (std::is_same_v<P, const char*>) {
         return v.Str().data();  // valid while the argument lives
     } else if constexpr (std::is_enum_v<P>) {
@@ -947,7 +974,8 @@ template <typename T>
     requires(!std::is_same_v<std::remove_cvref_t<T>, Value>)
 Value Value::Of(T&& v) {
     using U = std::remove_cvref_t<T>;
-    if constexpr (std::is_arithmetic_v<U> || detail::is_string_like_v<U> || std::is_enum_v<U> ||
+    if constexpr (std::is_arithmetic_v<U> || detail::is_string_like_v<U> || detail::is_named_string_v<U> ||
+                  std::is_enum_v<U> ||
                   std::is_same_v<U, std::complex<double>> ||
                   (std::is_array_v<U> && std::is_same_v<std::remove_cv_t<std::remove_extent_t<U>>, char>)) {
         return detail::toValue(v, nullptr);
@@ -967,8 +995,8 @@ Value Value::Ref(const T& v, detail::owner_t owner) {
 template <typename T>
 const T* Value::As() const noexcept {
     if (!t_ || !p_) return nullptr;
-    if constexpr (std::is_arithmetic_v<T> || detail::is_string_like_v<T>) {
-        return nullptr;
+    if constexpr (std::is_arithmetic_v<T> || detail::is_string_like_v<T> || detail::is_named_string_v<T>) {
+        return nullptr;  // held by value: Type() tells a named string apart
     } else if constexpr (std::is_same_v<T, gopp::error>) {
         return t_ == detail::errorOps() ? static_cast<const T*>(p_) : nullptr;
     } else if constexpr (std::is_same_v<T, json::Value>) {
