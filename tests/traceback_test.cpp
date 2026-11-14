@@ -3,8 +3,10 @@
 #include <gopp/chan.hpp>
 #include <gopp/runtime.hpp>
 #include <gopp/sync.hpp>
+#include <gopp/os/exec.hpp>
 #include <gopp/time.hpp>
 
+#include "go_helper.hpp"
 #include "runtime/runtime.hpp"
 
 #include <gtest/gtest.h>
@@ -15,7 +17,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <regex>
 #include <stdexcept>
+#include <string>
 #include <thread>
 
 using namespace gopp;
@@ -86,6 +90,34 @@ void start_blocked_fibers() {
     go([mu] { lock_forever(mu); });
     go([] { sleep_forever(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
+}
+
+// Panics in a fiber, for the stripped copies of this program.
+const bool panic_helper = go_helper::register_helper("traceback-panic", [](const std::vector<std::string>&) {
+    go([] { panic_in_fiber(); });
+    block();
+});
+
+// Runs the helper in a copy of this program stripped with strip's flags
+// (none: of everything), and returns what it printed.
+std::string run_stripped(const std::vector<string>& flags, std::string& exe) {
+    exe = ::testing::TempDir() + "traceback_stripped_" + std::to_string(::getpid());
+    std::vector<string> args = flags;
+    args.push_back("-o");
+    args.push_back(string(exe));
+    args.push_back(go_helper::executable());
+    auto [strip_out, err] = os::exec::Command("strip", std::span<const string>(args))->CombinedOutput();
+    if (err) {
+        ADD_FAILURE() << "strip: " << err << ": " << as_string_view(strip_out);
+        return {};
+    }
+    // The variable go_helper looks for, which helper_command sets.
+    os::Setenv("GO_EXEC_TEST_PID", std::to_string(os::Getpid()));
+    auto [out, run_err] = os::exec::Command(exe, string("traceback-panic"))->CombinedOutput();
+    auto* exit = dynamic_cast<const os::exec::ExitError*>(run_err.get());
+    EXPECT_TRUE(exit && exit->ExitCode() == 2) << run_err;
+    ::unlink(exe.c_str());
+    return std::string(as_string_view(out));
 }
 
 }  // namespace
@@ -278,4 +310,32 @@ TEST(Traceback, GotracebackCrashDiesOfSigabrt) {
             panic_in_fiber();
         },
         testing::KilledBySignal(SIGABRT), "panic: boom\n");
+}
+
+// Without symbols or debug information, frames print as their addresses:
+// the pc, and the address in the program that addr2line takes.
+TEST(Traceback, StrippedProgramPrintsAddresses) {
+    if (auto [_, err] = os::exec::LookPath("strip"); err) GTEST_SKIP() << "no strip: " << err;
+    std::string exe;
+    std::string out = run_stripped({}, exe);
+    const std::string addr = "\n\\? pc=0x[0-9a-f]+ \\(" + exe + "\\+0x[0-9a-f]+\\)\n";
+    EXPECT_TRUE(std::regex_search(out, std::regex("panic: boom\n\ngoroutine [0-9]+ \\[running\\]:\n"
+                                                  "(\\?\\(\\.\\.\\.\\)\n\t" + addr.substr(1) + ")+"
+                                                  "created by \\?\n\t" + addr.substr(1) + "$")))
+        << out;
+}
+
+// Without debug information, the names come from the symbol table, and the
+// addresses stand in for the files and lines.
+TEST(Traceback, ProgramWithoutDebugInfoPrintsNamesAndAddresses) {
+    if (auto [_, err] = os::exec::LookPath("strip"); err) GTEST_SKIP() << "no strip: " << err;
+    std::string exe;
+    std::string out = run_stripped({string("-g")}, exe);
+    const std::string src = "\n\t\\? \\+0x[0-9a-f]+ pc=0x[0-9a-f]+ \\(" + exe + "\\+0x[0-9a-f]+\\)\n";
+    EXPECT_TRUE(std::regex_search(out, std::regex("panic: boom\n\ngoroutine [0-9]+ \\[running\\]:\n"
+                                                  "gopp::panic\\(\\.\\.\\.\\)" + src +
+                                                  "\\(anonymous namespace\\)::panic_in_fiber\\(\\)" + src +
+                                                  "[^\n]*operator\\(\\)[^\n]*" + src +
+                                                  "created by [^\n]*" + src + "$")))
+        << out;
 }

@@ -24,6 +24,7 @@
 #include "runtime.hpp"
 
 #include <cxxabi.h>
+#include <link.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
@@ -290,6 +291,9 @@ struct pc_info {
     int n;
     char sym[name_max];
     uintptr_t symval;
+    // The start of the function: the symbol's, or else from the unwind
+    // tables, which strip leaves in place. 0 if neither knows.
+    uintptr_t start;
 };
 
 constinit pc_info info;
@@ -318,9 +322,63 @@ void lookup(uintptr_t pc) noexcept {
     info.n = 0;
     info.sym[0] = '\0';
     info.symval = 0;
-    if (!bt()) return;
-    __glibcxx_backtrace_pcinfo(bt(), pc, pcinfo_cb, bt_error, nullptr);
-    __glibcxx_backtrace_syminfo(bt(), pc, syminfo_cb, bt_error, nullptr);
+    info.start = 0;
+    if (bt()) {
+        __glibcxx_backtrace_pcinfo(bt(), pc, pcinfo_cb, bt_error, nullptr);
+        __glibcxx_backtrace_syminfo(bt(), pc, syminfo_cb, bt_error, nullptr);
+    }
+    info.start = info.symval ? info.symval
+                             : reinterpret_cast<uintptr_t>(_Unwind_FindEnclosingFunction(reinterpret_cast<void*>(pc)));
+}
+
+// The object file a pc is in, and the address in it that addr2line takes:
+// the pc less the load bias, which is 0 for a program that isn't PIE.
+struct module_info {
+    uintptr_t pc;
+    uintptr_t bias;
+    const char* name;
+    bool found;
+};
+
+int find_module_cb(dl_phdr_info* i, size_t, void* data) {
+    auto* m = static_cast<module_info*>(data);
+    for (int k = 0; k < i->dlpi_phnum; k++) {
+        const ElfW(Phdr)& ph = i->dlpi_phdr[k];
+        if (ph.p_type != PT_LOAD) continue;
+        uintptr_t lo = i->dlpi_addr + ph.p_vaddr;
+        if (m->pc >= lo && m->pc - lo < ph.p_memsz) {
+            m->bias = i->dlpi_addr;
+            m->name = i->dlpi_name;
+            m->found = true;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+char exe_path[1024];
+
+// Writes " (/path/prog+0x4012ab)", as the sanitizers do, for a pc that has
+// no source: what addr2line -e /path/prog 0x4012ab, run on a copy of the
+// program that isn't stripped, needs. For a return address pc is the
+// address before it, in the call, which maps to the call's line.
+void put_module(uintptr_t pc) noexcept {
+    module_info m{pc, 0, nullptr, false};
+    dl_iterate_phdr(find_module_cb, &m);
+    if (!m.found) return;
+    const char* name = m.name;
+    if (!name || !name[0]) {  // the program itself
+        if (!exe_path[0]) {
+            ssize_t k = ::readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+            exe_path[k > 0 ? k : 0] = '\0';
+        }
+        name = exe_path[0] ? exe_path : "?";
+    }
+    out.put(" (");
+    out.put(name);
+    out.put('+');
+    out.hex(pc - m.bias);
+    out.put(')');
 }
 
 // The directory of the runtime's sources, from gentry's file, to hide
@@ -367,8 +425,25 @@ constexpr std::string_view plumbing_files[] = {
     "/bits/std_function.h", "/bits/std_thread.h", "/tuple", "/gopp/runtime.hpp",
 };
 
-// The throw machinery, above the function that threw.
-bool is_throw_frame(std::string_view sym) noexcept {
+// The functions of libstdc++'s call plumbing by their mangled names, for
+// code without debug information.
+constexpr std::string_view plumbing_syms[] = {
+    "_ZSt8__invoke", "_ZSt13__invoke_impl", "_ZSt10__invoke_r", "_ZSt12__apply_impl", "_ZSt5apply",
+    "_ZNSt10__polyfunc", "_ZNSt18move_only_function", "_ZNSt6thread11_State_impl", "_ZNSt6thread8_Invoker",
+    "_ZNSt17_Function_handler", "_ZNKSt8function",
+};
+
+// The throw machinery, above the function that threw: by name, or by
+// where the function starts when the symbols are stripped.
+bool is_throw_frame(std::string_view sym, uintptr_t start) noexcept {
+    if (start) {
+        for (uintptr_t f : {reinterpret_cast<uintptr_t>(&abi::__cxa_throw), reinterpret_cast<uintptr_t>(&abi::__cxa_rethrow),
+                            reinterpret_cast<uintptr_t>(&_Unwind_RaiseException),
+                            reinterpret_cast<uintptr_t>(&_Unwind_Resume_or_Rethrow),
+                            reinterpret_cast<uintptr_t>(&gopp_fiber_personality)}) {
+            if (start == f) return true;
+        }
+    }
     return sym.starts_with("_Unwind_") || sym == "__cxa_throw" || sym == "__cxa_rethrow" ||
            sym == "__cxa_call_terminate" || sym == "__gxx_personality_v0" || sym == "gopp_fiber_personality" ||
            sym.starts_with("_ZSt17rethrow_exception") || sym == "_ZSt9terminatev" ||
@@ -379,12 +454,13 @@ bool is_throw_frame(std::string_view sym) noexcept {
 // are one call's, and sym is the symbol of the function the call is in.
 bool hidden(std::string_view func, std::string_view file, std::string_view sym, int level) noexcept {
     if (level >= 2) return false;
-    if (func.empty() && file.empty()) return true;
     if (in_namespace(func, "4gopp5panic")) return false;  // Go shows panic's frame
     if (in_namespace(func, "4gopp7runtime") || in_namespace(func, "5boost7context") || in_namespace(func, "4gopp2go"))
         return true;
     for (std::string_view s : start_frames)
         if (func == s) return true;
+    for (std::string_view s : plumbing_syms)
+        if (func.starts_with(s)) return true;
     if (!file.empty()) {
         if (runtime_dir[0] && file.starts_with(runtime_dir) && in_namespace(sym, "4gopp")) return true;
         if (file.find("/boost/context/") != std::string_view::npos) return true;
@@ -487,7 +563,9 @@ call call_at(int k) noexcept {
     return c;
 }
 
-void put_source(const call& c, uintptr_t pc) noexcept {
+// pc is the frame's, a return address or where it was interrupted;
+// call_pc the address looked up, in the call.
+void put_source(const call& c, uintptr_t pc, uintptr_t call_pc) noexcept {
     out.put('\t');
     if (c.file[0]) {
         out.put(c.file);
@@ -500,9 +578,12 @@ void put_source(const call& c, uintptr_t pc) noexcept {
         if (info.symval) {
             out.put(" +");
             out.hex(pc - info.symval);
-        } else {
+        }
+        // Without a source, at least the address.
+        if (!c.file[0] || !info.symval) {
             out.put(" pc=");
             out.hex(pc);
+            put_module(call_pc);
         }
     }
     out.put('\n');
@@ -524,13 +605,16 @@ void print_frames(const stack_pcs& s, const frame_opts& o) noexcept {
     if (o.skip_throw) {
         for (int i = 0; i < s.n && i < 48; i++) {
             lookup(lookup_pc(i));
-            if (is_throw_frame(info.sym)) start = i + 1;
+            if (is_throw_frame(info.sym, info.start)) start = i + 1;
         }
     }
     int printed = 0;
     for (int i = start; i < s.n; i++) {
         lookup(lookup_pc(i));
-        if (o.fiber && info.symval == gentry_pc()) return;
+        if (o.fiber && info.start == gentry_pc()) return;
+        // gentry's call to the fiber's function, hidden by its namespace
+        // when there are symbols.
+        if (o.fiber && o.level < 2 && info.start == reinterpret_cast<uintptr_t>(&run_fiber_fn)) continue;
         for (int k = 0; k < ncalls(); k++) {
             call c = call_at(k);
             if (hidden(c.func, c.file, info.sym, o.level)) continue;
@@ -540,7 +624,7 @@ void print_frames(const stack_pcs& s, const frame_opts& o) noexcept {
             }
             put_func(c.func[0] ? c.func : "?", true);
             out.put('\n');
-            put_source(c, s.pc[i]);
+            put_source(c, s.pc[i], lookup_pc(i));
             printed++;
         }
     }
@@ -561,7 +645,7 @@ void print_created_by(G* gp) noexcept {
             out.dec(gp->parent_goid);
         }
         out.put('\n');
-        put_source(c, gp->gopc);
+        put_source(c, gp->gopc, gp->gopc - 1);
         return;
     }
 }

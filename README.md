@@ -247,7 +247,11 @@ The interfaces are in `modules/`, one per header. In module mode
   (dies of SIGABRT, for a core dump). Threads that use the runtime, the
   main thread among them, are listed as `thread TID`. Frames print as
   `name(...)`, without Go's argument words, and the files and lines come
-  from the debug information (`-g`). With optimization, a call inlined into
+  from the debug information (`-g`). Without it the names come from the
+  symbol table, and where there is no file and line, a frame prints its pc
+  and its address in the program, as in
+  `? pc=0x40acb4 (/usr/bin/prog+0x40acb3)`, which
+  `addr2line -e prog 0x40acb3` resolves on a copy that isn't stripped. With optimization, a call inlined into
   a frame shows the plain name the debug information gives it, such as
   `operator()`, and a tail call leaves no frame.
 - A few spellings differ from Go. `io.EOF` is `io::EOF_` and `os.O_RDONLY`
