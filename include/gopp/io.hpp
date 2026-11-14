@@ -10,9 +10,12 @@
 #include <gopp/ptr.hpp>
 #include <gopp/slice.hpp>
 
+#include <memory>
 #include <span>
 #include <string_view>
+#include <tuple>
 #include <utility>
+#include <vector>
 #endif
 
 namespace gopp::io {
@@ -121,13 +124,14 @@ ptr<Reader> LimitReader(ptr<Reader> r, int64 n);
 ptr<ReadCloser> NopCloser(ptr<Reader> r);
 
 // A Reader over a string (strings.NewReader, Go's strings.Reader).
-class StringReader : public Reader, public Seeker {
+class StringReader : public Reader, public Seeker, public ReaderAt {
 public:
     explicit StringReader(string s) : s_(std::move(s)) {}
     std::pair<isize, error> Read(std::span<byte> p) override;
     // Seek: io::Seeker. The offset may go past the end, where Read
     // returns io::EOF_.
     std::pair<int64, error> Seek(int64 offset, int whence) override;
+    std::pair<isize, error> ReadAt(std::span<byte> p, int64 off) override;
     // The number of unread bytes (Len).
     std::size_t len() const noexcept { return i_ < s_.size() ? s_.size() - i_ : 0; }
     // The length of the whole string (Size).
@@ -137,5 +141,102 @@ private:
     string s_;
     std::size_t i_ = 0;
 };
+
+// io.SectionReader: reads n bytes of r from offset off. A ReaderAt, so
+// that it can be read from concurrently.
+class SectionReader : public Reader, public Seeker, public ReaderAt {
+public:
+    SectionReader(ptr<ReaderAt> r, int64 off, int64 n);
+
+    std::pair<isize, error> Read(std::span<byte> p) override;
+    std::pair<int64, error> Seek(int64 offset, int whence) override;
+    std::pair<isize, error> ReadAt(std::span<byte> p, int64 off) override;
+    // The size of the section in bytes.
+    int64 Size() const noexcept { return limit_ - base_; }
+    // The underlying ReaderAt and the section's offset and size.
+    std::tuple<ptr<ReaderAt>, int64, int64> Outer() const { return {r_, base_, n_}; }
+
+private:
+    ptr<ReaderAt> r_;
+    int64 base_;
+    int64 off_;
+    int64 limit_;
+    int64 n_;
+};
+
+// io.NewSectionReader
+ptr<SectionReader> NewSectionReader(ptr<ReaderAt> r, int64 off, int64 n);
+
+// io.OffsetWriter: writes to w at offset base and on.
+class OffsetWriter : public Writer, public WriterAt, public Seeker {
+public:
+    OffsetWriter(ptr<WriterAt> w, int64 off) : w_(std::move(w)), base_(off), off_(off) {}
+    std::pair<isize, error> Write(std::span<const byte> p) override;
+    std::pair<isize, error> WriteAt(std::span<const byte> p, int64 off) override;
+    std::pair<int64, error> Seek(int64 offset, int whence) override;
+
+private:
+    ptr<WriterAt> w_;
+    int64 base_;
+    int64 off_;
+};
+
+// io.NewOffsetWriter
+ptr<OffsetWriter> NewOffsetWriter(ptr<WriterAt> w, int64 off);
+
+// io.MultiReader: the concatenation of readers, read in turn.
+ptr<Reader> MultiReader(std::vector<ptr<Reader>> readers);
+// io.MultiWriter: a Writer that writes to all of writers, as tee(1) does;
+// a write stops at the first error.
+ptr<Writer> MultiWriter(std::vector<ptr<Writer>> writers);
+// io.TeeReader: a Reader that writes to w what it reads from r.
+ptr<Reader> TeeReader(ptr<Reader> r, ptr<Writer> w);
+
+// io.CopyBuffer: io::Copy through buf, if it needs a buffer.
+std::pair<int64, error> CopyBuffer(Writer& dst, Reader& src, std::span<byte> buf);
+
+namespace detail {
+struct pipe;
+}
+
+// io.PipeReader: the read half of a pipe.
+class PipeReader final : public ReadCloser {
+public:
+    explicit PipeReader(std::shared_ptr<detail::pipe> p) noexcept : p_(std::move(p)) {}
+    ~PipeReader() override;
+    // Reads what a Write writes, waiting for one; io::EOF_ or the
+    // writer's CloseWithError error once the write half is closed.
+    std::pair<isize, error> Read(std::span<byte> p) override;
+    // Closes the reader: later writes fail with ErrClosedPipe.
+    error Close() override;
+    // Closes the reader: later writes fail with err (ErrClosedPipe if
+    // nil). The first error passed wins.
+    error CloseWithError(error err);
+
+private:
+    std::shared_ptr<detail::pipe> p_;
+};
+
+// io.PipeWriter: the write half of a pipe.
+class PipeWriter final : public WriteCloser {
+public:
+    explicit PipeWriter(std::shared_ptr<detail::pipe> p) noexcept : p_(std::move(p)) {}
+    ~PipeWriter() override;
+    // Writes p, waiting until readers have read all of it or the read
+    // half is closed.
+    std::pair<isize, error> Write(std::span<const byte> p) override;
+    // Closes the writer: reads then return io::EOF_.
+    error Close() override;
+    // Closes the writer: reads then return err (io::EOF_ if nil).
+    error CloseWithError(error err);
+
+private:
+    std::shared_ptr<detail::pipe> p_;
+};
+
+// io.Pipe: a synchronous in-memory pipe. Each Write waits for Reads that
+// consume all its data; there's no buffering. Reads and writes park their
+// fibers, and may come from several fibers at once.
+std::pair<ptr<PipeReader>, ptr<PipeWriter>> Pipe();
 
 }  // namespace gopp::io

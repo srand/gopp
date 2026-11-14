@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 namespace gopp::io {
 
@@ -32,17 +33,17 @@ std::pair<isize, error> ReadFull(Reader& r, std::span<byte> buf) {
     return ReadAtLeast(r, buf, static_cast<isize>(buf.size()));
 }
 
-std::pair<int64, error> Copy(Writer& dst, Reader& src) {
+std::pair<int64, error> CopyBuffer(Writer& dst, Reader& src, std::span<byte> buf) {
     // If the reader has a WriteTo method, use it to do the copy; it avoids
     // an allocation and a copy. Likewise ReadFrom on the writer.
     if (auto* wt = dynamic_cast<WriterTo*>(&src)) return wt->WriteTo(dst);
     if (auto* rf = dynamic_cast<ReaderFrom*>(&dst)) return rf->ReadFrom(src);
-    byte buf[32 * 1024];
+    if (buf.empty()) panic("empty buffer in CopyBuffer");
     int64 written = 0;
     for (;;) {
         auto [nr, er] = src.Read(buf);
         if (nr > 0) {
-            auto [nw, ew] = dst.Write(std::span<const byte>(buf, static_cast<std::size_t>(nr)));
+            auto [nw, ew] = dst.Write(std::span<const byte>(buf.data(), static_cast<std::size_t>(nr)));
             if (nw < 0 || nr < nw) {
                 nw = 0;
                 if (!ew) ew = errors::New("invalid write result");
@@ -56,6 +57,11 @@ std::pair<int64, error> Copy(Writer& dst, Reader& src) {
             return {written, er};
         }
     }
+}
+
+std::pair<int64, error> Copy(Writer& dst, Reader& src) {
+    byte buf[32 * 1024];
+    return CopyBuffer(dst, src, buf);
 }
 
 namespace {
@@ -150,6 +156,95 @@ std::pair<int64, error> StringReader::Seek(int64 offset, int whence) {
     if (abs < 0) return {0, errors::New("strings.Reader.Seek: negative position")};
     i_ = static_cast<std::size_t>(abs);
     return {abs, nullptr};
+}
+
+std::pair<isize, error> StringReader::ReadAt(std::span<byte> p, int64 off) {
+    if (off < 0) return {0, errors::New("strings.Reader.ReadAt: negative offset")};
+    if (off >= int64(s_.size())) return {0, EOF_};
+    auto n = gopp::Copy(p, as_bytes(s_.view().substr(std::size_t(off))));
+    if (n < p.size()) return {isize(n), EOF_};
+    return {isize(n), nullptr};
+}
+
+// ---------------------------------------------------------------------------
+// SectionReader, OffsetWriter
+
+namespace {
+const error errWhence = errors::New("Seek: invalid whence");
+const error errOffset = errors::New("Seek: invalid offset");
+}  // namespace
+
+SectionReader::SectionReader(ptr<ReaderAt> r, int64 off, int64 n) : r_(std::move(r)), base_(off), off_(off), n_(n) {
+    constexpr int64 max = std::numeric_limits<int64>::max();
+    int64 remaining = 0;
+    if (off <= max - n) {
+        remaining = n + off;
+    } else {
+        // Overflow, with no way to return an error: assume we can read up
+        // to an offset of max.
+        remaining = max;
+    }
+    limit_ = remaining;
+}
+
+ptr<SectionReader> NewSectionReader(ptr<ReaderAt> r, int64 off, int64 n) {
+    return make_ptr<SectionReader>(std::move(r), off, n);
+}
+
+std::pair<isize, error> SectionReader::Read(std::span<byte> p) {
+    if (off_ >= limit_) return {0, EOF_};
+    if (int64 max = limit_ - off_; int64(p.size()) > max) p = p.first(std::size_t(max));
+    auto [n, err] = r_->ReadAt(p, off_);
+    off_ += n;
+    return {n, err};
+}
+
+std::pair<int64, error> SectionReader::Seek(int64 offset, int whence) {
+    switch (whence) {
+    case SeekStart: offset += base_; break;
+    case SeekCurrent: offset += off_; break;
+    case SeekEnd: offset += limit_; break;
+    default: return {0, errWhence};
+    }
+    if (offset < base_) return {0, errOffset};
+    off_ = offset;
+    return {offset - base_, nullptr};
+}
+
+std::pair<isize, error> SectionReader::ReadAt(std::span<byte> p, int64 off) {
+    if (off < 0 || off >= Size()) return {0, EOF_};
+    off += base_;
+    if (int64 max = limit_ - off; int64(p.size()) > max) {
+        p = p.first(std::size_t(max));
+        auto [n, err] = r_->ReadAt(p, off);
+        if (!err) err = EOF_;
+        return {n, err};
+    }
+    return r_->ReadAt(p, off);
+}
+
+ptr<OffsetWriter> NewOffsetWriter(ptr<WriterAt> w, int64 off) { return make_ptr<OffsetWriter>(std::move(w), off); }
+
+std::pair<isize, error> OffsetWriter::Write(std::span<const byte> p) {
+    auto [n, err] = w_->WriteAt(p, off_);
+    off_ += n;
+    return {n, err};
+}
+
+std::pair<isize, error> OffsetWriter::WriteAt(std::span<const byte> p, int64 off) {
+    if (off < 0) return {0, errOffset};
+    return w_->WriteAt(p, off + base_);
+}
+
+std::pair<int64, error> OffsetWriter::Seek(int64 offset, int whence) {
+    switch (whence) {
+    case SeekStart: offset += base_; break;
+    case SeekCurrent: offset += off_; break;
+    default: return {0, errWhence};
+    }
+    if (offset < base_) return {0, errOffset};
+    off_ = offset;
+    return {offset - base_, nullptr};
 }
 
 }  // namespace gopp::io

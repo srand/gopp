@@ -115,9 +115,9 @@ all park instead of blocking the thread.
 | `strings`, `bytes` | Go's functions over `gopp::string` and `slice<byte>`, Unicode-aware as Go's are: `Fields`, `Split`/`SplitN`/`SplitAfter`, `Cut`/`CutLast`/`CutPrefix`/`CutSuffix`, the `Trim` family, `EqualFold`, `ToUpper`/`ToLower`/`ToTitle` and their `Special` forms, `Replace`, `Map`, `Repeat`, `Index`/`IndexAny`/`IndexRune`/`IndexFunc` and the `Last` forms, `Count`, `ToValidUTF8`, and the iterators (`Lines`, `SplitSeq`, `FieldsSeq`, ...) as `std::generator`s. The parts they return share their input's buffer, as Go's substrings and subslices do. `bytes::Buffer` and `bytes::Reader`, and `strings::Builder` |
 | `unicode`, `unicode/utf8` | Go's Unicode 17.0.0 tables, generated from Go's and constant-initialized: the categories, scripts and properties as `RangeTable`s (`unicode::Is(unicode::Han, r)`, `unicode::Scripts["Greek"]`), `IsLetter`/`IsUpper`/`IsSpace`/`IsPunct`/..., `ToUpper`/`ToLower`/`ToTitle`, `SimpleFold` and `TurkishCase`. `utf8`'s decoding, encoding, counting and validation, `constexpr` |
 | `path/filepath` | Linux paths: `Abs`, `Rel`, `EvalSymlinks`, `Glob`, `Walk`/`WalkDir`, `IsLocal`, `Localize`, `SplitList`, and `path`'s lexical functions (`Join`, `Clean`, `Split`, `Base`, `Dir`, `Ext`, `Match`) |
-| `io`, `bufio`, `fmt`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
+| `io`, `bufio`, `fmt`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `io`'s `Pipe` (parking fibers), `MultiReader`, `MultiWriter`, `TeeReader`, `SectionReader` and `OffsetWriter`, and `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
 
-**Tested against Go's own tests.** 1685 unit tests, 1455 of them ported
+**Tested against Go's own tests.** 1717 unit tests, 1486 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -134,7 +134,7 @@ calendar, monotonic clock and zoneinfo tests (against the system's
 tzdata), `net`'s
 address, dialing and listening, TCP, UDP, Unix socket, raw IP, interface,
 DNS client and resolver configuration tests (against Go's fake DNS server
-and testdata), `net/netip`'s and `dnsmessage`'s tests, `sort`'s, `slices`', `maps`' and `cmp`'s tests, `log`'s and `log/slog`'s tests, `strings`', `bytes`', `unicode`'s, `unicode/utf8`'s and `path/filepath`'s tests, and the test vectors and tests of `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `rand` and `subtle`, `encoding/hex` and `encoding/base64`. They keep Go's
+and testdata), `net/netip`'s and `dnsmessage`'s tests, `sort`'s, `slices`', `maps`' and `cmp`'s tests, `log`'s and `log/slog`'s tests, `io`'s pipe, multi-reader and section reader tests, `strings`', `bytes`', `unicode`'s, `unicode/utf8`'s and `path/filepath`'s tests, and the test vectors and tests of `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `rand` and `subtle`, `encoding/hex` and `encoding/base64`. They keep Go's
 test names and tables. The SQLite driver runs 59 tests ported from
 `mattn/go-sqlite3`'s.
 
