@@ -9,6 +9,8 @@ export import gopp.cmp;
 export import gopp.compress.flate;
 export import gopp.compress.gzip;
 export import gopp.compress.zlib;
+export import gopp.container.heap;
+export import gopp.container.list;
 export import gopp.context;
 export import gopp.crypto.hmac;
 export import gopp.crypto.md5;
