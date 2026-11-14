@@ -155,6 +155,7 @@ public:
     friend bool operator==(const string& a, const std::string& b) noexcept { return a.view() == std::string_view(b); }
     friend std::strong_ordering operator<=>(const string& a, const string& b) noexcept { return a.view() <=> b.view(); }
     friend std::strong_ordering operator<=>(const string& a, std::string_view b) noexcept { return a.view() <=> b; }
+    friend std::strong_ordering operator<=>(const string& a, const char* b) noexcept { return a.view() <=> std::string_view(b); }
     friend std::strong_ordering operator<=>(const string& a, const std::string& b) noexcept {
         return a.view() <=> std::string_view(b);
     }
