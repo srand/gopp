@@ -7,9 +7,11 @@
 #include "ascii.hpp"
 #include "internal.hpp"
 
+#include <gopp/compress/gzip.hpp>
 #include <gopp/strings.hpp>
 #include <gopp/sync.hpp>
 
+#include <atomic>
 #include <cerrno>
 #include <charconv>
 #include <mutex>
@@ -332,7 +334,70 @@ Transport::~Transport() { impl_->closeIdle(); }
 
 void Transport::CloseIdleConnections() { impl_->closeIdle(); }
 
+namespace {
+
+const gopp::error errReadOnClosedResBody = errors::New("http: read on closed response body");
+
+// Go's gzipReader: decompresses a response body lazily, on the first Read.
+// Close may come from another fiber while a Read waits for the body: it
+// closes the body, which ends the Read.
+class gzipReader final : public io::ReadCloser {
+public:
+    explicit gzipReader(ptr<io::ReadCloser> body) : body_(std::move(body)) {}
+
+    std::pair<isize, gopp::error> Read(std::span<byte> p) override {
+        if (closed_.load(std::memory_order_acquire)) return {0, errReadOnClosedResBody};
+        if (!zr_ && !zerr_) {
+            auto [zr, err] = gzip::NewReader(body_);
+            zr_ = std::move(zr);
+            zerr_ = err;
+        }
+        if (zerr_) return {0, zerr_};
+        auto [n, err] = zr_->Read(p);
+        if (err && closed_.load(std::memory_order_acquire)) return {n, errReadOnClosedResBody};
+        return {n, err};
+    }
+
+    gopp::error Close() override {
+        closed_.store(true, std::memory_order_release);
+        return body_->Close();
+    }
+
+private:
+    ptr<io::ReadCloser> body_;
+    ptr<gzip::Reader> zr_;
+    gopp::error zerr_;
+    std::atomic<bool> closed_{false};
+};
+
+}  // namespace
+
 std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
+    // Ask for gzip if the caller didn't ask for an encoding, and decompress
+    // it transparently. Range requests aren't, as the ranges would be of
+    // the compressed body (see Go's issue 8923).
+    bool requestedGzip = !DisableCompression && !req.Header.Has("Accept-Encoding") && !req.Header.Has("Range") &&
+                         req.Method != "HEAD";
+    if (!requestedGzip) return roundTrip(req);
+    // The header is for this round trip only: the caller's request stays as
+    // it was, as Go's Transport adds it on the wire.
+    req.Header.Set("Accept-Encoding", "gzip");
+    auto [resp, err] = roundTrip(req);
+    req.Header.Del("Accept-Encoding");
+    if (err) return {resp, err};
+    int code = resp->StatusCode;
+    bool hasBody = code != 204 && code != 304 && !(code >= 100 && code < 200);
+    if (hasBody && ascii::EqualFold(resp->Header.Get("Content-Encoding"), "gzip")) {
+        resp->Body = make_ptr<gzipReader>(resp->Body);
+        resp->Header.Del("Content-Encoding");
+        resp->Header.Del("Content-Length");
+        resp->ContentLength = -1;
+        resp->Uncompressed = true;
+    }
+    return {resp, nullptr};
+}
+
+std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
     bool https = req.URL.Scheme == "https";
     if (req.URL.Scheme != "http" && !https) {
         if (req.URL.Scheme.empty()) return {nullptr, errors::New("unsupported protocol scheme \"\"")};

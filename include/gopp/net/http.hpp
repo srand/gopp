@@ -581,6 +581,10 @@ public:
     std::optional<tls::ConnectionState> TLS;
     // The request that was sent for this response.
     ptr<http::Request> Request;
+    // Whether the Transport asked for gzip and decompresses the body: the
+    // Content-Encoding and Content-Length headers are then removed, and
+    // ContentLength is -1.
+    bool Uncompressed = false;
 };
 
 // http.NewRequest
@@ -616,6 +620,10 @@ public:
     time::Duration TLSHandshakeTimeout = 10 * time::Second;
     // The protocols to use; HTTP/1 and HTTP/2 over TLS if unset.
     std::optional<http::Protocols> Protocols{};
+    // Unless set, a request without an Accept-Encoding header (and without
+    // Range) asks for gzip, and a gzip response body is decompressed
+    // transparently (Response::Uncompressed), as Go's Transport does.
+    bool DisableCompression = false;
 
     Transport();
     ~Transport() override;
@@ -627,6 +635,8 @@ public:
     struct impl;  // the connection pool, shared with connections in use
 
 private:
+    std::pair<ptr<Response>, gopp::error> roundTrip(Request& req);
+
     std::shared_ptr<impl> impl_;
 };
 
