@@ -57,6 +57,7 @@ export import gopp.sort;
 export import gopp.string;
 export import gopp.strings;
 export import gopp.sync;
+export import gopp.sync.atomic;
 export import gopp.syscall;
 export import gopp.testing.fstest;
 export import gopp.testing.iotest;
