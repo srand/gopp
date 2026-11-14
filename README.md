@@ -94,6 +94,9 @@ all park instead of blocking the thread.
 | `net/http` | Server with Go 1.22 `ServeMux` patterns (`GET /items/{id}`, `{path...}`, `{$}`, conflict detection), keep-alive, pipelining, chunked encoding, content sniffing, timeouts, graceful `Shutdown`, HTTPS. HTTP/2 on both sides, negotiated over TLS or spoken as h2c (`http::Protocols`), with flow control, multiplexing and GOAWAY; tested against Go's client and server and curl. Client with `http::Get`/`Head`/`Post`, `Client` with redirects and timeouts, pooling `Transport`, HTTPS. File servers: `FileServer`/`FileServerFS` over `Dir`, `FS` or an `os::Root`, with index pages, directory listings and canonical-path redirects; `ServeFile`/`ServeFileFS`; `ServeContent` with ranges (`multipart/byteranges` for several) and the conditional requests (ETags, `If-Modified-Since`, `If-Range`, ...); the `ResponseWriter` is an `io::ReaderFrom`, as Go's is, so files go out with `sendfile(2)`, from an `FS` too, where Go copies them; `ParseTime` |
 | `net/http/httptest` | `NewRecorder`, `NewRequest`, `NewServer`, `NewTLSServer`, `NewUnstartedServer` |
 | `crypto/tls` | TLS 1.2/1.3 over any `net::Conn` (OpenSSL underneath), ALPN, SNI, certificate verification, `tls::Listen`/`Dial` |
+| `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `hash` | Go's digests on OpenSSL's EVP: `sha256::Sum256(data)` as a `std::array<byte, 32>`, and `New()` for a running `hash::Hash` whose `Sum` doesn't stop it; SHA-224/256, SHA-384/512 and SHA-512/224 and /256, SHA-1 and MD5. `hmac::New(sha256::New, key)` over any `hash::Hash`, and `hmac::Equal` |
+| `crypto/rand`, `crypto/subtle` | Random bytes from `getrandom(2)`: `rand::Read` (which never fails, as in Go 1.24) and `rand::Reader`, and `rand::Text` for 128-bit tokens. Constant-time comparisons: `ConstantTimeCompare`, `ConstantTimeSelect`, `ConstantTimeEq`, `ConstantTimeCopy`, `ConstantTimeLessOrEq` and `XORBytes` |
+| `encoding/hex`, `encoding/base64` | Go's hex: `EncodeToString`/`DecodeString`, `Encode`/`Decode`, the append forms, `Dump` and `Dumper` (like `hexdump -C`), streaming `NewEncoder`/`NewDecoder`. Go's base64: `StdEncoding`, `URLEncoding`, `RawStdEncoding` and `RawURLEncoding` as `constexpr` values, `NewEncoding`, `WithPadding`, `Strict`, and streaming encoders and decoders |
 | `encoding/json` | `Marshal`/`Unmarshal` of plain structs through C++26 reflection, with no macros and no registration. Struct tags as annotations (`omitempty`, `string`, `-`), `Encoder`/`Decoder` streams, `json::Value` for Go's `any`, Go's error messages and number formatting |
 | `database/sql` | Go's connection pool (`SetMaxOpenConns`, idle limits, lifetimes, waiting with context cancellation, bad-connection retries), `Query`/`QueryRow`/`Exec`, prepared `Stmt`s that follow connections, `Tx` rolled back when its context ends, `Conn`, `Rows`/`Scan` with Go's conversions, `Null*` types and `sql::Named`, and the `driver` interfaces |
 | `sqlite3` | A SQLite driver for `database/sql` after `mattn/go-sqlite3` (`<gopp/sqlite3.hpp>`, its own library `gopp/sqlite3`): `sql::Open("sqlite3", "app.db?_foreign_keys=1&_journal_mode=WAL")` with mattn's DSN options (`_busy_timeout`, `_txlock`, `_loc`, `_synchronous`, ... and `file:` URIs), multi-statement `Exec`, `?`, `$1`, `:name`/`@name`/`$name` parameters, mattn's type conversions (`DATETIME` columns as `time::Time`, `BOOLEAN` as `bool`), `sqlite3::Error` with result codes (`ErrConstraintUnique`, ...), and contexts that interrupt queries. SQLite calls run as blocking calls, so a slow query doesn't hold up other fibers |
@@ -111,7 +114,7 @@ all park instead of blocking the thread.
 | `testing/fstest`, `testing/iotest` | `MapFS`, the in-memory file system, and `TestFS`, which checks an `fs::FS` implementation; `iotest::TestReader` |
 | `io`, `bufio`, `fmt`, `strings`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
 
-**Tested against Go's own tests.** 1447 unit tests, 1222 of them ported
+**Tested against Go's own tests.** 1509 unit tests, 1281 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its HTTP/2 server tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -128,7 +131,7 @@ calendar, monotonic clock and zoneinfo tests (against the system's
 tzdata), `net`'s
 address, dialing and listening, TCP, UDP, Unix socket, raw IP, interface,
 DNS client and resolver configuration tests (against Go's fake DNS server
-and testdata), `net/netip`'s and `dnsmessage`'s tests, `sort`'s, `slices`', `maps`' and `cmp`'s tests, and `log`'s and `log/slog`'s tests. They keep Go's
+and testdata), `net/netip`'s and `dnsmessage`'s tests, `sort`'s, `slices`', `maps`' and `cmp`'s tests, `log`'s and `log/slog`'s tests, and the test vectors and tests of `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `rand` and `subtle`, `encoding/hex` and `encoding/base64`. They keep Go's
 test names and tables. The SQLite driver runs 59 tests ported from
 `mattn/go-sqlite3`'s.
 
