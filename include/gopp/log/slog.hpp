@@ -173,17 +173,17 @@ class Value;
 
 namespace detail {
 
-struct handle_state;
+struct handleState;
 
 // What KindAny and KindLogValuer values hold: a T, and how to print it.
-struct any_value : public virtual object {
+struct anyValue : public virtual object {
     virtual const std::type_info& type() const noexcept = 0;
     virtual std::string_view typeName() const noexcept = 0;
     virtual const void* get() const noexcept = 0;
-    virtual std::any to_any() const = 0;
-    virtual bool equal(const any_value& o) const noexcept = 0;
-    virtual bool log_valuer() const noexcept = 0;
-    virtual Value log_value() const = 0;
+    virtual std::any toAny() const = 0;
+    virtual bool equal(const anyValue& o) const noexcept = 0;
+    virtual bool logValuer() const noexcept = 0;
+    virtual Value logValue() const = 0;
     // Go's fmt %v, or %+v with plus.
     virtual void print(std::string& out, bool plus) const = 0;
     // The text handler's form: the string to quote as needed, or with raw
@@ -191,7 +191,7 @@ struct any_value : public virtual object {
     virtual error text(std::string& out, bool& raw) const = 0;
     // The JSON handler's: an error (and not a json.Marshaler) is written as
     // the string its Error() returns.
-    virtual bool error_string(std::string& out) const = 0;
+    virtual bool errorString(std::string& out) const = 0;
     virtual error json(std::string& out) const = 0;
 };
 
@@ -202,11 +202,11 @@ struct any_value : public virtual object {
 // `slog::Value LogValue() const`.
 class LogValuer {
 public:
-    explicit LogValuer(ptr<const detail::any_value> p) noexcept : p_(std::move(p)) {}
+    explicit LogValuer(ptr<const detail::anyValue> p) noexcept : p_(std::move(p)) {}
     Value LogValue() const;
 
 private:
-    ptr<const detail::any_value> p_;
+    ptr<const detail::anyValue> p_;
 };
 
 // slog.Value: a value of any type, with its Kind. The zero Value is Go's
@@ -257,14 +257,14 @@ private:
     friend Value GroupValue(std::span<const Attr> as);
     friend struct Attr;
     friend class Record;
-    friend struct detail::handle_state;
+    friend struct detail::handleState;
     template <typename T>
     friend Value AnyValue(T&& v);
 
     using group = std::shared_ptr<const std::vector<Attr>>;
 
     Value(slog::Kind k, uint64 num) noexcept : kind_(k), num_(num) {}
-    static Value ofAny(ptr<const detail::any_value> p);
+    static Value ofAny(ptr<const detail::anyValue> p);
 
     bool isNil() const noexcept { return kind_ == KindAny && std::holds_alternative<std::monostate>(data_); }
     bool isEmptyGroup() const noexcept;
@@ -272,7 +272,7 @@ private:
 
     slog::Kind kind_ = KindAny;
     uint64 num_ = 0;
-    std::variant<std::monostate, string, time::Time, group, ptr<const detail::any_value>> data_;
+    std::variant<std::monostate, string, time::Time, group, ptr<const detail::anyValue>> data_;
 };
 
 // slog.Attr: a key and a value.
@@ -320,90 +320,90 @@ namespace detail {
 std::string quote(std::string_view s);
 
 template <typename T>
-inline constexpr bool is_string_like_v =
+inline constexpr bool isStringLikeV =
     std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view> ||
     std::is_same_v<T, const char*> || std::is_same_v<T, char*> ||
     (std::is_array_v<T> && std::is_same_v<std::remove_cv_t<std::remove_extent_t<T>>, char>);
 
 template <typename T>
-inline constexpr bool is_attr_v = std::is_same_v<std::remove_cvref_t<T>, Attr>;
+inline constexpr bool isAttrV = std::is_same_v<std::remove_cvref_t<T>, Attr>;
 
 template <typename T>
-inline constexpr bool is_duration_v = false;
+inline constexpr bool isDurationV = false;
 template <typename R, typename P>
-inline constexpr bool is_duration_v<std::chrono::duration<R, P>> = true;
+inline constexpr bool isDurationV<std::chrono::duration<R, P>> = true;
 
 template <typename T>
-concept has_log_value = requires(const T& t) {
+concept hasLogValue = requires(const T& t) {
     { t.LogValue() } -> std::same_as<Value>;
 };
 
 template <typename T>
-concept text_appender = requires(const T& t, slice<byte> b) {
+concept textAppender = requires(const T& t, slice<byte> b) {
     { t.AppendText(b) } -> std::same_as<std::pair<slice<byte>, gopp::error>>;
 };
 
 template <typename T>
-concept text_marshaler = requires(const T& t) {
+concept textMarshaler = requires(const T& t) {
     { t.MarshalText() } -> std::same_as<std::pair<slice<byte>, gopp::error>>;
 };
 
 template <typename T>
-concept pointer_like = std::is_pointer_v<T> || json::detail::is_ptr<T>::value;
+concept pointerLike = std::is_pointer_v<T> || json::detail::isPtr<T>::value;
 
 template <typename T>
-concept byte_range = std::ranges::contiguous_range<const T> &&
+concept byteRange = std::ranges::contiguous_range<const T> &&
                      std::is_same_v<std::remove_cv_t<std::ranges::range_value_t<const T>>, byte>;
 
 // The type a pointer-like T points to.
 template <typename T>
-using pointee_t = std::remove_cvref_t<decltype(*std::declval<const T&>())>;
+using pointee = std::remove_cvref_t<decltype(*std::declval<const T&>())>;
 
 // Methods with pointer receivers, in Go: a pointer to a LogValuer or
 // TextMarshaler is one too.
 template <typename T>
-concept ptr_to_log_value = pointer_like<T> && has_log_value<pointee_t<T>>;
+concept ptrToLogValue = pointerLike<T> && hasLogValue<pointee<T>>;
 template <typename T>
-concept ptr_to_text_appender = pointer_like<T> && text_appender<pointee_t<T>>;
+concept ptrToTextAppender = pointerLike<T> && textAppender<pointee<T>>;
 template <typename T>
-concept ptr_to_text_marshaler = pointer_like<T> && text_marshaler<pointee_t<T>>;
+concept ptrToTextMarshaler = pointerLike<T> && textMarshaler<pointee<T>>;
 
 template <typename T>
-inline constexpr bool is_error_v = [] {
+inline constexpr bool isErrorV = [] {
     if constexpr (std::is_same_v<T, gopp::error>) return true;
-    else if constexpr (pointer_like<T>) return std::derived_from<std::remove_cvref_t<decltype(*std::declval<T>())>, errorInterface>;
+    else if constexpr (pointerLike<T>) return std::derived_from<std::remove_cvref_t<decltype(*std::declval<T>())>, errorInterface>;
     else return false;
 }();
 
 template <typename T>
-struct any_holder final : any_value {
+struct anyHolder final : anyValue {
     T v;
 
     template <typename U>
-    explicit any_holder(U&& u) : v(std::forward<U>(u)) {}
+    explicit anyHolder(U&& u) : v(std::forward<U>(u)) {}
 
     const std::type_info& type() const noexcept override { return typeid(T); }
     std::string_view typeName() const noexcept override { return gopp::json::detail::typeName<T>(); }
     const void* get() const noexcept override { return &v; }
 
-    std::any to_any() const override {
+    std::any toAny() const override {
         if constexpr (std::is_copy_constructible_v<T>) return std::any(v);
         else return {};
     }
 
-    bool equal(const any_value& o) const noexcept override {
+    bool equal(const anyValue& o) const noexcept override {
         if (&o == this) return true;
         if constexpr (std::equality_comparable<T>) {
-            if (auto* h = dynamic_cast<const any_holder*>(&o)) return static_cast<bool>(v == h->v);
+            if (auto* h = dynamic_cast<const anyHolder*>(&o)) return static_cast<bool>(v == h->v);
         }
         return false;
     }
 
-    bool log_valuer() const noexcept override { return has_log_value<T> || ptr_to_log_value<T>; }
+    bool logValuer() const noexcept override { return hasLogValue<T> || ptrToLogValue<T>; }
 
-    Value log_value() const override {
-        if constexpr (has_log_value<T>) return v.LogValue();
-        else if constexpr (ptr_to_log_value<T>) return v ? v->LogValue() : Value();
+    Value logValue() const override {
+        if constexpr (hasLogValue<T>) return v.LogValue();
+        else if constexpr (ptrToLogValue<T>) return v ? v->LogValue() : Value();
         else return Value();
     }
 
@@ -417,27 +417,27 @@ struct any_holder final : any_value {
     }
 
     error text(std::string& out, bool& raw) const override {
-        if constexpr (text_appender<T>) {
+        if constexpr (textAppender<T>) {
             auto [b, err] = v.AppendText(slice<byte>());
             if (err) return err;
             out = asStringView(b);
-        } else if constexpr (text_marshaler<T>) {
+        } else if constexpr (textMarshaler<T>) {
             auto [b, err] = v.MarshalText();
             if (err) return err;
             out = asStringView(b);
-        } else if constexpr (ptr_to_text_appender<T> || ptr_to_text_marshaler<T>) {
+        } else if constexpr (ptrToTextAppender<T> || ptrToTextMarshaler<T>) {
             // Go's handler recovers from the nil dereference and writes <nil>.
             if (!v) {
                 out = "<nil>";
                 return nullptr;
             }
             auto [b, err] = [&] {
-                if constexpr (ptr_to_text_appender<T>) return v->AppendText(slice<byte>());
+                if constexpr (ptrToTextAppender<T>) return v->AppendText(slice<byte>());
                 else return v->MarshalText();
             }();
             if (err) return err;
             out = asStringView(b);
-        } else if constexpr (byte_range<T>) {
+        } else if constexpr (byteRange<T>) {
             raw = true;
             out = quote(std::string_view(reinterpret_cast<const char*>(std::ranges::data(v)), std::ranges::size(v)));
         } else {
@@ -446,8 +446,8 @@ struct any_holder final : any_value {
         return nullptr;
     }
 
-    bool error_string(std::string& out) const override {
-        if constexpr (is_error_v<T> && !gopp::json::detail::marshaler<T>) {
+    bool errorString(std::string& out) const override {
+        if constexpr (isErrorV<T> && !gopp::json::detail::marshaler<T>) {
             if constexpr (std::is_same_v<T, gopp::error>) out = v.Error().view();
             else if (!v) out = "<nil>";
             else out = v->Error().view();
@@ -459,7 +459,7 @@ struct any_holder final : any_value {
 
     error json(std::string& out) const override {
         gopp::json::detail::encoder e;
-        e.escape_html = false;
+        e.escapeHtml = false;
         if constexpr (std::is_pointer_v<T>) {
             if (!v) e.out = "null";
             else gopp::json::detail::encode(e, *v);
@@ -494,7 +494,7 @@ Value AnyValue(T&& v) {
         return Value();
     } else if constexpr (std::is_same_v<U, const char*> || std::is_same_v<U, char*>) {
         return StringValue(v ? string(v) : string());
-    } else if constexpr (detail::is_string_like_v<U>) {
+    } else if constexpr (detail::isStringLikeV<U>) {
         return StringValue(string(std::string_view(v)));
     } else if constexpr (std::is_same_v<U, bool>) {
         return BoolValue(v);
@@ -506,7 +506,7 @@ Value AnyValue(T&& v) {
         return Float64Value(static_cast<double>(v));
     } else if constexpr (std::is_same_v<U, time::Duration>) {
         return DurationValue(v);
-    } else if constexpr (detail::is_duration_v<U>) {
+    } else if constexpr (detail::isDurationV<U>) {
         return DurationValue(time::Duration(v));
     } else if constexpr (std::is_same_v<U, time::Time>) {
         return TimeValue(v);
@@ -516,15 +516,15 @@ Value AnyValue(T&& v) {
     } else if constexpr (std::is_same_v<U, gopp::error>) {
         // A nil error is Go's nil interface: the nil Value.
         if (!v) return Value();
-        return Value::ofAny(make_ptr<detail::any_holder<U>>(std::forward<T>(v)));
+        return Value::ofAny(make_ptr<detail::anyHolder<U>>(std::forward<T>(v)));
     } else {
-        return Value::ofAny(make_ptr<detail::any_holder<U>>(std::forward<T>(v)));
+        return Value::ofAny(make_ptr<detail::anyHolder<U>>(std::forward<T>(v)));
     }
 }
 
 template <typename T>
 const T* Value::As() const noexcept {
-    auto* p = std::get_if<ptr<const detail::any_value>>(&data_);
+    auto* p = std::get_if<ptr<const detail::anyValue>>(&data_);
     if (!p || (*p)->type() != typeid(T)) return nullptr;
     return static_cast<const T*>((*p)->get());
 }
@@ -559,21 +559,21 @@ Attr GroupAttrs(string key, const A&... attrs) {
 
 namespace detail {
 
-inline constexpr std::string_view bad_key = "!BADKEY";
+inline constexpr std::string_view badKey = "!BADKEY";
 
 template <typename F, typename A, typename... Rest>
 void argsToAttrs(F&& emit, A&& a, Rest&&... rest) {
-    if constexpr (is_string_like_v<std::remove_cvref_t<A>>) {
+    if constexpr (isStringLikeV<std::remove_cvref_t<A>>) {
         if constexpr (sizeof...(Rest) == 0) {
-            emit(slog::String(string::fromStatic(bad_key), string(std::string_view(a))));
+            emit(slog::String(string::fromStatic(badKey), string(std::string_view(a))));
         } else {
             argsKv(emit, std::forward<A>(a), std::forward<Rest>(rest)...);
         }
-    } else if constexpr (is_attr_v<A>) {
+    } else if constexpr (isAttrV<A>) {
         emit(Attr(std::forward<A>(a)));
         argsToAttrs(emit, std::forward<Rest>(rest)...);
     } else {
-        emit(Any(string::fromStatic(bad_key), std::forward<A>(a)));
+        emit(Any(string::fromStatic(badKey), std::forward<A>(a)));
         argsToAttrs(emit, std::forward<Rest>(rest)...);
     }
 }
@@ -615,12 +615,12 @@ public:
     // C++, so it's a copy.
     Record Clone() const { return *this; }
 
-    int NumAttrs() const noexcept { return n_front_ + static_cast<int>(back_.size()); }
+    int NumAttrs() const noexcept { return nFront_ + static_cast<int>(back_.size()); }
 
     // Calls f with each Attr until it returns false.
     template <typename F>
     void Attrs(F&& f) const {
-        for (int i = 0; i < n_front_; i++) {
+        for (int i = 0; i < nFront_; i++) {
             if (!f(front_[i])) return;
         }
         for (const Attr& a : back_) {
@@ -651,9 +651,9 @@ public:
 private:
     void add(Attr a);
 
-    static constexpr int n_attrs_inline = 5;
-    std::array<Attr, n_attrs_inline> front_;
-    int n_front_ = 0;
+    static constexpr int nAttrsInline = 5;
+    std::array<Attr, nAttrsInline> front_;
+    int nFront_ = 0;
     std::vector<Attr> back_;
 };
 
@@ -696,35 +696,35 @@ struct HandlerOptions {
 };
 
 namespace detail {
-struct common_handler;
+struct commonHandler;
 }
 
 // slog.TextHandler: writes records as lines of key=value pairs:
 // time=2022-11-08T15:28:26.000-05:00 level=INFO msg=hello count=3
 class TextHandler final : public Handler {
 public:
-    explicit TextHandler(std::shared_ptr<const detail::common_handler> h) noexcept : h_(std::move(h)) {}
+    explicit TextHandler(std::shared_ptr<const detail::commonHandler> h) noexcept : h_(std::move(h)) {}
     bool Enabled(const ptr<context::Context>& ctx, slog::Level level) override;
     error Handle(const ptr<context::Context>& ctx, const Record& r) override;
     ptr<Handler> WithAttrs(std::span<const Attr> attrs) override;
     ptr<Handler> WithGroup(std::string_view name) override;
 
 private:
-    std::shared_ptr<const detail::common_handler> h_;
+    std::shared_ptr<const detail::commonHandler> h_;
 };
 
 // slog.JSONHandler: writes records as lines of JSON objects:
 // {"time":"2022-11-08T15:28:26.000000000-05:00","level":"INFO","msg":"hello","count":3}
 class JSONHandler final : public Handler {
 public:
-    explicit JSONHandler(std::shared_ptr<const detail::common_handler> h) noexcept : h_(std::move(h)) {}
+    explicit JSONHandler(std::shared_ptr<const detail::commonHandler> h) noexcept : h_(std::move(h)) {}
     bool Enabled(const ptr<context::Context>& ctx, slog::Level level) override;
     error Handle(const ptr<context::Context>& ctx, const Record& r) override;
     ptr<Handler> WithAttrs(std::span<const Attr> attrs) override;
     ptr<Handler> WithGroup(std::string_view name) override;
 
 private:
-    std::shared_ptr<const detail::common_handler> h_;
+    std::shared_ptr<const detail::commonHandler> h_;
 };
 
 ptr<TextHandler> NewTextHandler(ptr<io::Writer> w, const HandlerOptions& opts = {});

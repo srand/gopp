@@ -24,36 +24,36 @@ namespace gopp::http {
 
 namespace detail {
 
-class persist_conn final : public object {
+class persistConn final : public object {
 public:
-    persist_conn(std::string key, ptr<net::Conn> c)
+    persistConn(std::string key, ptr<net::Conn> c)
         : key(std::move(key)), conn(std::move(c)), br(make_ptr<bufio::Reader>(conn, 4096)), bw(conn, 4096) {}
 
     std::string key;
     ptr<net::Conn> conn;
     ptr<bufio::Reader> br;
     bufio::Writer bw;
-    bool has_deadline = false;
+    bool hasDeadline = false;
     std::optional<tls::ConnectionState> tls;
 };
 
 }  // namespace detail
 
-using detail::persist_conn;
+using detail::persistConn;
 
 struct Transport::impl {
     // The TLS config for https, compiled once and shared by connections.
-    std::mutex tls_mu;
+    std::mutex tlsMu;
     std::optional<tls::Config> TLSConfig;
 
     tls::Config clientTlsConfig(const Transport& t) {
-        std::lock_guard l(tls_mu);
+        std::lock_guard l(tlsMu);
         if (!TLSConfig) {
             TLSConfig = t.TLSClientConfig.value_or(tls::Config{});
             TLSConfig->ctx_ = nullptr;
             if (TLSConfig->NextProtos.empty()) {
                 http::Protocols p = t.Protocols.value_or(DefaultProtocols());
-                if (p.HTTP2() && internal::http2_client_enabled) TLSConfig->NextProtos.push_back(string::fromStatic("h2"));
+                if (p.HTTP2() && internal::http2ClientEnabled) TLSConfig->NextProtos.push_back(string::fromStatic("h2"));
                 if (p.HTTP1()) TLSConfig->NextProtos.push_back(string::fromStatic("http/1.1"));
             }
         }
@@ -61,59 +61,59 @@ struct Transport::impl {
     }
 
     std::mutex mu;
-    std::unordered_map<std::string, std::vector<ptr<persist_conn>>> idle;
+    std::unordered_map<std::string, std::vector<ptr<persistConn>>> idle;
     int nidle = 0;
 
     // HTTP/2 connections, shared by concurrent requests.
-    sync::Mutex h2_mu;  // fiber-aware: held while asking connections, which may park
-    std::unordered_map<std::string, std::vector<ptr<internal::http2_client_conn>>> h2;
+    sync::Mutex h2Mu;  // fiber-aware: held while asking connections, which may park
+    std::unordered_map<std::string, std::vector<ptr<internal::http2ClientConn>>> h2;
 
     // An HTTP/2 connection to key that can take a request now.
-    ptr<internal::http2_client_conn> h2Get(const std::string& key) {
-        std::lock_guard l(h2_mu);
+    ptr<internal::http2ClientConn> h2Get(const std::string& key) {
+        std::lock_guard l(h2Mu);
         auto it = h2.find(key);
         if (it == h2.end()) return nullptr;
         std::erase_if(it->second, [](auto& cc) { return cc->closed(); });
         for (auto& cc : it->second) {
-            if (cc->can_take_new_request()) return cc;
+            if (cc->canTakeNewRequest()) return cc;
         }
         return nullptr;
     }
 
-    void h2Put(const std::string& key, ptr<internal::http2_client_conn> cc) {
-        std::lock_guard l(h2_mu);
+    void h2Put(const std::string& key, ptr<internal::http2ClientConn> cc) {
+        std::lock_guard l(h2Mu);
         h2[key].push_back(std::move(cc));
     }
 
     void h2CloseIdle() {
-        std::lock_guard l(h2_mu);
-        for (auto& [key, list] : h2) std::erase_if(list, [](auto& cc) { return cc->close_if_idle() || cc->closed(); });
+        std::lock_guard l(h2Mu);
+        for (auto& [key, list] : h2) std::erase_if(list, [](auto& cc) { return cc->closeIfIdle() || cc->closed(); });
     }
 
-    ptr<persist_conn> getIdle(const std::string& key) {
+    ptr<persistConn> getIdle(const std::string& key) {
         std::lock_guard l(mu);
         auto it = idle.find(key);
         if (it == idle.end() || it->second.empty()) return nullptr;
-        ptr<persist_conn> pc = std::move(it->second.back());  // most recently used
+        ptr<persistConn> pc = std::move(it->second.back());  // most recently used
         it->second.pop_back();
         nidle--;
         return pc;
     }
 
     // Returns false if the pool is full; the caller closes pc then.
-    bool putIdle(const ptr<persist_conn>& pc, int max_per_host, int max_total) {
+    bool putIdle(const ptr<persistConn>& pc, int maxPerHost, int maxTotal) {
         std::lock_guard l(mu);
         auto& list = idle[pc->key];
-        if (max_per_host <= 0) max_per_host = 2;
-        if (static_cast<int>(list.size()) >= max_per_host) return false;
-        if (max_total > 0 && nidle >= max_total) return false;
+        if (maxPerHost <= 0) maxPerHost = 2;
+        if (static_cast<int>(list.size()) >= maxPerHost) return false;
+        if (maxTotal > 0 && nidle >= maxTotal) return false;
         list.push_back(pc);
         nidle++;
         return true;
     }
 
     void closeIdle() {
-        std::unordered_map<std::string, std::vector<ptr<persist_conn>>> old;
+        std::unordered_map<std::string, std::vector<ptr<persistConn>>> old;
         {
             std::lock_guard l(mu);
             old.swap(idle);
@@ -128,31 +128,31 @@ struct Transport::impl {
 
 namespace {
 
-const gopp::error err_malformed_response = errors::New("malformed HTTP response");
+const gopp::error errMalformedResponse = errors::New("malformed HTTP response");
 
 // The body of a response. Reading it to the end returns the connection to
 // the pool; closing it early closes the connection, as in Go. Close may
 // come from another fiber during a Read: a Read holds its own references to
 // the connection, so that Close only closes it, which ends the Read.
-class client_body final : public io::ReadCloser {
+class clientBody final : public io::ReadCloser {
 public:
-    client_body(std::shared_ptr<Transport::impl> t, ptr<persist_conn> pc, ptr<io::Reader> src, io::LimitedReader* lr,
-                bool reusable, int max_per_host, int max_total)
+    clientBody(std::shared_ptr<Transport::impl> t, ptr<persistConn> pc, ptr<io::Reader> src, io::LimitedReader* lr,
+                bool reusable, int maxPerHost, int maxTotal)
         : t_(std::move(t)),
           pc_(std::move(pc)),
           src_(std::move(src)),
           lr_(lr),
           reusable_(reusable),
-          max_per_host_(max_per_host),
-          max_total_(max_total) {}
+          maxPerHost_(maxPerHost),
+          maxTotal_(maxTotal) {}
 
-    ~client_body() override {
+    ~clientBody() override {
         if (!done_) finish(false);
     }
 
     std::pair<isize, gopp::error> Read(std::span<byte> p) override {
         ptr<io::Reader> src;
-        ptr<persist_conn> pc;  // keeps the connection alive during the read
+        ptr<persistConn> pc;  // keeps the connection alive during the read
         {
             std::lock_guard l(mu_);
             if (done_) return {0, closed_ ? ErrBodyReadAfterClose : io::EOF_};
@@ -189,27 +189,27 @@ private:
     // Called with mu_ held, or from the destructor.
     void finish(bool reuse) {
         done_ = true;
-        ptr<persist_conn> pc = std::move(pc_);
+        ptr<persistConn> pc = std::move(pc_);
         src_.reset();
         if (!pc) return;
         if (reuse && reusable_) {
-            if (pc->has_deadline) {
+            if (pc->hasDeadline) {
                 pc->conn->SetDeadline(time::Time{});
-                pc->has_deadline = false;
+                pc->hasDeadline = false;
             }
-            if (t_->putIdle(pc, max_per_host_, max_total_)) return;
+            if (t_->putIdle(pc, maxPerHost_, maxTotal_)) return;
         }
         pc->conn->Close();
     }
 
     sync::Mutex mu_;
     std::shared_ptr<Transport::impl> t_;
-    ptr<persist_conn> pc_;
+    ptr<persistConn> pc_;
     ptr<io::Reader> src_;
     io::LimitedReader* lr_;
     bool reusable_;
-    int max_per_host_;
-    int max_total_;
+    int maxPerHost_;
+    int maxTotal_;
     bool done_ = false;
     bool closed_ = false;
 };
@@ -240,7 +240,7 @@ bool staleConnError(const gopp::error& err) {
     return false;
 }
 
-gopp::error writeRequest(persist_conn& pc, Request& req, bool close) {
+gopp::error writeRequest(persistConn& pc, Request& req, bool close) {
     std::string out;
     out.reserve(256);
     out.append(req.Method.empty() ? std::string_view("GET") : req.Method.view());
@@ -298,22 +298,22 @@ gopp::error writeRequest(persist_conn& pc, Request& req, bool close) {
     return pc.bw.Flush();
 }
 
-struct read_result {
+struct readResult {
     ptr<Response> resp;
     gopp::error err;
 };
 
 // Reads a response header, skipping 1xx responses other than 101.
-read_result readResponseHeader(persist_conn& pc, Request& req) {
+readResult readResponseHeader(persistConn& pc, Request& req) {
     for (;;) {
         auto resp = make_ptr<Response>();
         string line;
         if (gopp::error err = internal::readHeaderBlock(pc.br, 10 << 20, line, resp->Header)) {
             return {nullptr, err};
         }
-        if (line.empty()) return {nullptr, err_malformed_response};
+        if (line.empty()) return {nullptr, errMalformedResponse};
         auto sp = line.find(' ');
-        if (sp == string::npos) return {nullptr, err_malformed_response};
+        if (sp == string::npos) return {nullptr, errMalformedResponse};
         resp->Proto = line.slice(0, sp);
         resp->Status = strings::TrimLeft(line.slice(sp + 1), " ");
         if (!internal::parseHttpVersion(resp->Proto, resp->ProtoMajor, resp->ProtoMinor)) {
@@ -428,26 +428,26 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
     // when the transport speaks only unencrypted HTTP/2 to http:// URLs.
     http::Protocols protos = Protocols.value_or(DefaultProtocols());
     bool h2c = !https && protos.UnencryptedHTTP2() && !protos.HTTP1();
-    bool may_h2 = (https && protos.HTTP2() && internal::http2_client_enabled) || h2c;
-    internal::http2_client_options h2opts{.response_header_timeout = ResponseHeaderTimeout};
+    bool mayH2 = (https && protos.HTTP2() && internal::http2ClientEnabled) || h2c;
+    internal::http2ClientOptions h2opts{.responseHeaderTimeout = ResponseHeaderTimeout};
     // Retries a request the server didn't process (after GOAWAY or on a
     // connection that broke before the request went out).
-    auto h2_round_trip = [&](const ptr<internal::http2_client_conn>& cc, int attempt, bool& retry) {
-        auto [resp, err] = cc->round_trip(req, req.ctx_);
-        retry = err && errors::Is(err, internal::err_http2_conn_unusable) && attempt < 3;
+    auto h2RoundTrip = [&](const ptr<internal::http2ClientConn>& cc, int attempt, bool& retry) {
+        auto [resp, err] = cc->roundTrip(req, req.ctx_);
+        retry = err && errors::Is(err, internal::errHttp2ConnUnusable) && attempt < 3;
         return std::pair<ptr<Response>, gopp::error>{resp, err};
     };
 
     for (int attempt = 0;; attempt++) {
-        if (may_h2) {
+        if (mayH2) {
             if (auto cc = impl_->h2Get(key)) {
                 bool retry;
-                auto res = h2_round_trip(cc, attempt, retry);
+                auto res = h2RoundTrip(cc, attempt, retry);
                 if (retry) continue;
                 return res;
             }
         }
-        ptr<persist_conn> pc = DisableKeepAlives || h2c ? nullptr : impl_->getIdle(key);
+        ptr<persistConn> pc = DisableKeepAlives || h2c ? nullptr : impl_->getIdle(key);
         bool reused = static_cast<bool>(pc);
         if (!pc) {
             time::Duration dt = DialTimeout;
@@ -473,30 +473,30 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
                     auto cc = internal::newHttp2ClientConn(tc, state, h2opts);
                     impl_->h2Put(key, cc);
                     bool retry;
-                    auto res = h2_round_trip(cc, attempt, retry);
+                    auto res = h2RoundTrip(cc, attempt, retry);
                     if (retry) continue;
                     return res;
                 }
-                pc = make_ptr<persist_conn>(key, tc);
+                pc = make_ptr<persistConn>(key, tc);
                 pc->tls = state;
             } else if (h2c) {
                 auto cc = internal::newHttp2ClientConn(c, std::nullopt, h2opts);
                 impl_->h2Put(key, cc);
                 bool retry;
-                auto res = h2_round_trip(cc, attempt, retry);
+                auto res = h2RoundTrip(cc, attempt, retry);
                 if (retry) continue;
                 return res;
             } else {
-                pc = make_ptr<persist_conn>(key, c);
+                pc = make_ptr<persistConn>(key, c);
             }
         }
         if (deadline) {
             pc->conn->SetDeadline(*deadline);
-            pc->has_deadline = true;
+            pc->hasDeadline = true;
         }
 
         gopp::error err = writeRequest(*pc, req, DisableKeepAlives);
-        read_result rr;
+        readResult rr;
         if (!err) {
             if (ResponseHeaderTimeout.ns > 0 && !deadline) {
                 pc->conn->SetReadDeadline(time::Now().Add(ResponseHeaderTimeout));
@@ -543,13 +543,13 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
             resp->Body = internal::noBody();
         } else if (chunked) {
             resp->ContentLength = -1;
-            resp->Body = make_ptr<client_body>(impl_, pc, make_ptr<internal::chunked_reader>(pc->br), nullptr, reusable,
+            resp->Body = make_ptr<clientBody>(impl_, pc, make_ptr<internal::chunkedReader>(pc->br), nullptr, reusable,
                                                MaxIdleConnsPerHost, MaxIdleConns);
             return {resp, nullptr};
         } else if (resp->ContentLength > 0) {
             auto lr = make_ptr<io::LimitedReader>(pc->br, resp->ContentLength);
             io::LimitedReader* raw = lr.get();
-            resp->Body = make_ptr<client_body>(impl_, pc, std::move(lr), raw, reusable, MaxIdleConnsPerHost,
+            resp->Body = make_ptr<clientBody>(impl_, pc, std::move(lr), raw, reusable, MaxIdleConnsPerHost,
                                                MaxIdleConns);
             return {resp, nullptr};
         } else if (resp->ContentLength == 0) {
@@ -557,15 +557,15 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
         } else {
             // Neither length nor chunking: the body ends when the connection does.
             resp->Close = true;
-            resp->Body = make_ptr<client_body>(impl_, pc, pc->br, nullptr, false, 0, 0);
+            resp->Body = make_ptr<clientBody>(impl_, pc, pc->br, nullptr, false, 0, 0);
             return {resp, nullptr};
         }
 
         // No body to read: the connection is free now.
         if (reusable) {
-            if (pc->has_deadline) {
+            if (pc->hasDeadline) {
                 pc->conn->SetDeadline(time::Time{});
-                pc->has_deadline = false;
+                pc->hasDeadline = false;
             }
             if (impl_->putIdle(pc, MaxIdleConnsPerHost, MaxIdleConns)) return {resp, nullptr};
         }
@@ -644,9 +644,9 @@ std::pair<string, gopp::error> resolveLocation(const url::URL& base, const strin
 
 // Go's cancelTimerBody: the body of a response to a Client with a Timeout,
 // which stops the timer when it's closed.
-class cancel_timer_body final : public io::ReadCloser {
+class cancelTimerBody final : public io::ReadCloser {
 public:
-    cancel_timer_body(ptr<io::ReadCloser> rc, context::CancelFunc stop) : rc_(std::move(rc)), stop_(std::move(stop)) {}
+    cancelTimerBody(ptr<io::ReadCloser> rc, context::CancelFunc stop) : rc_(std::move(rc)), stop_(std::move(stop)) {}
     std::pair<isize, gopp::error> Read(std::span<byte> p) override { return rc_->Read(p); }
     gopp::error Close() override {
         gopp::error err = rc_->Close();
@@ -666,9 +666,9 @@ std::pair<ptr<Response>, gopp::error> Client::Do(ptr<Request> req) {
     ptr<RoundTripper> rt = Transport ? Transport : ptr<RoundTripper>(DefaultTransport());
     // The timeout covers the redirects and reading the body. Its timer
     // stops when the request fails, or when the body is closed.
-    struct timer_stopper {
+    struct timerStopper {
         context::CancelFunc stop;
-        ~timer_stopper() {
+        ~timerStopper() {
             if (stop) stop();
         }
     } timer;
@@ -678,7 +678,7 @@ std::pair<ptr<Response>, gopp::error> Client::Do(ptr<Request> req) {
         timer.stop = std::move(cancel);
     }
     auto done = [&](ptr<Response> resp) -> std::pair<ptr<Response>, gopp::error> {
-        if (timer.stop) resp->Body = make_ptr<cancel_timer_body>(resp->Body, std::exchange(timer.stop, nullptr));
+        if (timer.stop) resp->Body = make_ptr<cancelTimerBody>(resp->Body, std::exchange(timer.stop, nullptr));
         return {resp, nullptr};
     };
     for (int redirects = 0;; redirects++) {
@@ -726,10 +726,10 @@ std::pair<ptr<Response>, gopp::error> Client::Head(std::string_view url) {
     return Do(req);
 }
 
-std::pair<ptr<Response>, gopp::error> Client::Post(std::string_view url, std::string_view content_type, ptr<io::Reader> body) {
+std::pair<ptr<Response>, gopp::error> Client::Post(std::string_view url, std::string_view contentType, ptr<io::Reader> body) {
     auto [req, err] = NewRequest("POST", url, std::move(body));
     if (err) return {nullptr, err};
-    req->Header.Set("Content-Type", string(content_type));
+    req->Header.Set("Content-Type", string(contentType));
     return Do(req);
 }
 
@@ -749,8 +749,8 @@ Client& DefaultClient() {
 
 std::pair<ptr<Response>, gopp::error> Get(std::string_view url) { return DefaultClient().Get(url); }
 std::pair<ptr<Response>, gopp::error> Head(std::string_view url) { return DefaultClient().Head(url); }
-std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view content_type, ptr<io::Reader> body) {
-    return DefaultClient().Post(url, content_type, std::move(body));
+std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view contentType, ptr<io::Reader> body) {
+    return DefaultClient().Post(url, contentType, std::move(body));
 }
 std::pair<ptr<Response>, gopp::error> PostForm(std::string_view url, const url::Values& data) {
     return DefaultClient().PostForm(url, data);

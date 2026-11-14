@@ -571,7 +571,7 @@ bool equalTimeAndZone(const Time& a, const Time& b) {
     return a.Equal(b) && aoffset == boffset && aname.view() == bname.view();
 }
 
-std::string bytes_str(const slice<byte>& b) { return std::string(reinterpret_cast<const char*>(b.data()), b.size()); }
+std::string bytesStr(const slice<byte>& b) { return std::string(reinterpret_cast<const char*>(b.data()), b.size()); }
 
 }  // namespace
 
@@ -591,8 +591,8 @@ TEST_F(GoTime, TimeJSON) {
             ADD_FAILURE() << "json.Marshal error = " << S(err);
             continue;
         }
-        if (bytes_str(jsonBytes) != tt.json) {
-            ADD_FAILURE() << "JSON = " << bytes_str(jsonBytes) << ", want " << tt.json;
+        if (bytesStr(jsonBytes) != tt.json) {
+            ADD_FAILURE() << "JSON = " << bytesStr(jsonBytes) << ", want " << tt.json;
             continue;
         }
         Time jsonTime;
@@ -650,7 +650,7 @@ TEST_F(GoTime, MarshalInvalidTimes) {
     };
     for (const auto& tt : tests) {
         auto [b, err] = tt.time.MarshalJSON();
-        EXPECT_TRUE(b.isNil()) << "MarshalJSON() = " << bytes_str(b) << ", want nil";
+        EXPECT_TRUE(b.isNil()) << "MarshalJSON() = " << bytesStr(b) << ", want nil";
         EXPECT_EQ(S(err), tt.want);
 
         auto [b2, err2] = tt.time.MarshalText();
@@ -784,7 +784,7 @@ TEST_F(GoTime, ParseDurationRoundTrip) {
 
 TEST_F(GoTime, LocationRace) {
     hooks::ResetLocalOnceForTest();  // reset the Once to trigger the race
-    auto c = makeChan<string>(1);
+    auto c = make_chan<string>(1);
     go([c] { c.send(Now().String()); });
     (void)Now().String();
     c.recv();
@@ -943,7 +943,7 @@ TEST_F(GoTime, DefaultLoc) {
     // Verify that all of Time's methods behave identically if loc is set
     // to nil or UTC.
     auto eqb = [](std::pair<slice<byte>, error> a, std::pair<slice<byte>, error> b) {
-        return bytes_str(a.first) == bytes_str(b.first) && S(a.second) == S(b.second);
+        return bytesStr(a.first) == bytesStr(b.first) && S(a.second) == S(b.second);
     };
     struct {
         std::string name;
@@ -1379,7 +1379,7 @@ TEST_F(GoTime, MonotonicString) {
 // with one P and no preemption, where a parked loader would hang.
 namespace {
 
-const bool time_first_use_helper = go_helper::registerHelper("time-first-use", [](const std::vector<std::string>&) {
+const bool timeFirstUseHelper = go_helper::registerHelper("time-first-use", [](const std::vector<std::string>&) {
     sync::WaitGroup wg;
     for (int i = 0; i < 16; i++) {
         wg.Go([i] {

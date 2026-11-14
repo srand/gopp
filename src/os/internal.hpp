@@ -27,14 +27,14 @@ namespace gopp::os {
 namespace detail {
 
 // The state of reading a directory (Go's dirInfo).
-struct dir_info {
+struct dirInfo {
     std::vector<byte> buf;  // buffer for getdents64
     std::size_t nbuf = 0;   // bytes in buf
     std::size_t bufp = 0;   // the next record
 };
 
 // How a File came to be (Go's newFileKind).
-enum class file_kind { new_file, open_file, pipe, no_poll };
+enum class fileKind { newFile, openFile, pipe, noPoll };
 
 struct fileImpl {
     fileImpl(int fd, string name) : pfd(fd), name(std::move(name)) {}
@@ -43,22 +43,22 @@ struct fileImpl {
 
     poll::FD pfd;
     string name;
-    sync::Mutex dir_mu;
-    std::unique_ptr<dir_info> dir;  // set while the directory is being read; under dir_mu
+    sync::Mutex dirMu;
+    std::unique_ptr<dirInfo> dir;  // set while the directory is being read; under dirMu
     std::atomic<bool> nonblock{false};  // whether the descriptor is in non-blocking mode
-    bool stdout_or_err = false;
-    bool append_mode = false;
-    bool in_root = false;  // opened in a Root: ReadDir lstats each entry (Go's inRoot)
+    bool stdoutOrErr = false;
+    bool appendMode = false;
+    bool inRoot = false;  // opened in a Root: ReadDir lstats each entry (Go's inRoot)
 
     // A standard stream given in non-blocking mode registers with the poller
     // on first use: it's made before main, when the runtime may not be.
-    std::atomic<bool> lazy_poll{false};
-    std::once_flag lazy_once;
+    std::atomic<bool> lazyPoll{false};
+    std::once_flag lazyOnce;
     void ready() {
-        if (lazy_poll.load(std::memory_order_acquire)) {
-            std::call_once(lazy_once, [this] {
+        if (lazyPoll.load(std::memory_order_acquire)) {
+            std::call_once(lazyOnce, [this] {
                 pfd.Init(true);
-                lazy_poll.store(false, std::memory_order_release);
+                lazyPoll.store(false, std::memory_order_release);
             });
         }
     }
@@ -66,27 +66,27 @@ struct fileImpl {
 
 // Go's newFile: a File for fd, pollable if it's a pipe or socket, or was
 // given in non-blocking mode.
-ptr<File> new_file(int fd, string name, file_kind kind, bool non_blocking, bool append_mode = false);
+ptr<File> newFile(int fd, string name, fileKind kind, bool nonBlocking, bool appendMode = false);
 
 // os.fileStat
-class file_stat final : public FileInfo {
+class fileStat final : public FileInfo {
 public:
     string Name() const override { return name; }
     int64 Size() const override { return size; }
     FileMode Mode() const override { return mode; }
-    time::Time ModTime() const override { return mod_time; }
+    time::Time ModTime() const override { return modTime; }
     bool IsDir() const override { return mode.IsDir(); }
     const void* Sys() const override { return &sys; }
 
     string name;
     int64 size = 0;
     FileMode mode;
-    time::Time mod_time;
+    time::Time modTime;
     struct stat sys{};
 };
 
 // Go's fillFileStatFromSys: fills fs from fs->sys; the name is name's base.
-void fillFileStat(file_stat& fs, std::string_view name);
+void fillFileStat(fileStat& fs, std::string_view name);
 
 // The C string of a path; false if it holds a NUL, which Go reports as
 // EINVAL.
@@ -144,47 +144,47 @@ inline int errnoOf(const error& err) {
     return e ? e->Code : 0;
 }
 
-inline ptr<PathError> path_error(std::string_view op, std::string_view path, error err) {
+inline ptr<PathError> pathError(std::string_view op, std::string_view path, error err) {
     return make_ptr<PathError>(string(op), string(path), std::move(err));
 }
 
-// Go's readFileContents: reads a file of stat_size bytes, by stat, with
+// Go's readFileContents: reads a file of statSize bytes, by stat, with
 // read.
-std::pair<slice<byte>, error> read_file_contents(int64 stat_size,
+std::pair<slice<byte>, error> readFileContents(int64 statSize,
                                                  const std::function<std::pair<isize, error>(std::span<byte>)>& read);
 
 // The error of a CreateTemp or MkdirTemp pattern with a '/'.
 extern const error errPatternHasSeparator;
 
 // Go's splitPath: the parent directory and the base name of path.
-std::pair<std::string_view, std::string_view> split_path(std::string_view path);
+std::pair<std::string_view, std::string_view> splitPath(std::string_view path);
 
 // Go's errPathEscapes: the error of a Root operation whose name leads out
 // of the Root (export_test's ErrPathEscapes).
 extern const error errPathEscapes;
 
-// Go's removeAllFrom: removes base, and what it holds, in parent_fd.
-error remove_all_from(int parent_fd, const std::string& base);
+// Go's removeAllFrom: removes base, and what it holds, in parentFd.
+error removeAllFrom(int parentFd, const std::string& base);
 
 // Go's syscallMode: the mode bits of FileMode for open, mkdir and chmod.
-mode_t syscall_mode(FileMode m);
+mode_t syscallMode(FileMode m);
 
 // The timespecs of Chtimes's times (Go's chtimesUtimes): UTIME_OMIT for a
 // zero Time.
-void chtimes_utimes(time::Time atime, time::Time mtime, timespec ts[2]);
+void chtimesUtimes(time::Time atime, time::Time mtime, timespec ts[2]);
 
 // Go's joinPath.
-std::string join_path(std::string_view dir, std::string_view name);
+std::string joinPath(std::string_view dir, std::string_view name);
 
 // Go's lstatat: the Lstat of name in the directory f.
 std::pair<ptr<FileInfo>, error> lstatat(File& f, fileImpl& fi, std::string_view name);
 
-// Go's pidfdWorks: whether pidfd_open, pidfd_send_signal, waitid(P_PIDFD)
+// Go's pidfdWorks: whether pidfd_open, pidfdSendSignal, waitid(P_PIDFD)
 // and clone(CLONE_PIDFD) work, checked once.
-bool pidfd_works();
+bool pidfdWorks();
 // A test hook: while set, the os package doesn't use pidfds, as on a
 // kernel without them.
-extern std::atomic<bool> pidfd_disabled;
+extern std::atomic<bool> pidfdDisabled;
 
 }  // namespace detail
 

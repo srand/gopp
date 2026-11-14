@@ -29,13 +29,13 @@ struct answer {
     error err;
 };
 
-using query_fn = std::function<std::pair<std::vector<string>, error>(
+using queryFn = std::function<std::pair<std::vector<string>, error>(
     net::Resolver&, const ptr<context::Context>&,
     std::string_view)>;
 
 // The record types, in the order they're printed.
-const std::vector<std::pair<std::string_view, query_fn>>& queries() {
-    static const std::vector<std::pair<std::string_view, query_fn>> q = {
+const std::vector<std::pair<std::string_view, queryFn>>& queries() {
+    static const std::vector<std::pair<std::string_view, queryFn>> q = {
         {"ip", [](net::Resolver& r, const ptr<context::Context>& ctx, std::string_view name) {
              auto [addrs, err] = r.LookupNetIP(ctx, "ip", name);
              std::vector<string> out;
@@ -85,9 +85,9 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    std::vector<const std::pair<std::string_view, query_fn>*> wanted;
+    std::vector<const std::pair<std::string_view, queryFn>*> wanted;
     for (const string& t : strings::Split(types, ",")) {
-        const std::pair<std::string_view, query_fn>* found = nullptr;
+        const std::pair<std::string_view, queryFn>* found = nullptr;
         for (const auto& q : queries()) {
             if (q.first == strings::TrimSpace(t)) found = &q;
         }
@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
     // One fiber per name and type; the answers come back on a channel.
     auto [ctx, cancel] = context::WithTimeout(context::Background(), timeout);
     auto resolver = make_ptr<net::Resolver>();
-    auto answers = makeChan<answer>(names.size() * wanted.size());
+    auto answers = make_chan<answer>(names.size() * wanted.size());
     time::Time start = time::Now();
     for (std::size_t i = 0; i < names.size(); i++) {
         for (const auto* q : wanted) {
@@ -113,12 +113,12 @@ int main(int argc, char** argv) {
     }
 
     // Collect them all, then print them by name and type.
-    std::map<std::pair<std::size_t, std::size_t>, answer> by_query;
+    std::map<std::pair<std::size_t, std::size_t>, answer> byQuery;
     for (std::size_t n = 0; n < names.size() * wanted.size(); n++) {
         answer a = answers.recv();
         std::size_t t = 0;
         while (wanted[t]->first != a.type) t++;
-        by_query.emplace(std::pair(a.name, t), std::move(a));
+        byQuery.emplace(std::pair(a.name, t), std::move(a));
     }
     cancel();
 
@@ -126,7 +126,7 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < names.size(); i++) {
         fmt::Println("{}", names[i]);
         for (std::size_t t = 0; t < wanted.size(); t++) {
-            const answer& a = by_query.at({i, t});
+            const answer& a = byQuery.at({i, t});
             if (a.err) {
                 failed++;
                 // A name without records of the type isn't much of an error.

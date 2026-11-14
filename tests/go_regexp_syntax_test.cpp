@@ -1,4 +1,4 @@
-// Ported from Go 1.27.3's regexp/syntax/parse_test.go, simplify_test.go and
+// Ported from Go 1.27.3's regexp/syntax/parseTest.go, simplify_test.go and
 // prog_test.go, and regexp/onepass_test.go's TestRunOnePass, with Go's test
 // names. Left out: the tests of unexported functions (appendRange,
 // mergeRuneSets, compileOnePass), and the benchmarks.

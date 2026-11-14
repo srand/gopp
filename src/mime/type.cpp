@@ -23,20 +23,20 @@ namespace {
 // so that a fiber can't park holding it.
 struct tables {
     std::shared_mutex mu;
-    std::unordered_map<string, string> mime_types;        // ".Z" => "application/x-compress"
-    std::unordered_map<string, string> mime_types_lower;  // ".z" => "application/x-compress"
+    std::unordered_map<string, string> mimeTypes;        // ".Z" => "application/x-compress"
+    std::unordered_map<string, string> mimeTypesLower;  // ".z" => "application/x-compress"
     // MIME type to lowercase extensions: "image/jpeg" => [".jfif", ".jpg", ...]
     std::unordered_map<string, std::vector<string>> extensions;
 
-    // Initialization (Go's once): init_mu is a sync::Mutex, as the system
+    // Initialization (Go's once): initMu is a sync::Mutex, as the system
     // files are read while it's held.
-    sync::Mutex init_mu;
+    sync::Mutex initMu;
     std::atomic<bool> inited{false};
-    std::function<void()> test_init;
+    std::function<void()> testInit;
 
-    std::vector<string> mime_globs{string::fromStatic("/usr/local/share/mime/globs2"),
+    std::vector<string> mimeGlobs{string::fromStatic("/usr/local/share/mime/globs2"),
                                    string::fromStatic("/usr/share/mime/globs2")};
-    std::vector<string> type_files{string::fromStatic("/etc/mime.types"), string::fromStatic("/etc/apache2/mime.types"),
+    std::vector<string> typeFiles{string::fromStatic("/etc/mime.types"), string::fromStatic("/etc/apache2/mime.types"),
                                    string::fromStatic("/etc/apache/mime.types"),
                                    string::fromStatic("/etc/httpd/conf/mime.types")};
 };
@@ -48,12 +48,12 @@ tables& tab() {
 
 void initMimeUnix();
 
-void init_mime() {
+void initMime() {
     tables& t = tab();
-    if (t.test_init) {
-        t.test_init();
+    if (t.testInit) {
+        t.testInit();
     } else {
-        set_mime_types(builtin_types_lower(), builtin_types_lower());
+        setMimeTypes(builtinTypesLower(), builtinTypesLower());
         initMimeUnix();
     }
 }
@@ -62,8 +62,8 @@ bool containsAny(std::string_view s, std::string_view chars) { return s.find_fir
 
 }  // namespace
 
-const type_map& builtin_types_lower() {
-    static const type_map m{
+const typeMap& builtinTypesLower() {
+    static const typeMap m{
         {string::fromStatic(".ai"), string::fromStatic("application/postscript")},
         {string::fromStatic(".apk"), string::fromStatic("application/vnd.android.package-archive")},
         {string::fromStatic(".apng"), string::fromStatic("image/apng")},
@@ -136,38 +136,38 @@ const type_map& builtin_types_lower() {
     return m;
 }
 
-void set_mime_types(const type_map& lower_ext, const type_map& mix_ext) {
+void setMimeTypes(const typeMap& lowerExt, const typeMap& mixExt) {
     tables& t = tab();
     std::unique_lock lock(t.mu);
-    t.mime_types.clear();
-    t.mime_types_lower.clear();
+    t.mimeTypes.clear();
+    t.mimeTypesLower.clear();
     t.extensions.clear();
-    for (const auto& [k, v] : lower_ext) t.mime_types_lower[k] = v;
-    for (const auto& [k, v] : mix_ext) t.mime_types[k] = v;
-    for (const auto& [k, v] : lower_ext) {
-        auto [just_type, params, err] = ParseMediaType(v);
+    for (const auto& [k, v] : lowerExt) t.mimeTypesLower[k] = v;
+    for (const auto& [k, v] : mixExt) t.mimeTypes[k] = v;
+    for (const auto& [k, v] : lowerExt) {
+        auto [justType, params, err] = ParseMediaType(v);
         if (err) panic(err.Error());
-        t.extensions[just_type].push_back(k);
+        t.extensions[justType].push_back(k);
     }
 }
 
-error set_extension_type(std::string_view extension, std::string_view mime_type) {
-    auto [just_type, param, err] = ParseMediaType(mime_type);
+error setExtensionType(std::string_view extension, std::string_view mimeType) {
+    auto [justType, param, err] = ParseMediaType(mimeType);
     if (err) return err;
-    string type(mime_type);
-    if (mime_type.starts_with("text/") && param[string::fromStatic("charset")].empty()) {
+    string type(mimeType);
+    if (mimeType.starts_with("text/") && param[string::fromStatic("charset")].empty()) {
         param[string::fromStatic("charset")] = string::fromStatic("utf-8");
-        type = FormatMediaType(just_type, param);
+        type = FormatMediaType(justType, param);
     }
     string ext(extension);
-    string ext_lower = strings::ToLower(extension);
+    string extLower = strings::ToLower(extension);
 
     tables& t = tab();
     std::unique_lock lock(t.mu);
-    t.mime_types[ext] = type;
-    t.mime_types_lower[ext_lower] = type;
-    auto& exts = t.extensions[just_type];
-    if (std::find(exts.begin(), exts.end(), ext_lower) == exts.end()) exts.push_back(ext_lower);
+    t.mimeTypes[ext] = type;
+    t.mimeTypesLower[extLower] = type;
+    auto& exts = t.extensions[justType];
+    if (std::find(exts.begin(), exts.end(), extLower) == exts.end()) exts.push_back(extLower);
     return nullptr;
 }
 
@@ -200,14 +200,14 @@ error loadMimeGlobsFile(std::string_view filename) {
             tables& t = tab();
             std::shared_lock lock(t.mu);
             // The file is in weight order: the first entry counts.
-            if (t.mime_types.contains(string(extension))) continue;
+            if (t.mimeTypes.contains(string(extension))) continue;
         }
-        set_extension_type(extension, fields[1]);
+        setExtensionType(extension, fields[1]);
     }
     return nullptr;
 }
 
-void load_mime_file(std::string_view filename) {
+void loadMimeFile(std::string_view filename) {
     auto [data, err] = os::ReadFile(filename);
     if (err) return;
     std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
@@ -225,10 +225,10 @@ void load_mime_file(std::string_view filename) {
             if (i > start) fields.push_back(line.substr(start, i - start));
         }
         if (fields.size() <= 1 || fields[0][0] == '#') continue;
-        std::string_view mime_type = fields[0];
+        std::string_view mimeType = fields[0];
         for (std::size_t i = 1; i < fields.size(); i++) {
             if (fields[i][0] == '#') break;
-            set_extension_type(fmt::Sprint(".{}", fields[i]).view(), mime_type);
+            setExtensionType(fmt::Sprint(".{}", fields[i]).view(), mimeType);
         }
     }
 }
@@ -237,12 +237,12 @@ namespace {
 
 void initMimeUnix() {
     tables& t = tab();
-    for (const string& filename : t.mime_globs) {
+    for (const string& filename : t.mimeGlobs) {
         // Stop checking more files if the MIME-type database is found.
         if (!loadMimeGlobsFile(filename)) return;
     }
     // Fallback if no system-generated MIME-type database exists.
-    for (const string& filename : t.type_files) load_mime_file(filename);
+    for (const string& filename : t.typeFiles) loadMimeFile(filename);
 }
 
 }  // namespace
@@ -250,26 +250,26 @@ void initMimeUnix() {
 void ensureInit() {
     tables& t = tab();
     if (t.inited.load(std::memory_order_acquire)) return;
-    std::lock_guard lock(t.init_mu);
+    std::lock_guard lock(t.initMu);
     if (t.inited.load(std::memory_order_relaxed)) return;
-    init_mime();
+    initMime();
     t.inited.store(true, std::memory_order_release);
 }
 
-void set_mime_init(std::function<void()> fn) {
+void setMimeInit(std::function<void()> fn) {
     tables& t = tab();
-    std::lock_guard lock(t.init_mu);
-    t.test_init = std::move(fn);
+    std::lock_guard lock(t.initMu);
+    t.testInit = std::move(fn);
     t.inited.store(false, std::memory_order_release);
 }
 
 std::pair<std::vector<string>, std::vector<string>> setSystemFiles(std::vector<string> globs,
-                                                                     std::vector<string> type_files) {
+                                                                     std::vector<string> typeFiles) {
     tables& t = tab();
-    std::lock_guard lock(t.init_mu);
-    auto old = std::make_pair(std::move(t.mime_globs), std::move(t.type_files));
-    t.mime_globs = std::move(globs);
-    t.type_files = std::move(type_files);
+    std::lock_guard lock(t.initMu);
+    auto old = std::make_pair(std::move(t.mimeGlobs), std::move(t.typeFiles));
+    t.mimeGlobs = std::move(globs);
+    t.typeFiles = std::move(typeFiles);
     return old;
 }
 
@@ -280,21 +280,21 @@ string TypeByExtension(std::string_view ext) {
     auto& t = internal::tab();
     std::shared_lock lock(t.mu);
     // Case-sensitive lookup.
-    if (auto it = t.mime_types.find(string(ext)); it != t.mime_types.end()) return it->second;
+    if (auto it = t.mimeTypes.find(string(ext)); it != t.mimeTypes.end()) return it->second;
     // Case-insensitive lookup.
-    if (auto it = t.mime_types_lower.find(strings::ToLower(ext)); it != t.mime_types_lower.end()) return it->second;
+    if (auto it = t.mimeTypesLower.find(strings::ToLower(ext)); it != t.mimeTypesLower.end()) return it->second;
     return {};
 }
 
 std::pair<std::vector<string>, error> ExtensionsByType(std::string_view typ) {
-    auto [just_type, params, err] = ParseMediaType(typ);
+    auto [justType, params, err] = ParseMediaType(typ);
     if (err) return {{}, err};
     internal::ensureInit();
     auto& t = internal::tab();
     std::vector<string> ret;
     {
         std::shared_lock lock(t.mu);
-        auto it = t.extensions.find(just_type);
+        auto it = t.extensions.find(justType);
         if (it == t.extensions.end()) return {{}, nullptr};
         ret = it->second;
     }
@@ -305,7 +305,7 @@ std::pair<std::vector<string>, error> ExtensionsByType(std::string_view typ) {
 error AddExtensionType(std::string_view ext, std::string_view typ) {
     if (!ext.starts_with('.')) return fmt::Errorf("mime: extension {} missing leading dot", strconv::Quote(ext));
     internal::ensureInit();
-    return internal::set_extension_type(ext, typ);
+    return internal::setExtensionType(ext, typ);
 }
 
 }  // namespace gopp::mime

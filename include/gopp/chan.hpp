@@ -32,15 +32,15 @@ namespace gopp {
 namespace detail {
 
 // How the type-erased channel core moves and destroys elements.
-struct elem_ops {
+struct elemOps {
     std::size_t size;
     std::size_t align;
-    void (*move_construct)(void* dst, void* src) noexcept;
+    void (*moveConstruct)(void* dst, void* src) noexcept;
     void (*destroy)(void* p) noexcept;
 };
 
 template <typename T>
-inline constexpr elem_ops elem_ops_of = {
+inline constexpr elemOps elemOpsOf = {
     sizeof(T),
     alignof(T),
     [](void* dst, void* src) noexcept { new (dst) T(std::move(*static_cast<T*>(src))); },
@@ -49,17 +49,17 @@ inline constexpr elem_ops elem_ops_of = {
 
 struct hchan;
 
-hchan* chanMake(const elem_ops* ops, std::size_t size);
+hchan* chanMake(const elemOps* ops, std::size_t size);
 void chanRetain(hchan* c) noexcept;
 void chanRelease(hchan* c) noexcept;
 // Moves *elem into the channel. Returns false if !block and it would block.
 bool chanSend(hchan* c, void* elem, bool block);
-struct recv_result {
+struct recvResult {
     bool selected;
     bool received;  // false if the channel is closed; *elem is not constructed then
 };
 // Move-constructs a received value into the storage at elem.
-recv_result chanRecv(hchan* c, void* elem, bool block);
+recvResult chanRecv(hchan* c, void* elem, bool block);
 void chanClose(hchan* c);
 std::size_t chanLen(hchan* c) noexcept;
 std::size_t chanCap(hchan* c) noexcept;
@@ -68,12 +68,12 @@ struct scase {
     hchan* c;
     void* elem;
 };
-struct select_result {
+struct selectResult {
     int index;  // -1 for the default case
-    bool recv_ok;
+    bool recvOk;
 };
 // Cases: the sends first, then the receives.
-select_result selectgo(scase* cases, int nsends, int nrecvs, bool block);
+selectResult selectgo(scase* cases, int nsends, int nrecvs, bool block);
 
 // Uninitialized storage for a T.
 template <typename T>
@@ -113,7 +113,7 @@ public:
     }
 
     // make(chan T, size)
-    static chan make(std::size_t size = 0) { return chan(detail::chanMake(&detail::elem_ops_of<T>, size)); }
+    static chan make(std::size_t size = 0) { return chan(detail::chanMake(&detail::elemOpsOf<T>, size)); }
 
     // ch <- v. Sending on a nil channel blocks forever; on a closed one, panics.
     void send(T v) const { detail::chanSend(c_, &v, true); }
@@ -188,7 +188,7 @@ private:
 
 // make(chan T, size)
 template <typename T>
-chan<T> makeChan(std::size_t size = 0) {
+chan<T> make_chan(std::size_t size = 0) {
     return chan<T>::make(size);
 }
 
@@ -196,13 +196,13 @@ chan<T> makeChan(std::size_t size = 0) {
 // select
 
 template <typename T, typename F>
-struct recv_case {
+struct recvCase {
     const chan<T>& ch;
     F f;
     detail::slot<T> s;
 
-    static constexpr bool is_send = false;
-    static constexpr bool is_default = false;
+    static constexpr bool isSend = false;
+    static constexpr bool isDefault = false;
 
     void run(bool ok) {
         T v = ok ? s.take() : T{};
@@ -213,42 +213,42 @@ struct recv_case {
 };
 
 template <typename T, typename F>
-struct send_case {
+struct sendCase {
     const chan<T>& ch;
     T v;
     F f;
 
-    static constexpr bool is_send = true;
-    static constexpr bool is_default = false;
+    static constexpr bool isSend = true;
+    static constexpr bool isDefault = false;
 
     void run(bool) { f(); }
 };
 
 template <typename F>
-struct default_case_t {
+struct defaultCaseT {
     F f;
 
-    static constexpr bool is_send = false;
-    static constexpr bool is_default = true;
+    static constexpr bool isSend = false;
+    static constexpr bool isDefault = true;
 
     void run(bool) { f(); }
 };
 
 // case v, ok := <-ch: f(v, ok)   (f may also take just v, or nothing)
 template <typename T, typename F>
-recv_case<T, std::decay_t<F>> recv(const chan<T>& ch, F&& f) {
+recvCase<T, std::decay_t<F>> recv(const chan<T>& ch, F&& f) {
     return {ch, std::forward<F>(f), {}};
 }
 
 // case ch <- v: f()
 template <typename T, typename V, typename F>
-send_case<T, std::decay_t<F>> send(const chan<T>& ch, V&& v, F&& f) {
+sendCase<T, std::decay_t<F>> send(const chan<T>& ch, V&& v, F&& f) {
     return {ch, T(std::forward<V>(v)), std::forward<F>(f)};
 }
 
 // default: f()
 template <typename F>
-default_case_t<std::decay_t<F>> defaultCase(F&& f) {
+defaultCaseT<std::decay_t<F>> defaultCase(F&& f) {
     return {std::forward<F>(f)};
 }
 
@@ -256,7 +256,7 @@ default_case_t<std::decay_t<F>> defaultCase(F&& f) {
 // random if several can. Without a default case, blocks until one can.
 template <typename... Cases>
 void select(Cases&&... cases) {
-    constexpr int ndefault = (0 + ... + (std::decay_t<Cases>::is_default ? 1 : 0));
+    constexpr int ndefault = (0 + ... + (std::decay_t<Cases>::isDefault ? 1 : 0));
     static_assert(ndefault <= 1, "select: multiple defaults");
     constexpr int n = static_cast<int>(sizeof...(Cases)) - ndefault;
 
@@ -264,27 +264,27 @@ void select(Cases&&... cases) {
     int map[n > 0 ? n : 1];
     int nsends = 0, nrecvs = 0;
     int idx = 0;
-    auto add_send = [&](auto& c) {
+    auto addSend = [&](auto& c) {
         using C = std::decay_t<decltype(c)>;
-        if constexpr (C::is_send) {
+        if constexpr (C::isSend) {
             sc[nsends] = {c.ch.Handle(), &c.v};
             map[nsends] = idx;
             nsends++;
         }
         idx++;
     };
-    (add_send(cases), ...);
+    (addSend(cases), ...);
     idx = 0;
-    auto add_recv = [&](auto& c) {
+    auto addRecv = [&](auto& c) {
         using C = std::decay_t<decltype(c)>;
-        if constexpr (!C::is_send && !C::is_default) {
+        if constexpr (!C::isSend && !C::isDefault) {
             sc[nsends + nrecvs] = {c.ch.Handle(), c.s.get()};
             map[nsends + nrecvs] = idx;
             nrecvs++;
         }
         idx++;
     };
-    (add_recv(cases), ...);
+    (addRecv(cases), ...);
 
     auto r = detail::selectgo(sc, nsends, nrecvs, ndefault == 0);
 
@@ -293,9 +293,9 @@ void select(Cases&&... cases) {
     idx = 0;
     auto dispatch = [&](auto& c) {
         using C = std::decay_t<decltype(c)>;
-        bool hit = r.index < 0 ? C::is_default : idx == chosen;
+        bool hit = r.index < 0 ? C::isDefault : idx == chosen;
         idx++;
-        if (hit) c.run(r.recv_ok);
+        if (hit) c.run(r.recvOk);
     };
     (dispatch(cases), ...);
 }

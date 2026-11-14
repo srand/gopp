@@ -27,7 +27,7 @@ namespace {
 
 std::string str(std::span<const byte> b) { return std::string(asStringView(b)); }
 
-ptr<http::Handler> handlerFunc(http::handler_fn f) { return make_ptr<http::HandlerFunc>(std::move(f)); }
+ptr<http::Handler> handlerFunc(http::handlerFn f) { return make_ptr<http::HandlerFunc>(std::move(f)); }
 
 url::URL parse(std::string_view s) {
     auto [u, err] = url::Parse(s);
@@ -273,7 +273,7 @@ TEST(GoHttputil, ReverseProxyFlushInterval) {
 // client sees the first part before the backend sends the rest. (Go tests
 // selectFlushInterval, unexported.)
 TEST(GoHttputil, ReverseProxyFlushIntervalStreaming) {
-    auto next = makeChan<empty>();
+    auto next = make_chan<empty>();
     server backend(handlerFunc([next](http::ResponseWriter& w, http::Request&) {
         io::WriteString(w, "first ");
         dynamic_cast<http::Flusher&>(w).Flush();
@@ -467,7 +467,7 @@ TEST(GoHttputil, ReverseProxyErrorHandler) {
 // before any mutations.
 TEST(GoHttputil, ServeHTTPDeepCopy) {
     server backend(handlerFunc([](http::ResponseWriter& w, http::Request&) { io::WriteString(w, "Hello Gopher!"); }));
-    auto resultChan = makeChan<std::pair<std::string, std::string>>(1);
+    auto resultChan = make_chan<std::pair<std::string, std::string>>(1);
     auto proxyHandler = httputil::NewSingleHostReverseProxy(parse(backend->URL));
     server frontend(handlerFunc([&](http::ResponseWriter& w, http::Request& r) {
         std::string before = r.URL.String().str();

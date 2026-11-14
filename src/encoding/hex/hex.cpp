@@ -15,7 +15,7 @@ namespace {
 
 constexpr std::string_view hextable = "0123456789abcdef";
 
-constexpr std::array<byte, 256> reverse_hex_table = [] {
+constexpr std::array<byte, 256> reverseHexTable = [] {
     std::array<byte, 256> t{};
     t.fill(0xff);
     for (int c = '0'; c <= '9'; c++) t[static_cast<std::size_t>(c)] = static_cast<byte>(c - '0');
@@ -24,7 +24,7 @@ constexpr std::array<byte, 256> reverse_hex_table = [] {
     return t;
 }();
 
-constexpr std::size_t buffer_size = 1024;
+constexpr std::size_t bufferSize = 1024;
 
 std::span<const byte> viewBytes(const byte* p, std::size_t n) { return {p, n}; }
 
@@ -67,8 +67,8 @@ std::pair<isize, error> Decode(std::span<byte> dst, std::span<const byte> src) {
     for (; j + 1 < src.size(); j += 2) {
         byte p = src[j];
         byte q = src[j + 1];
-        byte a = reverse_hex_table[p];
-        byte b = reverse_hex_table[q];
+        byte a = reverseHexTable[p];
+        byte b = reverseHexTable[q];
         if (a > 0x0f) return {static_cast<isize>(i), make_ptr<InvalidByteError>(p)};
         if (b > 0x0f) return {static_cast<isize>(i), make_ptr<InvalidByteError>(q)};
         dst[i] = static_cast<byte>((a << 4) | b);
@@ -77,7 +77,7 @@ std::pair<isize, error> Decode(std::span<byte> dst, std::span<const byte> src) {
     if (src.size() % 2 == 1) {
         // Check for invalid char before reporting bad length, since the
         // invalid char (if present) is an earlier problem.
-        if (reverse_hex_table[src[j]] > 0x0f) return {static_cast<isize>(i), make_ptr<InvalidByteError>(src[j])};
+        if (reverseHexTable[src[j]] > 0x0f) return {static_cast<isize>(i), make_ptr<InvalidByteError>(src[j])};
         return {static_cast<isize>(i), ErrLength};
     }
     return {static_cast<isize>(i), nullptr};
@@ -111,7 +111,7 @@ public:
     std::pair<isize, error> Write(std::span<const byte> p) override {
         isize n = 0;
         while (!p.empty() && !err_) {
-            std::size_t chunk = std::min(buffer_size / 2, p.size());
+            std::size_t chunk = std::min(bufferSize / 2, p.size());
             isize encoded = hex::Encode(out_, p.first(chunk));
             auto [written, err] = w_->Write(viewBytes(out_.data(), static_cast<std::size_t>(encoded)));
             err_ = err;
@@ -124,7 +124,7 @@ public:
 private:
     ptr<io::Writer> w_;
     error err_;
-    std::array<byte, buffer_size> out_;
+    std::array<byte, bufferSize> out_;
 };
 
 class decoder final : public io::Reader {
@@ -134,33 +134,33 @@ public:
     std::pair<isize, error> Read(std::span<byte> p) override {
         // Fill internal buffer with sufficient bytes to decode.
         if (in_.size() < 2 && !err_) {
-            std::size_t num_copy = in_.size();  // either 0 or 1 bytes
-            std::memmove(arr_.data(), in_.data(), num_copy);
-            auto [num_read, err] = r_->Read(std::span<byte>(arr_).subspan(num_copy));
+            std::size_t numCopy = in_.size();  // either 0 or 1 bytes
+            std::memmove(arr_.data(), in_.data(), numCopy);
+            auto [numRead, err] = r_->Read(std::span<byte>(arr_).subspan(numCopy));
             err_ = err;
-            in_ = std::span<byte>(arr_.data(), num_copy + static_cast<std::size_t>(num_read));
+            in_ = std::span<byte>(arr_.data(), numCopy + static_cast<std::size_t>(numRead));
             if (err_ == io::EOF_ && in_.size() % 2 != 0) {
-                if (reverse_hex_table[in_.back()] > 0x0f) err_ = make_ptr<InvalidByteError>(in_.back());
+                if (reverseHexTable[in_.back()] > 0x0f) err_ = make_ptr<InvalidByteError>(in_.back());
                 else err_ = io::ErrUnexpectedEOF;
             }
         }
         // Decode internal buffer into output buffer.
-        if (std::size_t num_avail = in_.size() / 2; p.size() > num_avail) p = p.first(num_avail);
-        auto [num_dec, err] = hex::Decode(p, in_.first(p.size() * 2));
-        in_ = in_.subspan(2 * static_cast<std::size_t>(num_dec));
+        if (std::size_t numAvail = in_.size() / 2; p.size() > numAvail) p = p.first(numAvail);
+        auto [numDec, err] = hex::Decode(p, in_.first(p.size() * 2));
+        in_ = in_.subspan(2 * static_cast<std::size_t>(numDec));
         if (err) {
             in_ = {};
             err_ = err;  // decode error; discard input remainder
         }
-        if (in_.size() < 2) return {num_dec, err_};  // only expose errors when buffer fully consumed
-        return {num_dec, nullptr};
+        if (in_.size() < 2) return {numDec, err_};  // only expose errors when buffer fully consumed
+        return {numDec, nullptr};
     }
 
 private:
     ptr<io::Reader> r_;
     error err_;
     std::span<byte> in_;  // input buffer (encoded form)
-    std::array<byte, buffer_size> arr_;  // backing array for in_
+    std::array<byte, bufferSize> arr_;  // backing array for in_
 };
 
 constexpr byte toChar(byte b) { return b < 32 || b > 126 ? '.' : b; }
@@ -204,13 +204,13 @@ public:
             }
             if (auto err = w_->Write(viewBytes(buf_.data(), l)).second) return {n, err};
             n++;
-            right_chars_[used_] = toChar(b);
+            rightChars_[used_] = toChar(b);
             used_++;
             n_++;
             if (used_ == 16) {
-                right_chars_[16] = '|';
-                right_chars_[17] = '\n';
-                if (auto err = w_->Write(right_chars_).second) return {n, err};
+                rightChars_[16] = '|';
+                rightChars_[17] = '\n';
+                if (auto err = w_->Write(rightChars_).second) return {n, err};
                 used_ = 0;
             }
         }
@@ -227,7 +227,7 @@ public:
         buf_[2] = ' ';
         buf_[3] = ' ';
         buf_[4] = '|';
-        std::size_t n_bytes = used_;
+        std::size_t nBytes = used_;
         while (used_ < 16) {
             std::size_t l = 3;
             if (used_ == 7) l = 4;
@@ -235,14 +235,14 @@ public:
             if (auto err = w_->Write(viewBytes(buf_.data(), l)).second) return err;
             used_++;
         }
-        right_chars_[n_bytes] = '|';
-        right_chars_[n_bytes + 1] = '\n';
-        return w_->Write(viewBytes(right_chars_.data(), n_bytes + 2)).second;
+        rightChars_[nBytes] = '|';
+        rightChars_[nBytes + 1] = '\n';
+        return w_->Write(viewBytes(rightChars_.data(), nBytes + 2)).second;
     }
 
 private:
     ptr<io::Writer> w_;
-    std::array<byte, 18> right_chars_{};
+    std::array<byte, 18> rightChars_{};
     std::array<byte, 14> buf_{};
     std::size_t used_ = 0;  // number of bytes in the current line
     uint64 n_ = 0;          // number of bytes, total

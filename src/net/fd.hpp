@@ -59,8 +59,8 @@ public:
     // Read or Write are taken by those callers through these.
     error prepare(int mode);
     error wait(int mode);
-    sync::Mutex& read_lock() noexcept { return rmu_; }
-    sync::Mutex& write_lock() noexcept { return wmu_; }
+    sync::Mutex& readLock() noexcept { return rmu_; }
+    sync::Mutex& writeLock() noexcept { return wmu_; }
     error getsockoptInt(int level, int name, int* value);
     error setsockoptLinger(int sec);
     error Close();
@@ -74,8 +74,8 @@ public:
     const string& network() const noexcept { return net_; }
 
     // Sets laddr from getsockname(2) and raddr from getpeername(2), or
-    // from raddr_sa when it's given.
-    void setAddrs(const sockaddr_storage* raddr_sa = nullptr);
+    // from raddrSa when it's given.
+    void setAddrs(const sockaddr_storage* raddrSa = nullptr);
     // A copy of the descriptor as an os::File (Go's netFD.dup).
     std::pair<ptr<os::File>, error> dup();
     ptr<Addr> laddr;
@@ -87,13 +87,13 @@ public:
     void decref() noexcept;
 
 private:
-    error op_error(int pollerr) const;
+    error opError(int pollerr) const;
 
     int sysfd_;
     int family_;
     int sotype_;
     string net_;
-    runtime::poll_desc* pd_ = nullptr;
+    runtime::pollDesc* pd_ = nullptr;
     std::atomic<uint64_t> state_{1};  // bit 63: closed; low bits: references
     sync::Mutex rmu_;  // one reader at a time, as Go's readLock
     sync::Mutex wmu_;
@@ -114,7 +114,7 @@ error unixSockaddr(std::string_view name, sockaddr_storage* sa, socklen_t* len);
 string unixNet(int sotype);
 
 // net.OpError for a failed operation, unless err is nil or io::EOF_.
-error op_error(std::string_view op, const string& network, ptr<Addr> source, ptr<Addr> addr, error err);
+error opError(std::string_view op, const string& network, ptr<Addr> source, ptr<Addr> addr, error err);
 
 extern const error errMissingAddress;
 // Go's errCanceled ("operation was canceled", which is context::Canceled)
@@ -133,7 +133,7 @@ netfd* netfdOf(const object* c);
 
 // Go's ipToSockaddr: ip (nil for the wildcard), port and zone as a
 // sockaddr of family.
-error ip_to_sockaddr(int family, const IP& ip, int port, std::string_view zone, sockaddr_storage* sa,
+error ipToSockaddr(int family, const IP& ip, int port, std::string_view zone, sockaddr_storage* sa,
                      socklen_t* len);
 
 }  // namespace gopp::net

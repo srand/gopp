@@ -12,10 +12,10 @@ namespace gopp::json {
 
 namespace {
 
-constexpr std::size_t max_nesting_depth = 10000;
+constexpr std::size_t maxNestingDepth = 10000;
 
-bool is_space(char c) noexcept { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
-bool is_digit(char c) noexcept { return c >= '0' && c <= '9'; }
+bool isSpace(char c) noexcept { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+bool isDigit(char c) noexcept { return c >= '0' && c <= '9'; }
 
 // Decodes the UTF-8 sequence at s[i]; returns the rune and its size, or
 // U+FFFD and 1 for invalid bytes (utf8.DecodeRuneInString).
@@ -55,7 +55,7 @@ void appendRune(std::string& out, rune r) {
 }
 
 // Go's quoteChar, for error messages.
-std::string quote_char(char c) {
+std::string quoteChar(char c) {
     if (c == '\'') return "'\\''";
     if (c == '"') return "'\"'";
     std::string q(strconv::Quote(std::string_view(&c, 1)).view());
@@ -65,85 +65,85 @@ std::string quote_char(char c) {
 // ---------------------------------------------------------------------------
 // Validation (scanner.Go), by recursive descent.
 
-enum class scan_result { ok, eof, error };
+enum class scanResult { ok, eof, error };
 
 struct scanner {
     std::string_view s;
     std::size_t pos = 0;
-    bool at_eof = true;  // whether the input ends at s.size()
+    bool atEof = true;  // whether the input ends at s.size()
     std::string msg{};
-    std::size_t err_offset{};
+    std::size_t errOffset{};
 
-    scan_result fail(std::string m) {
+    scanResult fail(std::string m) {
         msg = std::move(m);
-        err_offset = pos + 1;
-        return scan_result::error;
+        errOffset = pos + 1;
+        return scanResult::error;
     }
 
-    scan_result eof() {
-        if (at_eof) {
+    scanResult eof() {
+        if (atEof) {
             msg = "unexpected end of JSON input";
-            err_offset = s.size();
-            return scan_result::error;
+            errOffset = s.size();
+            return scanResult::error;
         }
-        return scan_result::eof;
+        return scanResult::eof;
     }
 
     void skipWs() {
-        while (pos < s.size() && is_space(s[pos])) pos++;
+        while (pos < s.size() && isSpace(s[pos])) pos++;
     }
 
-    scan_result literal(std::string_view word) {
+    scanResult literal(std::string_view word) {
         for (std::size_t i = 0; i < word.size(); i++, pos++) {
             if (pos >= s.size()) return eof();
             if (s[pos] != word[i]) {
-                return fail("invalid character " + quote_char(s[pos]) + " in literal " + std::string(word) +
-                            " (expecting " + quote_char(word[i]) + ")");
+                return fail("invalid character " + quoteChar(s[pos]) + " in literal " + std::string(word) +
+                            " (expecting " + quoteChar(word[i]) + ")");
             }
         }
-        return scan_result::ok;
+        return scanResult::ok;
     }
 
-    scan_result number() {
-        auto bad = [&] { return fail("invalid character " + quote_char(s[pos]) + " in numeric literal"); };
+    scanResult number() {
+        auto bad = [&] { return fail("invalid character " + quoteChar(s[pos]) + " in numeric literal"); };
         if (s[pos] == '-') {
             pos++;
             if (pos >= s.size()) return eof();
-            if (!is_digit(s[pos])) return bad();
+            if (!isDigit(s[pos])) return bad();
         }
         if (s[pos] == '0') {
             pos++;
         } else {
-            while (pos < s.size() && is_digit(s[pos])) pos++;
+            while (pos < s.size() && isDigit(s[pos])) pos++;
         }
         if (pos < s.size() && s[pos] == '.') {
             pos++;
             if (pos >= s.size()) return eof();
-            if (!is_digit(s[pos])) return bad();
-            while (pos < s.size() && is_digit(s[pos])) pos++;
+            if (!isDigit(s[pos])) return bad();
+            while (pos < s.size() && isDigit(s[pos])) pos++;
         }
         if (pos < s.size() && (s[pos] == 'e' || s[pos] == 'E')) {
             pos++;
             if (pos < s.size() && (s[pos] == '+' || s[pos] == '-')) pos++;
             if (pos >= s.size()) return eof();
-            if (!is_digit(s[pos])) return bad();
-            while (pos < s.size() && is_digit(s[pos])) pos++;
+            if (!isDigit(s[pos])) return bad();
+            while (pos < s.size() && isDigit(s[pos])) pos++;
         }
         // A number at the end of a partial stream may continue.
-        if (pos >= s.size() && !at_eof) return scan_result::eof;
-        return scan_result::ok;
+        if (pos >= s.size() && !atEof) return scanResult::eof;
+        return scanResult::ok;
     }
 
-    scan_result string_() {
+    scanResult string_() {
         pos++;  // the opening quote
         for (;;) {
             if (pos >= s.size()) return eof();
             unsigned char c = static_cast<unsigned char>(s[pos]);
             if (c == '"') {
                 pos++;
-                return scan_result::ok;
+                return scanResult::ok;
             }
-            if (c < 0x20) return fail("invalid character " + quote_char(s[pos]) + " in string literal");
+            if (c < 0x20) return fail("invalid character " + quoteChar(s[pos]) + " in string literal");
             if (c == '\\') {
                 pos++;
                 if (pos >= s.size()) return eof();
@@ -153,12 +153,12 @@ struct scanner {
                         pos++;
                         if (pos >= s.size()) return eof();
                         char h = s[pos];
-                        if (!is_digit(h) && !(h >= 'a' && h <= 'f') && !(h >= 'A' && h <= 'F')) {
-                            return fail("invalid character " + quote_char(h) + " in \\u hexadecimal character escape");
+                        if (!isDigit(h) && !(h >= 'a' && h <= 'f') && !(h >= 'A' && h <= 'F')) {
+                            return fail("invalid character " + quoteChar(h) + " in \\u hexadecimal character escape");
                         }
                     }
                 } else if (std::string_view("\"\\/bfnrt").find(e) == std::string_view::npos) {
-                    return fail("invalid character " + quote_char(e) + " in string escape code");
+                    return fail("invalid character " + quoteChar(e) + " in string escape code");
                 }
             }
             pos++;
@@ -167,76 +167,76 @@ struct scanner {
 
     // Scans one value. Iterative, with an explicit stack of open objects and
     // arrays, so that deep nesting can't overflow a fiber's stack.
-    scan_result value() {
+    scanResult value() {
         std::vector<char> stack;  // '{' or '['
-        enum { want_value, want_key, after_value } state = want_value;
+        enum { wantValue, wantKey, afterValue } state = wantValue;
         for (;;) {
             switch (state) {
-            case want_value: {
+            case wantValue: {
                 skipWs();
                 if (pos >= s.size()) return eof();
                 char c = s[pos];
                 if (c == '{' || c == '[') {
-                    if (stack.size() >= max_nesting_depth) return fail("exceeded max depth");
+                    if (stack.size() >= maxNestingDepth) return fail("exceeded max depth");
                     pos++;
                     skipWs();
                     if (pos >= s.size()) return eof();
                     if (s[pos] == (c == '{' ? '}' : ']')) {
                         pos++;
-                        state = after_value;
+                        state = afterValue;
                         break;
                     }
                     stack.push_back(c);
-                    state = c == '{' ? want_key : want_value;
+                    state = c == '{' ? wantKey : wantValue;
                     break;
                 }
-                scan_result r;
+                scanResult r;
                 if (c == '"') r = string_();
                 else if (c == 't') r = literal("true");
                 else if (c == 'f') r = literal("false");
                 else if (c == 'n') r = literal("null");
-                else if (c == '-' || is_digit(c)) r = number();
-                else return fail("invalid character " + quote_char(c) + " looking for beginning of value");
-                if (r != scan_result::ok) return r;
-                state = after_value;
+                else if (c == '-' || isDigit(c)) r = number();
+                else return fail("invalid character " + quoteChar(c) + " looking for beginning of value");
+                if (r != scanResult::ok) return r;
+                state = afterValue;
                 break;
             }
-            case want_key:
+            case wantKey:
                 skipWs();
                 if (pos >= s.size()) return eof();
                 if (s[pos] != '"') {
-                    return fail("invalid character " + quote_char(s[pos]) + " looking for beginning of object key string");
+                    return fail("invalid character " + quoteChar(s[pos]) + " looking for beginning of object key string");
                 }
-                if (auto r = string_(); r != scan_result::ok) return r;
+                if (auto r = string_(); r != scanResult::ok) return r;
                 skipWs();
                 if (pos >= s.size()) return eof();
-                if (s[pos] != ':') return fail("invalid character " + quote_char(s[pos]) + " after object key");
+                if (s[pos] != ':') return fail("invalid character " + quoteChar(s[pos]) + " after object key");
                 pos++;
-                state = want_value;
+                state = wantValue;
                 break;
-            case after_value:
-                if (stack.empty()) return scan_result::ok;
+            case afterValue:
+                if (stack.empty()) return scanResult::ok;
                 skipWs();
                 if (pos >= s.size()) return eof();
                 if (stack.back() == '{') {
                     if (s[pos] == ',') {
                         pos++;
-                        state = want_key;
+                        state = wantKey;
                     } else if (s[pos] == '}') {
                         pos++;
                         stack.pop_back();
                     } else {
-                        return fail("invalid character " + quote_char(s[pos]) + " after object key:value pair");
+                        return fail("invalid character " + quoteChar(s[pos]) + " after object key:value pair");
                     }
                 } else {
                     if (s[pos] == ',') {
                         pos++;
-                        state = want_value;
+                        state = wantValue;
                     } else if (s[pos] == ']') {
                         pos++;
                         stack.pop_back();
                     } else {
-                        return fail("invalid character " + quote_char(s[pos]) + " after array element");
+                        return fail("invalid character " + quoteChar(s[pos]) + " after array element");
                     }
                 }
                 break;
@@ -248,11 +248,11 @@ struct scanner {
 gopp::error syntaxError(const scanner& sc) {
     auto e = make_ptr<SyntaxError>();
     e->msg = string(sc.msg);
-    e->offset = static_cast<int64>(sc.err_offset);
+    e->offset = static_cast<int64>(sc.errOffset);
     return e;
 }
 
-const char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const char base64Chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 int base64Value(char c) noexcept {
     if (c >= 'A' && c <= 'Z') return c - 'A';
@@ -269,8 +269,8 @@ int base64Value(char c) noexcept {
 // Errors
 
 string UnmarshalTypeError::Error() const {
-    if (!struct_name.empty() || !field.empty()) {
-        return "json: cannot unmarshal " + value + " into C++ struct field " + struct_name + "." + field + " of type " + type;
+    if (!structName.empty() || !field.empty()) {
+        return "json: cannot unmarshal " + value + " into C++ struct field " + structName + "." + field + " of type " + type;
     }
     return "json: cannot unmarshal " + value + " into C++ value of type " + type;
 }
@@ -281,22 +281,22 @@ bool EqualFold(std::string_view a, std::string_view b) noexcept { return strings
 
 gopp::error validate(std::string_view data) {
     scanner sc{data};
-    if (sc.value() != scan_result::ok) return syntaxError(sc);
+    if (sc.value() != scanResult::ok) return syntaxError(sc);
     sc.skipWs();
     if (sc.pos < data.size()) {
-        sc.fail("invalid character " + quote_char(data[sc.pos]) + " after top-level value");
+        sc.fail("invalid character " + quoteChar(data[sc.pos]) + " after top-level value");
         return syntaxError(sc);
     }
     return nullptr;
 }
 
-std::pair<std::size_t, gopp::error> valueLength(std::string_view s, bool at_eof) {
+std::pair<std::size_t, gopp::error> valueLength(std::string_view s, bool atEof) {
     scanner sc{s};
-    sc.at_eof = at_eof;
+    sc.atEof = atEof;
     switch (sc.value()) {
-    case scan_result::ok: return {sc.pos, nullptr};
-    case scan_result::eof: return {0, nullptr};
-    case scan_result::error: return {0, syntaxError(sc)};
+    case scanResult::ok: return {sc.pos, nullptr};
+    case scanResult::eof: return {0, nullptr};
+    case scanResult::error: return {0, syntaxError(sc)};
     }
     return {0, nullptr};
 }
@@ -311,7 +311,7 @@ void encoder::WriteString(std::string_view s) {
     for (std::size_t i = 0; i < s.size();) {
         unsigned char b = static_cast<unsigned char>(s[i]);
         if (b < 0x80) {
-            bool safe = b >= 0x20 && b != '"' && b != '\\' && (!escape_html || (b != '<' && b != '>' && b != '&'));
+            bool safe = b >= 0x20 && b != '"' && b != '\\' && (!escapeHtml || (b != '<' && b != '>' && b != '&'));
             if (safe) {
                 i++;
                 continue;
@@ -412,14 +412,14 @@ void encoder::writeFloat(double f, int bits) {
         if (c != '.') digits.push_back(c);
     }
     if (exponent >= 0) {
-        std::size_t int_len = static_cast<std::size_t>(exponent) + 1;
-        if (digits.size() <= int_len) {
+        std::size_t intLen = static_cast<std::size_t>(exponent) + 1;
+        if (digits.size() <= intLen) {
             out.append(digits);
-            out.append(int_len - digits.size(), '0');
+            out.append(intLen - digits.size(), '0');
         } else {
-            out.append(digits, 0, int_len);
+            out.append(digits, 0, intLen);
             out.push_back('.');
-            out.append(digits, int_len);
+            out.append(digits, intLen);
         }
     } else {
         out.append("0.");
@@ -433,17 +433,17 @@ void encoder::writeBase64(std::span<const byte> b) {
     std::size_t i = 0;
     for (; i + 3 <= b.size(); i += 3) {
         uint32_t v = static_cast<uint32_t>(b[i]) << 16 | static_cast<uint32_t>(b[i + 1]) << 8 | b[i + 2];
-        out.push_back(base64_chars[v >> 18]);
-        out.push_back(base64_chars[(v >> 12) & 63]);
-        out.push_back(base64_chars[(v >> 6) & 63]);
-        out.push_back(base64_chars[v & 63]);
+        out.push_back(base64Chars[v >> 18]);
+        out.push_back(base64Chars[(v >> 12) & 63]);
+        out.push_back(base64Chars[(v >> 6) & 63]);
+        out.push_back(base64Chars[v & 63]);
     }
     if (i < b.size()) {
         uint32_t v = static_cast<uint32_t>(b[i]) << 16;
         if (i + 1 < b.size()) v |= static_cast<uint32_t>(b[i + 1]) << 8;
-        out.push_back(base64_chars[v >> 18]);
-        out.push_back(base64_chars[(v >> 12) & 63]);
-        out.push_back(i + 1 < b.size() ? base64_chars[(v >> 6) & 63] : '=');
+        out.push_back(base64Chars[v >> 18]);
+        out.push_back(base64Chars[(v >> 12) & 63]);
+        out.push_back(i + 1 < b.size() ? base64Chars[(v >> 6) & 63] : '=');
         out.push_back('=');
     }
     out.push_back('"');
@@ -496,7 +496,7 @@ void encoder::writeMarshaled(std::pair<slice<byte>, gopp::error> r, std::string_
     std::string_view s = asStringView(r.first);
     if (gopp::error e = validate(s)) return fail(e);
     std::string compacted;
-    append_compact(compacted, s, escape_html);
+    appendCompact(compacted, s, escapeHtml);
     out.append(compacted);
 }
 
@@ -509,8 +509,8 @@ void encoder::cycleError(std::string_view type) {
 
 // Go's appendCompact: valid src without space outside strings; with
 // escape, also escapes <, >, &, U+2028 and U+2029.
-void append_compact(std::string& dst, std::string_view s, bool escape) {
-    bool in_string = false;
+void appendCompact(std::string& dst, std::string_view s, bool escape) {
+    bool inString = false;
     for (std::size_t i = 0; i < s.size(); i++) {
         char c = s[i];
         if (escape) {
@@ -525,13 +525,13 @@ void append_compact(std::string& dst, std::string_view s, bool escape) {
                 continue;
             }
         }
-        if (in_string) {
+        if (inString) {
             dst.push_back(c);
             if (c == '\\' && i + 1 < s.size()) dst.push_back(s[++i]);
-            else if (c == '"') in_string = false;
-        } else if (!is_space(c)) {
+            else if (c == '"') inString = false;
+        } else if (!isSpace(c)) {
             dst.push_back(c);
-            if (c == '"') in_string = true;
+            if (c == '"') inString = true;
         }
     }
 }
@@ -540,7 +540,7 @@ void indent(std::string& dst, std::string_view src, std::string_view prefix, std
     // After Go's appendIndent: src is valid JSON. Leading space is dropped,
     // trailing space kept.
     std::size_t end = src.size();
-    while (end > 0 && is_space(src[end - 1])) end--;
+    while (end > 0 && isSpace(src[end - 1])) end--;
     std::string_view trailing = src.substr(end);
     src = src.substr(0, end);
     int depth = 0;
@@ -549,25 +549,25 @@ void indent(std::string& dst, std::string_view src, std::string_view prefix, std
         dst.append(prefix);
         for (int i = 0; i < depth; i++) dst.append(ind);
     };
-    bool in_string = false;
+    bool inString = false;
     for (std::size_t i = 0; i < src.size(); i++) {
         char c = src[i];
-        if (in_string) {
+        if (inString) {
             dst.push_back(c);
             if (c == '\\' && i + 1 < src.size()) dst.push_back(src[++i]);
-            else if (c == '"') in_string = false;
+            else if (c == '"') inString = false;
             continue;
         }
         switch (c) {
         case '"':
-            in_string = true;
+            inString = true;
             dst.push_back(c);
             break;
         case '{':
         case '[': {
             dst.push_back(c);
             std::size_t j = i + 1;
-            while (j < src.size() && is_space(src[j])) j++;
+            while (j < src.size() && isSpace(src[j])) j++;
             if (j < src.size() && (src[j] == '}' || src[j] == ']')) {
                 dst.push_back(src[j]);  // empty: {} or []
                 i = j;
@@ -591,7 +591,7 @@ void indent(std::string& dst, std::string_view src, std::string_view prefix, std
             dst.append(": ");
             break;
         default:
-            if (!is_space(c)) dst.push_back(c);
+            if (!isSpace(c)) dst.push_back(c);
         }
     }
     dst.append(trailing);
@@ -601,7 +601,7 @@ void indent(std::string& dst, std::string_view src, std::string_view prefix, std
 // Decoding (of validated input)
 
 void decoder::skipWs() noexcept {
-    while (pos_ < data_.size() && is_space(data_[pos_])) pos_++;
+    while (pos_ < data_.size() && isSpace(data_[pos_])) pos_++;
 }
 
 char decoder::peek() noexcept {
@@ -622,7 +622,7 @@ std::string_view decoder::literal() {
     std::size_t start = pos_;
     while (pos_ < data_.size()) {
         char c = data_[pos_];
-        if (c == ',' || c == '}' || c == ']' || is_space(c)) break;
+        if (c == ',' || c == '}' || c == ']' || isSpace(c)) break;
         pos_++;
     }
     return data_.substr(start, pos_ - start);
@@ -676,7 +676,7 @@ void decoder::ReadString(std::string& out) {
                     rune r = 0;
                     for (int i = 0; i < 4; i++) {
                         char h = data_[at + i];
-                        r = r << 4 | (is_digit(h) ? h - '0' : (h | 0x20) - 'a' + 10);
+                        r = r << 4 | (isDigit(h) ? h - '0' : (h | 0x20) - 'a' + 10);
                     }
                     return r;
                 };
@@ -849,7 +849,7 @@ void decoder::mismatch(std::string_view type) {
 }
 
 void decoder::badValue(std::string_view value, std::string_view type) {
-    fail(make_ptr<UnmarshalTypeError>(string(value), string(type), static_cast<int64>(pos_), string(struct_name), string(field)));
+    fail(make_ptr<UnmarshalTypeError>(string(value), string(type), static_cast<int64>(pos_), string(structName), string(field)));
 }
 
 }  // namespace detail
@@ -861,7 +861,7 @@ Value::~Value() {
     if (!IsArray() && !IsObject()) return;
     // Move the children out, and theirs, so that each is destroyed shallow.
     std::vector<Value> pending;
-    auto take_children = [&](Value& v) {
+    auto takeChildren = [&](Value& v) {
         if (auto* a = std::get_if<array>(&v.v_)) {
             for (Value& c : *a) {
                 if (c.IsArray() || c.IsObject()) pending.push_back(std::move(c));
@@ -872,22 +872,22 @@ Value::~Value() {
             }
         }
     };
-    take_children(*this);
+    takeChildren(*this);
     while (!pending.empty()) {
         Value v = std::move(pending.back());
         pending.pop_back();
-        take_children(v);
+        takeChildren(v);
         v.v_ = nullptr;  // now shallow
     }
 }
 
 const Value& Value::operator[](std::string_view key) const {
-    static const Value null_value;
+    static const Value nullValue;
     if (auto* o = std::get_if<object>(&v_)) {
         auto it = o->find(key);
         if (it != o->end()) return it->second;
     }
-    return null_value;
+    return nullValue;
 }
 
 Value& Value::operator[](std::string_view key) {
@@ -924,14 +924,14 @@ bool Valid(std::span<const byte> data) { return !detail::validate(asStringView(d
 
 error Compact(std::string& dst, std::string_view src) {
     if (error err = detail::validate(src)) return err;
-    detail::append_compact(dst, src, false);
+    detail::appendCompact(dst, src, false);
     return nullptr;
 }
 
 error Indent(std::string& dst, std::string_view src, std::string_view prefix, std::string_view ind) {
     if (error err = detail::validate(src)) return err;
     std::size_t start = 0;
-    while (start < src.size() && is_space(src[start])) start++;
+    while (start < src.size() && isSpace(src[start])) start++;
     detail::indent(dst, src.substr(start), prefix, ind);
     return nullptr;
 }
@@ -970,16 +970,16 @@ gopp::error Decoder::refill() {
 std::pair<std::string_view, error> Decoder::readValue() {
     for (;;) {
         std::string_view rest = std::string_view(buf_).substr(scanp_);
-        bool at_eof = static_cast<bool>(err_);
+        bool atEof = static_cast<bool>(err_);
         // Skip whitespace before checking for the end of the stream.
         std::size_t ws = 0;
-        while (ws < rest.size() && is_space(rest[ws])) ws++;
-        if (ws < rest.size() || at_eof) {
-            if (ws == rest.size() && at_eof) {
+        while (ws < rest.size() && isSpace(rest[ws])) ws++;
+        if (ws < rest.size() || atEof) {
+            if (ws == rest.size() && atEof) {
                 scanp_ = buf_.size();
                 return {{}, err_};  // io::EOF_ at the end of the stream
             }
-            auto [len, serr] = detail::valueLength(rest, at_eof);
+            auto [len, serr] = detail::valueLength(rest, atEof);
             if (serr) {
                 err_ = serr;
                 return {{}, serr};
@@ -988,7 +988,7 @@ std::pair<std::string_view, error> Decoder::readValue() {
                 scanp_ += len;
                 return {rest.substr(0, len), nullptr};
             }
-            if (at_eof) {
+            if (atEof) {
                 err_ = io::ErrUnexpectedEOF;
                 return {{}, err_};
             }
@@ -1001,7 +1001,7 @@ bool Decoder::More() {
     for (;;) {
         std::string_view rest = std::string_view(buf_).substr(scanp_);
         std::size_t ws = 0;
-        while (ws < rest.size() && is_space(rest[ws])) ws++;
+        while (ws < rest.size() && isSpace(rest[ws])) ws++;
         if (ws < rest.size()) return rest[ws] != ']' && rest[ws] != '}';
         if (err_) return false;
         if (gopp::error e = refill()) err_ = e;

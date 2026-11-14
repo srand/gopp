@@ -12,11 +12,11 @@ namespace gopp::text::tmpl::parse {
 namespace {
 
 constexpr int32 eof = -1;
-constexpr std::string_view space_chars = " \t\r\n";
-constexpr char trim_marker = '-';
-constexpr Pos trim_marker_len = 2;  // marker plus space before or after
-constexpr std::string_view left_comment = "/*";
-constexpr std::string_view right_comment = "*/";
+constexpr std::string_view spaceChars = " \t\r\n";
+constexpr char trimMarker = '-';
+constexpr Pos trimMarkerLen = 2;  // marker plus space before or after
+constexpr std::string_view leftComment = "/*";
+constexpr std::string_view rightComment = "*/";
 
 const std::map<std::string_view, itemType>& keys() {
     static const std::map<std::string_view, itemType> k = {
@@ -27,29 +27,29 @@ const std::map<std::string_view, itemType>& keys() {
     return k;
 }
 
-bool is_space(int32 r) { return r == ' ' || r == '\t' || r == '\r' || r == '\n'; }
+bool isSpace(int32 r) { return r == ' ' || r == '\t' || r == '\r' || r == '\n'; }
 
-bool isAlphaNumeric(int32 r) { return r == '_' || detail::isLetter(r) || detail::is_digit(r); }
+bool isAlphaNumeric(int32 r) { return r == '_' || detail::isLetter(r) || detail::isDigit(r); }
 
-bool hasLeftTrimMarker(std::string_view s) { return s.size() >= 2 && s[0] == trim_marker && is_space(s[1]); }
+bool hasLeftTrimMarker(std::string_view s) { return s.size() >= 2 && s[0] == trimMarker && isSpace(s[1]); }
 
-bool hasRightTrimMarker(std::string_view s) { return s.size() >= 2 && is_space(s[0]) && s[1] == trim_marker; }
+bool hasRightTrimMarker(std::string_view s) { return s.size() >= 2 && isSpace(s[0]) && s[1] == trimMarker; }
 
 Pos rightTrimLength(std::string_view s) {
     std::size_t n = s.size();
-    while (n > 0 && space_chars.find(s[n - 1]) != std::string_view::npos) n--;
+    while (n > 0 && spaceChars.find(s[n - 1]) != std::string_view::npos) n--;
     return static_cast<Pos>(s.size() - n);
 }
 
 Pos leftTrimLength(std::string_view s) {
     std::size_t n = 0;
-    while (n < s.size() && space_chars.find(s[n]) != std::string_view::npos) n++;
+    while (n < s.size() && spaceChars.find(s[n]) != std::string_view::npos) n++;
     return static_cast<Pos>(n);
 }
 
 int countNewlines(std::string_view s) { return static_cast<int>(std::count(s.begin(), s.end(), '\n')); }
 
-bool contains_rune(std::string_view valid, int32 r) {
+bool containsRune(std::string_view valid, int32 r) {
     if (r < 0) return false;
     std::string enc;
     detail::appendRune(enc, r);
@@ -87,12 +87,12 @@ std::string to_string(const item& i) {
 lexer::lexer(string name, string input, std::string_view left, std::string_view right)
     : name_(std::move(name)),
       input_(std::move(input)),
-      left_delim_(left.empty() ? default_left_delim : left),
-      right_delim_(right.empty() ? default_right_delim : right) {}
+      leftDelim_(left.empty() ? defaultLeftDelim : left),
+      rightDelim_(right.empty() ? defaultRightDelim : right) {}
 
 int32 lexer::next() {
     if (static_cast<std::size_t>(pos_) >= input_.size()) {
-        at_eof_ = true;
+        atEof_ = true;
         return eof;
     }
     auto [r, w] = detail::decodeRune(input_, static_cast<std::size_t>(pos_));
@@ -108,7 +108,7 @@ int32 lexer::peek() {
 }
 
 void lexer::backup() {
-    if (!at_eof_ && pos_ > 0) {
+    if (!atEof_ && pos_ > 0) {
         auto [r, w] = detail::decodeLastRune(input_, static_cast<std::size_t>(pos_));
         pos_ -= w;
         if (r == '\n') line_--;
@@ -116,9 +116,9 @@ void lexer::backup() {
 }
 
 item lexer::thisItem(itemType t) {
-    item i{t, start_, input_.slice(static_cast<std::size_t>(start_), static_cast<std::size_t>(pos_)), start_line_};
+    item i{t, start_, input_.slice(static_cast<std::size_t>(start_), static_cast<std::size_t>(pos_)), startLine_};
     start_ = pos_;
-    start_line_ = line_;
+    startLine_ = line_;
     return i;
 }
 
@@ -132,23 +132,23 @@ bool lexer::emitItem(item i) {
 void lexer::ignore() {
     line_ += countNewlines(input_.view().substr(static_cast<std::size_t>(start_), static_cast<std::size_t>(pos_ - start_)));
     start_ = pos_;
-    start_line_ = line_;
+    startLine_ = line_;
 }
 
 bool lexer::accept(std::string_view valid) {
-    if (contains_rune(valid, next())) return true;
+    if (containsRune(valid, next())) return true;
     backup();
     return false;
 }
 
 void lexer::acceptRun(std::string_view valid) {
-    while (contains_rune(valid, next())) {
+    while (containsRune(valid, next())) {
     }
     backup();
 }
 
 bool lexer::errorf(std::string msg) {
-    item_ = item{itemError, start_, string(msg), start_line_};
+    item_ = item{itemError, start_, string(msg), startLine_};
     start_ = 0;
     pos_ = 0;
     input_ = {};
@@ -156,8 +156,8 @@ bool lexer::errorf(std::string msg) {
 }
 
 item lexer::nextItem() {
-    item_ = item{itemEOF, pos_, string::fromStatic("EOF"), start_line_};
-    state_fn state = inside_action_ ? &lexer::lex_inside_action : &lexer::lexText;
+    item_ = item{itemEOF, pos_, string::fromStatic("EOF"), startLine_};
+    stateFn state = insideAction_ ? &lexer::lexInsideAction : &lexer::lexText;
     for (;;) {
         state_ = nullptr;
         if (!(this->*state)()) return item_;
@@ -167,21 +167,21 @@ item lexer::nextItem() {
 
 bool lexer::lexText() {
     std::string_view in = input_;
-    auto x = in.find(left_delim_, static_cast<std::size_t>(pos_));
+    auto x = in.find(leftDelim_, static_cast<std::size_t>(pos_));
     if (x != std::string_view::npos) {
         x -= static_cast<std::size_t>(pos_);
         if (x > 0) {
             pos_ += static_cast<Pos>(x);
             // Do we trim any trailing space?
-            Pos trim_length = 0;
-            Pos delim_end = pos_ + static_cast<Pos>(left_delim_.size());
-            if (hasLeftTrimMarker(in.substr(static_cast<std::size_t>(delim_end)))) {
-                trim_length = rightTrimLength(in.substr(static_cast<std::size_t>(start_), static_cast<std::size_t>(pos_ - start_)));
+            Pos trimLength = 0;
+            Pos delimEnd = pos_ + static_cast<Pos>(leftDelim_.size());
+            if (hasLeftTrimMarker(in.substr(static_cast<std::size_t>(delimEnd)))) {
+                trimLength = rightTrimLength(in.substr(static_cast<std::size_t>(start_), static_cast<std::size_t>(pos_ - start_)));
             }
-            pos_ -= trim_length;
+            pos_ -= trimLength;
             line_ += countNewlines(in.substr(static_cast<std::size_t>(start_), static_cast<std::size_t>(pos_ - start_)));
             item i = thisItem(itemText);
-            pos_ += trim_length;
+            pos_ += trimLength;
             ignore();
             if (!i.val.empty()) return emitItem(std::move(i));
         }
@@ -199,73 +199,73 @@ bool lexer::lexText() {
 
 std::pair<bool, bool> lexer::atRightDelim() {
     std::string_view rest = input_.view().substr(static_cast<std::size_t>(pos_));
-    if (hasRightTrimMarker(rest) && rest.substr(static_cast<std::size_t>(trim_marker_len)).starts_with(right_delim_)) {
+    if (hasRightTrimMarker(rest) && rest.substr(static_cast<std::size_t>(trimMarkerLen)).starts_with(rightDelim_)) {
         return {true, true};
     }
-    if (rest.starts_with(right_delim_)) return {true, false};
+    if (rest.starts_with(rightDelim_)) return {true, false};
     return {false, false};
 }
 
 bool lexer::lexLeftDelim() {
-    pos_ += static_cast<Pos>(left_delim_.size());
+    pos_ += static_cast<Pos>(leftDelim_.size());
     std::string_view rest = input_.view().substr(static_cast<std::size_t>(pos_));
-    bool trim_space = hasLeftTrimMarker(rest);
-    Pos after_marker = trim_space ? trim_marker_len : 0;
-    if (rest.substr(static_cast<std::size_t>(after_marker)).starts_with(left_comment)) {
-        pos_ += after_marker;
+    bool trimSpace = hasLeftTrimMarker(rest);
+    Pos afterMarker = trimSpace ? trimMarkerLen : 0;
+    if (rest.substr(static_cast<std::size_t>(afterMarker)).starts_with(leftComment)) {
+        pos_ += afterMarker;
         ignore();
         state_ = &lexer::lexComment;
         return true;
     }
     item i = thisItem(itemLeftDelim);
-    inside_action_ = true;
-    pos_ += after_marker;
+    insideAction_ = true;
+    pos_ += afterMarker;
     ignore();
-    paren_depth_ = 0;
+    parenDepth_ = 0;
     return emitItem(std::move(i));
 }
 
 bool lexer::lexComment() {
-    pos_ += static_cast<Pos>(left_comment.size());
-    auto x = input_.view().find(right_comment, static_cast<std::size_t>(pos_));
+    pos_ += static_cast<Pos>(leftComment.size());
+    auto x = input_.view().find(rightComment, static_cast<std::size_t>(pos_));
     if (x == std::string_view::npos) return errorf("unclosed comment");
-    pos_ = static_cast<Pos>(x + right_comment.size());
-    auto [delim, trim_space] = atRightDelim();
+    pos_ = static_cast<Pos>(x + rightComment.size());
+    auto [delim, trimSpace] = atRightDelim();
     if (!delim) return errorf("comment ends before closing delimiter");
     line_ += countNewlines(input_.view().substr(static_cast<std::size_t>(start_), static_cast<std::size_t>(pos_ - start_)));
     item i = thisItem(itemComment);
-    if (trim_space) pos_ += trim_marker_len;
-    pos_ += static_cast<Pos>(right_delim_.size());
-    if (trim_space) pos_ += leftTrimLength(input_.view().substr(static_cast<std::size_t>(pos_)));
+    if (trimSpace) pos_ += trimMarkerLen;
+    pos_ += static_cast<Pos>(rightDelim_.size());
+    if (trimSpace) pos_ += leftTrimLength(input_.view().substr(static_cast<std::size_t>(pos_)));
     ignore();
-    if (options.emit_comment) return emitItem(std::move(i));
+    if (options.emitComment) return emitItem(std::move(i));
     state_ = &lexer::lexText;
     return true;
 }
 
 bool lexer::lexRightDelim() {
-    auto [delim, trim_space] = atRightDelim();
-    if (trim_space) {
-        pos_ += trim_marker_len;
+    auto [delim, trimSpace] = atRightDelim();
+    if (trimSpace) {
+        pos_ += trimMarkerLen;
         ignore();
     }
-    pos_ += static_cast<Pos>(right_delim_.size());
+    pos_ += static_cast<Pos>(rightDelim_.size());
     item i = thisItem(itemRightDelim);
-    if (trim_space) {
+    if (trimSpace) {
         pos_ += leftTrimLength(input_.view().substr(static_cast<std::size_t>(pos_)));
         ignore();
     }
-    inside_action_ = false;
+    insideAction_ = false;
     return emitItem(std::move(i));
 }
 
-bool lexer::lex_inside_action() {
+bool lexer::lexInsideAction() {
     // Either number, quoted string, or identifier. Spaces separate
     // arguments; runs of spaces turn into itemSpace. Pipe symbols separate
     // and are emitted.
     auto [delim, trim] = atRightDelim();
     if (delim) {
-        if (paren_depth_ == 0) {
+        if (parenDepth_ == 0) {
             state_ = &lexer::lexRightDelim;
             return true;
         }
@@ -273,7 +273,7 @@ bool lexer::lex_inside_action() {
     }
     int32 r = next();
     if (r == eof) return errorf("unclosed action");
-    if (is_space(r)) {
+    if (isSpace(r)) {
         backup();  // put space back in case we have " -}}"
         state_ = &lexer::lexSpace;
         return true;
@@ -303,11 +303,11 @@ bool lexer::lex_inside_action() {
         state_ = &lexer::lexNumber;
         return true;
     case '(':
-        paren_depth_++;
+        parenDepth_++;
         return emit(itemLeftParen);
     case ')':
-        paren_depth_--;
-        if (paren_depth_ < 0) return errorf("unexpected right paren");
+        parenDepth_--;
+        if (parenDepth_ < 0) return errorf("unexpected right paren");
         return emit(itemRightParen);
     }
     if (isAlphaNumeric(r)) {
@@ -320,20 +320,20 @@ bool lexer::lex_inside_action() {
 }
 
 bool lexer::lexSpace() {
-    int num_spaces = 0;
+    int numSpaces = 0;
     for (;;) {
         int32 r = peek();
-        if (!is_space(r)) break;
+        if (!isSpace(r)) break;
         next();
-        num_spaces++;
+        numSpaces++;
     }
     // Be careful about a trim-marked closing delimiter, which has a minus
     // after a space: we know there is a space, so check for the '-' that
     // might follow.
     std::string_view rest = input_.view().substr(static_cast<std::size_t>(pos_ - 1));
-    if (hasRightTrimMarker(rest) && rest.substr(static_cast<std::size_t>(trim_marker_len)).starts_with(right_delim_)) {
+    if (hasRightTrimMarker(rest) && rest.substr(static_cast<std::size_t>(trimMarkerLen)).starts_with(rightDelim_)) {
         backup();  // before the space
-        if (num_spaces == 1) {
+        if (numSpaces == 1) {
             state_ = &lexer::lexRightDelim;  // on the delim, so go right to that
             return true;
         }
@@ -351,7 +351,7 @@ bool lexer::lexIdentifier() {
         auto it = keys().find(word);
         if (it != keys().end() && it->second > itemKeyword) {
             itemType k = it->second;
-            if ((k == itemBreak && !options.break_ok) || (k == itemContinue && !options.continue_ok)) return emit(itemIdentifier);
+            if ((k == itemBreak && !options.breakOk) || (k == itemContinue && !options.continueOk)) return emit(itemIdentifier);
             return emit(k);
         }
         if (word[0] == '.') return emit(itemField);
@@ -386,12 +386,12 @@ bool lexer::lexFieldOrVariable(itemType typ) {
 
 bool lexer::atTerminator() {
     int32 r = peek();
-    if (is_space(r)) return true;
+    if (isSpace(r)) return true;
     switch (r) {
     case eof: case '.': case ',': case '|': case ':': case ')': case '(':
         return true;
     }
-    return input_.view().substr(static_cast<std::size_t>(pos_)).starts_with(right_delim_);
+    return input_.view().substr(static_cast<std::size_t>(pos_)).starts_with(rightDelim_);
 }
 
 bool lexer::lexChar() {

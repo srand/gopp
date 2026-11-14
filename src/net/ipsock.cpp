@@ -66,10 +66,10 @@ std::pair<int, bool> parsePort(std::string_view service) {
 
 // Go's services, completed from /etc/services on first use, as its
 // pure-Go resolver does (port_unix.go).
-using services_map = std::map<std::string, std::map<std::string, int>>;
+using servicesMap = std::map<std::string, std::map<std::string, int>>;
 
-services_map loadServices() {
-    services_map s = {
+servicesMap loadServices() {
+    servicesMap s = {
         {"udp", {{"domain", 53}}},
         {"tcp",
          {{"ftp", 21}, {"ftps", 990}, {"gopher", 70}, {"http", 80}, {"https", 443}, {"imap2", 143},
@@ -98,13 +98,13 @@ services_map loadServices() {
     return s;
 }
 
-services_map& services() {
+servicesMap& services() {
     // Loaded under a sync::Once, not by the static's initializer: loading
     // parks the fiber, and fibers waiting on a static's guard block their
     // threads, and with them the Ps the loading fiber needs to finish.
     struct table {
         sync::Once once;
-        services_map m;
+        servicesMap m;
     };
     static auto* t = new table;
     t->once.Do([] { t->m = loadServices(); });
@@ -201,7 +201,7 @@ std::pair<int, error> LookupPort(std::string_view network, std::string_view serv
     return {port, nullptr};
 }
 
-ip_port ipPortOf(const Addr* a) {
+ipPort ipPortOf(const Addr* a) {
     if (auto* t = dynamic_cast<const TCPAddr*>(a)) return {t->IP, t->Port, t->Zone, true};
     if (auto* u = dynamic_cast<const UDPAddr*>(a)) return {u->IP, u->Port, u->Zone, true};
     if (auto* i = dynamic_cast<const IPAddr*>(a)) return {i->IP, 0, i->Zone, true};

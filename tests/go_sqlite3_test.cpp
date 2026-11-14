@@ -48,9 +48,9 @@ std::string TempFilename() {
 }
 
 // Removes the file when it goes out of scope (defer os.Remove).
-struct remove_after {
+struct removeAfter {
     std::string name;
-    ~remove_after() { os::Remove(name); }
+    ~removeAfter() { os::Remove(name); }
 };
 
 ptr<sql::DB> mustOpen(const std::string& dsn) {
@@ -59,9 +59,9 @@ ptr<sql::DB> mustOpen(const std::string& dsn) {
     return db;
 }
 
-struct close_after {
+struct closeAfter {
     ptr<sql::DB> db;
-    ~close_after() {
+    ~closeAfter() {
         if (db) db->Close();
     }
 };
@@ -76,13 +76,13 @@ ptr<sqlite3::internal::conn> openConn() {
 
 std::string doTestOpen(const std::string& option, error& err) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto [db, oerr] = sql::Open("sqlite3", tempFilename + option);
     if (oerr) {
         err = oerr;
         return "Failed to open database:";
     }
-    close_after c{db};
+    closeAfter c{db};
     if ((err = db->Ping())) return "ping error:";
     db->Exec("drop table foo");
     if (auto [_, cerr] = db->Exec("create table foo (id integer)"); cerr) {
@@ -118,7 +118,7 @@ TEST(GoSQLite3, Open) {
 TEST(GoSQLite3, OpenWithVFS) {
     std::string filename = "TestOpenWithVFS.sqlite";
     os::Remove(filename);
-    remove_after rm{filename};
+    removeAfter rm{filename};
     {
         auto db = mustOpen("file:" + filename + "?vfs=hello");
         EXPECT_TRUE(db->Ping()) << "Failed to open: a vfs named hello shouldn't exist";
@@ -132,7 +132,7 @@ TEST(GoSQLite3, OpenWithVFS) {
 TEST(GoSQLite3, OpenNoCreate) {
     std::string filename = "TestOpenNoCreate.sqlite";
     os::Remove(filename);
-    remove_after rm{filename};
+    removeAfter rm{filename};
 
     // https://www.sqlite.org/c3ref/open.html
     // SQLITE_OPEN_READWRITE: the database is opened for reading and writing
@@ -153,7 +153,7 @@ TEST(GoSQLite3, OpenNoCreate) {
 
     // verify that it works if the mode is "rwc" instead
     auto db2 = mustOpen("file:" + filename + "?mode=rwc");
-    close_after c{db2};
+    closeAfter c{db2};
     ASSERT_FALSE(db2->Ping());
     // make sure database file truly was created
     EXPECT_FALSE(os::Stat(filename).second) << "expected database file to exist";
@@ -161,12 +161,12 @@ TEST(GoSQLite3, OpenNoCreate) {
 
 TEST(GoSQLite3, Readonly) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db1 = mustOpen("file:" + tempFilename);
-    close_after c1{db1};
+    closeAfter c1{db1};
     db1->Exec("CREATE TABLE test (x int, y float)");
     auto db2 = mustOpen("file:" + tempFilename + "?mode=ro");
-    close_after c2{db2};
+    closeAfter c2{db2};
     auto [_, err] = db2->Exec("INSERT INTO test VALUES (1, 3.14)");
     EXPECT_TRUE(err) << "didn't expect INSERT into read-only database to work";
 }
@@ -175,7 +175,7 @@ TEST(GoSQLite3, ForeignKeys) {
     std::pair<const char*, bool> cases[] = {{"?_foreign_keys=1", true}, {"?_foreign_keys=0", false}};
     for (auto [option, want] : cases) {
         std::string fname = TempFilename();
-        remove_after rm{fname};
+        removeAfter rm{fname};
         std::string uri = "file:" + fname + option;
         auto db = mustOpen(uri);
         bool enabled = false;
@@ -188,9 +188,9 @@ TEST(GoSQLite3, ForeignKeys) {
 
 TEST(GoSQLite3, DeferredForeignKey) {
     std::string fname = TempFilename();
-    remove_after rm{fname};
+    removeAfter rm{fname};
     auto db = mustOpen("file:" + fname + "?_foreign_keys=1");
-    close_after c{db};
+    closeAfter c{db};
     EXPECT_FALSE(db->Exec("CREATE TABLE bar (id INTEGER PRIMARY KEY)").second);
     EXPECT_FALSE(db->Exec("CREATE TABLE foo (bar_id INTEGER, FOREIGN KEY(bar_id) REFERENCES bar(id) DEFERRABLE "
                           "INITIALLY DEFERRED)")
@@ -208,7 +208,7 @@ TEST(GoSQLite3, RecursiveTriggers) {
     std::pair<const char*, bool> cases[] = {{"?_recursive_triggers=1", true}, {"?_recursive_triggers=0", false}};
     for (auto [option, want] : cases) {
         std::string fname = TempFilename();
-        remove_after rm{fname};
+        removeAfter rm{fname};
         std::string uri = "file:" + fname + option;
         auto db = mustOpen(uri);
         bool enabled = false;
@@ -221,7 +221,7 @@ TEST(GoSQLite3, RecursiveTriggers) {
 
 TEST(GoSQLite3, Close) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
     db->Exec("drop table foo");
     ASSERT_FALSE(db->Exec("create table foo (id integer)").second);
@@ -235,9 +235,9 @@ TEST(GoSQLite3, Close) {
 
 TEST(GoSQLite3, Insert) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     db->Exec("drop table foo");
     ASSERT_FALSE(db->Exec("create table foo (id integer)").second);
     auto [res, err] = db->Exec("insert into foo(id) values(123)");
@@ -256,9 +256,9 @@ TEST(GoSQLite3, Upsert) {
     auto [_, n, __] = sqlite3::Version();
     if (n < 3024000) GTEST_SKIP() << "UPSERT requires sqlite3 >= 3.24.0";
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     db->Exec("drop table foo");
     ASSERT_FALSE(db->Exec("create table foo (name string primary key, counter integer)").second);
     for (int i = 0; i < 10; i++) {
@@ -280,9 +280,9 @@ TEST(GoSQLite3, Upsert) {
 
 TEST(GoSQLite3, Update) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     db->Exec("drop table foo");
     ASSERT_FALSE(db->Exec("create table foo (id integer)").second);
     auto [res, err] = db->Exec("insert into foo(id) values(123)");
@@ -304,9 +304,9 @@ TEST(GoSQLite3, Update) {
 
 TEST(GoSQLite3, Delete) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     db->Exec("drop table foo");
     ASSERT_FALSE(db->Exec("create table foo (id integer)").second);
     auto [res, err] = db->Exec("insert into foo(id) values(123)");
@@ -325,9 +325,9 @@ TEST(GoSQLite3, Delete) {
 
 TEST(GoSQLite3, BooleanRoundtrip) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     db->Exec("DROP TABLE foo");
     ASSERT_FALSE(db->Exec("CREATE TABLE foo(id INTEGER, value BOOL)").second);
     ASSERT_FALSE(db->Exec("INSERT INTO foo(id, value) VALUES(1, ?)", true).second);
@@ -352,15 +352,15 @@ TEST(GoSQLite3, BooleanRoundtrip) {
 
 namespace {
 
-std::string tz_offset(const time::Time& t) { return S(t.Format("-07:00")); }
+std::string tzOffset(const time::Time& t) { return S(t.Format("-07:00")); }
 
 }  // namespace
 
 TEST(GoSQLite3, Timestamp) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     db->Exec("DROP TABLE foo");
     ASSERT_FALSE(db->Exec("CREATE TABLE foo(id INTEGER, ts timeSTAMP, dt DATETIME)").second);
 
@@ -430,8 +430,8 @@ TEST(GoSQLite3, Timestamp) {
                                                   << S(tests[id].expected.String()) << ", not " << S(ts.String());
         EXPECT_TRUE(tests[id].expected.Equal(dt)) << "Datetime value for id " << id << " should be "
                                                   << S(tests[id].expected.String()) << ", not " << S(dt.String());
-        EXPECT_EQ(tz_offset(tests[id].expected), tz_offset(ts)) << "Timezone for id " << id;
-        EXPECT_EQ(tz_offset(tests[id].expected), tz_offset(dt)) << "Timezone for id " << id;
+        EXPECT_EQ(tzOffset(tests[id].expected), tzOffset(ts)) << "Timezone for id " << id;
+        EXPECT_EQ(tzOffset(tests[id].expected), tzOffset(dt)) << "Timezone for id " << id;
     }
     rows->Close();
     EXPECT_EQ(seen, n);
@@ -439,9 +439,9 @@ TEST(GoSQLite3, Timestamp) {
 
 TEST(GoSQLite3, Boolean) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     ASSERT_FALSE(db->Exec("CREATE TABLE foo(id INTEGER, fbool BOOLEAN)").second);
     bool bool1 = true;
     ASSERT_FALSE(db->Exec("INSERT INTO foo(id, fbool) VALUES(1, ?)", bool1).second);
@@ -474,9 +474,9 @@ TEST(GoSQLite3, Boolean) {
 
 TEST(GoSQLite3, Float32) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     ASSERT_FALSE(db->Exec("CREATE TABLE foo(id INTEGER)").second);
     ASSERT_FALSE(db->Exec("INSERT INTO foo(id) VALUES(null)").second);
     auto [rows, err] = db->Query("SELECT id FROM foo");
@@ -490,9 +490,9 @@ TEST(GoSQLite3, Float32) {
 
 TEST(GoSQLite3, Null) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     auto [rows, err] = db->Query("SELECT 3.141592");
     ASSERT_FALSE(err);
     ASSERT_TRUE(rows->Next());
@@ -505,9 +505,9 @@ TEST(GoSQLite3, Null) {
 
 TEST(GoSQLite3, Transaction) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     ASSERT_FALSE(db->Exec("CREATE TABLE foo(id INTEGER)").second);
 
     auto [tx, err] = db->Begin();
@@ -528,9 +528,9 @@ TEST(GoSQLite3, Transaction) {
 
 TEST(GoSQLite3, WAL) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     ASSERT_FALSE(db->Exec("PRAGMA journal_mode=WAL;").second);
     ASSERT_FALSE(db->Exec("PRAGMA locking_mode=EXCLUSIVE;").second);
     ASSERT_FALSE(db->Exec("CREATE TABLE test (id SERIAL, user TEXT NOT NULL, name TEXT NOT NULL);").second);
@@ -560,9 +560,9 @@ TEST(GoSQLite3, TimezoneConversion) {
             tz = z == "US/Central" ? "America/Chicago" : "America/Los_Angeles";
         }
         std::string tempFilename = TempFilename();
-        remove_after rm{tempFilename};
+        removeAfter rm{tempFilename};
         auto db = mustOpen(tempFilename + "?_loc=" + S(url::QueryEscape(tz)));
-        close_after c{db};
+        closeAfter c{db};
         db->Exec("DROP TABLE foo");
         ASSERT_FALSE(db->Exec("CREATE TABLE foo(id INTEGER, ts TIMESTAMP, dt DATETIME)").second);
 
@@ -623,9 +623,9 @@ TEST(GoSQLite3, TimezoneConversion) {
 
 TEST(GoSQLite3, Execer) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     auto [_, err] = db->Exec(R"(
        create table foo (id integer); -- one comment
        insert into foo(id) values(?);
@@ -638,9 +638,9 @@ TEST(GoSQLite3, Execer) {
 
 TEST(GoSQLite3, Queryer) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     EXPECT_FALSE(db->Exec("\n\t\tcreate table foo (id integer);\n\t").second);
     EXPECT_FALSE(db->Exec(R"(
 		insert into foo(id) values(?);
@@ -665,7 +665,7 @@ TEST(GoSQLite3, Queryer) {
 
 TEST(GoSQLite3, Stress) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     {
         auto db = mustOpen(tempFilename);
         db->Exec("CREATE TABLE foo (id int);");
@@ -692,7 +692,7 @@ TEST(GoSQLite3, Stress) {
 TEST(GoSQLite3, DateTimeLocal) {
     const char* zone = "Asia/Tokyo";
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     {
         auto db = mustOpen(tempFilename + "?_loc=" + zone);
         db->Exec("CREATE TABLE foo (dt datetime);");
@@ -716,7 +716,7 @@ TEST(GoSQLite3, DateTimeLocal) {
         db->Close();
     }
     auto db = mustOpen(tempFilename + "?_loc=" + zone);
-    close_after c{db};
+    closeAfter c{db};
     time::Time d;
     ASSERT_FALSE(db->QueryRow("select * from foo")->Scan(&d));
     EXPECT_FALSE(d.Hour() != 15 || S(d.String()).find("JST") == std::string::npos)
@@ -730,9 +730,9 @@ TEST(GoSQLite3, Version) {
 
 TEST(GoSQLite3, StringContainingZero) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     EXPECT_FALSE(db->Exec("\n\tcreate table foo (id integer, name, extra text);\n\t").second);
     const string text(std::string_view("foo\0bar", 7));
     EXPECT_FALSE(db->Exec("insert into foo(id, name, extra) values($1, $2, $2)", 1, text).second);
@@ -769,9 +769,9 @@ struct TimeStamp {
 
 TEST(GoSQLite3, DateTimeNow) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     time::Time d;
     TimeStamp ts{&d};
     EXPECT_FALSE(db->QueryRow("SELECT datetime('now')")->Scan(&ts)) << "Failed to scan datetime";
@@ -813,7 +813,7 @@ TEST(GoSQLite3, Pinger) {
 
 TEST(GoSQLite3, NonColumnString) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     Value x;
     ASSERT_FALSE(db->QueryRow("SELECT 'hello'")->Scan(&x));
     ASSERT_TRUE(std::holds_alternative<string>(x)) << "non-column string must return string but got "
@@ -823,7 +823,7 @@ TEST(GoSQLite3, NonColumnString) {
 
 TEST(GoSQLite3, NilAndEmptyBytes) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     struct {
         std::string name;
         std::string columnType;
@@ -865,7 +865,7 @@ TEST(GoSQLite3, NilAndEmptyBytes) {
 
 TEST(GoSQLite3, InsertNilByteSlice) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     ASSERT_FALSE(db->Exec("create table blob_not_null (b blob not null)").second);
     slice<byte> nilSlice;
     EXPECT_TRUE(db->Exec("insert into blob_not_null (b) values (?)", nilSlice).second)
@@ -877,9 +877,9 @@ TEST(GoSQLite3, InsertNilByteSlice) {
 
 TEST(GoSQLite3, NamedParam) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     db->Exec("drop table foo");
     ASSERT_FALSE(db->Exec("create table foo (id integer, name text, amount integer)").second);
     auto [_, err] = db->Exec("insert into foo(id, name, amount) values(:id, @name, $amount)", sql::Named("bar", 42),
@@ -898,9 +898,9 @@ TEST(GoSQLite3, NamedParam) {
 
 TEST(GoSQLite3, NamedParamClearBindings) {
     std::string tempFilename = TempFilename();
-    remove_after rm{tempFilename};
+    removeAfter rm{tempFilename};
     auto db = mustOpen(tempFilename);
-    close_after c{db};
+    closeAfter c{db};
     ASSERT_FALSE(db->Exec("create table foo (x integer, y integer, z text)").second);
     ASSERT_FALSE(db->Exec("insert into foo(x, y, z) values($x, $y, $z)", sql::Named("x", 1), sql::Named("y", 2),
                           sql::Named("z", "three"))
@@ -917,7 +917,7 @@ TEST(GoSQLite3, NamedParamClearBindings) {
 
 TEST(GoSQLite3, NotEnoughArgsErrorMessage) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     const std::string want = "not enough args to execute query: want 1 got 0";
     // exec
     EXPECT_EQ(S(db->Exec("SELECT ?; SELECT ?", "hello").second), want);
@@ -929,7 +929,7 @@ TEST(GoSQLite3, NotEnoughArgsErrorMessage) {
 
 TEST(GoSQLite3, ExecWithoutArgsStopsAtMissingArgs) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     db->SetMaxOpenConns(1);
     ASSERT_FALSE(db->Exec("CREATE TABLE t (x INTEGER)").second);
     EXPECT_TRUE(db->Exec("INSERT INTO t VALUES (7); INSERT INTO t VALUES (?); INSERT INTO t VALUES (9)").second);
@@ -940,7 +940,7 @@ TEST(GoSQLite3, ExecWithoutArgsStopsAtMissingArgs) {
 
 TEST(GoSQLite3, QueryCommentOnly) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     const char* cases[] = {"", "   ", "-- comment", "---- comment\n", "/* block */"};
     for (const char* q : cases) {
         int x = 0;
@@ -1000,7 +1000,7 @@ std::string hex(const slice<byte>& b) {
     return s;
 }
 
-slice<byte> bytes_of(std::initializer_list<int> v) {
+slice<byte> bytesOf(std::initializer_list<int> v) {
     slice<byte> b;
     for (int c : v) b = append(std::move(b), static_cast<byte>(c));
     return b;
@@ -1023,7 +1023,7 @@ TEST_F(GoSQLite3Suite, Result) {
 }
 
 TEST_F(GoSQLite3Suite, Blobs) {
-    slice<byte> blob = bytes_of({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
+    slice<byte> blob = bytesOf({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
     mustExec("create table foo (id integer primary key, bar blob[16])");
     mustExec("insert into foo (id, bar) values(?,?)", 0, blob);
 
@@ -1041,9 +1041,9 @@ TEST_F(GoSQLite3Suite, Blobs) {
 
 TEST_F(GoSQLite3Suite, MultiBlobs) {
     mustExec("create table foo (id integer primary key, bar blob[16])");
-    slice<byte> blob0 = bytes_of({0, 1, 2, 3, 4, 5, 6, 7});
+    slice<byte> blob0 = bytesOf({0, 1, 2, 3, 4, 5, 6, 7});
     mustExec("insert into foo (id, bar) values(?,?)", 0, blob0);
-    slice<byte> blob1 = bytes_of({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
+    slice<byte> blob1 = bytesOf({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
     mustExec("insert into foo (id, bar) values(?,?)", 1, blob1);
 
     auto [r, err] = db->Query("select bar from foo order by id");
@@ -1150,24 +1150,24 @@ TEST(GoSQLite3, SimpleError) {
 
 namespace {
 
-struct temp_dir {
+struct tempDir {
     std::string name;
-    temp_dir() {
+    tempDir() {
         auto [n, err] = os::MkdirTemp("", "sqlite3");
         if (err) ADD_FAILURE() << S(err);
         name = S(n);
     }
-    ~temp_dir() { os::RemoveAll(name); }
+    ~tempDir() { os::RemoveAll(name); }
 };
 
 }  // namespace
 
 TEST(GoSQLite3, CorruptDbErrors) {
-    temp_dir dir;
+    tempDir dir;
     std::string dbFileName = dir.name + "/test.db";
     auto [f, err] = os::Create(dbFileName);
     ASSERT_FALSE(err);
-    f->Write(bytes_of({1, 2, 3, 4, 5}));
+    f->Write(bytesOf({1, 2, 3, 4, 5}));
     f->Close();
 
     auto [db, oerr] = sql::Open("sqlite3", dbFileName);
@@ -1181,16 +1181,16 @@ TEST(GoSQLite3, CorruptDbErrors) {
 }
 
 TEST(GoSQLite3, SqlLogicErrors) {
-    temp_dir dir;
+    tempDir dir;
     auto db = mustOpen(dir.name + "/test.db");
-    close_after c{db};
+    closeAfter c{db};
     EXPECT_FALSE(db->Exec("CREATE TABLE Foo (id INTEGER PRIMARY KEY)").second);
     EXPECT_EQ(S(db->Exec("CREATE TABLE Foo (id INTEGER PRIMARY KEY)").second), "table Foo already exists");
 }
 
 namespace {
 
-ptr<sql::DB> errorsDB(const temp_dir& dir) {
+ptr<sql::DB> errorsDB(const tempDir& dir) {
     auto db = mustOpen(dir.name + "/test.db");
     EXPECT_FALSE(db->Exec("PRAGMA foreign_keys=ON;").second);
     EXPECT_FALSE(db->Exec(R"(CREATE TABLE Foo (
@@ -1206,9 +1206,9 @@ ptr<sql::DB> errorsDB(const temp_dir& dir) {
 }  // namespace
 
 TEST(GoSQLite3, ExtendedErrorCodes_ForeignKey) {
-    temp_dir dir;
+    tempDir dir;
     auto db = errorsDB(dir);
-    close_after c{db};
+    closeAfter c{db};
     auto [_, err] = db->Exec("INSERT INTO Foo (ref, value) VALUES (100, 100);");
     ASSERT_TRUE(err) << "No error!";
     auto* sqliteErr = errors::As<sqlite3::Error>(err);
@@ -1218,9 +1218,9 @@ TEST(GoSQLite3, ExtendedErrorCodes_ForeignKey) {
 }
 
 TEST(GoSQLite3, ExtendedErrorCodes_NotNull) {
-    temp_dir dir;
+    tempDir dir;
     auto db = errorsDB(dir);
-    close_after c{db};
+    closeAfter c{db};
     auto [res, err] = db->Exec("INSERT INTO Foo (value) VALUES (100);");
     ASSERT_FALSE(err) << "Creating first row: " << S(err);
     auto [id, ierr] = res->LastInsertId();
@@ -1234,9 +1234,9 @@ TEST(GoSQLite3, ExtendedErrorCodes_NotNull) {
 }
 
 TEST(GoSQLite3, ExtendedErrorCodes_Unique) {
-    temp_dir dir;
+    tempDir dir;
     auto db = errorsDB(dir);
-    close_after c{db};
+    closeAfter c{db};
     auto [res, err] = db->Exec("INSERT INTO Foo (value) VALUES (100);");
     ASSERT_FALSE(err) << "Creating first row: " << S(err);
     auto [id, ierr] = res->LastInsertId();
@@ -1255,7 +1255,7 @@ TEST(GoSQLite3, Error_SystemErrno) {
     if (n < 3012000) GTEST_SKIP() << "sqlite3_system_errno requires sqlite3 >= 3.12.0";
     // open a non-existent database in read-only mode so we get an IO error.
     auto db = mustOpen("file:nonexistent.db?mode=ro");
-    close_after c{db};
+    closeAfter c{db};
     error err = db->Ping();
     ASSERT_TRUE(err) << "expected error pinging read-only non-existent database, but got nil";
     auto* serr = errors::As<sqlite3::Error>(err);
@@ -1269,7 +1269,7 @@ TEST(GoSQLite3, Error_SystemErrno) {
 
 TEST(GoSQLite3, ExecTrailingCommentOrSemicolonKeepsResult) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     db->SetMaxOpenConns(1);
     ASSERT_FALSE(db->Exec("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)").second);
     ASSERT_FALSE(db->Exec("INSERT INTO t (id, v) VALUES (1, 'a')").second);
@@ -1306,14 +1306,14 @@ TEST(GoSQLite3, ExecTrailingCommentOrSemicolonKeepsResult) {
             }
         }
     };
-    auto exec_with = [&](const ptr<context::Context>& ctx, const tcase& tc) {
+    auto execWith = [&](const ptr<context::Context>& ctx, const tcase& tc) {
         if (tc.args.empty()) return db->ExecContext(ctx, tc.query);
         if (tc.args.size() == 1) return db->ExecContext(ctx, tc.query, tc.args[0]);
         return db->ExecContext(ctx, tc.query, tc.args[0], tc.args[1]);
     };
-    run([&](const tcase& tc) { return exec_with(context::Background(), tc); });  // exec
+    run([&](const tcase& tc) { return execWith(context::Background(), tc); });  // exec
     auto [ctx, cancel] = context::WithCancel(context::Background());
-    run([&](const tcase& tc) { return exec_with(ctx, tc); });  // execContext
+    run([&](const tcase& tc) { return execWith(ctx, tc); });  // execContext
     cancel();
 }
 
@@ -1365,7 +1365,7 @@ TEST(GoSQLite3, RowsContextCancelDuringStep) {
         if (laterRow) query = "SELECT 1 UNION ALL SELECT (" + query + ")";
         auto conn = openConn();
         auto [ctx, cancel] = context::WithCancel(context::Background());
-        auto nextDone = makeChan<error>(1);
+        auto nextDone = make_chan<error>(1);
         go([=] {
             auto args = contextTestQueryArgs(contextTestMaxRows);
             auto [rows, err] = conn->QueryContext(ctx, query, args);
@@ -1447,9 +1447,9 @@ TEST(GoSQLite3, RowsContextCancelAndClose) {
         std::vector<Value> dest(1);
         ASSERT_FALSE(rows->Next(dest)) << "read cancellable rows";
 
-        auto start = makeChan<bool>();
-        auto closeDone = makeChan<error>(1);
-        auto cancelDone = makeChan<bool>(1);
+        auto start = make_chan<bool>();
+        auto closeDone = make_chan<error>(1);
+        auto cancelDone = make_chan<bool>(1);
         go([=] {
             start.recv2();
             closeDone.send(rows->Close());
@@ -1473,11 +1473,11 @@ TEST(GoSQLite3, RowsContextCancelAndClose) {
 
 TEST(GoSQLite3, DatabaseSQLRowsContextCancelAndReuse) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     auto [sqlConn, err] = db->Conn(context::Background());
     ASSERT_FALSE(err) << S(err);
     auto [ctx, cancel] = context::WithCancel(context::Background());
-    auto nextDone = makeChan<error>(1);
+    auto nextDone = make_chan<error>(1);
     go([=] {
         auto [rows, qerr] = sqlConn->QueryContext(ctx, contextTestLongQuery, contextTestMaxRows);
         if (qerr) {
@@ -1508,7 +1508,7 @@ TEST(GoSQLite3, DatabaseSQLRowsContextCancelAndReuse) {
 // error.
 TEST(GoppSQLite3, ExecContextCancel) {
     auto db = mustOpen(":memory:");
-    close_after c{db};
+    closeAfter c{db};
     ASSERT_FALSE(db->Exec("CREATE TABLE t (v INTEGER)").second);
     auto [ctx, cancel] = context::WithTimeout(context::Background(), 50 * time::Millisecond);
     auto start = time::Now();
@@ -1523,10 +1523,10 @@ TEST(GoppSQLite3, ExecContextCancel) {
 // would stall them until it ended.
 namespace {
 
-const bool sqlite_blocking_helper = go_helper::registerHelper("sqlite-blocking", [](const std::vector<std::string>&) {
+const bool sqliteBlockingHelper = go_helper::registerHelper("sqlite-blocking", [](const std::vector<std::string>&) {
     auto [db, err] = sql::Open("sqlite3", ":memory:");
     if (err) os::Exit(2);
-    auto started = makeChan<bool>(1);
+    auto started = make_chan<bool>(1);
     go([db, started] {
         started.send(true);
         // About half a second of computing in SQLite.

@@ -230,7 +230,7 @@ inline constexpr int encodeRune(byte* p, rune r) noexcept {
     return 3;
 }
 
-inline const byte* bytes_of(std::string_view s) noexcept { return reinterpret_cast<const byte*>(s.data()); }
+inline const byte* bytesOf(std::string_view s) noexcept { return reinterpret_cast<const byte*>(s.data()); }
 
 }  // namespace detail
 
@@ -239,7 +239,7 @@ inline const byte* bytes_of(std::string_view s) noexcept { return reinterpret_ca
 // RuneError.
 constexpr bool FullRune(std::span<const byte> p) noexcept { return detail::fullRune(p.data(), p.size()); }
 // utf8.FullRuneInString
-inline bool FullRuneInString(std::string_view s) noexcept { return detail::fullRune(detail::bytes_of(s), s.size()); }
+inline bool FullRuneInString(std::string_view s) noexcept { return detail::fullRune(detail::bytesOf(s), s.size()); }
 
 // utf8.DecodeRune: the first rune of p and its width in bytes. RuneError
 // and 1 for an invalid encoding, RuneError and 0 for an empty p.
@@ -250,7 +250,7 @@ constexpr std::pair<rune, int> DecodeRune(std::span<const byte> p) noexcept {
 // utf8.DecodeRuneInString
 inline std::pair<rune, int> DecodeRuneInString(std::string_view s) noexcept {
     if (!s.empty() && static_cast<byte>(s[0]) < RuneSelf) return {rune(static_cast<byte>(s[0])), 1};
-    return detail::decodeRune(detail::bytes_of(s), s.size());
+    return detail::decodeRune(detail::bytesOf(s), s.size());
 }
 
 // utf8.DecodeLastRune: as DecodeRune for the last rune of p.
@@ -259,7 +259,7 @@ constexpr std::pair<rune, int> DecodeLastRune(std::span<const byte> p) noexcept 
 }
 // utf8.DecodeLastRuneInString
 inline std::pair<rune, int> DecodeLastRuneInString(std::string_view s) noexcept {
-    return detail::decodeLastRune(detail::bytes_of(s), s.size());
+    return detail::decodeLastRune(detail::bytesOf(s), s.size());
 }
 
 // utf8.RuneLen: the number of bytes of r's encoding; -1 if r isn't a
@@ -294,7 +294,7 @@ inline slice<byte> AppendRune(slice<byte> p, rune r) {
 // utf8.RuneCount: the number of runes in p; each invalid byte counts as one.
 constexpr int RuneCount(std::span<const byte> p) noexcept { return detail::runeCount(p.data(), p.size()); }
 // utf8.RuneCountInString
-inline int RuneCountInString(std::string_view s) noexcept { return detail::runeCount(detail::bytes_of(s), s.size()); }
+inline int RuneCountInString(std::string_view s) noexcept { return detail::runeCount(detail::bytesOf(s), s.size()); }
 
 // utf8.RuneStart: whether b could be the first byte of an encoded rune.
 constexpr bool RuneStart(byte b) noexcept { return detail::runeStart(b); }
@@ -302,7 +302,7 @@ constexpr bool RuneStart(byte b) noexcept { return detail::runeStart(b); }
 // utf8.Valid: whether p is entirely valid UTF-8.
 constexpr bool Valid(std::span<const byte> p) noexcept { return detail::valid(p.data(), p.size()); }
 // utf8.ValidString
-inline bool ValidString(std::string_view s) noexcept { return detail::valid(detail::bytes_of(s), s.size()); }
+inline bool ValidString(std::string_view s) noexcept { return detail::valid(detail::bytesOf(s), s.size()); }
 
 // utf8.ValidRune: whether r is a code point that UTF-8 can encode:
 // surrogates and values past MaxRune aren't.

@@ -58,8 +58,8 @@ string crash = "panic";
 
 struct Item : object {
     string name;
-    int in_stock;
-    Item(string n, int s) : name(std::move(n)), in_stock(s) {}
+    int inStock;
+    Item(string n, int s) : name(std::move(n)), inStock(s) {}
 };
 
 struct Order {
@@ -82,29 +82,29 @@ void checkStock(const Order& o) {
     if (o.id == 7) {
         if (crash == "panic") {
             const Item& item = *catalog[o.item];
-            panic(fmt::Sprint("order {}: {} x {}, only {} in stock", o.id, o.quantity, item.name, item.in_stock)
+            panic(fmt::Sprint("order {}: {} x {}, only {} in stock", o.id, o.quantity, item.name, item.inStock)
                       .view());
         } else if (crash == "index") {
             // Go's s[i]: a slice checks its index.
             auto counts = slice<int>::make(catalog.size());
             counts[o.item + 10]++;
         } else if (crash == "closed") {
-            auto done = makeChan<int>(1);
+            auto done = make_chan<int>(1);
             done.close();
             done.send(o.id);
         } else if (crash == "throw") {
             // std::vector::at throws std::out_of_range.
-            catalog.at(o.item + 10)->in_stock -= o.quantity;
+            catalog.at(o.item + 10)->inStock -= o.quantity;
         } else if (crash == "nil") {
-            std::map<int, ptr<Item>> by_id;
-            ptr<Item> item = by_id[o.item];  // nil: no such item
-            item->in_stock -= o.quantity;
+            std::map<int, ptr<Item>> byId;
+            ptr<Item> item = byId[o.item];  // nil: no such item
+            item->inStock -= o.quantity;
         } else {
             fmt::Println(os::Stderr, "panic: unknown -crash {}", crash);
             os::Exit(2);
         }
     }
-    catalog[o.item]->in_stock -= o.quantity;
+    catalog[o.item]->inStock -= o.quantity;
 }
 
 Receipt fill(const Order& o) {
@@ -119,8 +119,8 @@ int main(int argc, char** argv) {
 
     catalog = {make_ptr<Item>("widget", 100), make_ptr<Item>("gizmo", 3), make_ptr<Item>("doohickey", 40)};
 
-    auto orders = makeChan<Order>();
-    auto receipts = makeChan<Receipt>();
+    auto orders = make_chan<Order>();
+    auto receipts = make_chan<Receipt>();
 
     // The packers: a pool of fibers that fill the orders.
     sync::WaitGroup packers;
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
     }
 
     // The printer, which gets the receipts.
-    auto printed = makeChan<empty>();
+    auto printed = make_chan<empty>();
     go([receipts, printed] {
         for (const Receipt& r : receipts) fmt::Println("{}", r.line);
         printed.close();

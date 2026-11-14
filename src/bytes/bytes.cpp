@@ -17,12 +17,12 @@ namespace {
 std::string_view sv(std::span<const byte> b) noexcept { return asStringView(b); }
 
 // The part v of s as a subslice sharing s's array, with its capacity up to
-// s's, or, if limit_cap, ending with it (Go's s[i:j:j]); nil for nil.
-slice<byte> sub(const slice<byte>& s, std::string_view v, bool limit_cap = false) {
+// s's, or, if limitCap, ending with it (Go's s[i:j:j]); nil for nil.
+slice<byte> sub(const slice<byte>& s, std::string_view v, bool limitCap = false) {
     if (v.data() == nullptr) return {};
     auto i = std::size_t(reinterpret_cast<const byte*>(v.data()) - s.data());
     if (v.empty() && s.isNil()) return {};
-    return limit_cap ? s.Sub(i, i + v.size(), i + v.size()) : s.Sub(i, i + v.size());
+    return limitCap ? s.Sub(i, i + v.size(), i + v.size()) : s.Sub(i, i + v.size());
 }
 
 slice<slice<byte>> subs(const slice<byte>& s, const std::vector<std::string_view>& parts) {
@@ -64,7 +64,7 @@ isize LastIndexByte(std::span<const byte> s, byte c) noexcept { return text::las
 isize LastIndexAny(std::span<const byte> s, std::string_view chars) noexcept { return text::lastIndexAny(sv(s), chars); }
 isize LastIndexFunc(std::span<const byte> s, std::function_ref<bool(rune)> f) { return text::lastIndexFunc(sv(s), f); }
 isize Count(std::span<const byte> s, std::span<const byte> sep) noexcept { return text::count(sv(s), sv(sep)); }
-bool EqualFold(std::span<const byte> s, std::span<const byte> t) noexcept { return text::equal_fold(sv(s), sv(t)); }
+bool EqualFold(std::span<const byte> s, std::span<const byte> t) noexcept { return text::equalFold(sv(s), sv(t)); }
 
 std::tuple<slice<byte>, slice<byte>, bool> Cut(const slice<byte>& s, std::span<const byte> sep) {
     auto r = text::cut(sv(s), sv(sep));
@@ -86,7 +86,7 @@ std::pair<slice<byte>, bool> CutSuffix(const slice<byte>& s, std::span<const byt
     return {s.Sub(0, s.len() - suffix.size()), true};
 }
 
-slice<byte> TrimSpace(const slice<byte>& s) { return sub(s, text::trim_space(sv(s))); }
+slice<byte> TrimSpace(const slice<byte>& s) { return sub(s, text::trimSpace(sv(s))); }
 slice<byte> Trim(const slice<byte>& s, std::string_view cutset) { return sub(s, text::trim(sv(s), cutset)); }
 slice<byte> TrimLeft(const slice<byte>& s, std::string_view cutset) { return sub(s, text::trimLeft(sv(s), cutset)); }
 slice<byte> TrimRight(const slice<byte>& s, std::string_view cutset) { return sub(s, text::trimRight(sv(s), cutset)); }
@@ -144,7 +144,7 @@ std::generator<slice<byte>> Lines(slice<byte> s) {
 
 namespace {
 
-std::generator<slice<byte>> splitSeq(slice<byte> s, std::string sep, std::size_t sep_save) {
+std::generator<slice<byte>> splitSeq(slice<byte> s, std::string sep, std::size_t sepSave) {
     if (sep.empty()) {
         while (!s.empty()) {
             auto [_, size] = utf8::DecodeRune(s);
@@ -156,7 +156,7 @@ std::generator<slice<byte>> splitSeq(slice<byte> s, std::string sep, std::size_t
     for (;;) {
         isize i = Index(s, as_bytes(sep));
         if (i < 0) break;
-        std::size_t end = std::size_t(i) + sep_save;
+        std::size_t end = std::size_t(i) + sepSave;
         co_yield s.Sub(0, end, end);
         s = s.Sub(std::size_t(i) + sep.size());
     }

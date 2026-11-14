@@ -16,7 +16,7 @@ error MkdirAll(std::string_view path, FileMode perm) {
     auto [dir, err] = Stat(path);
     if (!err) {
         if (dir->IsDir()) return nullptr;
-        return detail::path_error("mkdir", path, detail::errnoError(ENOTDIR));
+        return detail::pathError("mkdir", path, detail::errnoError(ENOTDIR));
     }
 
     // Slow path: make sure the parent exists, then make this one.
@@ -41,7 +41,7 @@ error MkdirAll(std::string_view path, FileMode perm) {
 namespace detail {
 
 // Go's splitPath: the parent directory and the base name of path.
-std::pair<std::string_view, std::string_view> split_path(std::string_view path) {
+std::pair<std::string_view, std::string_view> splitPath(std::string_view path) {
     std::string_view dirname = ".";
     // Leading slashes beyond one don't matter.
     while (path.size() > 1 && path[0] == '/' && path[1] == '/') path.remove_prefix(1);
@@ -63,7 +63,7 @@ std::pair<std::string_view, std::string_view> split_path(std::string_view path) 
 
 namespace {
 
-bool ends_with_dot(std::string_view path) {
+bool endsWithDot(std::string_view path) {
     if (path == ".") return true;
     return path.size() >= 2 && path.back() == '.' && IsPathSeparator(path[path.size() - 2]);
 }
@@ -90,56 +90,56 @@ int openDirAt(int dirfd, const std::string& name, int* err, bool* symlink) {
 // Prefixes the path of a PathError with dir.
 error prefixPath(error err, std::string_view dir) {
     if (auto* pe = dynamic_cast<const PathError*>(err.get())) {
-        return detail::path_error(pe->Op.view(), detail::join_path(dir, pe->Path.view()), pe->Err);
+        return detail::pathError(pe->Op.view(), detail::joinPath(dir, pe->Path.view()), pe->Err);
     }
     return err;
 }
 
-error remove_all_from(int parent_fd, const std::string& base) {
+error removeAllFrom(int parentFd, const std::string& base) {
     // Simple case: a file, or an empty directory where unlinking works.
-    int e = unlinkat(parent_fd, base, 0);
+    int e = unlinkat(parentFd, base, 0);
     if (e == 0 || e == ENOENT) return nullptr;
     // EISDIR means the file is a directory; EPERM or EACCES may mean it is
     // too, or that we can't remove it (Linux returns EISDIR, others EPERM).
-    if (e != EISDIR && e != EPERM && e != EACCES) return detail::path_error("unlinkat", base, detail::errnoError(e));
-    int u_err = e;
+    if (e != EISDIR && e != EPERM && e != EACCES) return detail::pathError("unlinkat", base, detail::errnoError(e));
+    int uErr = e;
 
     // Remove the directory's entries.
-    error recurse_err;
+    error recurseErr;
     for (;;) {
-        constexpr int req_size = 1024;
-        std::size_t resp_size = 0;
+        constexpr int reqSize = 1024;
+        std::size_t respSize = 0;
 
         int oerr;
         bool symlink;
-        int fd = openDirAt(parent_fd, base, &oerr, &symlink);
+        int fd = openDirAt(parentFd, base, &oerr, &symlink);
         if (fd < 0) {
             if (oerr == ENOENT) return nullptr;
-            if (oerr == ENOTDIR || symlink) return detail::path_error("unlinkat", base, detail::errnoError(u_err));
-            recurse_err = detail::path_error("openfdat", base, detail::errnoError(oerr));
+            if (oerr == ENOTDIR || symlink) return detail::pathError("unlinkat", base, detail::errnoError(uErr));
+            recurseErr = detail::pathError("openfdat", base, detail::errnoError(oerr));
             break;
         }
-        ptr<File> file = detail::new_file(fd, string(base), detail::file_kind::no_poll, false);
+        ptr<File> file = detail::newFile(fd, string(base), detail::fileKind::noPoll, false);
 
         for (;;) {
-            int num_err = 0;
-            auto [names, readErr] = file->Readdirnames(req_size);
+            int numErr = 0;
+            auto [names, readErr] = file->Readdirnames(reqSize);
             // Errors other than EOF should stop us from continuing.
             if (readErr && readErr != io::EOF_) {
                 file->Close();
                 if (IsNotExist(readErr)) return nullptr;
-                return detail::path_error("readdirnames", base, readErr);
+                return detail::pathError("readdirnames", base, readErr);
             }
-            resp_size = names.size();
+            respSize = names.size();
             for (auto& name : names) {
-                if (error err = remove_all_from(fd, std::string(name.view()))) {
-                    num_err++;
-                    if (!recurse_err) recurse_err = prefixPath(err, base);
+                if (error err = removeAllFrom(fd, std::string(name.view()))) {
+                    numErr++;
+                    if (!recurseErr) recurseErr = prefixPath(err, base);
                 }
             }
             // If we can delete any entry, break to start a new iteration;
             // otherwise skip this batch of undeletable names.
-            if (num_err != req_size) break;
+            if (numErr != reqSize) break;
         }
 
         // Removing files from the directory may have caused the OS to
@@ -147,26 +147,26 @@ error remove_all_from(int parent_fd, const std::string& base) {
         file->Close();
 
         // Finish when the end of the directory is reached.
-        if (resp_size < static_cast<std::size_t>(req_size)) break;
+        if (respSize < static_cast<std::size_t>(reqSize)) break;
     }
 
     // Remove the directory itself.
-    int unlink_err = unlinkat(parent_fd, base, AT_REMOVEDIR);
-    if (unlink_err == 0 || unlink_err == ENOENT) return nullptr;
-    if (recurse_err) return recurse_err;
-    return detail::path_error("unlinkat", base, detail::errnoError(unlink_err));
+    int unlinkErr = unlinkat(parentFd, base, AT_REMOVEDIR);
+    if (unlinkErr == 0 || unlinkErr == ENOENT) return nullptr;
+    if (recurseErr) return recurseErr;
+    return detail::pathError("unlinkat", base, detail::errnoError(unlinkErr));
 }
 
 }  // namespace
 
-error detail::remove_all_from(int parent_fd, const std::string& base) { return os::remove_all_from(parent_fd, base); }
+error detail::removeAllFrom(int parentFd, const std::string& base) { return os::removeAllFrom(parentFd, base); }
 
 error RemoveAll(std::string_view path) {
     if (path.empty()) return nullptr;  // fail silently to retain compatibility
     // The rmdir system call doesn't permit removing ".", so we don't permit
     // it either.
-    if (ends_with_dot(path)) return detail::path_error("RemoveAll", path, detail::errnoError(EINVAL));
-    if (path.find('\0') != std::string_view::npos) return detail::path_error("RemoveAll", path, detail::errnoError(EINVAL));
+    if (endsWithDot(path)) return detail::pathError("RemoveAll", path, detail::errnoError(EINVAL));
+    if (path.find('\0') != std::string_view::npos) return detail::pathError("RemoveAll", path, detail::errnoError(EINVAL));
 
     // Simple case: if Remove works, we're done.
     error err = Remove(path);
@@ -174,12 +174,12 @@ error RemoveAll(std::string_view path) {
 
     // RemoveAll recurses by deleting the path base from its parent
     // directory.
-    auto [parentDir, base] = detail::split_path(path);
+    auto [parentDir, base] = detail::splitPath(path);
     auto [parent, perr] = OpenFile(parentDir, O_RDONLY_, 0);
     if (IsNotExist(perr)) return nullptr;  // if parent does not exist, base cannot exist
     if (perr) return perr;
 
-    error rerr = remove_all_from(static_cast<int>(parent->Fd()), std::string(base));
+    error rerr = removeAllFrom(static_cast<int>(parent->Fd()), std::string(base));
     parent->Close();
     if (rerr) return prefixPath(rerr, parentDir);
     return nullptr;

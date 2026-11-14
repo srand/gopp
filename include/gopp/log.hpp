@@ -66,7 +66,7 @@ using format_string = basicFormatString<std::type_identity_t<A>...>;
 namespace detail {
 // A Writer that also takes the location of the call that logged: slog's
 // handler writer, which log::Logger hands the location to.
-struct located_writer : io::Writer {
+struct locatedWriter : io::Writer {
     virtual std::pair<isize, error> WriteLocated(std::span<const byte> p, const std::source_location& loc) = 0;
 };
 }  // namespace detail
@@ -145,14 +145,14 @@ public:
     error output(const std::source_location& loc, std::string_view s);
 
 private:
-    bool discard() const noexcept { return is_discard_.load(std::memory_order_relaxed); }
+    bool discard() const noexcept { return isDiscard_.load(std::memory_order_relaxed); }
     [[noreturn]] static void exit();
 
-    mutable sync::Mutex out_mu_;
+    mutable sync::Mutex outMu_;
     ptr<io::Writer> out_;
     std::atomic<std::shared_ptr<const string>> prefix_;
     std::atomic<int> flag_{0};
-    std::atomic<bool> is_discard_{false};
+    std::atomic<bool> isDiscard_{false};
 };
 
 // log.New: a Logger writing to out. prefix starts each line, or comes

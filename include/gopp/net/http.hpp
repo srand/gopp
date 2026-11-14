@@ -46,7 +46,7 @@ class ReverseProxy;
 namespace gopp::http {
 
 namespace internal {
-struct mux_access;
+struct muxAccess;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,17 +109,17 @@ std::string_view StatusText(int code) noexcept;
 // spoken with prior knowledge: the client starts with the HTTP/2 preface.
 class Protocols {
 public:
-    bool HTTP1() const noexcept { return bits_ & http1_bit; }
-    void SetHTTP1(bool ok) noexcept { Set(http1_bit, ok); }
-    bool HTTP2() const noexcept { return bits_ & http2_bit; }
-    void SetHTTP2(bool ok) noexcept { Set(http2_bit, ok); }
-    bool UnencryptedHTTP2() const noexcept { return bits_ & h2c_bit; }
-    void SetUnencryptedHTTP2(bool ok) noexcept { Set(h2c_bit, ok); }
+    bool HTTP1() const noexcept { return bits_ & http1Bit; }
+    void SetHTTP1(bool ok) noexcept { Set(http1Bit, ok); }
+    bool HTTP2() const noexcept { return bits_ & http2Bit; }
+    void SetHTTP2(bool ok) noexcept { Set(http2Bit, ok); }
+    bool UnencryptedHTTP2() const noexcept { return bits_ & h2cBit; }
+    void SetUnencryptedHTTP2(bool ok) noexcept { Set(h2cBit, ok); }
     // "{HTTP1,HTTP2,UnencryptedHTTP2}"
     string String() const;
 
 private:
-    static constexpr uint8 http1_bit = 1, http2_bit = 2, h2c_bit = 4;
+    static constexpr uint8 http1Bit = 1, http2Bit = 2, h2cBit = 4;
     void Set(uint8 bit, bool ok) noexcept { bits_ = ok ? (bits_ | bit) : (bits_ & ~bit); }
     uint8 bits_ = 0;
 };
@@ -287,7 +287,7 @@ private:
 
     mutable ptr<context::Context> ctx_;
     mutable context::CancelFunc cancel_;
-    std::vector<std::pair<string, string>> path_values_;
+    std::vector<std::pair<string, string>> pathValues_;
     bool formParsed_ = false;      // Go's Form != nil
     bool postFormParsed_ = false;  // Go's PostForm != nil
     bool multipartByReader_ = false;
@@ -302,7 +302,7 @@ struct ResponseWriter : public io::Writer {
     // have no effect.
     virtual http::Header& Header() = 0;
     // Sends the status line and header.
-    virtual void WriteHeader(int status_code) = 0;
+    virtual void WriteHeader(int statusCode) = 0;
 };
 
 // http.Flusher: implemented by the server's ResponseWriter.
@@ -315,16 +315,16 @@ struct Handler : public virtual object {
     virtual void ServeHTTP(ResponseWriter& w, Request& r) = 0;
 };
 
-using handler_fn = std::function<void(ResponseWriter&, Request&)>;
+using handlerFn = std::function<void(ResponseWriter&, Request&)>;
 
 // http.HandlerFunc
 class HandlerFunc final : public Handler {
 public:
-    explicit HandlerFunc(handler_fn f) : f_(std::move(f)) {}
+    explicit HandlerFunc(handlerFn f) : f_(std::move(f)) {}
     void ServeHTTP(ResponseWriter& w, Request& r) override { f_(w, r); }
 
 private:
-    handler_fn f_;
+    handlerFn f_;
 };
 
 
@@ -435,7 +435,7 @@ void ServeFile(ResponseWriter& w, Request& r, std::string_view name);
 void ServeFileFS(ResponseWriter& w, Request& r, ptr<fs::FS> fsys, std::string_view name);
 
 namespace detail {
-void serve_content(ResponseWriter& w, Request& r, std::string_view name, time::Time modtime, io::Reader& content,
+void serveContent(ResponseWriter& w, Request& r, std::string_view name, time::Time modtime, io::Reader& content,
                    io::Seeker& seeker);
 }
 
@@ -454,7 +454,7 @@ void serve_content(ResponseWriter& w, Request& r, std::string_view name, time::T
 template <typename RS>
     requires std::derived_from<RS, io::Reader> && std::derived_from<RS, io::Seeker>
 void ServeContent(ResponseWriter& w, Request& r, std::string_view name, time::Time modtime, RS& content) {
-    detail::serve_content(w, r, name, modtime, content, content);
+    detail::serveContent(w, r, name, modtime, content, content);
 }
 
 // ---------------------------------------------------------------------------
@@ -477,7 +477,7 @@ public:
 
     template <typename F>
     void HandleFunc(std::string_view pattern, F&& f, std::source_location loc = std::source_location::current()) {
-        handler_fn fn(std::forward<F>(f));
+        handlerFn fn(std::forward<F>(f));
         Handle(pattern, fn ? make_ptr<HandlerFunc>(std::move(fn)) : nullptr, loc);
     }
 
@@ -488,7 +488,7 @@ public:
     std::pair<ptr<http::Handler>, string> Handler(Request& r) const;
 
 private:
-    friend struct internal::mux_access;
+    friend struct internal::muxAccess;
     struct impl;
     std::unique_ptr<impl> impl_;
 };
@@ -507,7 +507,7 @@ void HandleFunc(std::string_view pattern, F&& f, std::source_location loc = std:
 // Server
 
 namespace detail {
-struct server_state;
+struct serverState;
 }
 
 // http.Server. An aggregate, for designated initializers:
@@ -542,9 +542,9 @@ struct Server {
     gopp::error Serve(ptr<net::Listener> l);
     // Listens on addr (":https" if empty) and serves HTTPS with the
     // certificate and key in the PEM files, or those of TLSConfig.
-    gopp::error ListenAndServeTLS(std::string_view cert_file, std::string_view key_file);
+    gopp::error ListenAndServeTLS(std::string_view certFile, std::string_view keyFile);
     // Serves HTTPS on connections from l.
-    gopp::error ServeTLS(ptr<net::Listener> l, std::string_view cert_file, std::string_view key_file);
+    gopp::error ServeTLS(ptr<net::Listener> l, std::string_view certFile, std::string_view keyFile);
     // Closes the listeners and all connections now.
     gopp::error Close();
     // Closes the listeners, then waits for active connections to become
@@ -552,15 +552,15 @@ struct Server {
     gopp::error Shutdown(ptr<context::Context> ctx);
 
     // Internal state, shared with connections.
-    std::shared_ptr<detail::server_state> state_ = nullptr;
+    std::shared_ptr<detail::serverState> state_ = nullptr;
 
-    std::shared_ptr<detail::server_state> state();
+    std::shared_ptr<detail::serverState> state();
 };
 
 // http.ListenAndServe
 gopp::error ListenAndServe(string addr, ptr<Handler> handler);
 // http.ListenAndServeTLS
-gopp::error ListenAndServeTLS(string addr, std::string_view cert_file, std::string_view key_file, ptr<Handler> handler);
+gopp::error ListenAndServeTLS(string addr, std::string_view certFile, std::string_view keyFile, ptr<Handler> handler);
 
 // ---------------------------------------------------------------------------
 // Client
@@ -611,7 +611,7 @@ struct RoundTripper : public virtual object {
 };
 
 namespace detail {
-class persist_conn;
+class persistConn;
 }
 
 // http.Transport: HTTP/1.1 with pooled keep-alive connections.
@@ -671,7 +671,7 @@ public:
     std::pair<ptr<Response>, gopp::error> Do(ptr<Request> req);
     std::pair<ptr<Response>, gopp::error> Get(std::string_view url);
     std::pair<ptr<Response>, gopp::error> Head(std::string_view url);
-    std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view content_type, ptr<io::Reader> body);
+    std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view contentType, ptr<io::Reader> body);
     // Posts data, URL-encoded, as application/x-www-form-urlencoded.
     std::pair<ptr<Response>, gopp::error> PostForm(std::string_view url, const url::Values& data);
     // Closes the transport's idle connections, if it is a Transport.
@@ -684,7 +684,7 @@ Client& DefaultClient();
 // http.Get, http.Head, http.Post: with DefaultClient().
 std::pair<ptr<Response>, gopp::error> Get(std::string_view url);
 std::pair<ptr<Response>, gopp::error> Head(std::string_view url);
-std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view content_type, ptr<io::Reader> body);
+std::pair<ptr<Response>, gopp::error> Post(std::string_view url, std::string_view contentType, ptr<io::Reader> body);
 // http.PostForm
 std::pair<ptr<Response>, gopp::error> PostForm(std::string_view url, const url::Values& data);
 

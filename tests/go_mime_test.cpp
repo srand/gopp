@@ -41,22 +41,22 @@ std::string paramsStr(const mime::Params& p) {
 // setMimeInit: the next lookup runs fn instead of the usual
 // initialization; the cleanup restores it.
 struct mimeInitGuard {
-    explicit mimeInitGuard(std::function<void()> fn) { mi::set_mime_init(std::move(fn)); }
-    ~mimeInitGuard() { mi::set_mime_init(nullptr); }
+    explicit mimeInitGuard(std::function<void()> fn) { mi::setMimeInit(std::move(fn)); }
+    ~mimeInitGuard() { mi::setMimeInit(nullptr); }
 };
 
-void clearMimeTypes() { mi::set_mime_types({}, {}); }
+void clearMimeTypes() { mi::setMimeTypes({}, {}); }
 
-void set_type(std::string_view ext, std::string_view typ) {
+void setType(std::string_view ext, std::string_view typ) {
     ASSERT_TRUE(ext.starts_with('.')) << "missing leading dot";
-    if (auto err = mi::set_extension_type(ext, typ)) FAIL() << "bad test data: " << err;
+    if (auto err = mi::setExtensionType(ext, typ)) FAIL() << "bad test data: " << err;
 }
 
-void write_file(const std::string& name, std::string_view data) {
+void writeFile(const std::string& name, std::string_view data) {
     ASSERT_FALSE(os::WriteFile(name, data, 0644));
 }
 
-constexpr std::string_view test_types =
+constexpr std::string_view testTypes =
     "# Copyright 2010 The Go Authors. All rights reserved.\n"
     "# Use of this source code is governed by a BSD-style\n"
     "# license that can be found in the LICENSE file.\n"
@@ -66,7 +66,7 @@ constexpr std::string_view test_types =
     "application/test\tt1\t# Simple test\n"
     "text/test\t\tt2\t# Text test\n";
 
-constexpr std::string_view test_types_globs2 =
+constexpr std::string_view testTypesGlobs2 =
     "# Copyright 2021 The Go Authors. All rights reserved.\n"
     "# Use of this source code is governed by a BSD-style\n"
     "# license that can be found in the LICENSE file.\n"
@@ -87,11 +87,11 @@ struct systemFilesGuard {
     std::pair<std::vector<string>, std::vector<string>> old;
     systemFilesGuard(std::vector<string> globs, std::vector<string> types)
         : old(mi::setSystemFiles(std::move(globs), std::move(types))) {
-        mi::set_mime_init(nullptr);
+        mi::setMimeInit(nullptr);
     }
     ~systemFilesGuard() {
         mi::setSystemFiles(std::move(old.first), std::move(old.second));
-        mi::set_mime_init(nullptr);
+        mi::setMimeInit(nullptr);
     }
 };
 
@@ -104,7 +104,7 @@ TEST(GoMime, TypeByExtension) {
     // initMimeForTests: no globs2 file, and testdata/test.types.
     TempDir dir;
     std::string types = os_test::join(dir, "test.types");
-    write_file(types, test_types);
+    writeFile(types, testTypes);
     systemFilesGuard files({string()}, {string(types)});
 
     smap tests = {
@@ -120,9 +120,9 @@ TEST(GoMime, TypeByExtension) {
 TEST(GoMime, TypeByExtension_LocalData) {
     mimeInitGuard cleanup([] {
         clearMimeTypes();
-        set_type(".foo", "x/foo");
-        set_type(".bar", "x/bar");
-        set_type(".Bar", "x/bar; capital=1");
+        setType(".foo", "x/foo");
+        setType(".bar", "x/bar");
+        setType(".Bar", "x/bar; capital=1");
     });
     smap tests = {
         {".foo", "x/foo"},
@@ -141,8 +141,8 @@ TEST(GoMime, TypeByExtensionCase) {
     constexpr std::string_view caps = "test/test; WAS=ALLCAPS";
     mimeInitGuard cleanup([&] {
         clearMimeTypes();
-        set_type(".TEST", caps);
-        set_type(".tesT", custom);
+        setType(".TEST", caps);
+        setType(".tesT", custom);
     });
     // case-sensitive lookup
     ASSERT_EQ(mime::TypeByExtension(".tesT"), custom);
@@ -171,11 +171,11 @@ TEST(GoMime, AddExtensionTypeMissingDot) {
 TEST(GoMime, ExtensionsByType) {
     mimeInitGuard cleanup([] {
         clearMimeTypes();
-        set_type(".gif", "image/gif");
-        set_type(".a", "foo/letter");
-        set_type(".b", "foo/letter");
-        set_type(".B", "foo/letter");
-        set_type(".PNG", "image/png");
+        setType(".gif", "image/gif");
+        setType(".a", "foo/letter");
+        setType(".b", "foo/letter");
+        setType(".B", "foo/letter");
+        setType(".PNG", "image/png");
     });
     struct {
         std::string typ;
@@ -199,7 +199,7 @@ TEST(GoMime, ExtensionsByType2) {
     mimeInitGuard cleanup([] {
         clearMimeTypes();
         // Initialize built-in types like in type.go before osInitMime.
-        mi::set_mime_types(mi::builtin_types_lower(), mi::builtin_types_lower());
+        mi::setMimeTypes(mi::builtinTypesLower(), mi::builtinTypesLower());
     });
     struct {
         std::string typ;
@@ -268,13 +268,13 @@ TEST(GoMime, TypeByExtensionUNIX) {
     TempDir dir;
     std::string globs = os_test::join(dir, "test.types.globs2");
     std::string types = os_test::join(dir, "test.types");
-    write_file(globs, test_types_globs2);
-    write_file(types, test_types);
+    writeFile(globs, testTypesGlobs2);
+    writeFile(types, testTypes);
     // initMimeUnixTest: the usual initialization, then the testdata files.
     systemFilesGuard files({string()}, {});
     mi::ensureInit();
     ASSERT_FALSE(mi::loadMimeGlobsFile(globs));
-    mi::load_mime_file(types);
+    mi::loadMimeFile(types);
 
     smap tests = {
         {".T1", "application/test"},
@@ -315,7 +315,7 @@ TEST(GoMime, ConsumeToken) {
         {" foo", "", " foo"},
     };
     for (const auto& test : tests) {
-        auto [token, rest] = mi::consume_token(test.v);
+        auto [token, rest] = mi::consumeToken(test.v);
         EXPECT_EQ(token, test.token) << test.v;
         EXPECT_EQ(rest, test.rest) << test.v;
     }
@@ -337,7 +337,7 @@ TEST(GoMime, ConsumeValue) {
         {"\"C:\\新建文件夹\\中文第二次测试.mp4\"", "C:\\新建文件夹\\中文第二次测试.mp4", ""},
     };
     for (const auto& test : tests) {
-        auto [value, rest] = mi::consume_value(test.v);
+        auto [value, rest] = mi::consumeValue(test.v);
         EXPECT_EQ(value, test.value) << test.v;
         EXPECT_EQ(rest, test.rest) << test.v;
     }
@@ -363,7 +363,7 @@ TEST(GoMime, ConsumeMediaParam) {
         {R"(; boundary=)", "", "", R"(; boundary=)"},
     };
     for (const auto& test : tests) {
-        auto [attribute, value, rest] = mi::consume_media_param(test.v);
+        auto [attribute, value, rest] = mi::consumeMediaParam(test.v);
         EXPECT_EQ(attribute, test.attribute) << test.v;
         EXPECT_EQ(value, test.value) << test.v;
         EXPECT_EQ(rest, test.rest) << test.v;
@@ -372,20 +372,20 @@ TEST(GoMime, ConsumeMediaParam) {
 
 namespace {
 
-struct media_type_test {
+struct mediaTypeTest {
     std::string in;
     std::string t;
     mime::Params p;
 };
 
-std::vector<media_type_test> parseMediaTypeTests() {
-    auto name_foo = m({{"name", "foo"}});
+std::vector<mediaTypeTest> parseMediaTypeTests() {
+    auto nameFoo = m({{"name", "foo"}});
     return {
-        {R"(form-data; name="foo")", "form-data", name_foo},
-        {R"( form-data ; name=foo)", "form-data", name_foo},
-        {R"(FORM-DATA;name="foo")", "form-data", name_foo},
-        {R"( FORM-DATA ; name="foo")", "form-data", name_foo},
-        {R"( FORM-DATA ; name="foo")", "form-data", name_foo},
+        {R"(form-data; name="foo")", "form-data", nameFoo},
+        {R"( form-data ; name=foo)", "form-data", nameFoo},
+        {R"(FORM-DATA;name="foo")", "form-data", nameFoo},
+        {R"( FORM-DATA ; name="foo")", "form-data", nameFoo},
+        {R"( FORM-DATA ; name="foo")", "form-data", nameFoo},
 
         {R"(form-data; key=value;  blah="value";name="foo" )", "form-data",
          m({{"key", "value"}, {"blah", "value"}, {"name", "foo"}})},

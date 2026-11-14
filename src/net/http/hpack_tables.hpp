@@ -1,7 +1,7 @@
 #pragma once  // included once, inside an anonymous namespace
 // Generated from Go's vendor/golang.org/x/net/http2/hpack tables.Go and static_table.Go.
 // clang-format off
-constexpr uint32 huffman_codes[256] = {
+constexpr uint32 huffmanCodes[256] = {
     0x1ff8, 0x7fffd8, 0xfffffe2, 0xfffffe3, 0xfffffe4, 0xfffffe5, 0xfffffe6, 0xfffffe7,
     0xfffffe8, 0xffffea, 0x3ffffffc, 0xfffffe9, 0xfffffea, 0x3ffffffd, 0xfffffeb, 0xfffffec,
     0xfffffed, 0xfffffee, 0xfffffef, 0xffffff0, 0xffffff1, 0xffffff2, 0x3ffffffe, 0xffffff3,
@@ -35,7 +35,7 @@ constexpr uint32 huffman_codes[256] = {
     0x3ffffeb, 0x7ffffe6, 0x3ffffec, 0x3ffffed, 0x7ffffe7, 0x7ffffe8, 0x7ffffe9, 0x7ffffea,
     0x7ffffeb, 0xffffffe, 0x7ffffec, 0x7ffffed, 0x7ffffee, 0x7ffffef, 0x7fffff0, 0x3ffffee,
 };
-constexpr uint8 huffman_code_len[256] = {
+constexpr uint8 huffmanCodeLen[256] = {
     13, 23, 28, 28, 28, 28, 28, 28, 28, 24, 30, 28, 28, 30, 28, 28,
     28, 28, 28, 28, 28, 28, 30, 28, 28, 28, 28, 28, 28, 28, 28, 28,
     6, 10, 10, 12, 13, 6, 8, 11, 10, 10, 8, 11, 8, 6, 6, 6,
@@ -53,7 +53,7 @@ constexpr uint8 huffman_code_len[256] = {
     20, 24, 20, 21, 22, 21, 21, 23, 22, 22, 25, 25, 24, 24, 26, 23,
     26, 27, 26, 26, 27, 27, 27, 27, 27, 28, 27, 27, 27, 27, 27, 26,
 };
-constexpr std::pair<std::string_view, std::string_view> static_table_entries[61] = {
+constexpr std::pair<std::string_view, std::string_view> staticTableEntries[61] = {
     {":authority", ""},
     {":method", "GET"},
     {":method", "POST"},

@@ -91,7 +91,7 @@ string Kind::String() const {
     return string::fromStatic("<unknown slog.Kind>");
 }
 
-Value LogValuer::LogValue() const { return p_->log_value(); }
+Value LogValuer::LogValue() const { return p_->logValue(); }
 
 Value StringValue(string value) {
     Value v(KindString, value.size());
@@ -123,8 +123,8 @@ Value GroupValue(std::span<const Attr> as) {
     return v;
 }
 
-Value Value::ofAny(ptr<const detail::any_value> p) {
-    Value v(p->log_valuer() ? KindLogValuer : KindAny, 0);
+Value Value::ofAny(ptr<const detail::anyValue> p) {
+    Value v(p->logValuer() ? KindLogValuer : KindAny, 0);
     v.data_ = std::move(p);
     return v;
 }
@@ -171,7 +171,7 @@ time::Time Value::Time() const {
 
 slog::LogValuer Value::LogValuer() const {
     if (kind_ != KindLogValuer) badKind(kind_, KindLogValuer);
-    return slog::LogValuer(std::get<ptr<const detail::any_value>>(data_));
+    return slog::LogValuer(std::get<ptr<const detail::anyValue>>(data_));
 }
 
 std::span<const Attr> Value::Group() const {
@@ -183,7 +183,7 @@ std::any Value::Any() const {
     switch (kind_) {
     case KindAny:
     case KindLogValuer:
-        if (auto* p = std::get_if<ptr<const detail::any_value>>(&data_)) return (*p)->to_any();
+        if (auto* p = std::get_if<ptr<const detail::anyValue>>(&data_)) return (*p)->toAny();
         return {};
     case KindGroup: return std::vector<Attr>(Group().begin(), Group().end());
     case KindInt64: return static_cast<int64>(num_);
@@ -229,7 +229,7 @@ void Value::append(std::string& dst) const {
     }
     case KindAny:
     case KindLogValuer:
-        if (auto* p = std::get_if<ptr<const detail::any_value>>(&data_)) (*p)->print(dst, false);
+        if (auto* p = std::get_if<ptr<const detail::anyValue>>(&data_)) (*p)->print(dst, false);
         else dst += "<nil>";
         return;
     }
@@ -248,8 +248,8 @@ bool Value::Equal(const Value& w) const {
     case KindTime: return Time().Equal(w.Time());
     case KindAny:
     case KindLogValuer: {
-        auto* a = std::get_if<ptr<const detail::any_value>>(&data_);
-        auto* b = std::get_if<ptr<const detail::any_value>>(&w.data_);
+        auto* a = std::get_if<ptr<const detail::anyValue>>(&data_);
+        auto* b = std::get_if<ptr<const detail::anyValue>>(&w.data_);
         if (!a || !b) return !a && !b;
         return (*a)->equal(**b);
     }
@@ -263,13 +263,13 @@ bool Value::Equal(const Value& w) const {
 }
 
 Value Value::Resolve() const {
-    constexpr int max_log_values = 100;
+    constexpr int maxLogValues = 100;
     Value v = *this;
-    for (int i = 0; i < max_log_values; i++) {
+    for (int i = 0; i < maxLogValues; i++) {
         if (v.kind_ != KindLogValuer) return v;
-        v = std::get<ptr<const detail::any_value>>(v.data_)->log_value();
+        v = std::get<ptr<const detail::anyValue>>(v.data_)->logValue();
     }
-    auto* p = std::get_if<ptr<const detail::any_value>>(&data_);
+    auto* p = std::get_if<ptr<const detail::anyValue>>(&data_);
     std::string_view type = p ? (*p)->typeName() : std::string_view("<nil>");
     return AnyValue(fmt::Errorf("LogValue called too many times on Value of type {}", type));
 }
@@ -287,9 +287,9 @@ std::string quote(std::string_view s) { return conv::quote(s); }
 
 void Record::AddAttrs(std::span<const Attr> attrs) {
     std::size_t i = 0;
-    for (; i < attrs.size() && n_front_ < n_attrs_inline; i++) {
+    for (; i < attrs.size() && nFront_ < nAttrsInline; i++) {
         if (attrs[i].Value.isEmptyGroup()) continue;
-        front_[static_cast<std::size_t>(n_front_++)] = attrs[i];
+        front_[static_cast<std::size_t>(nFront_++)] = attrs[i];
     }
     for (; i < attrs.size(); i++) {
         if (!attrs[i].Value.isEmptyGroup()) back_.push_back(attrs[i]);
@@ -298,7 +298,7 @@ void Record::AddAttrs(std::span<const Attr> attrs) {
 
 void Record::add(Attr a) {
     if (a.Value.isEmptyGroup()) return;
-    if (n_front_ < n_attrs_inline) front_[static_cast<std::size_t>(n_front_++)] = std::move(a);
+    if (nFront_ < nAttrsInline) front_[static_cast<std::size_t>(nFront_++)] = std::move(a);
     else back_.push_back(std::move(a));
 }
 

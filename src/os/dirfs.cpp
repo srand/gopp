@@ -26,7 +26,7 @@ public:
 
     std::pair<ptr<fs::File>, error> Open(std::string_view name) override {
         auto [fullname, err] = join(name);
-        if (err) return {nullptr, detail::path_error("open", name, err)};
+        if (err) return {nullptr, detail::pathError("open", name, err)};
         auto [f, oerr] = os::Open(fullname);
         if (oerr) return {nullptr, renamed(oerr, name)};
         return {f, nullptr};
@@ -34,7 +34,7 @@ public:
 
     std::pair<slice<byte>, error> ReadFile(std::string_view name) override {
         auto [fullname, err] = join(name);
-        if (err) return {{}, detail::path_error("readfile", name, err)};
+        if (err) return {{}, detail::pathError("readfile", name, err)};
         auto [b, rerr] = os::ReadFile(fullname);
         if (rerr) return {{}, renamed(rerr, name)};
         return {b, nullptr};
@@ -42,7 +42,7 @@ public:
 
     std::pair<std::vector<ptr<fs::DirEntry>>, error> ReadDir(std::string_view name) override {
         auto [fullname, err] = join(name);
-        if (err) return {{}, detail::path_error("readdir", name, err)};
+        if (err) return {{}, detail::pathError("readdir", name, err)};
         auto [entries, rerr] = os::ReadDir(fullname);
         if (rerr) return {{}, renamed(rerr, name)};
         return {entries, nullptr};
@@ -50,7 +50,7 @@ public:
 
     std::pair<ptr<fs::FileInfo>, error> Stat(std::string_view name) override {
         auto [fullname, err] = join(name);
-        if (err) return {nullptr, detail::path_error("stat", name, err)};
+        if (err) return {nullptr, detail::pathError("stat", name, err)};
         auto [fi, serr] = os::Stat(fullname);
         if (serr) return {nullptr, renamed(serr, name)};
         return {fi, nullptr};
@@ -58,7 +58,7 @@ public:
 
     std::pair<ptr<fs::FileInfo>, error> Lstat(std::string_view name) override {
         auto [fullname, err] = join(name);
-        if (err) return {nullptr, detail::path_error("lstat", name, err)};
+        if (err) return {nullptr, detail::pathError("lstat", name, err)};
         auto [fi, serr] = os::Lstat(fullname);
         if (serr) return {nullptr, renamed(serr, name)};
         return {fi, nullptr};
@@ -66,7 +66,7 @@ public:
 
     std::pair<string, error> ReadLink(std::string_view name) override {
         auto [fullname, err] = join(name);
-        if (err) return {{}, detail::path_error("readlink", name, err)};
+        if (err) return {{}, detail::pathError("readlink", name, err)};
         auto [target, rerr] = os::Readlink(fullname);
         if (rerr) return {{}, renamed(rerr, name)};
         return {target, nullptr};
@@ -93,7 +93,7 @@ error CopyFS(std::string_view dir, fs::FS& fsys) {
     return fs::WalkDir(fsys, ".", [&](std::string_view path, const ptr<DirEntry>& d, error err) -> error {
         if (err) return err;
         if (!localize(path)) return ErrInvalid;
-        std::string newPath = detail::join_path(dir, path);
+        std::string newPath = detail::joinPath(dir, path);
 
         FileMode type = d->Type();
         if (type == ModeDir) return MkdirAll(newPath, 0777);
@@ -118,12 +118,12 @@ error CopyFS(std::string_view dir, fs::FS& fsys) {
             if (auto [n, cerr] = io::Copy(*w, *r); cerr) {
                 w->Close();
                 r->Close();
-                return detail::path_error("Copy", newPath, cerr);
+                return detail::pathError("Copy", newPath, cerr);
             }
             r->Close();
             return w->Close();
         }
-        return detail::path_error("CopyFS", path, ErrInvalid);
+        return detail::pathError("CopyFS", path, ErrInvalid);
     });
 }
 

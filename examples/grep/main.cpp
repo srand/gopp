@@ -30,31 +30,31 @@ using namespace gopp;
 
 int main(int argc, char** argv) {
     string dir = ".", exts;
-    bool ignore_case = false;
+    bool ignoreCase = false;
     isize workers = 8;
     flag::StringVar(&dir, "dir", dir, "the directory to search");
     flag::StringVar(&exts, "ext", "", "search only files with these extensions: .go,.cpp");
-    flag::BoolVar(&ignore_case, "i", false, "ignore case");
+    flag::BoolVar(&ignoreCase, "i", false, "ignore case");
     flag::IntVar(&workers, "j", workers, "the files searched at once");
     flag::Parse(argc, argv);
     if (flag::Args().size() != 1) {
         fmt::Println(os::Stderr, "usage: grep [-dir d] [-ext .a,.b] [-i] [-j n] regexp");
         return 2;
     }
-    auto [re, rerr] = regexp::Compile(ignore_case ? "(?i)" + flag::Args()[0] : flag::Args()[0]);
+    auto [re, rerr] = regexp::Compile(ignoreCase ? "(?i)" + flag::Args()[0] : flag::Args()[0]);
     if (rerr) {
         fmt::Println(os::Stderr, "grep: {}", rerr);
         return 2;
     }
-    std::vector<string> want_exts;
+    std::vector<string> wantExts;
     if (!exts.empty()) {
-        for (const string& e : strings::Split(exts, ",")) want_exts.push_back(e);
+        for (const string& e : strings::Split(exts, ",")) wantExts.push_back(e);
     }
 
     ptr<fs::FS> fsys = os::DirFS(dir);
-    auto paths = makeChan<string>(64);
+    auto paths = make_chan<string>(64);
     // A file's matches are printed together, so that files don't mix.
-    auto output = makeChan<string>(64);
+    auto output = make_chan<string>(64);
     std::atomic<int64> matches{0}, searched{0};
 
     sync::Mutex mu;
@@ -80,15 +80,15 @@ int main(int argc, char** argv) {
                 searched++;
 
                 std::string found;
-                int line_no = 0;
+                int lineNo = 0;
                 while (!text.empty()) {
                     auto nl = text.find('\n');
                     std::string_view line = text.substr(0, nl);
                     text = nl == text.npos ? std::string_view() : text.substr(nl + 1);
-                    line_no++;
+                    lineNo++;
                     if (!re->MatchString(line)) continue;
                     matches++;
-                    found += fmt::Sprint("{}:{}: {}\n", path::Join(dir, name), line_no, line).view();
+                    found += fmt::Sprint("{}:{}: {}\n", path::Join(dir, name), lineNo, line).view();
                 }
                 if (!found.empty()) output.send(string(found));
             }
@@ -96,14 +96,14 @@ int main(int argc, char** argv) {
     }
 
     // The printer.
-    auto printed = makeChan<empty>();
+    auto printed = make_chan<empty>();
     go([output, printed] {
         for (const string& s : output) fmt::Print("{}", s);
         printed.close();
     });
 
     // The walker: sends the files to search.
-    error walk_err = fs::WalkDir(*fsys, ".", [&](std::string_view name, const ptr<fs::DirEntry>& d, error err) -> error {
+    error walkErr = fs::WalkDir(*fsys, ".", [&](std::string_view name, const ptr<fs::DirEntry>& d, error err) -> error {
         if (err) {
             fail(err);
             return nullptr;  // go on with the rest of the tree
@@ -113,14 +113,14 @@ int main(int argc, char** argv) {
             return nullptr;
         }
         if (!d->Type().IsRegular()) return nullptr;
-        if (!want_exts.empty() &&
-            std::find(want_exts.begin(), want_exts.end(), path::Ext(name)) == want_exts.end()) {
+        if (!wantExts.empty() &&
+            std::find(wantExts.begin(), wantExts.end(), path::Ext(name)) == wantExts.end()) {
             return nullptr;
         }
         paths.send(string(name));
         return nullptr;
     });
-    if (walk_err) fail(walk_err);
+    if (walkErr) fail(walkErr);
 
     paths.close();
     searchers.Wait();

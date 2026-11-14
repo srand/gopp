@@ -22,8 +22,8 @@ struct entity2 {
 };
 
 extern const entity entities[];
-extern const std::size_t n_entities;
+extern const std::size_t nEntities;
 extern const entity2 entities2[];
-extern const std::size_t n_entities2;
+extern const std::size_t nEntities2;
 
 }  // namespace gopp::html::detail

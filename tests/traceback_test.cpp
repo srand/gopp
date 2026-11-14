@@ -40,14 +40,14 @@ void block() {
 [[gnu::noinline]] void panicInFiber() { gopp::panic("boom"); }
 
 // Exits with 3 if unwinding ran it: the report must come first.
-struct exit_if_destroyed {
-    ~exit_if_destroyed() { ::_exit(3); }
+struct exitIfDestroyed {
+    ~exitIfDestroyed() { ::_exit(3); }
 };
 
 [[gnu::noinline]] void throwError() { throw std::runtime_error("boom"); }
 
 [[gnu::noinline]] void throwUnderDestructor() {
-    exit_if_destroyed e;
+    exitIfDestroyed e;
     throwError();
 }
 
@@ -83,7 +83,7 @@ struct exit_if_destroyed {
 // Starts fibers that block on a channel, a mutex and a sleep, and waits
 // until they have.
 void startBlockedFibers() {
-    auto c = makeChan<int>();
+    auto c = make_chan<int>();
     auto* mu = new sync::Mutex;
     mu->lock();
     go([c] { recvForever(c); });
@@ -93,7 +93,7 @@ void startBlockedFibers() {
 }
 
 // Panics in a fiber, for the stripped copies of this program.
-const bool panic_helper = go_helper::registerHelper("traceback-panic", [](const std::vector<std::string>&) {
+const bool panicHelper = go_helper::registerHelper("traceback-panic", [](const std::vector<std::string>&) {
     go([] { panicInFiber(); });
     block();
 });
@@ -106,16 +106,16 @@ std::string runStripped(const std::vector<string>& flags, std::string& exe) {
     args.push_back("-o");
     args.push_back(string(exe));
     args.push_back(go_helper::executable());
-    auto [strip_out, err] = os::exec::Command("strip", std::span<const string>(args))->CombinedOutput();
+    auto [stripOut, err] = os::exec::Command("strip", std::span<const string>(args))->CombinedOutput();
     if (err) {
-        ADD_FAILURE() << "strip: " << err << ": " << asStringView(strip_out);
+        ADD_FAILURE() << "strip: " << err << ": " << asStringView(stripOut);
         return {};
     }
-    // The variable go_helper looks for, which helper_command sets.
+    // The variable go_helper looks for, which helperCommand sets.
     os::Setenv("GO_EXEC_TEST_PID", std::to_string(os::Getpid()));
-    auto [out, run_err] = os::exec::Command(exe, string("traceback-panic"))->CombinedOutput();
-    auto* exit = dynamic_cast<const os::exec::ExitError*>(run_err.get());
-    EXPECT_TRUE(exit && exit->ExitCode() == 2) << run_err;
+    auto [out, runErr] = os::exec::Command(exe, string("traceback-panic"))->CombinedOutput();
+    auto* exit = dynamic_cast<const os::exec::ExitError*>(runErr.get());
+    EXPECT_TRUE(exit && exit->ExitCode() == 2) << runErr;
     ::unlink(exe.c_str());
     return std::string(asStringView(out));
 }

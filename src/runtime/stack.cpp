@@ -11,8 +11,8 @@ namespace gopp::runtime {
 
 namespace {
 
-struct free_stack {
-    free_stack* next;
+struct freeStack {
+    freeStack* next;
 };
 
 std::size_t pageSize() noexcept {
@@ -21,17 +21,17 @@ std::size_t pageSize() noexcept {
 }
 
 // A small per-thread cache in front of a global list.
-constexpr int cache_max = 16;
+constexpr int cacheMax = 16;
 
-struct stack_cache {
-    void* stacks[cache_max];
+struct stackCache {
+    void* stacks[cacheMax];
     int n = 0;
 };
 
-thread_local stack_cache tls_cache;
+thread_local stackCache tlsCache;
 
-lock_t global_lock;
-free_stack* global_free = nullptr;
+lockT globalLock;
+freeStack* globalFree = nullptr;
 
 }  // namespace
 
@@ -48,20 +48,20 @@ std::size_t stackSize() noexcept {
     return size;
 }
 
-boost::context::stack_context stack_allocator::allocate() {
+boost::context::stack_context stackAllocator::allocate() {
     std::size_t size = stackSize();
     void* base = nullptr;  // lowest usable address
 
-    stack_cache& c = tls_cache;
+    stackCache& c = tlsCache;
     if (c.n > 0) {
         base = c.stacks[--c.n];
     } else {
-        global_lock.lock();
-        if (global_free) {
-            base = global_free;
-            global_free = global_free->next;
+        globalLock.lock();
+        if (globalFree) {
+            base = globalFree;
+            globalFree = globalFree->next;
         }
-        global_lock.unlock();
+        globalLock.unlock();
     }
 
     if (!base) {
@@ -76,24 +76,24 @@ boost::context::stack_context stack_allocator::allocate() {
     sctx.size = size;
     sctx.sp = static_cast<char*>(base) + size;
     if (gp) {
-        gp->stack_lo = reinterpret_cast<uintptr_t>(base);
-        gp->stack_hi = reinterpret_cast<uintptr_t>(sctx.sp);
+        gp->stackLo = reinterpret_cast<uintptr_t>(base);
+        gp->stackHi = reinterpret_cast<uintptr_t>(sctx.sp);
     }
     return sctx;
 }
 
-void stack_allocator::deallocate(boost::context::stack_context& sctx) noexcept {
+void stackAllocator::deallocate(boost::context::stack_context& sctx) noexcept {
     void* base = static_cast<char*>(sctx.sp) - sctx.size;
-    stack_cache& c = tls_cache;
-    if (c.n < cache_max) {
+    stackCache& c = tlsCache;
+    if (c.n < cacheMax) {
         c.stacks[c.n++] = base;
         return;
     }
-    auto* fs = static_cast<free_stack*>(base);
-    global_lock.lock();
-    fs->next = global_free;
-    global_free = fs;
-    global_lock.unlock();
+    auto* fs = static_cast<freeStack*>(base);
+    globalLock.lock();
+    fs->next = globalFree;
+    globalFree = fs;
+    globalLock.unlock();
 }
 
 }  // namespace gopp::runtime

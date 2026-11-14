@@ -23,7 +23,7 @@ error wrapf(string msg, error inner);
 error errorf(string msg);
 
 // Converts and checks arguments for the driver (driverArgsConnLocked).
-std::pair<std::vector<driver::NamedValue>, error> driver_args_conn_locked(driver::Conn* ci, driver_stmt* ds,
+std::pair<std::vector<driver::NamedValue>, error> driverArgsConnLocked(driver::Conn* ci, driverStmt* ds,
                                                                           std::span<const arg> args);
 
 // Go's %q of a string.

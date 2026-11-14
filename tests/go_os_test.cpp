@@ -102,11 +102,11 @@ struct DotDir {
 
 template <typename Entry>
 void checkContents(std::string_view dir, const std::vector<Entry>& s, const std::vector<std::string>& contents,
-                    auto name_of) {
+                    auto nameOf) {
     for (auto& m : contents) {
         bool found = false;
         for (auto& n : s) {
-            std::string name = name_of(n);
+            std::string name = nameOf(n);
             if (name == "." || name == "..") ADD_FAILURE() << "got " << name << " in directory";
             if (m != name) continue;
             if (found) ADD_FAILURE() << "present twice: " << m;
@@ -163,7 +163,7 @@ void testReadDir(std::string_view dir, const std::vector<std::string>& contents)
 TEST(GoOs, FileReaddirnames) {
     DotDir d;
     testReaddirnames(d.dir, dot);
-    testReaddirnames(sfdir, sysdir_files);
+    testReaddirnames(sfdir, sysdirFiles);
     TempDir empty;
     testReaddirnames(empty, {});
 }
@@ -171,7 +171,7 @@ TEST(GoOs, FileReaddirnames) {
 TEST(GoOs, FileReaddir) {
     DotDir d;
     testReaddir(d.dir, dot);
-    testReaddir(sfdir, sysdir_files);
+    testReaddir(sfdir, sysdirFiles);
     TempDir empty;
     testReaddir(empty, {});
 }
@@ -179,7 +179,7 @@ TEST(GoOs, FileReaddir) {
 TEST(GoOs, FileReadDir) {
     DotDir d;
     testReadDir(d.dir, dot);
-    testReadDir(sfdir, sysdir_files);
+    testReadDir(sfdir, sysdirFiles);
     TempDir empty;
     testReadDir(empty, {});
 }
@@ -219,45 +219,45 @@ TEST(GoOs, ReaddirNValues) {
     }
 
     ptr<File> d;
-    auto open_dir = [&] {
+    auto openDir = [&] {
         auto [f, err] = os::Open(dir.path());
         ASSERT_FALSE(err) << "Open directory: " << err;
         d = f;
     };
-    auto readdir_expect = [&](int n, std::size_t want, error want_err) {
+    auto readdirExpect = [&](int n, std::size_t want, error wantErr) {
         auto [fi, err] = d->Readdir(n);
-        ASSERT_EQ(err, want_err) << "Readdir of " << n << " got error " << err << ", want " << want_err;
+        ASSERT_EQ(err, wantErr) << "Readdir of " << n << " got error " << err << ", want " << wantErr;
         EXPECT_EQ(fi.size(), want) << "Readdir of " << n;
     };
-    auto read_dir_expect = [&](int n, std::size_t want, error want_err) {
+    auto readDirExpect = [&](int n, std::size_t want, error wantErr) {
         auto [de, err] = d->ReadDir(n);
-        ASSERT_EQ(err, want_err) << "ReadDir of " << n << " got error " << err << ", want " << want_err;
+        ASSERT_EQ(err, wantErr) << "ReadDir of " << n << " got error " << err << ", want " << wantErr;
         EXPECT_EQ(de.size(), want) << "ReadDir of " << n;
     };
-    auto readdirnames_expect = [&](int n, std::size_t want, error want_err) {
+    auto readdirnamesExpect = [&](int n, std::size_t want, error wantErr) {
         auto [fi, err] = d->Readdirnames(n);
-        ASSERT_EQ(err, want_err) << "Readdirnames of " << n << " got error " << err << ", want " << want_err;
+        ASSERT_EQ(err, wantErr) << "Readdirnames of " << n << " got error " << err << ", want " << wantErr;
         EXPECT_EQ(fi.size(), want) << "Readdirnames of " << n;
     };
 
-    std::vector<std::function<void(int, std::size_t, error)>> fns = {readdir_expect, readdirnames_expect,
-                                                                      read_dir_expect};
+    std::vector<std::function<void(int, std::size_t, error)>> fns = {readdirExpect, readdirnamesExpect,
+                                                                      readDirExpect};
     for (auto& fn : fns) {
         // Test the slurp case
-        open_dir();
+        openDir();
         fn(0, 105, nullptr);
         fn(0, 0, nullptr);
         d->Close();
 
         // Slurp with -1 instead
-        open_dir();
+        openDir();
         fn(-1, 105, nullptr);
         fn(-2, 0, nullptr);
         fn(0, 0, nullptr);
         d->Close();
 
         // Test the bounded case
-        open_dir();
+        openDir();
         fn(1, 1, nullptr);
         fn(2, 2, nullptr);
         fn(105, 102, nullptr);  // and tests buffer >100 case
@@ -366,18 +366,18 @@ TEST(GoOs, Rename) {
 TEST(GoOs, RenameOverwriteDest) {
     InTempDir tmp;
     std::string from = "renamefrom", to = "renameto";
-    std::string to_data = "to", from_data = "from";
-    ASSERT_FALSE(os::WriteFile(to, to_data, 0777));
-    ASSERT_FALSE(os::WriteFile(from, from_data, 0777));
+    std::string toData = "to", fromData = "from";
+    ASSERT_FALSE(os::WriteFile(to, toData, 0777));
+    ASSERT_FALSE(os::WriteFile(from, fromData, 0777));
     ASSERT_FALSE(os::Rename(from, to));
     auto [_, err] = os::Stat(from);
     EXPECT_TRUE(err) << "from file still exists";
     if (err) {
         ASSERT_TRUE(os::IsNotExist(err)) << "stat from: " << err;
     }
-    auto [to_fi, terr] = os::Stat(to);
+    auto [toFi, terr] = os::Stat(to);
     ASSERT_FALSE(terr) << terr;
-    EXPECT_EQ(to_fi->Size(), static_cast<int64>(from_data.size())) << "\"to\" size isn't the old \"from\" size";
+    EXPECT_EQ(toFi->Size(), static_cast<int64>(fromData.size())) << "\"to\" size isn't the old \"from\" size";
 }
 
 TEST(GoOs, RenameFailed) {
@@ -458,15 +458,15 @@ TEST(GoOs, LongPath) {
         names.push_back("symlink.txt");
         ASSERT_FALSE(os::Link(sized + "/bar.txt", sized + "/link.txt"));
         names.push_back("link.txt");
-        for (int64 want_size : {static_cast<int64>(data.size()), int64(0)}) {
+        for (int64 wantSize : {static_cast<int64>(data.size()), int64(0)}) {
             for (auto& name : names) {
                 std::string path = sized + "/" + name;
                 auto [dir, err] = os::Stat(path);
                 ASSERT_FALSE(err) << "Stat(" << path << ") failed: " << err;
                 int64 filesize = fileSize(path);
-                EXPECT_TRUE(dir->Size() == filesize && filesize == want_size)
+                EXPECT_TRUE(dir->Size() == filesize && filesize == wantSize)
                     << "Size(" << path << ") is " << dir->Size() << ", len(ReadFile()) is " << filesize << ", want "
-                    << want_size;
+                    << wantSize;
                 ASSERT_FALSE(os::Chmod(path, dir->Mode())) << "Chmod(" << path << ") failed";
             }
             ASSERT_FALSE(os::Truncate(sized + "/bar.txt", 0));
@@ -494,7 +494,7 @@ TEST(GoOs, RemoveAllRace) {
     TempDir tmp;
     std::string root = tmp.path();
     mkdirTree(root, 1, 6);
-    auto hold = makeChan<empty>();
+    auto hold = make_chan<empty>();
     sync::WaitGroup wg;
     for (int i = 0; i < 4; i++) {
         wg.Add(1);
@@ -519,8 +519,8 @@ TEST(GoOs, PipeThreads) {
         r[static_cast<std::size_t>(i)] = rp;
         w[static_cast<std::size_t>(i)] = wp;
     }
-    auto creading = makeChan<bool>(threads);
-    auto cdone = makeChan<bool>(threads);
+    auto creading = make_chan<bool>(threads);
+    auto cdone = make_chan<bool>(threads);
     for (std::size_t i = 0; i < threads; i++) {
         go([&, i] {
             byte buf[1];
@@ -625,7 +625,7 @@ TEST(GoOs, ReadFileProc) {
     // of the next byte. Issue 72080.
     const std::string name = "/proc/sys/fs/pipe-max-size";
     if (auto [_, err] = os::Stat(name); err) GTEST_SKIP() << err;
-    std::string data = read_file(name);
+    std::string data = readFile(name);
     ASSERT_TRUE(!data.empty() && data.back() == '\n') << "read " << name << ": not newline-terminated: " << data;
 }
 
@@ -694,7 +694,7 @@ TEST(GoOs, PipeCloseRace) {
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err) << err;
     sync::WaitGroup wg;
-    auto c = makeChan<error>(4);
+    auto c = make_chan<error>(4);
     auto f = [&] {
         c.send(r->Close());
         c.send(w->Close());
@@ -745,7 +745,7 @@ TEST(GoOs, AppendDoesntOverwrite) {
         FAIL() << werr;
     }
     ASSERT_FALSE(f->Close());
-    ASSERT_EQ(read_file(name), "hello world");
+    ASSERT_EQ(readFile(name), "hello world");
 }
 
 TEST(GoOs, RemoveReadOnlyFile) {
@@ -764,22 +764,22 @@ TEST(GoOs, OpenFileDevNull) {
 }
 
 TEST(GoOs, ReadFileContents) {
-    struct read_step {
-        std::size_t buf_size;  // non-zero to check length of buf to Read
-        isize ret_n;           // result of Read call
-        error ret_err;         // error result of Read call
+    struct readStep {
+        std::size_t bufSize;  // non-zero to check length of buf to Read
+        isize retN;           // result of Read call
+        error retErr;         // error result of Read call
     };
-    error err_foo = errors::New("foo");
+    error errFoo = errors::New("foo");
     struct test {
         std::string name;
-        int64 stat_size;      // size of file to read, per stat (may be 0 for /proc files)
-        std::size_t want_size;  // wanted length of []byte from readFileContents
-        error want_err;       // wanted error from readFileContents
-        std::vector<read_step> reads;
+        int64 statSize;      // size of file to read, per stat (may be 0 for /proc files)
+        std::size_t wantSize;  // wanted length of []byte from readFileContents
+        error wantErr;       // wanted error from readFileContents
+        std::vector<readStep> reads;
     } tests[] = {
         {"big-file", 2000, 2000, nullptr, {{2001, 21, nullptr}, {1980, 1979, io::EOF_}}},
         {"small-file", 100, 100, nullptr, {{512, 100, io::EOF_}}},
-        {"returning-error", 1000, 50, err_foo, {{1001, 25, nullptr}, {0, 25, err_foo}}},
+        {"returning-error", 1000, 50, errFoo, {{1001, 25, nullptr}, {0, 25, errFoo}}},
         {"proc-file", 0, 1023, nullptr, {{512, 512, nullptr}, {0, 511, io::EOF_}}},
         {"plan9-iproute-file", 0, 1032, nullptr, {{512, 511, nullptr}, {0, 511, nullptr}, {0, 10, io::EOF_}}},  // Issue 72080
     };
@@ -787,24 +787,24 @@ TEST(GoOs, ReadFileContents) {
         SCOPED_TRACE(tt.name);
         std::size_t next = 0;
         bool bad = false;
-        auto [got, err] = os::detail::read_file_contents(tt.stat_size, [&](std::span<byte> buf) -> std::pair<isize, error> {
+        auto [got, err] = os::detail::readFileContents(tt.statSize, [&](std::span<byte> buf) -> std::pair<isize, error> {
             if (bad || next == tt.reads.size()) {
                 bad = true;
                 return {0, errors::New("unexpected read")};
             }
-            if (tt.stat_size == 0 && buf.size() < 512) {
+            if (tt.statSize == 0 && buf.size() < 512) {
                 ADD_FAILURE() << "read[" << next << "] with buf size " << buf.size()
                               << "; want at least 512 for 0-sized file";
             }
-            const read_step& step = tt.reads[next++];
-            if (step.buf_size != 0 && buf.size() != step.buf_size) {
-                ADD_FAILURE() << "read[" << next - 1 << "] has buffer size " << buf.size() << "; want " << step.buf_size;
+            const readStep& step = tt.reads[next++];
+            if (step.bufSize != 0 && buf.size() != step.bufSize) {
+                ADD_FAILURE() << "read[" << next - 1 << "] has buffer size " << buf.size() << "; want " << step.bufSize;
             }
-            return {step.ret_n, step.ret_err};
+            return {step.retN, step.retErr};
         });
         EXPECT_FALSE(bad) << "unexpected read after " << tt.reads.size() << " expected reads";
         EXPECT_EQ(next, tt.reads.size()) << "expected " << tt.reads.size() << " reads, got " << next;
-        EXPECT_EQ(err.Error(), tt.want_err.Error());
-        EXPECT_EQ(got.size(), tt.want_size);
+        EXPECT_EQ(err.Error(), tt.wantErr.Error());
+        EXPECT_EQ(got.size(), tt.wantSize);
     }
 }

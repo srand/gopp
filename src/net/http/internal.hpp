@@ -24,14 +24,14 @@ struct statusError : errorInterface {
     string Error() const override { return text; }
 };
 
-extern const gopp::error err_header_too_large;
+extern const gopp::error errHeaderTooLarge;
 
 // Reads a first line and header fields up to the empty line.
-gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 max_header_bytes, string& first_line, Header& header);
+gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 maxHeaderBytes, string& firstLine, Header& header);
 bool parseHttpVersion(std::string_view v, int& major, int& minor);
 
 // Reads a request from br. Its body reads from br too.
-std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, int64 max_header_bytes);
+std::pair<ptr<Request>, gopp::error> readRequest(const ptr<bufio::Reader>& br, int64 maxHeaderBytes);
 
 // Logs msg with a timestamp to stderr, like Go's log package.
 void logf(std::string_view msg);
@@ -56,40 +56,40 @@ protected:
 };
 
 // The request body as the server provides it.
-class body_reader final : public io::ReadCloser {
+class bodyReader final : public io::ReadCloser {
 public:
     // src reads the body's bytes (limited or dechunked).
-    body_reader(ptr<io::Reader> src, bool limited) : src_(std::move(src)), limited_(limited) {}
+    bodyReader(ptr<io::Reader> src, bool limited) : src_(std::move(src)), limited_(limited) {}
 
     std::pair<isize, gopp::error> Read(std::span<byte> p) override;
     // Discards up to max unread bytes so that the connection can be reused.
     gopp::error Close() override;
 
-    bool saw_eof() const noexcept { return saw_eof_; }
+    bool sawEof() const noexcept { return sawEof_; }
     bool closed() const noexcept { return closed_; }
     // Bytes left for a Content-Length body; -1 if unknown (chunked).
     int64 unreadSize() const noexcept;
-    bool close_failed() const noexcept { return close_failed_; }
+    bool closeFailed() const noexcept { return closeFailed_; }
 
 private:
     ptr<io::Reader> src_;
     bool limited_;
-    bool saw_eof_ = false;
+    bool sawEof_ = false;
     bool closed_ = false;
-    bool close_failed_ = false;
+    bool closeFailed_ = false;
 };
 
 // Reads the chunked transfer encoding (after net/http/internal/chunked.Go).
-class chunked_reader final : public io::Reader {
+class chunkedReader final : public io::Reader {
 public:
-    explicit chunked_reader(ptr<bufio::Reader> r) : r_(std::move(r)) {}
+    explicit chunkedReader(ptr<bufio::Reader> r) : r_(std::move(r)) {}
     std::pair<isize, gopp::error> Read(std::span<byte> p) override;
 
 private:
     gopp::error beginChunk();
     ptr<bufio::Reader> r_;
     uint64 n_ = 0;          // bytes left in the current chunk
-    bool check_end_ = false;  // expect CRLF after the chunk data
+    bool checkEnd_ = false;  // expect CRLF after the chunk data
     bool done_ = false;
     gopp::error err_;
 };
@@ -101,56 +101,56 @@ ptr<io::ReadCloser> noBody();
 // HTTP/2 (http2_server.cpp, http2_transport.cpp)
 
 // Whether HTTP/2 is offered with ALPN and accepted with prior knowledge.
-inline constexpr bool http2_enabled = true;
+inline constexpr bool http2Enabled = true;
 // Whether the client offers h2 with ALPN.
-inline constexpr bool http2_client_enabled = true;
+inline constexpr bool http2ClientEnabled = true;
 
 // The client connection preface.
-inline constexpr std::string_view http2_preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+inline constexpr std::string_view http2Preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-struct server_options {
+struct serverOptions {
     time::Duration ReadTimeout{};
     time::Duration WriteTimeout{};
     time::Duration IdleTimeout{};
     int64 MaxHeaderBytes = 0;
     bool DisableKeepAlives = false;
-    std::shared_ptr<detail::server_state> state;
+    std::shared_ptr<detail::serverState> state;
     // Reports whether the connection has open streams, for shutdown().
     std::function<void(bool active)> setActive;
     // Registers a function that starts a graceful shutdown (GOAWAY) when
     // the server shuts down; nullptr unregisters it.
-    std::function<void(std::function<void()>)> on_shutdown;
+    std::function<void(std::function<void()>)> onShutdown;
 };
 
 // An HTTP/2 client connection (http2_transport.cpp): multiplexes the
 // requests of a Transport to one host.
-struct http2_client_conn : object {
+struct http2ClientConn : object {
     // Whether a new request can start a stream now.
-    virtual bool can_take_new_request() = 0;
+    virtual bool canTakeNewRequest() = 0;
     // Sends req and waits for the response header. ctx (may be nil) cancels
-    // the request. An error that is err_http2_conn_unusable (errors::Is)
+    // the request. An error that is errHttp2ConnUnusable (errors::Is)
     // means the request wasn't processed and may be retried elsewhere.
-    virtual std::pair<ptr<Response>, gopp::error> round_trip(Request& req, const ptr<context::Context>& ctx) = 0;
+    virtual std::pair<ptr<Response>, gopp::error> roundTrip(Request& req, const ptr<context::Context>& ctx) = 0;
     // Whether the connection is gone for good.
     virtual bool closed() = 0;
     // Closes the connection if it has no streams; returns whether it did.
-    virtual bool close_if_idle() = 0;
+    virtual bool closeIfIdle() = 0;
     virtual void close() = 0;
 };
 
-struct http2_client_options {
-    time::Duration response_header_timeout{};
+struct http2ClientOptions {
+    time::Duration responseHeaderTimeout{};
 };
 
-extern const gopp::error err_http2_conn_unusable;
+extern const gopp::error errHttp2ConnUnusable;
 
 // Starts HTTP/2 on c (after ALPN h2, or h2c with prior knowledge): writes
 // the preface and SETTINGS and starts the read loop.
-ptr<http2_client_conn> newHttp2ClientConn(ptr<net::Conn> c, std::optional<tls::ConnectionState> tls_state,
-                                             const http2_client_options& opts);
+ptr<http2ClientConn> newHttp2ClientConn(ptr<net::Conn> c, std::optional<tls::ConnectionState> tlsState,
+                                             const http2ClientOptions& opts);
 
 // Serves HTTP/2 on c, whose reads go through br.
 void serveHttp2(const ptr<net::Conn>& c, const ptr<bufio::Reader>& br, const ptr<Handler>& handler,
-                 const server_options& opts, std::optional<tls::ConnectionState> tls_state);
+                 const serverOptions& opts, std::optional<tls::ConnectionState> tlsState);
 
 }  // namespace gopp::http::internal

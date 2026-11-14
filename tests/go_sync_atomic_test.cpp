@@ -27,7 +27,7 @@ struct funcs;
 #define FUNCS(T, Name)                                                                         \
     template <>                                                                                \
     struct funcs<T> {                                                                          \
-        using method_type = atomic::Name;                                                      \
+        using methodType = atomic::Name;                                                      \
         static T Swap(T* a, T v) { return atomic::Swap##Name(a, v); }                         \
         static T Add(T* a, T v) { return atomic::Add##Name(a, v); }                           \
         static T And(T* a, T v) { return atomic::And##Name(a, v); }                           \
@@ -95,7 +95,7 @@ TYPED_TEST(GoAtomic, Swap) {
 
 TYPED_TEST(GoAtomic, SwapMethod) {
     using T = TypeParam;
-    boxed<T, typename funcs<T>::method_type> x{magic<T>(), {}, magic<T>()};
+    boxed<T, typename funcs<T>::methodType> x{magic<T>(), {}, magic<T>()};
     T j = 0;
     for (T delta : powersOfTwo<T>()) {
         T k = x.i.Swap(delta);
@@ -123,7 +123,7 @@ TYPED_TEST(GoAtomic, Add) {
 
 TYPED_TEST(GoAtomic, AddMethod) {
     using T = TypeParam;
-    boxed<T, typename funcs<T>::method_type> x{magic<T>(), {}, magic<T>()};
+    boxed<T, typename funcs<T>::methodType> x{magic<T>(), {}, magic<T>()};
     T j = 0;
     for (T delta : powersOfTwo<T>()) {
         T k = x.i.Add(delta);
@@ -151,7 +151,7 @@ TYPED_TEST(GoAtomic, And) {
 
 TYPED_TEST(GoAtomic, AndMethod) {
     using T = TypeParam;
-    boxed<T, typename funcs<T>::method_type> x{magic<T>(), {}, magic<T>()};
+    boxed<T, typename funcs<T>::methodType> x{magic<T>(), {}, magic<T>()};
     x.i.Store(T(~T(0)));
     T j = T(~T(0));
     for (T mask : powersOfTwo<T>()) {
@@ -180,7 +180,7 @@ TYPED_TEST(GoAtomic, Or) {
 
 TYPED_TEST(GoAtomic, OrMethod) {
     using T = TypeParam;
-    boxed<T, typename funcs<T>::method_type> x{magic<T>(), {}, magic<T>()};
+    boxed<T, typename funcs<T>::methodType> x{magic<T>(), {}, magic<T>()};
     T j = 0;
     for (T mask : powersOfTwo<T>()) {
         T k = x.i.Or(mask);
@@ -209,7 +209,7 @@ TYPED_TEST(GoAtomic, CompareAndSwap) {
 
 TYPED_TEST(GoAtomic, CompareAndSwapMethod) {
     using T = TypeParam;
-    boxed<T, typename funcs<T>::method_type> x{magic<T>(), {}, magic<T>()};
+    boxed<T, typename funcs<T>::methodType> x{magic<T>(), {}, magic<T>()};
     for (T val : powersOfTwo<T>()) {
         x.i.Store(val);
         ASSERT_TRUE(x.i.CompareAndSwap(val, T(val + 1))) << "should have swapped " << val;
@@ -253,7 +253,7 @@ TYPED_TEST(GoAtomic, Store) {
 TYPED_TEST(GoAtomic, Hammer) {
     using T = TypeParam;
     constexpr int p = 4, n = 100000;
-    typename funcs<T>::method_type m;
+    typename funcs<T>::methodType m;
     T plain = 0;
     sync::WaitGroup wg;
     for (int i = 0; i < p; i++) {
@@ -372,7 +372,7 @@ TEST(GoAtomic, ValueConcurrent) {
     std::vector<std::vector<int64>> tests = {{1, 2, 3, 4}, {int64(1) << 40, int64(2) << 50}};
     for (const auto& test : tests) {
         atomic::Value<int64> v;
-        auto done = makeChan<bool>(4);
+        auto done = make_chan<bool>(4);
         for (int p = 0; p < 4; p++) {
             go([&v, &test, done] {
                 for (int i = 0; i < 10000; i++) {

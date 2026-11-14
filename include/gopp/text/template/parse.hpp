@@ -72,7 +72,7 @@ public:
 
     // Internals: the tree the node belongs to, and String's builder.
     Tree* tree() const noexcept { return tr; }
-    virtual void write_to(std::string& sb) const = 0;
+    virtual void writeTo(std::string& sb) const = 0;
     Tree* tr = nullptr;
 };
 
@@ -85,7 +85,7 @@ public:
     std::vector<ptr<Node>> Nodes;  // the element nodes in lexical order
     ptr<ListNode> CopyList() const;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.TextNode
@@ -94,7 +94,7 @@ public:
     string Text;  // may span newlines
     string String() const override;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.CommentNode
@@ -102,7 +102,7 @@ class CommentNode final : public Node {
 public:
     string Text;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.PipeNode: a pipeline with optional declaration.
@@ -114,7 +114,7 @@ public:
     std::vector<ptr<CommandNode>> Cmds;     // the commands in lexical order
     ptr<PipeNode> CopyPipe() const;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.ActionNode: a non-control action such as a field evaluation.
@@ -123,7 +123,7 @@ public:
     int Line = 0;
     ptr<PipeNode> Pipe;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.CommandNode: a command (a pipeline element).
@@ -131,7 +131,7 @@ class CommandNode final : public Node {
 public:
     std::vector<ptr<Node>> Args;  // identifier, field, or constant
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.IdentifierNode: a function name.
@@ -147,7 +147,7 @@ public:
         return this;
     }
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.NewIdentifier
@@ -158,21 +158,21 @@ class VariableNode final : public Node {
 public:
     std::vector<string> Ident;  // variable name and fields in lexical order
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.DotNode
 class DotNode final : public Node {
 public:
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.NilNode
 class NilNode final : public Node {
 public:
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.FieldNode: .Field1.Field2
@@ -180,7 +180,7 @@ class FieldNode final : public Node {
 public:
     std::vector<string> Ident;  // the identifiers in lexical order
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.ChainNode: a term followed by fields: (pipeline).Field1.Field2.
@@ -191,7 +191,7 @@ public:
     // Adds a field, with its leading dot.
     void Add(std::string_view field);
     ptr<parse::Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.BoolNode
@@ -199,7 +199,7 @@ class BoolNode final : public Node {
 public:
     bool True = false;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.NumberNode: a number in all the forms it can take.
@@ -215,7 +215,7 @@ public:
     std::complex<double> Complex128;
     string Text;  // the original textual representation
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
     void simplifyComplex();
 };
 
@@ -225,7 +225,7 @@ public:
     string Quoted;  // the original text, with quotes
     string Text;    // the string, after quote processing
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // An {{end}} or {{else}}; not added to trees.
@@ -233,7 +233,7 @@ class EndNode final : public Node {
 public:
     int Line = 0;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.BranchNode: the common part of if, range and with.
@@ -244,7 +244,7 @@ public:
     ptr<ListNode> List;          // what to execute if the value is non-empty
     ptr<ListNode> ElseList;      // what to execute if empty (nil if absent)
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 class IfNode final : public BranchNode {};
@@ -256,7 +256,7 @@ class BreakNode final : public Node {
 public:
     int Line = 0;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.ContinueNode
@@ -264,7 +264,7 @@ class ContinueNode final : public Node {
 public:
     int Line = 0;
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.TemplateNode: {{template "name" pipeline}}
@@ -274,7 +274,7 @@ public:
     string Name;         // the name of the template (unquoted)
     ptr<PipeNode> Pipe;  // the command to evaluate as dot (nil if none)
     ptr<Node> Copy() const override;
-    void write_to(std::string& sb) const override;
+    void writeTo(std::string& sb) const override;
 };
 
 // parse.Mode
@@ -310,19 +310,19 @@ public:
     // A copy of the tree; nodes are copied, parsing state is not.
     ptr<Tree> Copy() const;
     // Parses text into the tree, adding it and the templates it defines
-    // to tree_set.
-    std::pair<Tree*, gopp::error> Parse(std::string_view text, std::string_view left_delim, std::string_view right_delim,
-                                        std::map<std::string, ptr<Tree>, std::less<>>& tree_set,
+    // to treeSet.
+    std::pair<Tree*, gopp::error> Parse(std::string_view text, std::string_view leftDelim, std::string_view rightDelim,
+                                        std::map<std::string, ptr<Tree>, std::less<>>& treeSet,
                                         std::vector<const FuncNames*> funcs = {});
     // "name:line:col" and the node's text, for error messages.
     std::pair<string, string> ErrorContext(const Node& n) const;
 
     // Internals.
     string text;
-    string left_delim, right_delim;
+    string leftDelim, rightDelim;
 
 private:
-    friend struct tree_access;
+    friend struct treeAccess;
     [[noreturn]] void errorf(const std::string& msg);
     [[noreturn]] void unexpected(const item& token, std::string_view context);
     item next();
@@ -335,7 +335,7 @@ private:
     item expect(int expected, std::string_view context);
     item expectOneOf(int expected1, int expected2, std::string_view context);
     void startParse(std::vector<const FuncNames*> funcs, std::shared_ptr<lexer> lex,
-                     std::map<std::string, ptr<Tree>, std::less<>>* tree_set);
+                     std::map<std::string, ptr<Tree>, std::less<>>* treeSet);
     void stopParse();
     void add();
     void parse();
@@ -352,7 +352,7 @@ private:
     ptr<Node> rangeControl();
     ptr<Node> withControl();
     ptr<Node> endControl();
-    ptr<Node> else_control();
+    ptr<Node> elseControl();
     ptr<Node> blockControl();
     ptr<Node> templateControl();
     string parseTemplateName(const item& token, std::string_view context);
@@ -361,20 +361,20 @@ private:
     ptr<Node> term();
     bool hasFunction(std::string_view name) const;
     ptr<Node> useVar(parse::Pos pos, std::string_view name);
-    ptr<Node> new_number(parse::Pos pos, std::string_view text, int typ);
+    ptr<Node> newNumber(parse::Pos pos, std::string_view text, int typ);
     template <typename N>
     ptr<N> make(parse::NodeType type, parse::Pos pos);
 
     std::vector<const FuncNames*> funcs_;
     std::shared_ptr<lexer> lex_;
     item token_[3];  // three-token lookahead
-    int peek_count_ = 0;
+    int peekCount_ = 0;
     std::vector<string> vars_;
-    std::map<std::string, ptr<Tree>, std::less<>>* tree_set_ = nullptr;
-    int action_line_ = 0;
-    int range_depth_ = 0;
-    int stack_depth_ = 0;  // nested parenthesized pipelines
-    int nest_depth_ = 0;   // nested control structures
+    std::map<std::string, ptr<Tree>, std::less<>>* treeSet_ = nullptr;
+    int actionLine_ = 0;
+    int rangeDepth_ = 0;
+    int stackDepth_ = 0;  // nested parenthesized pipelines
+    int nestDepth_ = 0;   // nested control structures
 };
 
 // parse.New
@@ -383,8 +383,8 @@ ptr<Tree> New(string name);
 // parse.Parse: the trees of the template named name and the templates it
 // defines, by name.
 std::pair<std::map<std::string, ptr<Tree>, std::less<>>, gopp::error> Parse(std::string_view name, std::string_view text,
-                                                                             std::string_view left_delim,
-                                                                             std::string_view right_delim,
+                                                                             std::string_view leftDelim,
+                                                                             std::string_view rightDelim,
                                                                              std::vector<const FuncNames*> funcs = {});
 
 // parse.IsEmptyTree: whether n contains only whitespace or comments.

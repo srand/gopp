@@ -13,7 +13,7 @@ using namespace gopp;
 using namespace std::chrono_literals;
 
 TEST(Chan, Buffered) {
-    auto c = makeChan<int>(3);
+    auto c = make_chan<int>(3);
     c.send(1);
     c.send(2);
     c.send(3);
@@ -25,7 +25,7 @@ TEST(Chan, Buffered) {
 }
 
 TEST(Chan, CloseDrainsThenZero) {
-    auto c = makeChan<int>(2);
+    auto c = make_chan<int>(2);
     c.send(7);
     c.close();
     auto [v, ok] = c.recv2();
@@ -37,8 +37,8 @@ TEST(Chan, CloseDrainsThenZero) {
 }
 
 TEST(Chan, CloseWakesReceivers) {
-    auto c = makeChan<int>();
-    auto results = makeChan<bool>(3);
+    auto c = make_chan<int>();
+    auto results = make_chan<bool>(3);
     for (int i = 0; i < 3; i++) {
         go([c, results] { results.send(c.recv2().second); });
     }
@@ -48,7 +48,7 @@ TEST(Chan, CloseWakesReceivers) {
 }
 
 TEST(Chan, MoveOnlyValues) {
-    auto c = makeChan<std::unique_ptr<int>>(1);
+    auto c = make_chan<std::unique_ptr<int>>(1);
     c.send(std::make_unique<int>(5));
     auto p = c.recv();
     ASSERT_TRUE(p);
@@ -56,7 +56,7 @@ TEST(Chan, MoveOnlyValues) {
 }
 
 TEST(Chan, StringValues) {
-    auto c = makeChan<string>();
+    auto c = make_chan<string>();
     go([c] {
         c.send("hello");
         c.send("world"_s);
@@ -68,7 +68,7 @@ TEST(Chan, StringValues) {
 }
 
 TEST(Chan, TrySendRecv) {
-    auto c = makeChan<int>(1);
+    auto c = make_chan<int>(1);
     EXPECT_TRUE(c.trySend(1));
     EXPECT_FALSE(c.trySend(2));
     int v = 0;
@@ -83,7 +83,7 @@ TEST(Chan, TrySendRecv) {
 }
 
 TEST(Chan, ManyProducersConsumers) {
-    auto c = makeChan<int>(16);
+    auto c = make_chan<int>(16);
     constexpr int producers = 8, per = 5000;
     std::atomic<long> sum{0};
     sync::WaitGroup prod, cons;
@@ -104,15 +104,15 @@ TEST(Chan, ManyProducersConsumers) {
 }
 
 TEST(Select, DefaultWhenNothingReady) {
-    auto c = makeChan<int>();
+    auto c = make_chan<int>();
     bool def = false;
     select(recv(c, [](int) { FAIL(); }), defaultCase([&] { def = true; }));
     EXPECT_TRUE(def);
 }
 
 TEST(Select, PicksReadyCase) {
-    auto a = makeChan<int>(1);
-    auto b = makeChan<int>(1);
+    auto a = make_chan<int>(1);
+    auto b = make_chan<int>(1);
     b.send(2);
     int got = 0;
     select(recv(a, [&](int v) { got = v; }), recv(b, [&](int v) { got = v * 10; }));
@@ -120,7 +120,7 @@ TEST(Select, PicksReadyCase) {
 }
 
 TEST(Select, SendCase) {
-    auto a = makeChan<int>(1);
+    auto a = make_chan<int>(1);
     bool sent = false;
     select(send(a, 9, [&] { sent = true; }), defaultCase([] {}));
     EXPECT_TRUE(sent);
@@ -128,8 +128,8 @@ TEST(Select, SendCase) {
 }
 
 TEST(Select, BlocksUntilReady) {
-    auto a = makeChan<int>();
-    auto b = makeChan<string>();
+    auto a = make_chan<int>();
+    auto b = make_chan<string>();
     go([b] {
         time::Sleep(5ms);
         b.send("x");
@@ -140,7 +140,7 @@ TEST(Select, BlocksUntilReady) {
 }
 
 TEST(Select, ClosedChannelReceivesZero) {
-    auto a = makeChan<int>();
+    auto a = make_chan<int>();
     a.close();
     bool ok = true;
     select(recv(a, [&](int v, bool k) {
@@ -151,17 +151,17 @@ TEST(Select, ClosedChannelReceivesZero) {
 }
 
 TEST(Select, Timeout) {
-    auto never = makeChan<int>();
-    bool timed_out = false;
+    auto never = make_chan<int>();
+    bool timedOut = false;
     auto start = time::Now();
-    select(recv(never, [](int) {}), recv(time::After(20ms), [&](time::Time) { timed_out = true; }));
-    EXPECT_TRUE(timed_out);
+    select(recv(never, [](int) {}), recv(time::After(20ms), [&](time::Time) { timedOut = true; }));
+    EXPECT_TRUE(timedOut);
     EXPECT_GE(time::Since(start).Milliseconds(), 19);
 }
 
 TEST(Select, FairBetweenReadyCases) {
-    auto a = makeChan<int>(1000);
-    auto b = makeChan<int>(1000);
+    auto a = make_chan<int>(1000);
+    auto b = make_chan<int>(1000);
     for (int i = 0; i < 1000; i++) {
         a.send(1);
         b.send(1);
@@ -177,8 +177,8 @@ TEST(Select, FairBetweenReadyCases) {
 TEST(Select, ConcurrentSelectsOnSharedChannels) {
     // Fibers select across the same channels in different orders; every
     // value must be delivered exactly once.
-    auto a = makeChan<int>();
-    auto b = makeChan<int>();
+    auto a = make_chan<int>();
+    auto b = make_chan<int>();
     std::atomic<int> received{0};
     sync::WaitGroup wg;
     constexpr int n = 4000;

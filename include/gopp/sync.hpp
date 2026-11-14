@@ -28,7 +28,7 @@ public:
         lockSlow();
     }
 
-    bool try_lock() noexcept {
+    bool tryLock() noexcept {
         int32_t old = state_.load(std::memory_order_relaxed);
         if (old & (locked | starving)) return false;
         return state_.compare_exchange_strong(old, old | locked, std::memory_order_acquire);
@@ -41,14 +41,14 @@ public:
 
     // Go spelling.
     void Lock() noexcept { lock(); }
-    bool TryLock() noexcept { return try_lock(); }
+    bool TryLock() noexcept { return tryLock(); }
     void Unlock() noexcept { unlock(); }
 
 private:
     static constexpr int32_t locked = 1;
     static constexpr int32_t woken = 2;
     static constexpr int32_t starving = 4;
-    static constexpr int waiter_shift = 3;
+    static constexpr int waiterShift = 3;
 
     void lockSlow() noexcept;
     void unlockSlow(int32_t n) noexcept;
@@ -76,13 +76,13 @@ public:
     void RUnlock() noexcept { unlock_shared(); }
 
 private:
-    static constexpr int32_t max_readers = 1 << 30;
+    static constexpr int32_t maxReaders = 1 << 30;
 
     Mutex w_;
-    std::atomic<uint32_t> writer_sem_{0};
-    std::atomic<uint32_t> reader_sem_{0};
-    std::atomic<int32_t> reader_count_{0};
-    std::atomic<int32_t> reader_wait_{0};
+    std::atomic<uint32_t> writerSem_{0};
+    std::atomic<uint32_t> readerSem_{0};
+    std::atomic<int32_t> readerCount_{0};
+    std::atomic<int32_t> readerWait_{0};
 };
 
 // sync.WaitGroup

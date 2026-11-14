@@ -24,8 +24,8 @@ namespace go_helper {
 
 namespace {
 
-std::map<std::string, helper_fn>& helpers() {
-    static auto* m = new std::map<std::string, helper_fn>();
+std::map<std::string, helperFn>& helpers() {
+    static auto* m = new std::map<std::string, helperFn>();
     return *m;
 }
 
@@ -33,15 +33,15 @@ std::map<std::string, helper_fn>& helpers() {
 // The arguments, as glibc passes them to the functions of .init_array:
 // this one runs before the static initializers (priority 101), and works
 // where /proc isn't mounted (a child in a chroot).
-int init_argc = 0;
-char** init_argv = nullptr;
+int initArgc = 0;
+char** initArgv = nullptr;
 [[gnu::constructor(101)]] void captureArgs(int argc, char** argv, char**) {
-    init_argc = argc;
-    init_argv = argv;
+    initArgc = argc;
+    initArgv = argv;
 }
 
 std::vector<std::string> cmdline() {
-    if (init_argv) return std::vector<std::string>(init_argv, init_argv + init_argc);
+    if (initArgv) return std::vector<std::string>(initArgv, initArgv + initArgc);
     std::ifstream f("/proc/self/cmdline", std::ios::binary);
     std::string all((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     std::vector<std::string> args;
@@ -55,19 +55,19 @@ std::vector<std::string> cmdline() {
     return args;
 }
 
-int saved_stdout = -1;
+int savedStdout = -1;
 
 // Runs the helper before the tests, and exits.
-class helper_environment final : public testing::Environment {
+class helperEnvironment final : public testing::Environment {
 public:
-    explicit helper_environment(std::vector<std::string> args) : args_(std::move(args)) {}
+    explicit helperEnvironment(std::vector<std::string> args) : args_(std::move(args)) {}
 
     void SetUp() override {
         // googletest's output so far went to /dev/null: standard output is
         // the helper's from here on.
         std::fflush(stdout);
-        ::dup2(saved_stdout, 1);
-        ::close(saved_stdout);
+        ::dup2(savedStdout, 1);
+        ::close(savedStdout);
         auto it = helpers().find(args_[1]);
         if (it == helpers().end()) {
             std::fprintf(stderr, "Unknown command \"%s\"\n", args_[1].c_str());
@@ -81,26 +81,26 @@ private:
     std::vector<std::string> args_;
 };
 
-// A child started by helper_command: GO_EXEC_TEST_PID is set and the first
+// A child started by helperCommand: GO_EXEC_TEST_PID is set and the first
 // argument is a command, not a flag (googletest's, as other tests' children
 // get).
-const bool helper_mode = [] {
+const bool helperMode = [] {
     if (!std::getenv("GO_EXEC_TEST_PID")) return false;
     std::vector<std::string> args = cmdline();
     if (args.size() < 2 || args[1].empty() || args[1][0] == '-') return false;
-    saved_stdout = ::fcntl(1, F_DUPFD_CLOEXEC, 100);
+    savedStdout = ::fcntl(1, F_DUPFD_CLOEXEC, 100);
     int dn = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
     // Without /dev/null (in a chroot), a file in memory.
     if (dn < 0) dn = ::memfd_create("null", MFD_CLOEXEC);
     ::dup2(dn, 1);
     ::close(dn);
-    testing::AddGlobalTestEnvironment(new helper_environment(std::move(args)));
+    testing::AddGlobalTestEnvironment(new helperEnvironment(std::move(args)));
     return true;
 }();
 
 }  // namespace
 
-bool registerHelper(const std::string& name, helper_fn f) {
+bool registerHelper(const std::string& name, helperFn f) {
     if (helpers().count(name)) {
         std::fprintf(stderr, "duplicate command registered: %s\n", name.c_str());
         std::abort();

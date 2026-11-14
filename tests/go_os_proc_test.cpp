@@ -18,11 +18,11 @@
 #include <climits>
 
 using namespace os_test;
-using go_helper::helper_command;
+using go_helper::helperCommand;
 
 namespace {
 
-const bool helpers_registered = [] {
+const bool helpersRegistered = [] {
     // Go's TestMain with GO_OS_TEST_DRAIN_STDIN.
     go_helper::registerHelper("drainstdin", [](const std::vector<std::string>&) {
         os::Stdout.Close();
@@ -48,7 +48,7 @@ std::string dirName(const std::string& p) {
 }
 
 // Go's testStartProcess.
-void test_start_process(const std::string& dir, const std::string& cmd, std::vector<string> args,
+void testStartProcess(const std::string& dir, const std::string& cmd, std::vector<string> args,
                         const std::string& expect) {
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err) << "Pipe: " << err;
@@ -70,8 +70,8 @@ void test_start_process(const std::string& dir, const std::string& cmd, std::vec
 }
 
 // Go's testKillProcess: a child that hangs until stdin is closed.
-void test_kill_process(const std::function<void(const ptr<os::Process>&)>& process_killer) {
-    auto cmd = helper_command("drainstdin");
+void testKillProcess(const std::function<void(const ptr<os::Process>&)>& processKiller) {
+    auto cmd = helperCommand("drainstdin");
     auto [stdout, err] = cmd->StdoutPipe();
     ASSERT_FALSE(err) << err;
     auto [stdin, ierr] = cmd->StdinPipe();
@@ -80,14 +80,14 @@ void test_kill_process(const std::function<void(const ptr<os::Process>&)>& proce
 
     // Wait for the process to be started: it closes its stdout first.
     io::Copy(io::Discard(), *stdout);
-    process_killer(cmd->Process);
+    processKiller(cmd->Process);
 
     EXPECT_TRUE(cmd->Wait()) << "Test process succeeded, but expected to fail";
     stdin->Close();  // keep stdin alive until the process has finished dying
 }
 
 // Go's runBinHostname.
-std::string run_bin_hostname() {
+std::string runBinHostname() {
     auto [r, w, err] = os::Pipe();
     EXPECT_FALSE(err) << err;
     auto [path, lerr] = os::exec::LookPath("hostname");
@@ -96,7 +96,7 @@ std::string run_bin_hostname() {
     auto [p, serr] = os::StartProcess(path, argv, os::ProcAttr{.Files = {nullptr, w, ptr<File>(&os::Stderr)}});
     EXPECT_FALSE(serr) << serr;
     w->Close();
-    std::string host = read_all(*r);
+    std::string host = readAll(*r);
     r->Close();
     if (p) {
         EXPECT_FALSE(p->Wait().second);
@@ -106,8 +106,8 @@ std::string run_bin_hostname() {
     return host;
 }
 
-// pidfd_send_signal(2), for the pidfd tests.
-error pidfd_send_signal(uintptr pidfd, syscall::Signal sig) {
+// pidfdSendSignal(2), for the pidfd tests.
+error pidfdSendSignal(uintptr pidfd, syscall::Signal sig) {
     if (::syscall(SYS_pidfd_send_signal, static_cast<int>(pidfd), sig.value, nullptr, 0) < 0) {
         return syscall::errnoError(errno);
     }
@@ -123,11 +123,11 @@ TEST(GoOs, StartProcess) {
     std::string cmddir = dirName(c), cmdbase = baseName(c);
     {
         SCOPED_TRACE("absolute");
-        test_start_process("/", c, {string(cmdbase)}, "/");
+        testStartProcess("/", c, {string(cmdbase)}, "/");
     }
     {
         SCOPED_TRACE("relative");
-        test_start_process(cmddir, cmdbase, {string(cmdbase)}, cmddir);
+        testStartProcess(cmddir, cmdbase, {string(cmdbase)}, cmddir);
     }
 }
 
@@ -140,7 +140,7 @@ TEST(GoOs, Hostname) {
     if (auto [_, lerr] = os::exec::LookPath("hostname"); lerr) GTEST_SKIP() << "test requires hostname but it does not exist";
     // Hostname may return a fully qualified domain name, and /bin/hostname
     // only its first component.
-    std::string want = run_bin_hostname();
+    std::string want = runBinHostname();
     if (hostname != want) {
         auto [host, _, ok] = strings::Cut(hostname, ".");
         EXPECT_TRUE(ok && host == want) << "Hostname() = " << hostname << ", want " << want;
@@ -153,11 +153,11 @@ TEST(GoOs, NilProcessStateString) {
 }
 
 TEST(GoOs, KillStartProcess) {
-    test_kill_process([](const ptr<os::Process>& p) { ASSERT_FALSE(p->Kill()) << "Failed to kill test process"; });
+    testKillProcess([](const ptr<os::Process>& p) { ASSERT_FALSE(p->Kill()) << "Failed to kill test process"; });
 }
 
 TEST(GoOs, Getppid) {
-    auto cmd = helper_command("getppid");
+    auto cmd = helperCommand("getppid");
     // Verify that Getppid() from the forked process reports our process id.
     auto [output, err] = cmd->CombinedOutput();
     ASSERT_FALSE(err) << "Failed to spawn child process: " << err << " " << asStringView(output);
@@ -165,7 +165,7 @@ TEST(GoOs, Getppid) {
 }
 
 TEST(GoOs, KillFindProcess) {
-    test_kill_process([](const ptr<os::Process>& p) {
+    testKillProcess([](const ptr<os::Process>& p) {
         auto [p2, err] = os::FindProcess(p->Pid);
         ASSERT_FALSE(err) << "Failed to find test process: " << err;
         ASSERT_FALSE(p2->Kill()) << "Failed to kill test process";
@@ -295,7 +295,7 @@ TEST(GoOs, ProcessBadPID) {
 // pidfd_linux_test.go
 
 TEST(GoOs, FindProcessViaPidfd) {
-    if (!os::detail::pidfd_works()) GTEST_SKIP() << "pidfd not available";
+    if (!os::detail::pidfdWorks()) GTEST_SKIP() << "pidfd not available";
     auto [p, err] = os::StartProcess("/bin/true", std::vector<string>{"true"}, os::ProcAttr{});
     ASSERT_FALSE(err) << "starting test process: " << err;
     p->Wait();
@@ -318,7 +318,7 @@ TEST(GoOs, FindProcessViaPidfd) {
 }
 
 TEST(GoOs, StartProcessWithPidfd) {
-    if (!os::detail::pidfd_works()) GTEST_SKIP() << "pidfd not available";
+    if (!os::detail::pidfdWorks()) GTEST_SKIP() << "pidfd not available";
     int pidfd = -1;
     syscall::SysProcAttr sys;
     sys.PidFD = &pidfd;
@@ -327,7 +327,7 @@ TEST(GoOs, StartProcessWithPidfd) {
     auto [_, werr] = p->Wait();
     EXPECT_FALSE(werr) << "Wait: got " << werr << ", want <nil>";
     // The pidfd is still valid.
-    error serr = pidfd_send_signal(static_cast<uintptr>(pidfd), syscall::Signal(0));
+    error serr = pidfdSendSignal(static_cast<uintptr>(pidfd), syscall::Signal(0));
     EXPECT_TRUE(errors::Is(serr, syscall::ESRCH_)) << "SendSignal: got " << serr << ", want ESRCH";
     ::close(pidfd);
 }
@@ -359,7 +359,7 @@ TEST(GoOs, PidfdLeak) {
 }
 
 TEST(GoOs, ProcessWithHandleLinux) {
-    bool have_pidfd = os::detail::pidfd_works();
+    bool havePidfd = os::detail::pidfdWorks();
     auto [ctx, cancel] = context::WithCancel(context::Background());
     auto cmd = go_helper::helperCommandContext(ctx, "sleepminute");
     ASSERT_FALSE(cmd->Start());
@@ -369,15 +369,15 @@ TEST(GoOs, ProcessWithHandleLinux) {
     error err = cmd->Process->WithHandle([&](uintptr pidfd) {
         called = true;
         // The pidfd is valid: terminate the child with it.
-        EXPECT_FALSE(pidfd_send_signal(pidfd, sig)) << "PidFDSendSignal: got error, want nil";
+        EXPECT_FALSE(pidfdSendSignal(pidfd, sig)) << "PidFDSendSignal: got error, want nil";
     });
     // WithHandle fails without pidfds, and succeeds with them.
-    if (have_pidfd) {
+    if (havePidfd) {
         EXPECT_FALSE(err) << "WithHandle: got error " << err << ", want nil";
     } else {
         EXPECT_TRUE(err) << "WithHandle: got nil, want error";
     }
-    EXPECT_EQ(have_pidfd, called);
+    EXPECT_EQ(havePidfd, called);
     if (called) {
         // Wait for the child, to check that it worked.
         EXPECT_TRUE(cmd->Wait()) << "Wait: want error, got nil";
@@ -404,7 +404,7 @@ TEST(GoOs, Executable) {
     std::string dir = dirName(dirName(ep));
     std::string fn = ep.substr(dir.size() + (dir == "/" ? 0 : 1));
 
-    auto cmd = helper_command("execpath");
+    auto cmd = helperCommand("execpath");
     cmd->Dir = string(dir);
     cmd->Path = string(fn);
     // Forge argv[0] for the child, to check that the real path of the
@@ -430,8 +430,8 @@ TEST(GoOs, ExecutableDeleted) {
 namespace {
 
 struct withoutPidfd {
-    withoutPidfd() { os::detail::pidfd_disabled.store(true); }
-    ~withoutPidfd() { os::detail::pidfd_disabled.store(false); }
+    withoutPidfd() { os::detail::pidfdDisabled.store(true); }
+    ~withoutPidfd() { os::detail::pidfdDisabled.store(false); }
 };
 
 }  // namespace
@@ -454,7 +454,7 @@ TEST(GoOs, ProcessWithoutPidfd) {
     // Killed, from fibers that wait meanwhile.
     auto [s, serr] = os::StartProcess("/bin/sleep", std::vector<string>{"sleep", "10"}, os::ProcAttr{});
     ASSERT_FALSE(serr) << serr;
-    auto done = makeChan<ptr<os::ProcessState>>(1);
+    auto done = make_chan<ptr<os::ProcessState>>(1);
     go([s, done] { done.send(s->Wait().first); });
     time::Sleep(10 * time::Millisecond);
     EXPECT_FALSE(s->Signal(syscall::SIGTERM_));

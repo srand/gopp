@@ -41,10 +41,10 @@ namespace {
 const error errProcessReleased = errors::New("os: process already released");
 
 // Special values of Process::Pid.
-constexpr int pid_unset = 0;
-constexpr int pid_released = -1;
+constexpr int pidUnset = 0;
+constexpr int pidReleased = -1;
 
-enum process_status : uint32 { status_ok, status_done, status_released };
+enum processStatus : uint32 { statusOk, statusDone, statusReleased };
 
 long sysPidfdOpen(int pid, unsigned flags) { return ::syscall(SYS_pidfd_open, pid, flags); }
 
@@ -93,7 +93,7 @@ syscall::Rusage toRusage(const struct rusage& ru) {
 }
 
 // Go's checkPidfd.
-bool check_pidfd() {
+bool checkPidfd() {
     long fd = sysPidfdOpen(::getpid(), 0);
     if (fd < 0) return false;
     bool ok = true;
@@ -106,23 +106,23 @@ bool check_pidfd() {
     if (r == 0 || errno != ECHILD) ok = false;
     if (ok && sysPidfdSendSignal(static_cast<int>(fd), 0) < 0) ok = false;
     ::close(static_cast<int>(fd));
-    return ok && syscall::detail::check_clone_pidfd();
+    return ok && syscall::detail::checkClonePidfd();
 }
 
 }  // namespace
 
 namespace detail {
 
-std::atomic<bool> pidfd_disabled{false};
+std::atomic<bool> pidfdDisabled{false};
 
-bool pidfd_works() {
-    static const bool works = check_pidfd();
-    return works && !pidfd_disabled.load(std::memory_order_relaxed);
+bool pidfdWorks() {
+    static const bool works = checkPidfd();
+    return works && !pidfdDisabled.load(std::memory_order_relaxed);
 }
 
 // Go's processHandle: a pidfd, closed when the last reference goes.
-struct process_handle {
-    explicit process_handle(int fd) : pfd(fd) {
+struct processHandle {
+    explicit processHandle(int fd) : pfd(fd) {
         // epoll reports a pidfd readable when its process exits. If it
         // can't be polled, Wait blocks in waitid instead.
         pfd.Init(true);
@@ -150,59 +150,59 @@ struct process_handle {
     }
 };
 
-struct process_impl {
-    std::atomic<uint32> state{status_ok};
-    sync::RWMutex sig_mu;              // orders Signal before a pid-based Wait
-    process_handle* handle = nullptr;  // nullptr: the pid is used
+struct processImpl {
+    std::atomic<uint32> state{statusOk};
+    sync::RWMutex sigMu;              // orders Signal before a pid-based Wait
+    processHandle* handle = nullptr;  // nullptr: the pid is used
 
     // Go's doRelease: sets the status if it's still OK, dropping the
     // handle's reference; returns the earlier status.
-    uint32 do_release(uint32 new_status) noexcept {
+    uint32 doRelease(uint32 newStatus) noexcept {
         uint32 s = state.load(std::memory_order_acquire);
         for (;;) {
-            if (s != status_ok) return s;
-            if (state.compare_exchange_weak(s, new_status, std::memory_order_acq_rel)) break;
+            if (s != statusOk) return s;
+            if (state.compare_exchange_weak(s, newStatus, std::memory_order_acq_rel)) break;
         }
         if (handle) handle->release();
-        return status_ok;
+        return statusOk;
     }
 
     // Go's handleTransientAcquire: the handle with a reference, or the
     // status that keeps it from being used.
-    std::pair<process_handle*, uint32> transientAcquire() noexcept {
+    std::pair<processHandle*, uint32> transientAcquire() noexcept {
         uint32 s = state.load(std::memory_order_acquire);
-        if (s != status_ok) return {nullptr, s};
-        if (handle->acquire()) return {handle, status_ok};
+        if (s != statusOk) return {nullptr, s};
+        if (handle->acquire()) return {handle, statusOk};
         s = state.load(std::memory_order_acquire);
-        if (s == status_ok) panic("inconsistent process status");
+        if (s == statusOk) panic("inconsistent process status");
         return {nullptr, s};
     }
 
     static ptr<Process> newPidProcess(int pid) {
-        return make_ptr<Process>(pid, std::make_unique<process_impl>());
+        return make_ptr<Process>(pid, std::make_unique<processImpl>());
     }
 
     static ptr<Process> newHandleProcess(int pid, int fd) {
-        auto impl = std::make_unique<process_impl>();
-        impl->handle = new process_handle(fd);
+        auto impl = std::make_unique<processImpl>();
+        impl->handle = new processHandle(fd);
         return make_ptr<Process>(pid, std::move(impl));
     }
 
     static ptr<Process> newDoneProcess(int pid) {
-        auto impl = std::make_unique<process_impl>();
-        impl->state.store(status_done, std::memory_order_relaxed);
+        auto impl = std::make_unique<processImpl>();
+        impl->state.store(statusDone, std::memory_order_relaxed);
         return make_ptr<Process>(pid, std::move(impl));
     }
 
     // Go's pidfdWait.
-    static std::pair<ptr<ProcessState>, error> pidfd_wait(process_impl& p) {
+    static std::pair<ptr<ProcessState>, error> pidfdWait(processImpl& p) {
         auto [h, status] = p.transientAcquire();
-        if (status == status_done) {
+        if (status == statusDone) {
             // Waited for already, or not found by FindProcess: ECHILD, as
             // waitid would say.
             return {nullptr, NewSyscallError("wait", syscall::ECHILD_)};
         }
-        if (status == status_released) return {nullptr, syscall::EINVAL_};
+        if (status == statusReleased) return {nullptr, syscall::EINVAL_};
 
         siginfo_t info{};
         struct rusage ru{};
@@ -235,15 +235,15 @@ struct process_impl {
         }
         h->release();
         if (e) return {nullptr, NewSyscallError("waitid", syscall::errnoError(e))};
-        p.do_release(status_done);
+        p.doRelease(statusDone);
         return {make_ptr<ProcessState>(static_cast<int>(info.si_pid), waitStatus(info), toRusage(ru)), nullptr};
     }
 
     // Go's pidWait, with blockUntilWaitable: waits until the process can
     // be reaped, then marks it done before reaping, so that Signal can't
     // signal a recycled pid.
-    static std::pair<ptr<ProcessState>, error> pid_wait(process_impl& p, int pid) {
-        if (p.state.load(std::memory_order_acquire) == status_released) return {nullptr, syscall::EINVAL_};
+    static std::pair<ptr<ProcessState>, error> pidWait(processImpl& p, int pid) {
+        if (p.state.load(std::memory_order_acquire) == statusReleased) return {nullptr, syscall::EINVAL_};
         bool ready = false;
         {
             runtime::blockingCall b;
@@ -260,10 +260,10 @@ struct process_impl {
             }
         }
         if (ready) {
-            p.do_release(status_done);
+            p.doRelease(statusDone);
             // Wait for a Signal in progress.
-            p.sig_mu.Lock();
-            p.sig_mu.Unlock();
+            p.sigMu.Lock();
+            p.sigMu.Unlock();
         }
         int status = 0;
         struct rusage ru{};
@@ -278,7 +278,7 @@ struct process_impl {
             int e = errno;
             return {nullptr, NewSyscallError("wait", syscall::errnoError(e))};
         }
-        p.do_release(status_done);
+        p.doRelease(statusDone);
         return {make_ptr<ProcessState>(static_cast<int>(pid1), syscall::WaitStatus(static_cast<uint32>(status)),
                                        toRusage(ru)),
                 nullptr};
@@ -287,25 +287,25 @@ struct process_impl {
 
 }  // namespace detail
 
-Process::Process(int pid, std::unique_ptr<detail::process_impl> impl) noexcept : Pid(pid), p_(std::move(impl)) {}
+Process::Process(int pid, std::unique_ptr<detail::processImpl> impl) noexcept : Pid(pid), p_(std::move(impl)) {}
 
 Process::~Process() {
     // Go's cleanup: the handle's reference goes with the Process.
-    if (p_) p_->do_release(status_released);
+    if (p_) p_->doRelease(statusReleased);
 }
 
 error Process::Release() {
     // For historical reasons, Release sets Pid to -1 on Unix.
-    Pid = pid_released;
-    p_->do_release(status_released);
+    Pid = pidReleased;
+    p_->doRelease(statusReleased);
     return nullptr;
 }
 
 error Process::Kill() { return Signal(os::Kill); }
 
 std::pair<ptr<ProcessState>, error> Process::Wait() {
-    if (p_->handle) return detail::process_impl::pidfd_wait(*p_);
-    return detail::process_impl::pid_wait(*p_, Pid);
+    if (p_->handle) return detail::processImpl::pidfdWait(*p_);
+    return detail::processImpl::pidWait(*p_, Pid);
 }
 
 error Process::Signal(const gopp::os::Signal& sig) {
@@ -314,8 +314,8 @@ error Process::Signal(const gopp::os::Signal& sig) {
     if (p_->handle) {
         // Go's pidfdSendSignal.
         auto [h, status] = p_->transientAcquire();
-        if (status == status_done) return ErrProcessDone;
-        if (status == status_released) return errProcessReleased;
+        if (status == statusDone) return ErrProcessDone;
+        if (status == statusReleased) return errProcessReleased;
         long r = sysPidfdSendSignal(h->pfd.Sysfd(), s.value);
         int e = errno;
         h->release();
@@ -323,24 +323,24 @@ error Process::Signal(const gopp::os::Signal& sig) {
         return nullptr;
     }
     // Go's pidSignal.
-    if (Pid == pid_released) return errProcessReleased;
-    if (Pid == pid_unset) return errors::New("os: process not initialized");
-    p_->sig_mu.RLock();
+    if (Pid == pidReleased) return errProcessReleased;
+    if (Pid == pidUnset) return errors::New("os: process not initialized");
+    p_->sigMu.RLock();
     error err;
     switch (p_->state.load(std::memory_order_acquire)) {
-    case status_done: err = ErrProcessDone; break;
-    case status_released: err = errProcessReleased; break;
+    case statusDone: err = ErrProcessDone; break;
+    case statusReleased: err = errProcessReleased; break;
     default: err = convertEsrch(syscall::Kill(Pid, s)); break;
     }
-    p_->sig_mu.RUnlock();
+    p_->sigMu.RUnlock();
     return err;
 }
 
 error Process::WithHandle(const std::function<void(uintptr)>& f) {
     if (!p_->handle) return ErrNoHandle;
     auto [h, status] = p_->transientAcquire();
-    if (status == status_done) return ErrProcessDone;
-    if (status == status_released) return errProcessReleased;
+    if (status == statusDone) return ErrProcessDone;
+    if (status == statusReleased) return errProcessReleased;
     f(static_cast<uintptr>(h->pfd.Sysfd()));
     h->release();
     return nullptr;
@@ -377,7 +377,7 @@ std::pair<ptr<Process>, error> StartProcess(std::string_view name, std::span<con
     if (!attr.Sys && !attr.Dir.empty()) {
         if (auto [_, err] = Stat(attr.Dir); err) {
             if (auto* pe = dynamic_cast<const PathError*>(err.get())) {
-                return {nullptr, detail::path_error("chdir", pe->Path.view(), pe->Err)};
+                return {nullptr, detail::pathError("chdir", pe->Path.view(), pe->Err)};
             }
             return {nullptr, err};
         }
@@ -386,13 +386,13 @@ std::pair<ptr<Process>, error> StartProcess(std::string_view name, std::span<con
     // Go's ensurePidfd: ask for a pidfd, unless the caller did; then it's
     // the caller's, and the Process gets a duplicate.
     std::optional<syscall::SysProcAttr> sys = attr.Sys;
-    bool works = detail::pidfd_works();
-    bool should_dup = false;
+    bool works = detail::pidfdWorks();
+    bool shouldDup = false;
     int pidfd = -1;
     if (works) {
         if (!sys) sys.emplace();
         if (!sys->PidFD) sys->PidFD = &pidfd;
-        else should_dup = true;
+        else shouldDup = true;
     }
 
     syscall::ProcAttr sysattr;
@@ -403,26 +403,26 @@ std::pair<ptr<Process>, error> StartProcess(std::string_view name, std::span<con
     for (const ptr<File>& f : attr.Files) sysattr.Files.push_back(f ? f->Fd() : ~uintptr(0));
 
     auto [pid, err] = syscall::ForkExec(name, argv, &sysattr);
-    if (err) return {nullptr, detail::path_error("fork/exec", name, err)};
+    if (err) return {nullptr, detail::pathError("fork/exec", name, err)};
 
     if (works) {
         int h = *sys->PidFD;
-        if (should_dup) h = ::fcntl(h, F_DUPFD_CLOEXEC, 0);
-        if (h >= 0) return {detail::process_impl::newHandleProcess(pid, h), nullptr};
+        if (shouldDup) h = ::fcntl(h, F_DUPFD_CLOEXEC, 0);
+        if (h >= 0) return {detail::processImpl::newHandleProcess(pid, h), nullptr};
     }
-    return {detail::process_impl::newPidProcess(pid), nullptr};
+    return {detail::processImpl::newPidProcess(pid), nullptr};
 }
 
 std::pair<ptr<Process>, error> FindProcess(int pid) {
     // Go's pidfdFind.
-    if (detail::pidfd_works()) {
+    if (detail::pidfdWorks()) {
         long h = sysPidfdOpen(pid, 0);
-        if (h >= 0) return {detail::process_impl::newHandleProcess(pid, static_cast<int>(h)), nullptr};
+        if (h >= 0) return {detail::processImpl::newHandleProcess(pid, static_cast<int>(h)), nullptr};
         // A process that doesn't exist is done: Signal and Wait say so.
         // Other errors fall back to the pid.
-        if (errno == ESRCH) return {detail::process_impl::newDoneProcess(pid), nullptr};
+        if (errno == ESRCH) return {detail::processImpl::newDoneProcess(pid), nullptr};
     }
-    return {detail::process_impl::newPidProcess(pid), nullptr};
+    return {detail::processImpl::newPidProcess(pid), nullptr};
 }
 
 }  // namespace gopp::os

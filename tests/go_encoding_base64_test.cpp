@@ -320,7 +320,7 @@ struct faultInjectReader : io::Reader {
 
 // tests that we don't ignore errors from our underlying reader
 TEST(GoBase64, DecoderIssue3577) {
-    auto next = makeChan<nextRead>(10);
+    auto next = make_chan<nextRead>(10);
     auto wantErr = errors::New("my error");
     next.send({5, nullptr});
     next.send({10, wantErr});
@@ -328,7 +328,7 @@ TEST(GoBase64, DecoderIssue3577) {
     auto d = base64::NewDecoder(base64::StdEncoding,
                                 make_ptr<faultInjectReader>("VHdhcyBicmlsbGlnLCBhbmQgdGhlIHNsaXRoeSB0b3Zlcw==",  // twas brillig...
                                                             next));
-    auto errc = makeChan<error>(1);
+    auto errc = make_chan<error>(1);
     go([d, errc] { errc.send(io::ReadAll(*d).second); });
     select(recv(errc, [&](error err) { EXPECT_EQ(err, wantErr) << "got error " << err << "; want " << wantErr; }),
            recv(time::After(5 * time::Second), [] { ADD_FAILURE() << "timeout; Decoder blocked without returning an error"; }));

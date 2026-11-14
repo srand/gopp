@@ -11,8 +11,8 @@ namespace gopp::os {
 
 namespace {
 
-sync::Mutex getwd_mu;
-std::string getwd_cache;  // under getwd_mu
+sync::Mutex getwdMu;
+std::string getwdCache;  // under getwdMu
 
 }  // namespace
 
@@ -48,10 +48,10 @@ std::pair<string, error> Getwd() {
         dot = d;
     }
     {
-        std::lock_guard l(getwd_mu);
-        if (!getwd_cache.empty()) {
-            auto [d, err] = Stat(getwd_cache);
-            if (!err && SameFile(dot, d)) return {string(getwd_cache), nullptr};
+        std::lock_guard l(getwdMu);
+        if (!getwdCache.empty()) {
+            auto [d, err] = Stat(getwdCache);
+            if (!err && SameFile(dot, d)) return {string(getwdCache), nullptr};
         }
     }
     auto [root, rerr] = Stat("/");
@@ -90,8 +90,8 @@ std::pair<string, error> Getwd() {
         dot = pd;
     }
 
-    std::lock_guard l(getwd_mu);
-    getwd_cache = dir;
+    std::lock_guard l(getwdMu);
+    getwdCache = dir;
     return {string(dir), nullptr};
 }
 

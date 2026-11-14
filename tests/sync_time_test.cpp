@@ -33,12 +33,12 @@ TEST(Sync, MutexParksWhileHeld) {
     // need it.
     sync::Mutex mu;
     mu.lock();
-    auto got = makeChan<int>();
+    auto got = make_chan<int>();
     go([&] {
         std::lock_guard l(mu);
         got.send(1);
     });
-    auto other = makeChan<int>();
+    auto other = make_chan<int>();
     go([other] { other.send(2); });
     EXPECT_EQ(other.recv(), 2);
     time::Sleep(5ms);
@@ -49,15 +49,15 @@ TEST(Sync, MutexParksWhileHeld) {
 TEST(Sync, RWMutex) {
     sync::RWMutex mu;
     int value = 0;
-    std::atomic<int> readers{0}, max_readers{0};
+    std::atomic<int> readers{0}, maxReaders{0};
     sync::WaitGroup wg;
     for (int i = 0; i < 8; i++) {
         wg.Go([&] {
             for (int j = 0; j < 200; j++) {
                 mu.RLock();
                 int r = readers.fetch_add(1) + 1;
-                int m = max_readers.load();
-                while (r > m && !max_readers.compare_exchange_weak(m, r)) {
+                int m = maxReaders.load();
+                while (r > m && !maxReaders.compare_exchange_weak(m, r)) {
                 }
                 runtime::Gosched();
                 readers.fetch_sub(1);
@@ -93,8 +93,8 @@ TEST(Sync, CondSignal) {
     sync::Mutex m;
     sync::Cond c(&m);
     constexpr int n = 2;
-    auto running = makeChan<bool>(n);
-    auto awake = makeChan<bool>(n);
+    auto running = make_chan<bool>(n);
+    auto awake = make_chan<bool>(n);
     for (int i = 0; i < n; i++) {
         go([&] {
             m.lock();
@@ -124,7 +124,7 @@ TEST(Sync, CondBroadcast) {
     constexpr int n = 100;
     int generation = 0;
     sync::WaitGroup wg;
-    auto running = makeChan<bool>(n);
+    auto running = make_chan<bool>(n);
     for (int i = 0; i < n; i++) {
         wg.Go([&] {
             m.lock();
@@ -143,7 +143,7 @@ TEST(Sync, CondBroadcast) {
 }
 
 TEST(Time, SleepInFiber) {
-    auto done = makeChan<time::Duration>();
+    auto done = make_chan<time::Duration>();
     go([done] {
         auto start = time::Now();
         time::Sleep(20ms);
@@ -177,7 +177,7 @@ TEST(Time, TimerStop) {
 }
 
 TEST(Time, AfterFunc) {
-    auto done = makeChan<int>();
+    auto done = make_chan<int>();
     auto t = time::AfterFunc(5ms, [done] { done.send(1); });
     EXPECT_EQ(done.recv(), 1);
 }
@@ -199,8 +199,8 @@ TEST(Time, DurationString) {
 TEST(Context, Cancel) {
     auto [ctx, cancel] = context::WithCancel(context::Background());
     EXPECT_FALSE(ctx->Err());
-    auto [child, cancel_child] = context::WithCancel(ctx);
-    auto woke = makeChan<bool>();
+    auto [child, cancelChild] = context::WithCancel(ctx);
+    auto woke = make_chan<bool>();
     go([child, woke] {
         child->Done().recv();
         woke.send(true);
@@ -209,7 +209,7 @@ TEST(Context, Cancel) {
     EXPECT_TRUE(woke.recv());
     EXPECT_EQ(ctx->Err(), context::Canceled);
     EXPECT_EQ(child->Err(), context::Canceled);
-    cancel_child();
+    cancelChild();
 }
 
 TEST(Context, Timeout) {

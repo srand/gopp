@@ -74,13 +74,13 @@ TEST(GoHTML, UnescapeEscape) {
 
 TEST(GoHTML, EntityLength) {
     using namespace html::detail;
-    ASSERT_GT(n_entities, 0u);
-    ASSERT_GT(n_entities2, 0u);
+    ASSERT_GT(nEntities, 0u);
+    ASSERT_GT(nEntities2, 0u);
 
     // We verify that the length of UTF-8 encoding of each value is <= 1 +
     // len(key). The +1 comes from the leading "&". This property implies
     // that the length of unescaped text is <= the length of escaped text.
-    for (std::size_t i = 0; i < n_entities; i++) {
+    for (std::size_t i = 0; i < nEntities; i++) {
         const auto& [k, v] = entities[i];
         EXPECT_GE(1 + k.size(), std::size_t(utf8::RuneLen(v))) << "escaped entity &" << k << " is shorter than its UTF-8 encoding";
         if (k.size() > longestEntityWithoutSemicolon) {
@@ -90,7 +90,7 @@ TEST(GoHTML, EntityLength) {
             EXPECT_LT(entities[i - 1].name, k) << "entities out of order";
         }
     }
-    for (std::size_t i = 0; i < n_entities2; i++) {
+    for (std::size_t i = 0; i < nEntities2; i++) {
         const auto& e = entities2[i];
         EXPECT_GE(1 + e.name.size(), std::size_t(utf8::RuneLen(e.r[0]) + utf8::RuneLen(e.r[1])))
             << "escaped entity &" << e.name << " is shorter than its UTF-8 encoding";

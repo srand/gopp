@@ -90,7 +90,7 @@ std::pair<std::vector<byte>, error> netlinkRIB(int proto, int family) {
 
 // syscall.ParseNetlinkMessage and ParseNetlinkRouteAttr, as a visit of
 // the messages: f(type, data, attrs) for each, attrs being (type, value).
-struct rtattr_view {
+struct rtattrView {
     uint16 type;
     std::span<const byte> value;
 };
@@ -104,7 +104,7 @@ error forEachMessage(const std::vector<byte>& tab, std::size_t fixed, F f) {
         if (h->nlmsg_type == NLMSG_DONE) return nullptr;
         std::span<const byte> data(tab.data() + off + NLMSG_HDRLEN, h->nlmsg_len - NLMSG_HDRLEN);
         if ((h->nlmsg_type == RTM_NEWLINK || h->nlmsg_type == RTM_NEWADDR) && data.size() >= fixed) {
-            std::vector<rtattr_view> attrs;
+            std::vector<rtattrView> attrs;
             std::span<const byte> b = data.subspan(NLMSG_ALIGN(fixed));
             while (b.size() >= sizeof(rtattr)) {
                 rtattr a;
@@ -141,7 +141,7 @@ constexpr uint16 sysARPHardwareIPv6IPv4 = 776;  // IPv6 over IPv4 tunneling
 constexpr uint16 sysARPHardwareGREIPv4 = 778;   // any over GRE over IPv4 tunneling
 constexpr uint16 sysARPHardwareGREIPv6 = 823;   // any over GRE over IPv6 tunneling
 
-Interface newLink(const ifinfomsg& ifim, const std::vector<rtattr_view>& attrs) {
+Interface newLink(const ifinfomsg& ifim, const std::vector<rtattrView>& attrs) {
     Interface ifi;
     ifi.Index = ifim.ifi_index;
     ifi.Flags = linkFlags(ifim.ifi_flags);
@@ -184,7 +184,7 @@ std::pair<std::vector<Interface>, error> interfaceTable(int ifindex) {
     if (err) return {{}, os::NewSyscallError("netlinkrib", err)};
     std::vector<Interface> ift;
     error perr = forEachMessage(tab, sizeof(ifinfomsg),
-                                [&](uint16 type, std::span<const byte> data, const std::vector<rtattr_view>& attrs) {
+                                [&](uint16 type, std::span<const byte> data, const std::vector<rtattrView>& attrs) {
                                     if (type != RTM_NEWLINK) return false;
                                     ifinfomsg ifim;
                                     std::memcpy(&ifim, data.data(), sizeof(ifim));
@@ -198,7 +198,7 @@ std::pair<std::vector<Interface>, error> interfaceTable(int ifindex) {
     return {ift, nullptr};
 }
 
-ptr<Addr> newAddr(const ifaddrmsg& ifam, const std::vector<rtattr_view>& attrs) {
+ptr<Addr> newAddr(const ifaddrmsg& ifam, const std::vector<rtattrView>& attrs) {
     bool ipPointToPoint = false;
     // Seems like we need to make sure whether the IP interface stack
     // consists of IP point-to-point numbered or unnumbered addressing.
@@ -226,7 +226,7 @@ std::pair<std::vector<ptr<Addr>>, error> interfaceAddrTable(const Interface* ifi
     if (err) return {{}, os::NewSyscallError("netlinkrib", err)};
     std::vector<ptr<Addr>> ifat;
     error perr = forEachMessage(tab, sizeof(ifaddrmsg),
-                                [&](uint16 type, std::span<const byte> data, const std::vector<rtattr_view>& attrs) {
+                                [&](uint16 type, std::span<const byte> data, const std::vector<rtattrView>& attrs) {
                                     if (type != RTM_NEWADDR) return false;
                                     ifaddrmsg ifam;
                                     std::memcpy(&ifam, data.data(), sizeof(ifam));
@@ -492,19 +492,19 @@ std::pair<ptr<UDPConn>, error> ListenMulticastUDP(std::string_view network, cons
                                                   const ptr<UDPAddr>& gaddr) {
     string net(network);
     if (network != "udp" && network != "udp4" && network != "udp6") {
-        return {nullptr, op_error("listen", net, nullptr, gaddr, make_ptr<UnknownNetworkError>(net))};
+        return {nullptr, opError("listen", net, nullptr, gaddr, make_ptr<UnknownNetworkError>(net))};
     }
-    if (!gaddr || gaddr->IP.empty()) return {nullptr, op_error("listen", net, nullptr, gaddr, errMissingAddress)};
+    if (!gaddr || gaddr->IP.empty()) return {nullptr, opError("listen", net, nullptr, gaddr, errMissingAddress)};
     sysListener sl{.lc = {}, .network = net, .address = gaddr->String()};
     auto ctx = context::Background();
     auto [fd, err] = internetSocket(ctx, network, gaddr.get(), nullptr, SOCK_DGRAM, 0, "listen", sl.ctrlCtxFn());
-    if (err) return {nullptr, op_error("listen", net, nullptr, gaddr, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, gaddr, err)};
     auto c = make_ptr<UDPConn>(fd);
     if (IP ip4 = gaddr->IP.To4(); !ip4.empty()) err = listenIPv4MulticastUDP(*fd, ifi.get(), ip4);
     else err = listenIPv6MulticastUDP(*fd, ifi.get(), gaddr->IP);
     if (err) {
         c->Close();
-        return {nullptr, op_error("listen", net, nullptr, gaddr, err)};
+        return {nullptr, opError("listen", net, nullptr, gaddr, err)};
     }
     return {c, nullptr};
 }

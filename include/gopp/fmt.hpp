@@ -33,7 +33,7 @@ struct W {
 namespace detail {
 void writeStdout(std::string_view s);
 // The error of Errorf: msg, wrapping the errors of its fmt::W arguments.
-error wrap_errors(string msg, std::vector<gopp::error> wrapped);
+error wrapErrors(string msg, std::vector<gopp::error> wrapped);
 inline void collectWrapped(std::vector<gopp::error>& v, const W& w) { v.push_back(w.err); }
 template <typename T>
 void collectWrapped(std::vector<gopp::error>&, const T&) {}
@@ -95,7 +95,7 @@ error Errorf(std::format_string<A...> f, A&&... a) {
     if constexpr (wraps) {
         std::vector<gopp::error> wrapped;
         (detail::collectWrapped(wrapped, a), ...);
-        return detail::wrap_errors(Sprint(f, std::forward<A>(a)...), std::move(wrapped));
+        return detail::wrapErrors(Sprint(f, std::forward<A>(a)...), std::move(wrapped));
     } else {
         return errors::New(Sprint(f, std::forward<A>(a)...));
     }

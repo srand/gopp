@@ -16,11 +16,11 @@ const ptr<LevelVar>& logLoggerLevel() {
     return v;
 }
 
-using output_func = std::function<error(const std::source_location&, std::string_view)>;
+using outputFunc = std::function<error(const std::source_location&, std::string_view)>;
 
 // Go's defaultHandler: "LEVEL msg k=v", written by log's standard logger.
-struct default_handler final : Handler {
-    default_handler(std::shared_ptr<const detail::common_handler> ch, output_func output) noexcept
+struct defaultHandler final : Handler {
+    defaultHandler(std::shared_ptr<const detail::commonHandler> ch, outputFunc output) noexcept
         : ch(std::move(ch)), output(std::move(output)) {}
 
     bool Enabled(const ptr<context::Context>&, slog::Level l) override { return l >= logLoggerLevel()->Level(); }
@@ -29,27 +29,27 @@ struct default_handler final : Handler {
         std::string buf(r.Level.String().view());
         buf.push_back(' ');
         buf += r.Message.view();
-        detail::handle_state state(ch.get(), &buf, " ");
+        detail::handleState state(ch.get(), &buf, " ");
         state.appendNonBuiltins(r);
         return output(r.PC, buf);
     }
 
     ptr<Handler> WithAttrs(std::span<const Attr> as) override {
-        return make_ptr<default_handler>(ch->with_attrs(as), output);
+        return make_ptr<defaultHandler>(ch->withAttrs(as), output);
     }
     ptr<Handler> WithGroup(std::string_view name) override {
-        return make_ptr<default_handler>(ch->withGroup(name), output);
+        return make_ptr<defaultHandler>(ch->withGroup(name), output);
     }
 
-    std::shared_ptr<const detail::common_handler> ch;
-    output_func output;
+    std::shared_ptr<const detail::commonHandler> ch;
+    outputFunc output;
 };
 
 // Go's handlerWriter: the Writer of a log::Logger that sends its lines to
 // a slog Handler.
-struct handler_writer final : log::detail::located_writer {
-    handler_writer(ptr<Handler> h, leveler level, bool capture_pc) noexcept
-        : h(std::move(h)), level(std::move(level)), capture_pc(capture_pc) {}
+struct handlerWriter final : log::detail::locatedWriter {
+    handlerWriter(ptr<Handler> h, leveler level, bool capturePc) noexcept
+        : h(std::move(h)), level(std::move(level)), capturePc(capturePc) {}
 
     std::pair<isize, error> Write(std::span<const byte> p) override { return WriteLocated(p, std::source_location()); }
 
@@ -58,24 +58,24 @@ struct handler_writer final : log::detail::located_writer {
         const auto& ctx = context::Background();
         if (!h->Enabled(ctx, l)) return {0, nullptr};
         std::string_view s = asStringView(p);
-        auto orig_len = static_cast<isize>(s.size());  // report that the whole buf was written
+        auto origLen = static_cast<isize>(s.size());  // report that the whole buf was written
         if (s.ends_with('\n')) s.remove_suffix(1);
-        Record r(time::Now(), l, string(s), capture_pc ? loc : std::source_location());
-        return {orig_len, h->Handle(ctx, r)};
+        Record r(time::Now(), l, string(s), capturePc ? loc : std::source_location());
+        return {origLen, h->Handle(ctx, r)};
     }
 
     ptr<Handler> h;
     leveler level;
-    bool capture_pc;
+    bool capturePc;
 };
 
-struct default_logger {
+struct defaultLogger {
     sync::Mutex mu;
     ptr<Logger> logger;
 };
 
-default_logger& defaultState() {
-    static default_logger d{{}, New(detail::newDefaultHandler([](const std::source_location& loc, std::string_view s) {
+defaultLogger& defaultState() {
+    static defaultLogger d{{}, New(detail::newDefaultHandler([](const std::source_location& loc, std::string_view s) {
                                    return log::Default()->output(loc, s);
                                }))};
     return d;
@@ -85,8 +85,8 @@ default_logger& defaultState() {
 
 namespace detail {
 
-ptr<Handler> newDefaultHandler(output_func output) {
-    return make_ptr<default_handler>(std::make_shared<common_handler>(), std::move(output));
+ptr<Handler> newDefaultHandler(outputFunc output) {
+    return make_ptr<defaultHandler>(std::make_shared<commonHandler>(), std::move(output));
 }
 
 }  // namespace detail
@@ -133,9 +133,9 @@ void SetDefault(ptr<Logger> l) {
     }
     // If the handler is the default one, log already writes to it, and
     // sending log's lines to it would loop.
-    if (!dynamic_cast<default_handler*>(l->Handler().get())) {
-        bool capture_pc = (log::Flags() & (log::Lshortfile | log::Llongfile)) != 0;
-        log::SetOutput(make_ptr<handler_writer>(l->Handler(), leveler(logLoggerLevel()), capture_pc));
+    if (!dynamic_cast<defaultHandler*>(l->Handler().get())) {
+        bool capturePc = (log::Flags() & (log::Lshortfile | log::Llongfile)) != 0;
+        log::SetOutput(make_ptr<handlerWriter>(l->Handler(), leveler(logLoggerLevel()), capturePc));
         log::SetFlags(0);  // just the message: no time or location
     }
 }
@@ -147,7 +147,7 @@ Level SetLogLoggerLevel(Level level) {
 }
 
 ptr<log::Logger> NewLogLogger(ptr<Handler> h, Level level) {
-    return log::New(make_ptr<handler_writer>(std::move(h), leveler(level), true), "", 0);
+    return log::New(make_ptr<handlerWriter>(std::move(h), leveler(level), true), "", 0);
 }
 
 }  // namespace gopp::slog

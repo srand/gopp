@@ -46,46 +46,46 @@ struct InvalidIndexError : errorInterface {
     string Error() const override;
 };
 
-extern const gopp::error err_string_length;     // "hpack: string too long"
-extern const gopp::error err_invalid_huffman;   // "hpack: invalid Huffman-encoded data"
+extern const gopp::error errStringLength;     // "hpack: string too long"
+extern const gopp::error errInvalidHuffman;   // "hpack: invalid Huffman-encoded data"
 // For tests: an incomplete representation, and an integer too large.
-extern const gopp::error err_need_more;
-extern const gopp::error err_varint_overflow;
+extern const gopp::error errNeedMore;
+extern const gopp::error errVarintOverflow;
 
 namespace detail {
 
 // A table of header fields with lookup by name and by name and value
 // (headerFieldTable). Entries get increasing ids; indexes count from the
 // newest entry for the dynamic table and from the first for the static one.
-class header_field_table {
+class headerFieldTable {
 public:
-    explicit header_field_table(bool is_static = false) : static_(is_static) {}
+    explicit headerFieldTable(bool isStatic = false) : static_(isStatic) {}
     std::size_t len() const noexcept { return ents_.size(); }
     const HeaderField& at(std::size_t k) const noexcept { return ents_[k]; }
     void addEntry(HeaderField f);
-    void evict_oldest(std::size_t n);
+    void evictOldest(std::size_t n);
     // The index of f and whether the value matched too; 0 if not found.
     std::pair<uint64, bool> search(const HeaderField& f) const;
 
 private:
     uint64 idToIndex(uint64 id) const;
-    struct pair_hash {
+    struct pairHash {
         std::size_t operator()(const std::pair<std::string, std::string>& p) const noexcept {
             return std::hash<std::string>{}(p.first) * 31 + std::hash<std::string>{}(p.second);
         }
     };
     bool static_;
     std::deque<HeaderField> ents_;
-    uint64 evict_count_ = 0;
-    std::unordered_map<std::string, uint64> by_name_;
-    std::unordered_map<std::pair<std::string, std::string>, uint64, pair_hash> by_name_value_;
+    uint64 evictCount_ = 0;
+    std::unordered_map<std::string, uint64> byName_;
+    std::unordered_map<std::pair<std::string, std::string>, uint64, pairHash> byNameValue_;
 };
 
 struct dynamicTable {
-    header_field_table table;
+    headerFieldTable table;
     uint32 size = 0;              // in bytes
-    uint32 max_size = 0;          // current maximum
-    uint32 allowed_max_size = 0;  // max_size may go up to this
+    uint32 maxSize = 0;          // current maximum
+    uint32 allowedMaxSize = 0;  // maxSize may go up to this
 
     void setMaxSize(uint32 v);
     void add(HeaderField f);
@@ -97,20 +97,20 @@ struct dynamicTable {
 // hpack.Decoder: decodes header blocks, calling emit for each field.
 class Decoder {
 public:
-    using emit_func = std::function<void(const HeaderField&)>;
+    using emitFunc = std::function<void(const HeaderField&)>;
 
-    Decoder(uint32 maxDynamicTableSize, emit_func emit);
+    Decoder(uint32 maxDynamicTableSize, emitFunc emit);
 
     // Limits decoded strings to n bytes; 0 means no limit.
-    void setMaxStringLength(int n) noexcept { max_str_len_ = n; }
-    void setEmitFunc(emit_func f) { emit_ = std::move(f); }
+    void setMaxStringLength(int n) noexcept { maxStrLen_ = n; }
+    void setEmitFunc(emitFunc f) { emit_ = std::move(f); }
     // Whether to call emit; with emitting off, literal strings are not
     // decoded unless they are indexed.
-    void setEmitEnabled(bool v) noexcept { emit_enabled_ = v; }
-    bool emitEnabled() const noexcept { return emit_enabled_; }
+    void setEmitEnabled(bool v) noexcept { emitEnabled_ = v; }
+    bool emitEnabled() const noexcept { return emitEnabled_; }
     void setMaxDynamicTableSize(uint32 v) { dyn_.setMaxSize(v); }
     // The largest table size the peer may switch to (our SETTINGS).
-    void setAllowedMaxDynamicTableSize(uint32 v) noexcept { dyn_.allowed_max_size = v; }
+    void setAllowedMaxDynamicTableSize(uint32 v) noexcept { dyn_.allowedMaxSize = v; }
 
     // Decodes a whole header block.
     std::pair<std::vector<HeaderField>, gopp::error> decodeFull(std::span<const byte> p);
@@ -128,7 +128,7 @@ private:
     const HeaderField* at(uint64 i) const noexcept;
     gopp::error parseHeaderFieldRepr();
     gopp::error parseFieldIndexed();
-    gopp::error parseFieldLiteral(uint8 n, int index_type);
+    gopp::error parseFieldLiteral(uint8 n, int indexType);
     gopp::error parseDynamicTableSizeUpdate();
     gopp::error callEmit(const HeaderField& hf);
     struct undecoded {
@@ -139,12 +139,12 @@ private:
     gopp::error decodeString(const undecoded& u, string& out);
 
     detail::dynamicTable dyn_;
-    emit_func emit_;
-    bool emit_enabled_ = true;
-    int max_str_len_ = 0;
+    emitFunc emit_;
+    bool emitEnabled_ = true;
+    int maxStrLen_ = 0;
     std::span<const byte> buf_;   // the input being parsed
-    std::vector<byte> save_buf_;  // a partial field from the last write
-    bool first_field_ = true;
+    std::vector<byte> saveBuf_;  // a partial field from the last write
+    bool firstField_ = true;
 };
 
 // hpack.Encoder: encodes header fields, appending to *out.
@@ -156,25 +156,25 @@ public:
     // Changes the dynamic table size, up to the limit; the next field
     // starts with a size update.
     void setMaxDynamicTableSize(uint32 v);
-    uint32 maxDynamicTableSize() const noexcept { return dyn_.max_size; }
+    uint32 maxDynamicTableSize() const noexcept { return dyn_.maxSize; }
     // The peer's SETTINGS_HEADER_TABLE_SIZE.
     void setMaxDynamicTableSizeLimit(uint32 v);
     void setOutput(std::string* out) noexcept { out_ = out; }
 
 private:
-    friend struct test_access;
+    friend struct testAccess;
     std::pair<uint64, bool> searchTable(const HeaderField& f) const;
 
     detail::dynamicTable dyn_;
-    uint32 min_size_;
-    uint32 max_size_limit_;
-    bool table_size_update_ = false;
+    uint32 minSize_;
+    uint32 maxSizeLimit_;
+    bool tableSizeUpdate_ = false;
     std::string* out_;
 };
 
-// Huffman coding (RFC 7541 appendix B). max_len limits the output; 0
+// Huffman coding (RFC 7541 appendix B). maxLen limits the output; 0
 // means no limit.
-gopp::error huffmanDecode(std::string& out, int max_len, std::span<const byte> v);
+gopp::error huffmanDecode(std::string& out, int maxLen, std::span<const byte> v);
 std::pair<string, gopp::error> huffmanDecodeToString(std::span<const byte> v);
 void appendHuffmanString(std::string& dst, std::string_view s);
 uint64 huffmanEncodeLength(std::string_view s) noexcept;

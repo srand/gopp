@@ -72,9 +72,9 @@ private:
     ::sqlite3* db_;
     const time::Location* loc_;
     std::string txlock_;
-    std::mutex mu_;  // guards db_ for interrupt, and active_op_
-    uint64_t active_op_ = 0;
-    uint64_t next_op_ = 1;
+    std::mutex mu_;  // guards db_ for interrupt, and activeOp_
+    uint64_t activeOp_ = 0;
+    uint64_t nextOp_ = 1;
 };
 
 // Watches a context while a statement runs: when it is done, interrupts
@@ -109,7 +109,7 @@ public:
     ~stmt() override;
 
     error Close() override;
-    int NumInput() override { return num_input_; }
+    int NumInput() override { return numInput_; }
     std::pair<ptr<driver::Result>, error> Exec(std::span<const driver::Value> args) override;
     std::pair<ptr<driver::Rows>, error> Query(std::span<const driver::Value> args) override;
     std::pair<ptr<driver::Result>, error> ExecContext(ptr<context::Context> ctx,
@@ -139,8 +139,8 @@ private:
     sqlite3_stmt* s_;
     std::string tail_;
     bool closed_ = false;
-    int num_input_ = 0;
-    std::map<std::string, std::array<int, 3>> named_params_;
+    int numInput_ = 0;
+    std::map<std::string, std::array<int, 3>> namedParams_;
 };
 
 // SQLiteRows: the rows of a query. The first step runs in Query, so that
@@ -178,7 +178,7 @@ private:
     int nc_ = 0;
     int pending_ = -1;  // the result of the first step, until Next reads it
     std::vector<std::string> decltype_;
-    bool have_decltype_ = false;
+    bool haveDecltype_ = false;
 };
 
 // SQLiteResult

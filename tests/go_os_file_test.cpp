@@ -8,7 +8,7 @@ using namespace os_test;
 
 namespace {
 
-void check_mode(std::string_view path, FileMode mode) {
+void checkMode(std::string_view path, FileMode mode) {
     auto [dir, err] = os::Stat(path);
     ASSERT_FALSE(err) << "Stat " << path << " (looking for mode " << std::oct << uint32(mode) << "): " << err;
     EXPECT_EQ(dir->Mode() & os::ModePerm, uint32(mode)) << "Stat " << path << ": mode " << dir->Mode();
@@ -32,11 +32,11 @@ TEST(GoOs, Chmod) {
     NewFile f;
     FileMode fm = 0456;
     ASSERT_FALSE(os::Chmod(f->Name().view(), fm));
-    check_mode(f->Name().view(), fm);
+    checkMode(f->Name().view(), fm);
 
     fm = 0123;
     ASSERT_FALSE(f->Chmod(fm));
-    check_mode(f->Name().view(), fm);
+    checkMode(f->Name().view(), fm);
 }
 
 TEST(GoOs, FTruncate) {
@@ -70,56 +70,56 @@ TEST(GoOs, Truncate) {
 }
 
 TEST(GoOs, TruncateNonexistentFile) {
-    auto assert_path_error = [](const std::string& path, const error& err) {
+    auto assertPathError = [](const std::string& path, const error& err) {
         auto* pe = dynamic_cast<const os::PathError*>(err.get());
         EXPECT_TRUE(pe && os::IsNotExist(err) && pe->Path == path)
             << "got error: " << err << "\nwant an ErrNotExist PathError with path " << path;
     };
     TempDir tmp;
     std::string path = join(tmp, "nonexistent");
-    assert_path_error(path, os::Truncate(path, 1));
-    assert_path_error(path, os::Stat(path).second);
+    assertPathError(path, os::Truncate(path, 1));
+    assertPathError(path, os::Stat(path).second);
 }
 
 namespace {
 
 void testChtimes(std::string_view name) {
-    auto [pre_stat, err] = os::Stat(name);
+    auto [preStat, err] = os::Stat(name);
     ASSERT_FALSE(err) << "Stat " << name << ": " << err;
     // Move access and modification time back a second
-    time::Time at = atime(pre_stat);
-    time::Time mt = pre_stat->ModTime();
+    time::Time at = atime(preStat);
+    time::Time mt = preStat->ModTime();
     ASSERT_FALSE(os::Chtimes(name, at.Add(-time::Second), mt.Add(-time::Second)));
-    auto [post_stat, err2] = os::Stat(name);
+    auto [postStat, err2] = os::Stat(name);
     ASSERT_FALSE(err2) << "second Stat " << name << ": " << err2;
-    EXPECT_TRUE(atime(post_stat).Before(at)) << "AccessTime didn't go backwards";
-    EXPECT_TRUE(post_stat->ModTime().Before(mt)) << "ModTime didn't go backwards";
+    EXPECT_TRUE(atime(postStat).Before(at)) << "AccessTime didn't go backwards";
+    EXPECT_TRUE(postStat->ModTime().Before(mt)) << "ModTime didn't go backwards";
 }
 
-void testChtimesOmit(bool omit_at, bool omit_mt) {
-    SCOPED_TRACE(testing::Message() << "omit atime: " << omit_at << ", mtime: " << omit_mt);
+void testChtimesOmit(bool omitAt, bool omitMt) {
+    SCOPED_TRACE(testing::Message() << "omit atime: " << omitAt << ", mtime: " << omitMt);
     NewFile file;
     std::string name = str(file->Name());
     EXPECT_FALSE(file->Close());
     auto [fs, err] = os::Stat(name);
     ASSERT_FALSE(err) << err;
 
-    time::Time want_atime = atime(fs);
-    time::Time want_mtime = fs->ModTime();
-    time::Time set_atime, set_mtime;  // Zero value means omit.
-    if (!omit_at) {
-        want_atime = want_atime.Add(-time::Second);
-        set_atime = want_atime;
+    time::Time wantAtime = atime(fs);
+    time::Time wantMtime = fs->ModTime();
+    time::Time setAtime, setMtime;  // Zero value means omit.
+    if (!omitAt) {
+        wantAtime = wantAtime.Add(-time::Second);
+        setAtime = wantAtime;
     }
-    if (!omit_mt) {
-        want_mtime = want_mtime.Add(-time::Second);
-        set_mtime = want_mtime;
+    if (!omitMt) {
+        wantMtime = wantMtime.Add(-time::Second);
+        setMtime = wantMtime;
     }
-    EXPECT_FALSE(os::Chtimes(name, set_atime, set_mtime));
+    EXPECT_FALSE(os::Chtimes(name, setAtime, setMtime));
     auto [fs2, err2] = os::Stat(name);
     ASSERT_FALSE(err2) << err2;
-    EXPECT_TRUE(atime(fs2).Equal(want_atime)) << "atime mismatch";
-    EXPECT_TRUE(fs2->ModTime().Equal(want_mtime)) << "mtime mismatch";
+    EXPECT_TRUE(atime(fs2).Equal(wantAtime)) << "atime mismatch";
+    EXPECT_TRUE(fs2->ModTime().Equal(wantMtime)) << "mtime mismatch";
 }
 
 }  // namespace
@@ -154,21 +154,21 @@ TEST(GoOs, FileChdir) {
     ASSERT_FALSE(oerr) << "Open .: " << oerr;
     ASSERT_FALSE(os::Chdir("/"));
     ASSERT_FALSE(fd->Chdir()) << "fd.Chdir";
-    auto [wd_new, werr] = os::Getwd();
+    auto [wdNew, werr] = os::Getwd();
     ASSERT_FALSE(werr) << "Getwd: " << werr;
 
-    auto [wd_info, e1] = fd->Stat();
+    auto [wdInfo, e1] = fd->Stat();
     ASSERT_FALSE(e1) << e1;
-    auto [new_info, e2] = os::Stat(wd_new.view());
+    auto [newInfo, e2] = os::Stat(wdNew.view());
     ASSERT_FALSE(e2) << e2;
-    ASSERT_TRUE(os::SameFile(wd_info, new_info)) << "fd.Chdir failed: got " << wd_new << ", want " << wd;
+    ASSERT_TRUE(os::SameFile(wdInfo, newInfo)) << "fd.Chdir failed: got " << wdNew << ", want " << wd;
     fd->Close();
 }
 
 TEST(GoOs, ChdirAndGetwd) {
     TempDir tmp;
     Chdir restore(tmp);  // Ensure wd is restored after the test.
-    std::string old_pwd = str(os::Getenv("PWD"));
+    std::string oldPwd = str(os::Getenv("PWD"));
     std::vector<std::string> dirs = {"/", "/usr/bin", "/tmp"};
     for (int mode = 0; mode < 2; mode++) {
         for (auto& d : dirs) {
@@ -191,15 +191,15 @@ TEST(GoOs, ChdirAndGetwd) {
             ASSERT_EQ(pwd, d) << "Getwd returned " << pwd << " want " << d;
         }
     }
-    ::setenv("PWD", old_pwd.c_str(), 1);
+    ::setenv("PWD", oldPwd.c_str(), 1);
 }
 
 // Test that Chdir+Getwd is program-wide.
 TEST(GoOs, ProgWideChdir) {
     constexpr int N = 10;
     sync::WaitGroup wg;
-    auto hold = makeChan<empty>();
-    auto done = makeChan<empty>();
+    auto hold = make_chan<empty>();
+    auto done = make_chan<empty>();
     TempDir tmp;
     std::string d = tmp.path();
     Chdir restore(d);
@@ -359,7 +359,7 @@ TEST(GoOs, WriteAt) {
     ASSERT_TRUE(!err && n == 3) << "WriteAt 7: " << n << ", " << err;
     auto [n2, err2] = io::WriteString(*f, "!");  // test that WriteAt doesn't change the file offset
     ASSERT_TRUE(!err2 && n2 == 1) << err2;
-    ASSERT_EQ(read_file(f->Name().view()), "hello, WORld!");
+    ASSERT_EQ(readFile(f->Name().view()), "hello, WORld!");
 }
 
 TEST(GoOs, WriteAtConcurrent) {
@@ -378,7 +378,7 @@ TEST(GoOs, WriteAtConcurrent) {
         });
     }
     wg.Wait();
-    ASSERT_EQ(read_file(f->Name().view()), "0123456789!!!!!!!!!!");
+    ASSERT_EQ(readFile(f->Name().view()), "0123456789!!!!!!!!!!");
 }
 
 // Verify that WriteAt doesn't allow negative offset.
@@ -401,7 +401,7 @@ TEST(GoOs, WriteAtInAppendMode) {
 
 namespace {
 
-std::string write_file(std::string_view fname, int flag, std::string_view text) {
+std::string writeFile(std::string_view fname, int flag, std::string_view text) {
     auto [f, err] = os::OpenFile(fname, flag, 0666);
     if (err) {
         ADD_FAILURE() << "Open: " << err;
@@ -410,7 +410,7 @@ std::string write_file(std::string_view fname, int flag, std::string_view text) 
     auto [n, werr] = io::WriteString(*f, text);
     EXPECT_FALSE(werr) << "WriteString: " << n << ", " << werr;
     f->Close();
-    return read_file(fname);
+    return readFile(fname);
 }
 
 }  // namespace
@@ -419,18 +419,18 @@ TEST(GoOs, Append) {
     InTempDir tmp;
     const std::string f = "append.txt";
     using namespace os;
-    std::string s = write_file(f, O_CREATE_ | O_TRUNC_ | O_RDWR_, "new");
+    std::string s = writeFile(f, O_CREATE_ | O_TRUNC_ | O_RDWR_, "new");
     ASSERT_EQ(s, "new");
-    s = write_file(f, O_APPEND_ | O_RDWR_, "|append");
+    s = writeFile(f, O_APPEND_ | O_RDWR_, "|append");
     ASSERT_EQ(s, "new|append");
-    s = write_file(f, O_CREATE_ | O_APPEND_ | O_RDWR_, "|append");
+    s = writeFile(f, O_CREATE_ | O_APPEND_ | O_RDWR_, "|append");
     ASSERT_EQ(s, "new|append|append");
     ASSERT_FALSE(os::Remove(f));
-    s = write_file(f, O_CREATE_ | O_APPEND_ | O_RDWR_, "new&append");
+    s = writeFile(f, O_CREATE_ | O_APPEND_ | O_RDWR_, "new&append");
     ASSERT_EQ(s, "new&append") << "after append";
-    s = write_file(f, O_CREATE_ | O_RDWR_, "old");
+    s = writeFile(f, O_CREATE_ | O_RDWR_, "old");
     ASSERT_EQ(s, "old&append") << "after create";
-    s = write_file(f, O_CREATE_ | O_TRUNC_ | O_RDWR_, "new");
+    s = writeFile(f, O_CREATE_ | O_TRUNC_ | O_RDWR_, "new");
     ASSERT_EQ(s, "new") << "after truncate";
 }
 
@@ -507,7 +507,7 @@ TEST(GoOs, FileRDWRFlags) {
         }
         f->Close();
         std::string want = test.flag != os::O_RDONLY_ ? newcontent : content;
-        ASSERT_EQ(read_file(filename), want);
+        ASSERT_EQ(readFile(filename), want);
     }
 }
 

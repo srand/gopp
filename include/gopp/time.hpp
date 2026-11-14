@@ -162,7 +162,7 @@ public:
     };
     // The result of lookup: the zone in effect at a time, and the times
     // (Unix seconds) it is in effect between.
-    struct lookup_result {
+    struct lookupResult {
         string name;
         int offset = 0;
         int64 start = 0, end = 0;
@@ -171,7 +171,7 @@ public:
 
     // Go's Location.lookup, lookupName, get and the data, used by the
     // time package's sources.
-    lookup_result lookup(int64 sec) const;
+    lookupResult lookup(int64 sec) const;
     std::pair<int, bool> lookupName(std::string_view name, int64 unix) const;
     const Location* get() const;
 

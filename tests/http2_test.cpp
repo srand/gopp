@@ -178,12 +178,12 @@ TEST(Http2, ConcurrentEcho) {
 }
 
 TEST(Http2, ContextCancelsRequest) {
-    auto handler_done = makeChan<bool>(1);
+    auto handlerDone = make_chan<bool>(1);
     auto mux = http::NewServeMux();
     mux->HandleFunc("GET /slow", [&](http::ResponseWriter&, http::Request& r) {
         // Ends when the client gives up and the stream is reset.
         r.Context()->Done().recv();
-        handler_done.send(true);
+        handlerDone.send(true);
     });
     auto ts = httptest::NewTLSServer(mux);
     auto [ctx, cancel] = context::WithTimeout(context::Background(), 50 * time::Millisecond);
@@ -192,7 +192,7 @@ TEST(Http2, ContextCancelsRequest) {
     auto [resp, err] = ts->Client().Do(req);
     ASSERT_TRUE(err);
     EXPECT_TRUE(errors::Is(err, context::DeadlineExceeded)) << err;
-    EXPECT_TRUE(handler_done.recv());
+    EXPECT_TRUE(handlerDone.recv());
     cancel();
 }
 

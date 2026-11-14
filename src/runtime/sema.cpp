@@ -18,7 +18,7 @@ struct semwaiter {
 };
 
 struct alignas(64) semroot {
-    lock_t lock;
+    lockT lock;
     std::atomic<uint32_t> nwait{0};
     semwaiter* head = nullptr;
     semwaiter* tail = nullptr;

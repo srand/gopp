@@ -13,23 +13,23 @@ const error ErrInvalidUnreadByte = errors::New("bufio: invalid use of UnreadByte
 const error ErrInvalidUnreadRune = errors::New("bufio: invalid use of UnreadRune");
 
 namespace {
-constexpr int max_consecutive_empty_reads = 100;
-constexpr std::size_t min_read_buffer_size = 16;
+constexpr int maxConsecutiveEmptyReads = 100;
+constexpr std::size_t minReadBufferSize = 16;
 }  // namespace
 
 // ---------------------------------------------------------------------------
 // Reader
 
 Reader::Reader(ptr<io::Reader> rd, std::size_t size)
-    : buf_(new byte[std::max(size, min_read_buffer_size)]()),
-      size_(std::max(size, min_read_buffer_size)),
+    : buf_(new byte[std::max(size, minReadBufferSize)]()),
+      size_(std::max(size, minReadBufferSize)),
       rd_(std::move(rd)) {}
 
 void Reader::Reset(ptr<io::Reader> rd) {
     rd_ = std::move(rd);
     r_ = w_ = 0;
     err_ = nullptr;
-    last_byte_ = -1;
+    lastByte_ = -1;
     lastRuneSize_ = -1;
 }
 
@@ -47,7 +47,7 @@ void Reader::fill() {
         r_ = 0;
     }
     if (w_ >= size_) panic("bufio: tried to fill full buffer");
-    for (int i = max_consecutive_empty_reads; i > 0; i--) {
+    for (int i = maxConsecutiveEmptyReads; i > 0; i--) {
         auto [n, err] = rd_->Read(std::span<byte>(buf_.get() + w_, size_ - w_));
         if (n < 0) panic("bufio: reader returned negative count from Read");
         w_ += static_cast<std::size_t>(n);
@@ -71,7 +71,7 @@ std::pair<isize, error> Reader::Read(std::span<byte> p) {
             // Large read with an empty buffer: read directly into p.
             auto [n, err] = rd_->Read(p);
             if (n < 0) panic("bufio: reader returned negative count from Read");
-            if (n > 0) last_byte_ = p[static_cast<std::size_t>(n) - 1];
+            if (n > 0) lastByte_ = p[static_cast<std::size_t>(n) - 1];
             return {n, err};
         }
         r_ = w_ = 0;
@@ -84,7 +84,7 @@ std::pair<isize, error> Reader::Read(std::span<byte> p) {
     std::size_t n = std::min(p.size(), w_ - r_);
     std::memcpy(p.data(), buf_.get() + r_, n);
     r_ += n;
-    last_byte_ = buf_[r_ - 1];
+    lastByte_ = buf_[r_ - 1];
     lastRuneSize_ = -1;
     return {static_cast<isize>(n), nullptr};
 }
@@ -100,7 +100,7 @@ std::tuple<rune, int, error> Reader::ReadRune() {
     int size = 1;
     if (r >= utf8::RuneSelf) std::tie(r, size) = utf8::DecodeRune(std::span<const byte>(buf_.get() + r_, w_ - r_));
     r_ += std::size_t(size);
-    last_byte_ = buf_[r_ - 1];
+    lastByte_ = buf_[r_ - 1];
     lastRuneSize_ = size;
     return {r, size, nullptr};
 }
@@ -108,7 +108,7 @@ std::tuple<rune, int, error> Reader::ReadRune() {
 error Reader::UnreadRune() {
     if (lastRuneSize_ < 0 || r_ < std::size_t(lastRuneSize_)) return ErrInvalidUnreadRune;
     r_ -= std::size_t(lastRuneSize_);
-    last_byte_ = -1;
+    lastByte_ = -1;
     lastRuneSize_ = -1;
     return nullptr;
 }
@@ -119,26 +119,26 @@ std::pair<byte, error> Reader::ReadByte() {
         fill();
     }
     byte c = buf_[r_++];
-    last_byte_ = c;
+    lastByte_ = c;
     lastRuneSize_ = -1;
     return {c, nullptr};
 }
 
 error Reader::UnreadByte() {
-    if (last_byte_ < 0 || (r_ == 0 && w_ > 0)) return ErrInvalidUnreadByte;
+    if (lastByte_ < 0 || (r_ == 0 && w_ > 0)) return ErrInvalidUnreadByte;
     if (r_ > 0) {
         r_--;
     } else {
         w_ = 1;
     }
-    buf_[r_] = static_cast<byte>(last_byte_);
-    last_byte_ = -1;
+    buf_[r_] = static_cast<byte>(lastByte_);
+    lastByte_ = -1;
     lastRuneSize_ = -1;
     return nullptr;
 }
 
 std::pair<std::span<const byte>, error> Reader::Peek(std::size_t n) {
-    last_byte_ = -1;
+    lastByte_ = -1;
     lastRuneSize_ = -1;
     while (w_ - r_ < n && w_ - r_ < size_ && !err_) fill();
     if (n > size_) return {std::span<const byte>(buf_.get() + r_, w_ - r_), ErrBufferFull};
@@ -180,11 +180,11 @@ std::pair<std::span<const byte>, error> Reader::ReadSlice(byte delim) {
         s = w_ - r_;
         fill();
     }
-    if (!line.empty()) last_byte_ = line.back();
+    if (!line.empty()) lastByte_ = line.back();
     return {line, err};
 }
 
-Reader::line_result Reader::ReadLine() {
+Reader::lineResult Reader::ReadLine() {
     auto [line, err] = ReadSlice('\n');
     if (err == ErrBufferFull) {
         // Keep a trailing \r for the next call, if the \n follows it.
@@ -220,7 +220,7 @@ std::pair<string, error> Reader::ReadString(byte delim) {
 std::pair<isize, error> Reader::Discard(isize n) {
     if (n < 0) return {0, ErrNegativeCount};
     if (n == 0) return {0, nullptr};
-    last_byte_ = -1;
+    lastByte_ = -1;
     lastRuneSize_ = -1;
     isize remain = n;
     for (;;) {

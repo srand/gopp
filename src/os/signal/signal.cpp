@@ -18,10 +18,10 @@ namespace gopp::os::signal {
 
 namespace {
 
-constexpr int num_sig = 65;  // the most of all systems
+constexpr int numSig = 65;  // the most of all systems
 
 struct handler {
-    uint32_t mask[(num_sig + 31) / 32] = {};
+    uint32_t mask[(numSig + 31) / 32] = {};
 
     bool want(int sig) const noexcept { return (mask[sig / 32] >> (sig & 31)) & 1; }
     void set(int sig) noexcept { mask[sig / 32] |= uint32_t(1) << (sig & 31); }
@@ -34,23 +34,23 @@ struct entry {
     handler h;
 };
 
-struct handlers_t {
+struct handlersT {
     sync::Mutex mu;
     // The channels and the signals they get. Not a map: there are few.
     std::vector<entry> m;
     // The number of channels that get each signal.
-    int64 ref[num_sig] = {};
+    int64 ref[numSig] = {};
     // Channels being stopped: they still get the signals that arrived
     // before Stop.
     std::vector<entry> stopping;
 };
 
-handlers_t& handlers() {
-    static handlers_t* h = new handlers_t();  // never freed: the loop uses it
+handlersT& handlers() {
+    static handlersT* h = new handlersT();  // never freed: the loop uses it
     return *h;
 }
 
-sync::Once watch_signal_loop_once;
+sync::Once watchSignalLoopOnce;
 
 entry* find(std::vector<entry>& v, const chan<os::Signal>& c) {
     for (auto& e : v) {
@@ -62,14 +62,14 @@ entry* find(std::vector<entry>& v, const chan<os::Signal>& c) {
 // Go's signum: the number of a syscall::Signal, or -1.
 int signum(const os::Signal& sig) {
     auto [s, ok] = sig.asSyscall();
-    if (!ok || s.value < 0 || s.value >= num_sig) return -1;
+    if (!ok || s.value < 0 || s.value >= numSig) return -1;
     return s.value;
 }
 
 void process(os::Signal sig) {
     int n = signum(sig);
     if (n < 0) return;
-    handlers_t& hs = handlers();
+    handlersT& hs = handlers();
     std::lock_guard l(hs.mu);
     for (auto& e : hs.m) {
         // Send, but don't block for it.
@@ -89,7 +89,7 @@ void loop() {
 // Stops relaying the signals, all if none, to any channel, and either
 // gives them back their earlier disposition or ignores them.
 void cancel(std::span<const os::Signal> sigs, void (*action)(uint32_t) noexcept) {
-    handlers_t& hs = handlers();
+    handlersT& hs = handlers();
     std::lock_guard l(hs.mu);
     auto remove = [&](int n) {
         if (n < 0) return;
@@ -107,7 +107,7 @@ void cancel(std::span<const os::Signal> sigs, void (*action)(uint32_t) noexcept)
         action(static_cast<uint32_t>(n));
     };
     if (sigs.empty()) {
-        for (int n = 0; n < num_sig; n++) remove(n);
+        for (int n = 0; n < numSig; n++) remove(n);
     } else {
         for (const auto& s : sigs) remove(signum(s));
     }
@@ -115,8 +115,8 @@ void cancel(std::span<const os::Signal> sigs, void (*action)(uint32_t) noexcept)
 
 // The cause of a NotifyContext context: "interrupt signal received". It
 // is context::Canceled too, for errors::Is.
-struct signal_error final : errorInterface {
-    explicit signal_error(string s) : s(std::move(s)) {}
+struct signalError final : errorInterface {
+    explicit signalError(string s) : s(std::move(s)) {}
     string Error() const override { return s; }
     bool Is(const errorInterface* target) const noexcept override { return target == context::Canceled.get(); }
     string s;
@@ -128,7 +128,7 @@ namespace detail {
 
 void notify(const chan<os::Signal>& c, std::span<const os::Signal> sigs) {
     if (!c) panic("os/signal: Notify using nil channel");
-    handlers_t& hs = handlers();
+    handlersT& hs = handlers();
     std::lock_guard l(hs.mu);
     auto add = [&](int n) {
         if (n < 0) return;
@@ -143,13 +143,13 @@ void notify(const chan<os::Signal>& c, std::span<const os::Signal> sigs) {
                 runtime::signalEnable(static_cast<uint32_t>(n));
                 // The runtime wants a signal enabled before the watcher
                 // starts.
-                watch_signal_loop_once.Do([] { go(loop); });
+                watchSignalLoopOnce.Do([] { go(loop); });
             }
             hs.ref[n]++;
         }
     };
     if (sigs.empty()) {
-        for (int n = 0; n < num_sig; n++) add(n);
+        for (int n = 0; n < numSig; n++) add(n);
     } else {
         for (const auto& s : sigs) add(signum(s));
     }
@@ -162,7 +162,7 @@ void reset(std::span<const os::Signal> sigs) { cancel(sigs, runtime::signalDisab
 std::pair<ptr<context::Context>, context::CancelFunc> notifyContext(ptr<context::Context> parent,
                                                                     std::span<const os::Signal> sigs) {
     auto [ctx, cancel] = context::WithCancelCause(std::move(parent));
-    auto ch = makeChan<os::Signal>(1);
+    auto ch = make_chan<os::Signal>(1);
     notify(ch, sigs);
     if (!ctx->Err()) {
         // Watch for a signal until the context is done: by the signal,
@@ -170,7 +170,7 @@ std::pair<ptr<context::Context>, context::CancelFunc> notifyContext(ptr<context:
         chan<empty> done = ctx->Done();
         go([ch, done, cancel] {
             select(recv(ch, [&](os::Signal s) {
-                       cancel(make_ptr<signal_error>(s.String() + " signal received"));
+                       cancel(make_ptr<signalError>(s.String() + " signal received"));
                    }),
                    recv(done, [] {}));
         });
@@ -184,7 +184,7 @@ std::pair<ptr<context::Context>, context::CancelFunc> notifyContext(ptr<context:
 }  // namespace detail
 
 void Stop(const chan<os::Signal>& c) {
-    handlers_t& hs = handlers();
+    handlersT& hs = handlers();
     entry stopped;
     {
         std::lock_guard l(hs.mu);
@@ -192,7 +192,7 @@ void Stop(const chan<os::Signal>& c) {
         if (it == hs.m.end()) return;
         stopped = *it;
         hs.m.erase(it);
-        for (int n = 0; n < num_sig; n++) {
+        for (int n = 0; n < numSig; n++) {
             if (stopped.h.want(n)) {
                 hs.ref[n]--;
                 if (hs.ref[n] == 0) runtime::signalDisable(static_cast<uint32_t>(n));
@@ -204,7 +204,7 @@ void Stop(const chan<os::Signal>& c) {
         hs.stopping.push_back(stopped);
     }
 
-    runtime::signal_wait_until_idle();
+    runtime::signalWaitUntilIdle();
 
     std::lock_guard l(hs.mu);
     auto it = std::find_if(hs.stopping.begin(), hs.stopping.end(), [&](const entry& e) { return e.c == c; });

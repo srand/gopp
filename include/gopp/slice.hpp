@@ -24,20 +24,20 @@ namespace gopp {
 namespace detail {
 
 template <typename T>
-struct slice_array {
+struct sliceArray {
     std::atomic<unsigned> refs{1};
     std::size_t cap;
 
     T* data() noexcept { return reinterpret_cast<T*>(reinterpret_cast<char*>(this) + offset()); }
 
     static constexpr std::size_t offset() noexcept {
-        return (sizeof(slice_array) + alignof(T) - 1) / alignof(T) * alignof(T);
+        return (sizeof(sliceArray) + alignof(T) - 1) / alignof(T) * alignof(T);
     }
 
     // Allocates cap elements, all value-initialized (Go's zero value).
-    static slice_array* alloc(std::size_t cap) {
-        void* mem = ::operator new(offset() + cap * sizeof(T), std::align_val_t(std::max(alignof(T), alignof(slice_array))));
-        auto* a = new (mem) slice_array();
+    static sliceArray* alloc(std::size_t cap) {
+        void* mem = ::operator new(offset() + cap * sizeof(T), std::align_val_t(std::max(alignof(T), alignof(sliceArray))));
+        auto* a = new (mem) sliceArray();
         a->cap = cap;
         std::uninitialized_value_construct_n(a->data(), cap);
         return a;
@@ -48,8 +48,8 @@ struct slice_array {
     void release() noexcept {
         if (refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
             std::destroy_n(data(), cap);
-            this->~slice_array();
-            ::operator delete(this, std::align_val_t(std::max(alignof(T), alignof(slice_array))));
+            this->~sliceArray();
+            ::operator delete(this, std::align_val_t(std::max(alignof(T), alignof(sliceArray))));
         }
     }
 };
@@ -108,7 +108,7 @@ public:
             s.p_ = zeroBase();
             return s;
         }
-        s.a_ = detail::slice_array<T>::alloc(cap);
+        s.a_ = detail::sliceArray<T>::alloc(cap);
         s.p_ = s.a_->data();
         s.n_ = len;
         s.cap_ = cap;
@@ -170,7 +170,7 @@ private:
         return reinterpret_cast<T*>(base);
     }
 
-    detail::slice_array<T>* a_ = nullptr;
+    detail::sliceArray<T>* a_ = nullptr;
     T* p_ = nullptr;
     size_type n_ = 0;
     size_type cap_ = 0;

@@ -20,13 +20,13 @@ namespace {
 // A server on a loopback port for the duration of a test.
 class TestServer {
 public:
-    explicit TestServer(ptr<http::Handler> h, int max_header_bytes = 0) {
+    explicit TestServer(ptr<http::Handler> h, int maxHeaderBytes = 0) {
         auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
         EXPECT_FALSE(err) << err;
         addr = ln->Addr()->String();
         srv.Handler = std::move(h);
-        srv.MaxHeaderBytes = max_header_bytes;
-        done = makeChan<gopp::error>(1);
+        srv.MaxHeaderBytes = maxHeaderBytes;
+        done = make_chan<gopp::error>(1);
         go([this, ln] { done.send(srv.Serve(ln)); });
     }
 
@@ -335,7 +335,7 @@ TEST(Http, Shutdown) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
     http::Server srv{.Handler = helloMux()};
-    auto done = makeChan<gopp::error>(1);
+    auto done = make_chan<gopp::error>(1);
     go([&, ln] { done.send(srv.Serve(ln)); });
     time::Sleep(5ms);
     auto [ctx, cancel] = context::WithTimeout(context::Background(), time::Second);

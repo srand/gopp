@@ -37,12 +37,12 @@ void Encoding::Encode(std::span<byte> dst, std::span<const byte> src) const noex
     switch (remain) {
     case 2:
         dst[di + 2] = encode_[val >> 6 & 0x3F];
-        if (pad_char_ != NoPadding) dst[di + 3] = static_cast<byte>(pad_char_);
+        if (padChar_ != NoPadding) dst[di + 3] = static_cast<byte>(padChar_);
         break;
     case 1:
-        if (pad_char_ != NoPadding) {
-            dst[di + 2] = static_cast<byte>(pad_char_);
-            dst[di + 3] = static_cast<byte>(pad_char_);
+        if (padChar_ != NoPadding) {
+            dst[di + 2] = static_cast<byte>(padChar_);
+            dst[di + 3] = static_cast<byte>(padChar_);
         }
         break;
     }
@@ -131,7 +131,7 @@ ptr<io::WriteCloser> NewEncoder(const Encoding& enc, ptr<io::Writer> w) { return
 
 // Go's decodeQuantum: decodes up to 4 base64 bytes. Returns the new index
 // into src, the bytes written to dst, and an error.
-std::tuple<isize, isize, error> Encoding::decode_quantum(std::span<byte> dst, std::span<const byte> src, isize si_) const {
+std::tuple<isize, isize, error> Encoding::decodeQuantum(std::span<byte> dst, std::span<const byte> src, isize si_) const {
     auto si = static_cast<std::size_t>(si_);
     auto corrupt = [](std::size_t off) { return make_ptr<CorruptInputError>(static_cast<int64>(off)); };
     // Decode quantum using the base64 alphabet
@@ -142,14 +142,14 @@ std::tuple<isize, isize, error> Encoding::decode_quantum(std::span<byte> dst, st
     for (std::size_t j = 0; j < dbuf.size(); j++) {
         if (src.size() == si) {
             if (j == 0) return {static_cast<isize>(si), 0, nullptr};
-            if (j == 1 || pad_char_ != NoPadding) return {static_cast<isize>(si), 0, corrupt(si - j)};
+            if (j == 1 || padChar_ != NoPadding) return {static_cast<isize>(si), 0, corrupt(si - j)};
             dlen = j;
             break;
         }
         byte in = src[si];
         si++;
 
-        byte out = decode_map_[in];
+        byte out = decodeMap_[in];
         if (out != 0xff) {
             dbuf[j] = out;
             continue;
@@ -160,7 +160,7 @@ std::tuple<isize, isize, error> Encoding::decode_quantum(std::span<byte> dst, st
             continue;
         }
 
-        if (static_cast<rune>(in) != pad_char_) return {static_cast<isize>(si), 0, corrupt(si - 1)};
+        if (static_cast<rune>(in) != padChar_) return {static_cast<isize>(si), 0, corrupt(si - 1)};
 
         // We've reached the end and there's padding
         switch (j) {
@@ -176,7 +176,7 @@ std::tuple<isize, isize, error> Encoding::decode_quantum(std::span<byte> dst, st
                 // not enough padding
                 return {static_cast<isize>(si), 0, corrupt(src.size())};
             }
-            if (static_cast<rune>(src[si]) != pad_char_) {
+            if (static_cast<rune>(src[si]) != padChar_) {
                 // incorrect padding
                 return {static_cast<isize>(si), 0, corrupt(si - 1)};
             }
@@ -220,7 +220,7 @@ std::tuple<isize, isize, error> Encoding::decode_quantum(std::span<byte> dst, st
 std::pair<slice<byte>, error> Encoding::AppendDecode(slice<byte> dst, std::span<const byte> src) const {
     // Compute the output size without padding to avoid over allocating.
     std::size_t n = src.size();
-    while (n > 0 && static_cast<rune>(src[n - 1]) == pad_char_) n--;
+    while (n > 0 && static_cast<rune>(src[n - 1]) == padChar_) n--;
     n = static_cast<std::size_t>(decodedLen(static_cast<isize>(n), NoPadding));
 
     std::size_t len = dst.len();
@@ -268,7 +268,7 @@ std::pair<isize, error> Encoding::Decode(std::span<byte> dst, std::span<const by
     std::size_t n = 0, si = 0;
     error err;
     auto quantum = [&]() -> bool {
-        auto [nsi, ninc, e] = decode_quantum(dst.subspan(n), src, static_cast<isize>(si));
+        auto [nsi, ninc, e] = decodeQuantum(dst.subspan(n), src, static_cast<isize>(si));
         si = static_cast<std::size_t>(nsi);
         n += static_cast<std::size_t>(ninc);
         err = e;
@@ -276,7 +276,7 @@ std::pair<isize, error> Encoding::Decode(std::span<byte> dst, std::span<const by
     };
     while (src.size() - si >= 8 && dst.size() - n >= 8) {
         uint64 dn;
-        if (assemble64(decode_map_, src.data() + si, dn)) {
+        if (assemble64(decodeMap_, src.data() + si, dn)) {
             putBe(dst.data() + n, dn, 8);
             n += 6;
             si += 8;
@@ -287,7 +287,7 @@ std::pair<isize, error> Encoding::Decode(std::span<byte> dst, std::span<const by
 
     while (src.size() - si >= 4 && dst.size() - n >= 4) {
         uint32 dn;
-        if (assemble32(decode_map_, src.data() + si, dn)) {
+        if (assemble32(decodeMap_, src.data() + si, dn)) {
             putBe(dst.data() + n, dn, 4);
             n += 3;
             si += 4;
@@ -322,11 +322,11 @@ public:
         // This code assumes that d.r strips supported whitespace ('\r' and '\n').
 
         // Refill buffer.
-        while (nbuf_ < 4 && !read_err_) {
+        while (nbuf_ < 4 && !readErr_) {
             std::size_t nn = std::max<std::size_t>(p.size() / 3 * 4, 4);
             nn = std::min(nn, buf_.size());
             auto [m, e] = r_->Read(std::span<byte>(buf_.data() + nbuf_, nn - nbuf_));
-            read_err_ = e;
+            readErr_ = e;
             nbuf_ += static_cast<std::size_t>(m);
         }
 
@@ -343,7 +343,7 @@ public:
                 if (n > 0 || (p.empty() && !out_.empty())) return {static_cast<isize>(n), nullptr};
                 if (err_) return {0, err_};
             }
-            err_ = read_err_;
+            err_ = readErr_;
             if (err_ == io::EOF_ && nbuf_ > 0) err_ = io::ErrUnexpectedEOF;
             return {0, err_};
         }
@@ -372,7 +372,7 @@ public:
 
 private:
     error err_;
-    error read_err_;  // error from r.Read
+    error readErr_;  // error from r.Read
     Encoding enc_;
     ptr<io::Reader> r_;
     std::array<byte, 1024> buf_;  // leftover input
@@ -382,9 +382,9 @@ private:
 };
 
 // Drops '\r' and '\n' from what it reads.
-class newline_filtering_reader final : public io::Reader {
+class newlineFilteringReader final : public io::Reader {
 public:
-    explicit newline_filtering_reader(ptr<io::Reader> r) : wrapped_(std::move(r)) {}
+    explicit newlineFilteringReader(ptr<io::Reader> r) : wrapped_(std::move(r)) {}
 
     std::pair<isize, error> Read(std::span<byte> p) override {
         auto [n, err] = wrapped_->Read(p);
@@ -411,7 +411,7 @@ private:
 }  // namespace
 
 ptr<io::Reader> NewDecoder(const Encoding& enc, ptr<io::Reader> r) {
-    return make_ptr<decoder>(enc, make_ptr<newline_filtering_reader>(std::move(r)));
+    return make_ptr<decoder>(enc, make_ptr<newlineFilteringReader>(std::move(r)));
 }
 
 }  // namespace gopp::base64

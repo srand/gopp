@@ -82,16 +82,16 @@ bool Equal(const Value& a, const Value& b) noexcept {
 
 namespace {
 
-struct rows_affected final : Result {
+struct rowsAffected final : Result {
     int64 n;
-    explicit rows_affected(int64 v) : n(v) {}
+    explicit rowsAffected(int64 v) : n(v) {}
     std::pair<int64, error> LastInsertId() override {
         return {0, errors::New("LastInsertId is not supported by this driver")};
     }
     std::pair<int64, error> RowsAffected() override { return {n, nullptr}; }
 };
 
-struct no_rows final : Result {
+struct noRows final : Result {
     std::pair<int64, error> LastInsertId() override {
         return {0, errors::New("no LastInsertId available after DDL statement")};
     }
@@ -102,8 +102,8 @@ struct no_rows final : Result {
 
 }  // namespace
 
-ptr<Result> RowsAffected(int64 n) { return make_ptr<rows_affected>(n); }
-const ptr<Result> ResultNoRows = make_ptr<no_rows>();
+ptr<Result> RowsAffected(int64 n) { return make_ptr<rowsAffected>(n); }
+const ptr<Result> ResultNoRows = make_ptr<noRows>();
 
 // ---------------------------------------------------------------------------
 // Converters
@@ -112,7 +112,7 @@ namespace {
 
 error errorf(std::string msg) { return errors::New(string(msg)); }
 
-struct bool_type final : ValueConverter {
+struct boolType final : ValueConverter {
     std::pair<Value, error> ConvertValue(const Value& src) const override {
         switch (src.index()) {
         case 3: return {src, nullptr};
@@ -134,7 +134,7 @@ struct bool_type final : ValueConverter {
     }
 };
 
-struct int32_type final : ValueConverter {
+struct int32Type final : ValueConverter {
     std::pair<Value, error> ConvertValue(const Value& v) const override {
         if (auto* i = std::get_if<int64>(&v)) {
             if (*i > (int64(1) << 31) - 1 || *i < -(int64(1) << 31)) {
@@ -152,28 +152,28 @@ struct int32_type final : ValueConverter {
     }
 };
 
-struct string_type final : ValueConverter {
+struct stringType final : ValueConverter {
     std::pair<Value, error> ConvertValue(const Value& v) const override {
         if (v.index() == 5 || v.index() == 4) return {v, nullptr};
         return {Format(v), nullptr};
     }
 };
 
-struct default_converter final : ValueConverter {
+struct defaultConverter final : ValueConverter {
     std::pair<Value, error> ConvertValue(const Value& v) const override { return {v, nullptr}; }
 };
 
-const bool_type bool_v;
-const int32_type int32_v;
-const string_type string_v;
-const default_converter default_v;
+const boolType boolV;
+const int32Type int32V;
+const stringType stringV;
+const defaultConverter defaultV;
 
 }  // namespace
 
-const ValueConverter& Bool = bool_v;
-const ValueConverter& Int32 = int32_v;
-const ValueConverter& String = string_v;
-const ValueConverter& DefaultParameterConverter = default_v;
+const ValueConverter& Bool = boolV;
+const ValueConverter& Int32 = int32V;
+const ValueConverter& String = stringV;
+const ValueConverter& DefaultParameterConverter = defaultV;
 
 std::pair<Value, error> Null::ConvertValue(const Value& v) const {
     if (std::holds_alternative<std::nullptr_t>(v)) return {nullptr, nullptr};

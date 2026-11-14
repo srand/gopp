@@ -29,10 +29,10 @@ private:
 
 struct pipe {
     sync::Mutex wrMu;  // serializes Write operations
-    chan<std::span<const byte>> wrCh = makeChan<std::span<const byte>>();
-    chan<int> rdCh = makeChan<int>();
+    chan<std::span<const byte>> wrCh = make_chan<std::span<const byte>>();
+    chan<int> rdCh = make_chan<int>();
     sync::Once once;  // protects closing done
-    chan<empty> done = makeChan<empty>();
+    chan<empty> done = make_chan<empty>();
     onceError rerr;
     onceError werr;
 

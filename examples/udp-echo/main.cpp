@@ -20,9 +20,9 @@ int main(int argc, char** argv) {
     flag::StringVar(&addr, "addr", addr, "the address to listen on");
     flag::Parse(argc, argv);
 
-    auto [laddr, resolve_err] = net::ResolveUDPAddr("udp", addr);
-    if (resolve_err) {
-        fmt::Println(os::Stderr, "udp-echo: {}", resolve_err);
+    auto [laddr, resolveErr] = net::ResolveUDPAddr("udp", addr);
+    if (resolveErr) {
+        fmt::Println(os::Stderr, "udp-echo: {}", resolveErr);
         return 1;
     }
     auto [conn, err] = net::ListenUDP("udp", laddr);
@@ -40,8 +40,8 @@ int main(int argc, char** argv) {
             return 1;
         }
         auto payload = std::span<const byte>(packet.data(), static_cast<std::size_t>(n));
-        if (auto write_err = conn->WriteToUDPAddrPort(payload, peer).second) {
-            fmt::Println(os::Stderr, "udp-echo: {}: {}", peer.String(), write_err);
+        if (auto writeErr = conn->WriteToUDPAddrPort(payload, peer).second) {
+            fmt::Println(os::Stderr, "udp-echo: {}: {}", peer.String(), writeErr);
         }
     }
 }

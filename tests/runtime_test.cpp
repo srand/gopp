@@ -26,13 +26,13 @@ using namespace gopp;
 using namespace std::chrono_literals;
 
 TEST(Runtime, GoRunsFiber) {
-    auto done = makeChan<int>();
+    auto done = make_chan<int>();
     go([done] { done.send(42); });
     EXPECT_EQ(done.recv(), 42);
 }
 
 TEST(Runtime, GoWithArguments) {
-    auto done = makeChan<int>();
+    auto done = make_chan<int>();
     go([](chan<int> c, int a, int b) { c.send(a + b); }, done, 40, 2);
     EXPECT_EQ(done.recv(), 42);
 }
@@ -83,7 +83,7 @@ TEST(Runtime, GoschedYields) {
 }
 
 TEST(Runtime, FiberIdsAreDistinct) {
-    auto ids = makeChan<uint64>(2);
+    auto ids = make_chan<uint64>(2);
     go([ids] { ids.send(runtime::goid()); });
     go([ids] { ids.send(runtime::goid()); });
     uint64 a = ids.recv(), b = ids.recv();
@@ -96,22 +96,22 @@ TEST(Runtime, FiberIdsAreDistinct) {
 TEST(Runtime, BlockingCallHandsOffProcessor) {
     // With GOMAXPROCS fibers stuck in blocking calls, others still run.
     int procs = runtime::GOMAXPROCS();
-    auto release = makeChan<empty>();
+    auto release = make_chan<empty>();
     sync::WaitGroup wg;
     for (int i = 0; i < procs; i++) {
         wg.Go([&] {
             runtime::blocking([] { std::this_thread::sleep_for(50ms); });
         });
     }
-    auto ran = makeChan<int>(1);
+    auto ran = make_chan<int>(1);
     go([ran] { ran.send(1); });
     EXPECT_EQ(ran.recv(), 1);
     wg.Wait();
 }
 
 TEST(Runtime, PingPong) {
-    auto ping = makeChan<int>();
-    auto pong = makeChan<int>();
+    auto ping = make_chan<int>();
+    auto pong = make_chan<int>();
     go([ping, pong] {
         for (int v : ping) pong.send(v + 1);
         pong.close();
@@ -186,7 +186,7 @@ TEST(Runtime, PreemptSpinnersDontStarveSleeper) {
     sync::WaitGroup wg;
     for (int i = 0; i < runtime::GOMAXPROCS(); i++) wg.Go([] { spinFor(500ms); });
     auto start = time::Now();
-    auto took = makeChan<time::Duration>(1);
+    auto took = make_chan<time::Duration>(1);
     go([took, start] {
         time::Sleep(10 * time::Millisecond);
         took.send(time::Since(start));
@@ -200,10 +200,10 @@ TEST(Runtime, PreemptSpinnersDontStarveNewFiber) {
     sync::WaitGroup wg;
     for (int i = 0; i < runtime::GOMAXPROCS(); i++) wg.Go([] { spinFor(500ms); });
     std::this_thread::sleep_for(20ms);  // let the spinners take every P
-    auto ran = makeChan<int>(1);
+    auto ran = make_chan<int>(1);
     go([ran] {
-        auto ping = makeChan<int>();
-        auto pong = makeChan<int>();
+        auto ping = make_chan<int>();
+        auto pong = make_chan<int>();
         go([ping, pong] {
             for (int v : ping) pong.send(v + 1);
             pong.close();
@@ -227,8 +227,8 @@ TEST(Runtime, PreemptedFiberParksAndResumes) {
     // woken and spins again on whatever P it gets back.
     int procs = runtime::GOMAXPROCS();
     std::vector<chan<int>> cs;
-    for (int i = 0; i < procs; i++) cs.push_back(makeChan<int>(1));
-    auto done = makeChan<int>(procs);
+    for (int i = 0; i < procs; i++) cs.push_back(make_chan<int>(1));
+    auto done = make_chan<int>(procs);
     for (int i = 0; i < procs; i++) {
         go([c = cs[i], done, i] {
             spinFor(300ms);
@@ -238,7 +238,7 @@ TEST(Runtime, PreemptedFiberParksAndResumes) {
         });
     }
     std::this_thread::sleep_for(20ms);
-    auto waiter = makeChan<int>(1);
+    auto waiter = make_chan<int>(1);
     go([waiter] { waiter.send(1); });
     EXPECT_TRUE(recvWithin(waiter, 100 * time::Millisecond));
     std::this_thread::sleep_for(300ms);
@@ -308,7 +308,7 @@ TEST(Runtime, PreemptWithSignalsBlocked) {
         sync::WaitGroup wg;
         wg.Go([] { spinFor(300ms); });
         auto start = time::Now();
-        auto took = makeChan<time::Duration>(1);
+        auto took = make_chan<time::Duration>(1);
         go([took, start] {
             time::Sleep(10 * time::Millisecond);
             took.send(time::Since(start));
@@ -337,7 +337,7 @@ TEST(Runtime, RawBlockingSyscallLosesP) {
         });
     }
     std::this_thread::sleep_for(20ms);
-    auto ran = makeChan<int>(1);
+    auto ran = make_chan<int>(1);
     go([ran] { ran.send(1); });
     EXPECT_TRUE(recvWithin(ran, 100 * time::Millisecond));
     wg.Wait();
@@ -350,7 +350,7 @@ TEST(Runtime, PreemptOffSwitch) {
         sync::WaitGroup wg;
         wg.Go([] { spinFor(300ms); });
         auto start = time::Now();
-        auto took = makeChan<time::Duration>(1);
+        auto took = make_chan<time::Duration>(1);
         go([took, start] {
             time::Sleep(10 * time::Millisecond);
             took.send(time::Since(start));

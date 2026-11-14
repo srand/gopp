@@ -119,7 +119,7 @@ std::pair<int, error> unpackBytes(const slice<byte>& msg, int off, std::span<byt
 
 // Name.pack: the labels of n, compressed through compression if it's
 // not nil.
-error packName(const Name& n, slice<byte>& msg, compression_map* compression, int compressionOff) {
+error packName(const Name& n, slice<byte>& msg, compressionMap* compression, int compressionOff) {
     if (n.Length > nonEncodedNameMax) return errNameTooLong;
     // Add a trailing dot to canonicalize name.
     if (n.Length == 0 || n.Data[n.Length - 1] != '.') return errNonCanonicalName;
@@ -230,7 +230,7 @@ std::pair<int, error> skipName(const slice<byte>& msg, int off) {
     }
 }
 
-error packQuestion(const Question& q, slice<byte>& msg, compression_map* compression, int compressionOff) {
+error packQuestion(const Question& q, slice<byte>& msg, compressionMap* compression, int compressionOff) {
     slice<byte> out = msg;
     if (error err = packName(q.Name, out, compression, compressionOff)) return nested("Name", err);
     out = packUint16(std::move(out), q.Type);
@@ -460,7 +460,7 @@ Name MustNewName(std::string_view name) {
 // ---------------------------------------------------------------------------
 // ResourceHeader
 
-error ResourceHeader::pack(slice<byte>& msg, compression_map* compression, int compressionOff, int* lenOff) const {
+error ResourceHeader::pack(slice<byte>& msg, compressionMap* compression, int compressionOff, int* lenOff) const {
     slice<byte> out = msg;
     if (error err = packName(Name, out, compression, compressionOff)) return nested("Name", err);
     out = packUint16(std::move(out), Type);
@@ -528,20 +528,20 @@ RCode ResourceHeader::ExtendedRCode(RCode rcode) const {
 // ---------------------------------------------------------------------------
 // Resource bodies
 
-error CNAMEResource::pack(slice<byte>& msg, compression_map* c, int off) const { return packName(CNAME, msg, c, off); }
+error CNAMEResource::pack(slice<byte>& msg, compressionMap* c, int off) const { return packName(CNAME, msg, c, off); }
 
-error MXResource::pack(slice<byte>& msg, compression_map* c, int off) const {
+error MXResource::pack(slice<byte>& msg, compressionMap* c, int off) const {
     slice<byte> out = packUint16(msg, Pref);
     if (error err = packName(MX, out, c, off)) return nested("MXResource.MX", err);
     msg = std::move(out);
     return nullptr;
 }
 
-error NSResource::pack(slice<byte>& msg, compression_map* c, int off) const { return packName(NS, msg, c, off); }
+error NSResource::pack(slice<byte>& msg, compressionMap* c, int off) const { return packName(NS, msg, c, off); }
 
-error PTRResource::pack(slice<byte>& msg, compression_map* c, int off) const { return packName(PTR, msg, c, off); }
+error PTRResource::pack(slice<byte>& msg, compressionMap* c, int off) const { return packName(PTR, msg, c, off); }
 
-error SOAResource::pack(slice<byte>& msg, compression_map* c, int off) const {
+error SOAResource::pack(slice<byte>& msg, compressionMap* c, int off) const {
     slice<byte> out = msg;
     if (error err = packName(NS, out, c, off)) return nested("SOAResource.NS", err);
     if (error err = packName(MBox, out, c, off)) return nested("SOAResource.MBox", err);
@@ -553,7 +553,7 @@ error SOAResource::pack(slice<byte>& msg, compression_map* c, int off) const {
     return nullptr;
 }
 
-error TXTResource::pack(slice<byte>& msg, compression_map*, int) const {
+error TXTResource::pack(slice<byte>& msg, compressionMap*, int) const {
     slice<byte> out = msg;
     for (auto& s : TXT) {
         if (error err = packText(out, s)) return err;
@@ -562,7 +562,7 @@ error TXTResource::pack(slice<byte>& msg, compression_map*, int) const {
     return nullptr;
 }
 
-error SRVResource::pack(slice<byte>& msg, compression_map*, int off) const {
+error SRVResource::pack(slice<byte>& msg, compressionMap*, int off) const {
     slice<byte> out = packUint16(msg, Priority);
     out = packUint16(std::move(out), Weight);
     out = packUint16(std::move(out), Port);
@@ -571,17 +571,17 @@ error SRVResource::pack(slice<byte>& msg, compression_map*, int off) const {
     return nullptr;
 }
 
-error AResource::pack(slice<byte>& msg, compression_map*, int) const {
+error AResource::pack(slice<byte>& msg, compressionMap*, int) const {
     msg = packBytes(std::move(msg), A);
     return nullptr;
 }
 
-error AAAAResource::pack(slice<byte>& msg, compression_map*, int) const {
+error AAAAResource::pack(slice<byte>& msg, compressionMap*, int) const {
     msg = packBytes(std::move(msg), AAAA);
     return nullptr;
 }
 
-error OPTResource::pack(slice<byte>& msg, compression_map*, int) const {
+error OPTResource::pack(slice<byte>& msg, compressionMap*, int) const {
     for (auto& opt : Options) {
         msg = packUint16(std::move(msg), opt.Code);
         msg = packUint16(std::move(msg), uint16(opt.Data.size()));
@@ -590,12 +590,12 @@ error OPTResource::pack(slice<byte>& msg, compression_map*, int) const {
     return nullptr;
 }
 
-error UnknownResource::pack(slice<byte>& msg, compression_map*, int) const {
+error UnknownResource::pack(slice<byte>& msg, compressionMap*, int) const {
     msg = packBytes(std::move(msg), Data);
     return nullptr;
 }
 
-error Resource::pack(slice<byte>& msg, compression_map* compression, int compressionOff) {
+error Resource::pack(slice<byte>& msg, compressionMap* compression, int compressionOff) {
     if (!Body) return errNilResouceBody;
     slice<byte> out = msg;
     Header.Type = Body->realType();
@@ -889,7 +889,7 @@ std::pair<slice<byte>, error> Message::AppendPack(slice<byte> b) {
     int compressionOff = len(b);
     slice<byte> msg = h.pack(std::move(b));
     // RFC 1035 allows (but doesn't require) compression for packing.
-    compression_map compression;
+    compressionMap compression;
     for (auto& q : Questions) {
         if (error err = packQuestion(q, msg, &compression, compressionOff)) return {{}, nested("packing Question", err)};
     }
@@ -917,7 +917,7 @@ Builder::Builder(slice<byte> buf, dnsmessage::Header h) {
     section_ = sectionHeader;
 }
 
-void Builder::EnableCompression() { compression_ = std::make_unique<compression_map>(); }
+void Builder::EnableCompression() { compression_ = std::make_unique<compressionMap>(); }
 
 error Builder::startCheck(section s) {
     if (section_ <= sectionNotStarted) return ErrNotStarted;

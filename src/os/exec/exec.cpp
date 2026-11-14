@@ -33,8 +33,8 @@ string Error::message() const { return "exec: " + strconv::Quote(Name) + ": " + 
 namespace {
 
 // Go's wrappedError: "prefix: err", unwrapping to err.
-struct wrapped_error final : errorInterface {
-    wrapped_error(string prefix, gopp::error err) : prefix(std::move(prefix)), err(std::move(err)) {}
+struct wrappedError final : errorInterface {
+    wrappedError(string prefix, gopp::error err) : prefix(std::move(prefix)), err(std::move(err)) {}
     string Error() const override { return prefix + ": " + err.Error(); }
     const errorInterface* Unwrap() const noexcept override { return err.get(); }
     string prefix;
@@ -60,9 +60,9 @@ private:
 };
 
 // Go's prefixSuffixSaver: keeps the first and last N bytes written.
-class prefix_suffix_saver final : public io::Writer {
+class prefixSuffixSaver final : public io::Writer {
 public:
-    explicit prefix_suffix_saver(std::size_t n) : n_(n) {}
+    explicit prefixSuffixSaver(std::size_t n) : n_(n) {}
 
     std::pair<isize, error> Write(std::span<const byte> p) override {
         std::lock_guard l(mu_);
@@ -77,12 +77,12 @@ public:
         p = fill(suffix_, p);
         // The suffix is full: overwrite it as a ring buffer.
         while (!p.empty()) {
-            std::size_t n = std::min(p.size(), suffix_.size() - suffix_off_);
-            std::copy_n(p.begin(), n, suffix_.begin() + static_cast<std::ptrdiff_t>(suffix_off_));
+            std::size_t n = std::min(p.size(), suffix_.size() - suffixOff_);
+            std::copy_n(p.begin(), n, suffix_.begin() + static_cast<std::ptrdiff_t>(suffixOff_));
             p = p.subspan(n);
             skipped_ += static_cast<int64>(n);
-            suffix_off_ += n;
-            if (suffix_off_ == n_) suffix_off_ = 0;
+            suffixOff_ += n;
+            if (suffixOff_ == n_) suffixOff_ = 0;
         }
         return {lenp, nullptr};
     }
@@ -96,8 +96,8 @@ public:
         }
         std::string mid = "\n... omitting " + std::to_string(skipped_) + " bytes ...\n";
         out.insert(out.end(), mid.begin(), mid.end());
-        out.insert(out.end(), suffix_.begin() + static_cast<std::ptrdiff_t>(suffix_off_), suffix_.end());
-        out.insert(out.end(), suffix_.begin(), suffix_.begin() + static_cast<std::ptrdiff_t>(suffix_off_));
+        out.insert(out.end(), suffix_.begin() + static_cast<std::ptrdiff_t>(suffixOff_), suffix_.end());
+        out.insert(out.end(), suffix_.begin(), suffix_.begin() + static_cast<std::ptrdiff_t>(suffixOff_));
         return slice<byte>::of(out);
     }
 
@@ -115,7 +115,7 @@ private:
     std::size_t n_;
     std::vector<byte> prefix_;
     std::vector<byte> suffix_;
-    std::size_t suffix_off_ = 0;
+    std::size_t suffixOff_ = 0;
     int64 skipped_ = 0;
 };
 
@@ -125,13 +125,13 @@ void closeDescriptors(std::vector<ptr<os::File>>& closers) {
 
 // Go's skipStdinCopyError: a write to the stdin pipe failed with EPIPE
 // because the command exited without reading all of it.
-bool skip_stdin_copy_error(const error& err) {
+bool skipStdinCopyError(const error& err) {
     auto* pe = dynamic_cast<const fs::PathError*>(err.get());
     return pe && pe->Op == "write" && pe->Path == "|1" && pe->Err == syscall::EPIPE_;
 }
 
 // Go's findExecutable.
-error find_executable(std::string_view file) {
+error findExecutable(std::string_view file) {
     auto [d, err] = os::Stat(file);
     if (err) return err;
     FileMode m = d->Mode();
@@ -150,7 +150,7 @@ std::pair<string, error> absPath(std::string_view path) {
     if (!path.empty() && path[0] == '/') return {string(detail::cleanPath(path)), nullptr};
     auto [wd, err] = os::Getwd();
     if (err) return {string(), err};
-    return {string(detail::cleanPath(os::detail::join_path(wd.view(), path))), nullptr};
+    return {string(detail::cleanPath(os::detail::joinPath(wd.view(), path))), nullptr};
 }
 
 // Go's GODEBUG execerrdot=0 turns off ErrDot.
@@ -172,7 +172,7 @@ bool execerrdot() {
 
 namespace detail {
 
-std::pair<slice<string>, error> dedup_env_case(bool case_insensitive, bool nul_ok, const slice<string>& env) {
+std::pair<slice<string>, error> dedupEnvCase(bool caseInsensitive, bool nulOk, const slice<string>& env) {
     // Building backward makes the last value of a key win; the result is
     // reversed at the end.
     error err;
@@ -180,7 +180,7 @@ std::pair<slice<string>, error> dedup_env_case(bool case_insensitive, bool nul_o
     std::unordered_set<std::string> saw;
     for (std::size_t n = env.size(); n > 0; n--) {
         const string& kv = env[n - 1];
-        if (!nul_ok && kv.find('\0') != string::npos) {
+        if (!nulOk && kv.find('\0') != string::npos) {
             err = errors::New("exec: environment variable contains NUL");
             continue;
         }
@@ -196,7 +196,7 @@ std::pair<slice<string>, error> dedup_env_case(bool case_insensitive, bool nul_o
             continue;
         }
         std::string k(kv.view().substr(0, i));
-        if (case_insensitive) k = strings::ToLower(k).str();
+        if (caseInsensitive) k = strings::ToLower(k).str();
         if (!saw.insert(k).second) continue;
         out.push_back(kv);
     }
@@ -246,7 +246,7 @@ std::string cleanPath(std::string_view path) {
 
 namespace {
 
-std::pair<slice<string>, error> dedupEnv(const slice<string>& env) { return detail::dedup_env_case(false, false, env); }
+std::pair<slice<string>, error> dedupEnv(const slice<string>& env) { return detail::dedupEnvCase(false, false, env); }
 
 }  // namespace
 
@@ -257,7 +257,7 @@ std::pair<string, error> LookPath(std::string_view file) {
     // Go's validateLookPath.
     if (file.empty() || file == "." || file == "..") return {string(), make_ptr<Error>(string(file), ErrNotFound)};
     if (file.find('/') != std::string_view::npos) {
-        if (error err = find_executable(file)) return {string(), make_ptr<Error>(string(file), err)};
+        if (error err = findExecutable(file)) return {string(), make_ptr<Error>(string(file), err)};
         return {string(file), nullptr};
     }
     string path = os::Getenv("PATH");
@@ -267,8 +267,8 @@ std::pair<string, error> LookPath(std::string_view file) {
         std::size_t c = rest.find(os::PathListSeparator);
         std::string_view dir = rest.substr(0, c);
         if (dir.empty()) dir = ".";  // Unix shell semantics: an empty entry is the working directory
-        std::string p = detail::cleanPath(os::detail::join_path(dir, file));
-        if (!find_executable(p)) {
+        std::string p = detail::cleanPath(os::detail::joinPath(dir, file));
+        if (!findExecutable(p)) {
             if (p[0] != '/' && execerrdot()) return {string(p), make_ptr<Error>(string(file), ErrDot)};
             return {string(p), nullptr};
         }
@@ -330,18 +330,18 @@ std::pair<ptr<os::File>, error> Cmd::childStdin() {
     if (!Stdin) {
         auto [f, err] = os::Open(os::DevNull);
         if (err) return {nullptr, err};
-        child_io_files_.push_back(f);
+        childIoFiles_.push_back(f);
         return {f, nullptr};
     }
     if (auto f = dynamic_pointer_cast<os::File>(Stdin)) return {f, nullptr};
 
     auto [pr, pw, err] = os::Pipe();
     if (err) return {nullptr, err};
-    child_io_files_.push_back(pr);
-    parent_io_pipes_.push_back(pw);
+    childIoFiles_.push_back(pr);
+    parentIoPipes_.push_back(pw);
     goroutine_.push_back([pw, stdin = Stdin]() -> error {
         auto [_, err] = io::Copy(*pw, *stdin);
-        if (skip_stdin_copy_error(err)) err = nullptr;
+        if (skipStdinCopyError(err)) err = nullptr;
         if (error err1 = pw->Close(); !err) err = err1;
         return err;
     });
@@ -360,15 +360,15 @@ std::pair<ptr<os::File>, error> Cmd::writerDescriptor(const ptr<io::Writer>& w) 
     if (!w) {
         auto [f, err] = os::OpenFile(os::DevNull, os::O_WRONLY_, 0);
         if (err) return {nullptr, err};
-        child_io_files_.push_back(f);
+        childIoFiles_.push_back(f);
         return {f, nullptr};
     }
     if (auto f = dynamic_pointer_cast<os::File>(w)) return {f, nullptr};
 
     auto [pr, pw, err] = os::Pipe();
     if (err) return {nullptr, err};
-    child_io_files_.push_back(pw);
-    parent_io_pipes_.push_back(pr);
+    childIoFiles_.push_back(pw);
+    parentIoPipes_.push_back(pr);
     goroutine_.push_back([w, pr]() -> error {
         auto [_, err] = io::Copy(*w, *pr);
         pr->Close();  // in case io::Copy stopped at a write error
@@ -384,18 +384,18 @@ error Cmd::Run() {
 
 error Cmd::Start() {
     // Start can be called only once.
-    if (start_called_.exchange(true)) return errors::New("exec: already started");
+    if (startCalled_.exchange(true)) return errors::New("exec: already started");
 
     bool started = false;
     struct cleanup {
         Cmd* c;
         bool& started;
         ~cleanup() {
-            closeDescriptors(c->child_io_files_);
-            c->child_io_files_.clear();
+            closeDescriptors(c->childIoFiles_);
+            c->childIoFiles_.clear();
             if (!started) {
-                closeDescriptors(c->parent_io_pipes_);
-                c->parent_io_pipes_.clear();
+                closeDescriptors(c->parentIoPipes_);
+                c->parentIoPipes_.clear();
                 c->goroutine_.clear();
             }
         }
@@ -410,25 +410,25 @@ error Cmd::Start() {
         if (chan<empty> done = ctx_->Done(); done && (done.tryRecv(e, &closed) || closed)) return ctx_->Err();
     }
 
-    std::vector<ptr<os::File>> child_files;
-    child_files.reserve(3 + ExtraFiles.size());
+    std::vector<ptr<os::File>> childFiles;
+    childFiles.reserve(3 + ExtraFiles.size());
     auto [in, err] = childStdin();
     if (err) return err;
-    child_files.push_back(in);
+    childFiles.push_back(in);
     auto [out, oerr] = childStdout();
     if (oerr) return oerr;
-    child_files.push_back(out);
+    childFiles.push_back(out);
     auto [errf, eerr] = childStderr(out);
     if (eerr) return eerr;
-    child_files.push_back(errf);
-    child_files.insert(child_files.end(), ExtraFiles.begin(), ExtraFiles.end());
+    childFiles.push_back(errf);
+    childFiles.insert(childFiles.end(), ExtraFiles.begin(), ExtraFiles.end());
 
     auto [env, enverr] = environ();
     if (enverr) return enverr;
 
     os::ProcAttr attr;
     attr.Dir = Dir;
-    attr.Files = std::move(child_files);
+    attr.Files = std::move(childFiles);
     attr.Env = env;
     attr.Sys = SysProcAttr;
     slice<string> av = argv();
@@ -438,26 +438,26 @@ error Cmd::Start() {
     started = true;
 
     if (!goroutine_.empty()) {
-        // The copying fibers; the first error goes to goroutine_err_ when
+        // The copying fibers; the first error goes to goroutineErr_ when
         // the last one is done.
         struct status {
             sync::Mutex mu;
             int running;
-            error first_err;
+            error firstErr;
         };
         auto st = std::make_shared<status>();
         st->running = static_cast<int>(goroutine_.size());
-        auto goroutine_err = makeChan<error>(1);
-        goroutine_err_ = goroutine_err;
+        auto goroutineErr = make_chan<error>(1);
+        goroutineErr_ = goroutineErr;
         for (auto& fn : goroutine_) {
-            go([fn = std::move(fn), st, goroutine_err] {
+            go([fn = std::move(fn), st, goroutineErr] {
                 error err = fn();
                 std::unique_lock l(st->mu);
-                if (!st->first_err) st->first_err = err;
+                if (!st->firstErr) st->firstErr = err;
                 if (--st->running == 0) {
-                    error first = st->first_err;
+                    error first = st->firstErr;
                     l.unlock();
-                    goroutine_err.send(first);
+                    goroutineErr.send(first);
                 }
             });
         }
@@ -465,9 +465,9 @@ error Cmd::Start() {
     }
 
     if ((Cancel || WaitDelay.ns != 0) && ctx_ && ctx_->Done()) {
-        auto resultc = makeChan<ctx_result>();
-        ctx_result_ = resultc;
-        go([self = ptr<Cmd>(this), resultc] { self->watch_ctx(resultc); });
+        auto resultc = make_chan<ctxResult>();
+        ctxResult_ = resultc;
+        go([self = ptr<Cmd>(this), resultc] { self->watchCtx(resultc); });
     }
     return nullptr;
 }
@@ -475,44 +475,44 @@ error Cmd::Start() {
 // Go's watchCtx: runs Cancel if the context is done before Wait, then
 // kills the process if it hasn't exited after WaitDelay. Sends the
 // outcome to resultc, which Wait receives.
-void Cmd::watch_ctx(chan<ctx_result> resultc) {
+void Cmd::watchCtx(chan<ctxResult> resultc) {
     bool waited = false;
-    select(send(resultc, ctx_result{}, [&] { waited = true; }), recv(ctx_->Done(), [] {}));
+    select(send(resultc, ctxResult{}, [&] { waited = true; }), recv(ctx_->Done(), [] {}));
     if (waited) return;
 
     error err;
     if (Cancel) {
-        if (error interrupt_err = Cancel(); !interrupt_err) {
+        if (error interruptErr = Cancel(); !interruptErr) {
             // The process was interrupted: report the context's error, so
             // that the caller knows why it didn't succeed.
             err = ctx_->Err();
-        } else if (errors::Is(interrupt_err, os::ErrProcessDone)) {
+        } else if (errors::Is(interruptErr, os::ErrProcessDone)) {
             // It had exited already: no error.
         } else {
-            err = make_ptr<wrapped_error>(string("exec: canceling Cmd"), interrupt_err);
+            err = make_ptr<wrappedError>(string("exec: canceling Cmd"), interruptErr);
         }
     }
     if (WaitDelay.ns == 0) {
-        resultc.send(ctx_result{err, nullptr});
+        resultc.send(ctxResult{err, nullptr});
         return;
     }
 
     ptr<time::Timer> timer = time::NewTimer(WaitDelay);
     bool sent = false;
-    select(send(resultc, ctx_result{err, timer}, [&] { sent = true; }), recv(timer->C, [] {}));
+    select(send(resultc, ctxResult{err, timer}, [&] { sent = true; }), recv(timer->C, [] {}));
     if (sent) return;
 
     bool killed = false;
-    if (error kill_err = Process->Kill(); !kill_err) {
+    if (error killErr = Process->Kill(); !killErr) {
         killed = true;
-    } else if (!errors::Is(kill_err, os::ErrProcessDone)) {
-        err = make_ptr<wrapped_error>(string("exec: killing Cmd"), kill_err);
+    } else if (!errors::Is(killErr, os::ErrProcessDone)) {
+        err = make_ptr<wrappedError>(string("exec: killing Cmd"), killErr);
     }
 
-    if (goroutine_err_) {
+    if (goroutineErr_) {
         error gerr;
         bool got = false;
-        select(recv(goroutine_err_, [&](error e) {
+        select(recv(goroutineErr_, [&](error e) {
                    gerr = std::move(e);
                    got = true;
                }),
@@ -522,14 +522,14 @@ void Cmd::watch_ctx(chan<ctx_result> resultc) {
         } else {
             // Close the pipes, so that the copying stops even if a process
             // that inherited them still runs.
-            closeDescriptors(parent_io_pipes_);
-            goroutine_err_.recv();
+            closeDescriptors(parentIoPipes_);
+            goroutineErr_.recv();
             if (!err) err = ErrWaitDelay;
         }
         // Wait has nothing more to wait for.
-        goroutine_err_ = nullptr;
+        goroutineErr_ = nullptr;
     }
-    resultc.send(ctx_result{err, nullptr});
+    resultc.send(ctxResult{err, nullptr});
 }
 
 error Cmd::Wait() {
@@ -541,36 +541,36 @@ error Cmd::Wait() {
     ProcessState = state;
 
     ptr<time::Timer> timer;
-    if (ctx_result_) {
-        ctx_result watch = ctx_result_.recv();
+    if (ctxResult_) {
+        ctxResult watch = ctxResult_.recv();
         timer = watch.timer;
         if (!err && watch.err) err = watch.err;
     }
 
-    if (error goroutine_err = await_goroutines(timer); !err) err = goroutine_err;
-    closeDescriptors(parent_io_pipes_);
-    parent_io_pipes_.clear();
+    if (error goroutineErr = awaitGoroutines(timer); !err) err = goroutineErr;
+    closeDescriptors(parentIoPipes_);
+    parentIoPipes_.clear();
     return err;
 }
 
 // Go's awaitGoroutines: waits for the copying fibers, but no longer than
 // WaitDelay after the timer started.
-error Cmd::await_goroutines(ptr<time::Timer> timer) {
+error Cmd::awaitGoroutines(ptr<time::Timer> timer) {
     struct cleanup {
         Cmd* c;
         ptr<time::Timer>& timer;
         ~cleanup() {
             if (timer) timer->Stop();
-            c->goroutine_err_ = nullptr;
+            c->goroutineErr_ = nullptr;
         }
     } cleanup{this, timer};
 
-    if (!goroutine_err_) return nullptr;  // no fibers to wait for
+    if (!goroutineErr_) return nullptr;  // no fibers to wait for
     if (!timer) {
-        if (WaitDelay.ns == 0) return goroutine_err_.recv();
+        if (WaitDelay.ns == 0) return goroutineErr_.recv();
         error err;
         bool got = false;
-        select(recv(goroutine_err_, [&](error e) {
+        select(recv(goroutineErr_, [&](error e) {
                    err = std::move(e);
                    got = true;
                }),
@@ -582,10 +582,10 @@ error Cmd::await_goroutines(ptr<time::Timer> timer) {
     }
     error err;
     bool expired = false;
-    select(recv(timer->C, [&] { expired = true; }), recv(goroutine_err_, [&](error e) { err = std::move(e); }));
+    select(recv(timer->C, [&] { expired = true; }), recv(goroutineErr_, [&](error e) { err = std::move(e); }));
     if (expired) {
-        closeDescriptors(parent_io_pipes_);
-        goroutine_err_.recv();
+        closeDescriptors(parentIoPipes_);
+        goroutineErr_.recv();
         return ErrWaitDelay;
     }
     return err;
@@ -596,9 +596,9 @@ std::pair<slice<byte>, error> Cmd::Output() {
     auto out = make_ptr<buffer>();
     Stdout = out;
 
-    ptr<prefix_suffix_saver> saver;
+    ptr<prefixSuffixSaver> saver;
     if (!Stderr) {
-        saver = make_ptr<prefix_suffix_saver>(32 << 10);
+        saver = make_ptr<prefixSuffixSaver>(32 << 10);
         Stderr = saver;
     }
     error err = Run();
@@ -625,8 +625,8 @@ std::pair<ptr<os::File>, error> Cmd::StdinPipe() {
     auto [pr, pw, err] = os::Pipe();
     if (err) return {nullptr, err};
     Stdin = pr;
-    child_io_files_.push_back(pr);
-    parent_io_pipes_.push_back(pw);
+    childIoFiles_.push_back(pr);
+    parentIoPipes_.push_back(pw);
     return {pw, nullptr};
 }
 
@@ -636,8 +636,8 @@ std::pair<ptr<os::File>, error> Cmd::StdoutPipe() {
     auto [pr, pw, err] = os::Pipe();
     if (err) return {nullptr, err};
     Stdout = pw;
-    child_io_files_.push_back(pw);
-    parent_io_pipes_.push_back(pr);
+    childIoFiles_.push_back(pw);
+    parentIoPipes_.push_back(pr);
     return {pr, nullptr};
 }
 
@@ -647,8 +647,8 @@ std::pair<ptr<os::File>, error> Cmd::StderrPipe() {
     auto [pr, pw, err] = os::Pipe();
     if (err) return {nullptr, err};
     Stderr = pw;
-    child_io_files_.push_back(pw);
-    parent_io_pipes_.push_back(pr);
+    childIoFiles_.push_back(pw);
+    parentIoPipes_.push_back(pr);
     return {pr, nullptr};
 }
 
@@ -660,13 +660,13 @@ std::pair<slice<string>, error> Cmd::environ() const {
         // The process's working directory: PWD, as a shell sets it, for
         // programs that look at it.
         if (!Dir.empty()) {
-            auto [pwd, abs_err] = absPath(Dir);
-            if (!abs_err) env = append(env, "PWD=" + pwd);
-            else err = abs_err;
+            auto [pwd, absErr] = absPath(Dir);
+            if (!absErr) env = append(env, "PWD=" + pwd);
+            else err = absErr;
         }
     }
-    auto [deduped, dedup_err] = dedupEnv(env);
-    if (!err) err = dedup_err;
+    auto [deduped, dedupErr] = dedupEnv(env);
+    if (!err) err = dedupErr;
     return {deduped, err};
 }
 

@@ -1,7 +1,7 @@
 // Helper commands: the test program runs itself as another program, as
 // Go's os/exec tests do with their TestMain.
 //
-// helper_command("echo", "foo") is an exec::Cmd that runs this program as
+// helperCommand("echo", "foo") is an exec::Cmd that runs this program as
 // `<this program> echo foo`, with GO_EXEC_TEST_PID in its environment.
 // Such a child runs the helper registered as "echo" instead of the tests,
 // and exits: before main, the child's standard output goes to /dev/null,
@@ -19,10 +19,10 @@
 
 namespace go_helper {
 
-using helper_fn = std::function<void(const std::vector<std::string>& args)>;
+using helperFn = std::function<void(const std::vector<std::string>& args)>;
 
 // Registers a helper command; returns true, for a static initializer.
-bool registerHelper(const std::string& name, helper_fn f);
+bool registerHelper(const std::string& name, helperFn f);
 
 // The path of this program.
 gopp::string executable();
@@ -31,7 +31,7 @@ gopp::string executable();
 gopp::ptr<gopp::os::exec::Cmd> helperCommandContext(gopp::ptr<gopp::context::Context> ctx, const std::string& name,
                                                       const std::vector<std::string>& args = {});
 
-inline gopp::ptr<gopp::os::exec::Cmd> helper_command(const std::string& name, const std::vector<std::string>& args = {}) {
+inline gopp::ptr<gopp::os::exec::Cmd> helperCommand(const std::string& name, const std::vector<std::string>& args = {}) {
     return helperCommandContext(nullptr, name, args);
 }
 

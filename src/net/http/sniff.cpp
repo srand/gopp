@@ -8,7 +8,7 @@ namespace gopp::http {
 
 namespace {
 
-constexpr std::size_t sniff_len = 512;
+constexpr std::size_t sniffLen = 512;
 
 bool isWs(byte b) noexcept { return b == '\t' || b == '\n' || b == '\x0c' || b == '\r' || b == ' '; }
 bool isTt(byte b) noexcept { return b == ' ' || b == '>'; }  // tag-terminating byte
@@ -32,17 +32,17 @@ bool htmlSig(std::span<const byte> d, std::string_view tag) noexcept {
 }  // namespace
 
 string DetectContentType(std::span<const byte> data) {
-    if (data.size() > sniff_len) data = data.first(sniff_len);
+    if (data.size() > sniffLen) data = data.first(sniffLen);
 
-    std::size_t first_non_ws = 0;
-    while (first_non_ws < data.size() && isWs(data[first_non_ws])) first_non_ws++;
-    auto text = data.subspan(first_non_ws);
+    std::size_t firstNonWs = 0;
+    while (firstNonWs < data.size() && isWs(data[firstNonWs])) firstNonWs++;
+    auto text = data.subspan(firstNonWs);
 
-    static constexpr std::string_view html_tags[] = {
+    static constexpr std::string_view htmlTags[] = {
         "<!DOCTYPE HTML", "<HTML", "<HEAD", "<SCRIPT", "<IFRAME", "<H1", "<DIV", "<FONT", "<TABLE",
         "<A", "<STYLE", "<TITLE", "<B", "<BODY", "<BR", "<P", "<!--",
     };
-    for (auto tag : html_tags) {
+    for (auto tag : htmlTags) {
         if (htmlSig(text, tag)) return string::fromStatic("text/html; charset=utf-8");
     }
     if (HasPrefix(text, "<?xml")) return string::fromStatic("text/xml; charset=utf-8");

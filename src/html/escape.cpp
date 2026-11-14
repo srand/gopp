@@ -23,13 +23,13 @@ constexpr rune replacementTable[] = {
 };
 
 rune lookup(std::string_view name) {
-    auto end = entities + n_entities;
+    auto end = entities + nEntities;
     auto it = std::lower_bound(entities, end, name, [](const entity& e, std::string_view n) { return e.name < n; });
     return it != end && it->name == name ? it->r : 0;
 }
 
 const rune* lookup2(std::string_view name) {
-    auto end = entities2 + n_entities2;
+    auto end = entities2 + nEntities2;
     auto it = std::lower_bound(entities2, end, name, [](const entity2& e, std::string_view n) { return e.name < n; });
     return it != end && it->name == name ? it->r : nullptr;
 }

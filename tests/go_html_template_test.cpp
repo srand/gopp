@@ -2,7 +2,7 @@
 // multi_test.go and template_test.go, with Go's test names. Go's
 // TestParseFS and TestParseZipFS are left out (no io/fs), and so is
 // TestTemplateLookUp, which Go skips. The multi tests run with the part of
-// exec_test.go's data they use.
+// execTest.go's data they use.
 #include <gopp/bytes.hpp>
 #include <gopp/chan.hpp>
 #include <gopp/encoding/json.hpp>
@@ -444,7 +444,7 @@ struct U {
     string V;
 };
 
-// The part of exec_test.go's tVal that the multi tests use.
+// The part of execTest.go's tVal that the multi tests use.
 struct T {
     int I = 17;
     std::vector<int> SI = {3, 4, 5};
@@ -530,8 +530,8 @@ const std::string multiText2 = R"(
 // Go's testdata, written to a temporary directory.
 std::string testdata() {
     static std::string dir = [] {
-        char tmpl_dir[] = "/tmp/gopp_html_template_testXXXXXX";
-        std::string d = ::mkdtemp(tmpl_dir);
+        char tmplDir[] = "/tmp/gopp_html_template_testXXXXXX";
+        std::string d = ::mkdtemp(tmplDir);
         auto write = [&](const char* name, std::string_view text) {
             std::FILE* f = std::fopen((d + "/" + name).c_str(), "w");
             std::fwrite(text.data(), 1, text.size(), f);

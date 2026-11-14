@@ -1,4 +1,4 @@
-// Ported from Go 1.27.3's io/fs tests: format_test.go, fs_test.go,
+// Ported from Go 1.27.3's io/fs tests: formatTest.go, fs_test.go,
 // glob_test.go, readdir_test.go, readfile_test.go, readlink_test.go,
 // stat_test.go, sub_test.go and walk_test.go, with Go's test names.
 //
@@ -21,32 +21,32 @@ namespace {
 
 // formatTest implements FileInfo to test FormatFileInfo, and implements
 // DirEntry to test FormatDirEntry.
-struct format_test final : fs::FileInfo, fs::DirEntry {
-    format_test(string name, int64 size, fs::FileMode mode, time::Time mod_time, bool is_dir)
-        : name_(std::move(name)), size_(size), mode_(mode), mod_time_(mod_time), is_dir_(is_dir) {}
+struct formatTest final : fs::FileInfo, fs::DirEntry {
+    formatTest(string name, int64 size, fs::FileMode mode, time::Time modTime, bool isDir)
+        : name_(std::move(name)), size_(size), mode_(mode), modTime_(modTime), isDir_(isDir) {}
 
     string Name() const override { return name_; }
     int64 Size() const override { return size_; }
     fs::FileMode Mode() const override { return mode_; }
-    time::Time ModTime() const override { return mod_time_; }
-    bool IsDir() const override { return is_dir_; }
+    time::Time ModTime() const override { return modTime_; }
+    bool IsDir() const override { return isDir_; }
     fs::FileMode Type() const override { return mode_.Type(); }
     std::pair<ptr<fs::FileInfo>, error> Info() const override { return {nullptr, nullptr}; }
 
     string name_;
     int64 size_;
     fs::FileMode mode_;
-    time::Time mod_time_;
-    bool is_dir_;
+    time::Time modTime_;
+    bool isDir_;
 };
 
-struct format_case {
-    format_test input;
-    std::string want_file_info;
-    std::string want_dir_entry;
+struct formatCase {
+    formatTest input;
+    std::string wantFileInfo;
+    std::string wantDirEntry;
 };
 
-std::vector<format_case> format_tests() {
+std::vector<formatCase> formatTests() {
     time::Time noon = time::Date(1970, time::January, 1, 12, 0, 0, 0, time::UTC);
     return {
         {{"hello.go", 100, 0644, noon, false}, "-rw-r--r-- 100 1970-01-01 12:00:00 hello.go", "- hello.go"},
@@ -66,16 +66,16 @@ std::vector<format_case> format_tests() {
 
 TEST(GoIoFs, FormatFileInfo) {
     int i = 0;
-    for (auto& test : format_tests()) {
-        EXPECT_EQ(fs::FormatFileInfo(test.input), test.want_file_info) << i;
+    for (auto& test : formatTests()) {
+        EXPECT_EQ(fs::FormatFileInfo(test.input), test.wantFileInfo) << i;
         i++;
     }
 }
 
 TEST(GoIoFs, FormatDirEntry) {
     int i = 0;
-    for (auto& test : format_tests()) {
-        EXPECT_EQ(fs::FormatDirEntry(test.input), test.want_dir_entry) << i;
+    for (auto& test : formatTests()) {
+        EXPECT_EQ(fs::FormatDirEntry(test.input), test.wantDirEntry) << i;
         i++;
     }
 }

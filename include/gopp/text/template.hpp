@@ -114,45 +114,45 @@ struct Variadic : std::vector<T> {
 
 namespace detail {
 
-struct type_ops;
-using ops_fn = const type_ops* (*)();
-using owner_t = std::shared_ptr<const void>;
+struct typeOps;
+using opsFn = const typeOps* (*)();
+using ownerT = std::shared_ptr<const void>;
 
-struct field_info {
+struct fieldInfo {
     std::string_view name;
-    Value (*get)(const void* obj, const owner_t& owner);
+    Value (*get)(const void* obj, const ownerT& owner);
 };
 
-struct method_info {
+struct methodInfo {
     std::string_view name;
-    std::span<const ops_fn> in;  // parameter types; for variadics the last is the element type
+    std::span<const opsFn> in;  // parameter types; for variadics the last is the element type
     bool variadic;
-    std::pair<Value, gopp::error> (*call)(const void* obj, const owner_t& owner, std::span<const Value> args);
+    std::pair<Value, gopp::error> (*call)(const void* obj, const ownerT& owner, std::span<const Value> args);
 };
 
 // What the executor knows about a C++ type: one per type, made by
 // reflection (Go's reflect.Type).
-struct type_ops {
+struct typeOps {
     std::string_view name;  // Go-style: int, string, []int, map[string]int, *T, T
     Kind kind;
     // Struct: fields; any type: methods.
-    std::span<const field_info> fields;
-    std::span<const method_info> methods;
+    std::span<const fieldInfo> fields;
+    std::span<const methodInfo> methods;
     // Slice, Array, Map, Pointer: the element (value) type; Map: the key.
-    ops_fn elem = nullptr;
-    ops_fn key = nullptr;
+    opsFn elem = nullptr;
+    opsFn key = nullptr;
     // Slice, Array, Map: the length; String values carry their own.
     std::size_t (*len)(const void* obj) = nullptr;
     // Slice, Array: element i.
-    Value (*index)(const void* obj, const owner_t& owner, std::size_t i) = nullptr;
+    Value (*index)(const void* obj, const ownerT& owner, std::size_t i) = nullptr;
     // Map: the value for key (invalid if absent), and the entries in sorted
     // key order.
-    Value (*map_index)(const void* obj, const owner_t& owner, const Value& key) = nullptr;
-    void (*entries)(const void* obj, const owner_t& owner, std::vector<std::pair<Value, Value>>& out) = nullptr;
+    Value (*mapIndex)(const void* obj, const ownerT& owner, const Value& key) = nullptr;
+    void (*entries)(const void* obj, const ownerT& owner, std::vector<std::pair<Value, Value>>& out) = nullptr;
     // Pointer, Interface: whether nil, and what it points to (the dynamic
     // value of an interface).
     bool (*isNil)(const void* obj) = nullptr;
-    Value (*deref)(const void* obj, const owner_t& owner) = nullptr;
+    Value (*deref)(const void* obj, const ownerT& owner) = nullptr;
     // Pointer: the address of what it points to.
     const void* (*raw)(const void* obj) = nullptr;
     // Func: the callable.
@@ -164,7 +164,7 @@ struct type_ops {
 };
 
 template <typename T>
-const type_ops* opsOf();
+const typeOps* opsOf();
 
 }  // namespace detail
 
@@ -181,11 +181,11 @@ public:
     // A value referring to v, which must outlive it; owner keeps it alive
     // if set.
     template <typename T>
-    static Value Ref(const T& v, detail::owner_t owner = nullptr);
+    static Value Ref(const T& v, detail::ownerT owner = nullptr);
 
     bool IsValid() const noexcept { return t_ != nullptr; }
     tmpl::Kind Kind() const noexcept;
-    const detail::type_ops* Type() const noexcept { return t_; }
+    const detail::typeOps* Type() const noexcept { return t_; }
     // The type's name, as Go would print it ("<nil>" if invalid).
     std::string_view TypeName() const noexcept;
 
@@ -208,7 +208,7 @@ public:
     // Struct: the field named name, if any.
     std::optional<Value> FieldByName(std::string_view name) const;
     // A method of the value's type, if any.
-    const detail::method_info* MethodByName(std::string_view name) const;
+    const detail::methodInfo* MethodByName(std::string_view name) const;
     // Pointer, Interface: whether nil; other kinds: false.
     bool IsNil() const;
     // Pointer, Interface: what it points to.
@@ -220,18 +220,18 @@ public:
     const T* As() const noexcept;
     // The object pointer and its owner, for the reflection glue.
     const void* ptr() const noexcept { return p_; }
-    const detail::owner_t& owner() const noexcept { return owner_; }
+    const detail::ownerT& owner() const noexcept { return owner_; }
 
     // Internals: scalar construction.
-    static Value scalar(const detail::type_ops* t, bool b);
-    static Value scalarInt(const detail::type_ops* t, int64 i);
-    static Value scalarUint(const detail::type_ops* t, uint64 u);
-    static Value scalarFloat(const detail::type_ops* t, double f, double im = 0);
-    static Value scalarString(const detail::type_ops* t, string s);
-    static Value object(const detail::type_ops* t, const void* p, detail::owner_t owner);
+    static Value scalar(const detail::typeOps* t, bool b);
+    static Value scalarInt(const detail::typeOps* t, int64 i);
+    static Value scalarUint(const detail::typeOps* t, uint64 u);
+    static Value scalarFloat(const detail::typeOps* t, double f, double im = 0);
+    static Value scalarString(const detail::typeOps* t, string s);
+    static Value object(const detail::typeOps* t, const void* p, detail::ownerT owner);
 
 private:
-    const detail::type_ops* t_ = nullptr;
+    const detail::typeOps* t_ = nullptr;
     union {
         bool b;
         int64 i;
@@ -241,7 +241,7 @@ private:
     double im_ = 0;
     string str_;
     const void* p_ = nullptr;
-    detail::owner_t owner_;
+    detail::ownerT owner_;
 };
 
 // A function callable from templates: from any callable whose call
@@ -254,26 +254,26 @@ public:
         requires(!std::is_same_v<std::remove_cvref_t<F>, Func>)
     Func(F f);  // NOLINT: implicit, for FuncMap{{"name", lambda}}
 
-    // A function on raw values, as the builtins are: n_in parameters
+    // A function on raw values, as the builtins are: nIn parameters
     // (the last variadic if variadic), any types.
-    static Func Raw(int n_in, bool variadic,
+    static Func Raw(int nIn, bool variadic,
                     std::function<std::pair<Value, gopp::error>(std::span<const Value>)> fn);
     // The same with parameter types (nullptr for any).
-    static Func Raw(std::vector<detail::ops_fn> in, bool variadic,
+    static Func Raw(std::vector<detail::opsFn> in, bool variadic,
                     std::function<std::pair<Value, gopp::error>(std::span<const Value>)> fn);
 
     int NumIn() const noexcept { return static_cast<int>(in_.size()); }
     bool IsVariadic() const noexcept { return variadic_; }
     // Parameter i's type; nullptr for any (Value). For a variadic
     // function, the last is the element type.
-    const detail::type_ops* In(int i) const { return in_[static_cast<std::size_t>(i)] ? in_[static_cast<std::size_t>(i)]() : nullptr; }
+    const detail::typeOps* In(int i) const { return in_[static_cast<std::size_t>(i)] ? in_[static_cast<std::size_t>(i)]() : nullptr; }
     explicit operator bool() const noexcept { return static_cast<bool>(fn_); }
 
     // Calls with arguments of the parameter types (the executor checks).
     std::pair<Value, gopp::error> Call(std::span<const Value> args) const { return fn_(args); }
 
 private:
-    std::vector<detail::ops_fn> in_;
+    std::vector<detail::opsFn> in_;
     bool variadic_ = false;
     std::function<std::pair<Value, gopp::error>(std::span<const Value>)> fn_;
 };
@@ -295,7 +295,7 @@ class Template;
 
 namespace detail {
 struct common;
-struct template_access;
+struct templateAccess;
 }
 
 // template.Template: a parsed template, and the templates associated with
@@ -369,7 +369,7 @@ public:
     Template* Option(std::string_view opt) { return Option({opt}); }
 
 private:
-    friend struct detail::template_access;
+    friend struct detail::templateAccess;
     friend std::pair<ptr<Template>, gopp::error> ParseFiles(std::initializer_list<std::string_view> filenames);
     friend ptr<Template> New(string name);
     void init();
@@ -379,7 +379,7 @@ private:
     ptr<Template> copy(detail::common* c) const;
     bool associate(const ptr<Template>& nt, const ptr<parse::Tree>& tree);
     detail::common* common_ = nullptr;  // the set; owns this template
-    string left_delim_, right_delim_;
+    string leftDelim_, rightDelim_;
     string name_;
 };
 
@@ -417,118 +417,118 @@ string Sprintln(std::span<const Value> args);
 string Sprintf(std::string_view format, std::span<const Value> args);
 
 // ---------------------------------------------------------------------------
-// The reflection glue: type_ops for C++ types.
+// The reflection glue: typeOps for C++ types.
 
 namespace detail {
 
 template <typename T>
-struct is_vector_like : std::false_type {};
+struct isVectorLike : std::false_type {};
 template <typename T, typename A>
-struct is_vector_like<std::vector<T, A>> : std::true_type {};
+struct isVectorLike<std::vector<T, A>> : std::true_type {};
 template <typename T>
-struct is_vector_like<Variadic<T>> : std::true_type {};
+struct isVectorLike<Variadic<T>> : std::true_type {};
 template <typename T>
-struct is_vector_like<gopp::slice<T>> : std::true_type {};
+struct isVectorLike<gopp::slice<T>> : std::true_type {};
 template <typename T, std::size_t N>
-struct is_vector_like<std::span<T, N>> : std::true_type {};
+struct isVectorLike<std::span<T, N>> : std::true_type {};
 
 template <typename T>
-struct is_std_array : std::false_type {};
+struct isStdArray : std::false_type {};
 template <typename T, std::size_t N>
-struct is_std_array<std::array<T, N>> : std::true_type {};
+struct isStdArray<std::array<T, N>> : std::true_type {};
 
 template <typename T>
-struct is_map_like : std::false_type {};
+struct isMapLike : std::false_type {};
 template <typename K, typename V, typename C, typename A>
-struct is_map_like<std::map<K, V, C, A>> : std::true_type {};
+struct isMapLike<std::map<K, V, C, A>> : std::true_type {};
 template <typename K, typename V, typename H, typename E, typename A>
-struct is_map_like<std::unordered_map<K, V, H, E, A>> : std::true_type {};
+struct isMapLike<std::unordered_map<K, V, H, E, A>> : std::true_type {};
 
 template <typename T>
-struct pointer_traits {
+struct pointerTraits {
     static constexpr bool value = false;
 };
 template <typename T>
-struct pointer_traits<T*> {
+struct pointerTraits<T*> {
     static constexpr bool value = true;
     using elem = std::remove_cv_t<T>;
     static const T* get(T* const& p) { return p; }
 };
 template <typename T>
-struct pointer_traits<gopp::intrusive_ptr<T>> {
+struct pointerTraits<gopp::intrusive_ptr<T>> {
     static constexpr bool value = true;
     using elem = std::remove_cv_t<T>;
     static const T* get(const gopp::intrusive_ptr<T>& p) { return p.get(); }
 };
 template <typename T>
-struct pointer_traits<std::shared_ptr<T>> {
+struct pointerTraits<std::shared_ptr<T>> {
     static constexpr bool value = true;
     using elem = std::remove_cv_t<T>;
     static const T* get(const std::shared_ptr<T>& p) { return p.get(); }
 };
 template <typename T, typename D>
-struct pointer_traits<std::unique_ptr<T, D>> {
+struct pointerTraits<std::unique_ptr<T, D>> {
     static constexpr bool value = true;
     using elem = std::remove_cv_t<T>;
     static const T* get(const std::unique_ptr<T, D>& p) { return p.get(); }
 };
 template <typename T>
-struct pointer_traits<std::optional<T>> {
+struct pointerTraits<std::optional<T>> {
     static constexpr bool value = true;
     using elem = T;
     static const T* get(const std::optional<T>& p) { return p ? &*p : nullptr; }
 };
 
 template <typename T>
-inline constexpr bool is_string_like_v = std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string> ||
+inline constexpr bool isStringLikeV = std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string> ||
                                          std::is_same_v<T, std::string_view> || std::is_same_v<T, const char*> ||
                                          std::is_same_v<T, char*>;
 
 template <typename T>
-inline constexpr bool is_named_string_v = std::is_base_of_v<NamedString, T>;
+inline constexpr bool isNamedStringV = std::is_base_of_v<NamedString, T>;
 
 template <typename T>
-inline constexpr bool is_int_v = std::is_integral_v<T> && !std::is_same_v<T, bool> && std::is_signed_v<T>;
+inline constexpr bool isIntV = std::is_integral_v<T> && !std::is_same_v<T, bool> && std::is_signed_v<T>;
 template <typename T>
-inline constexpr bool is_uint_v = std::is_integral_v<T> && !std::is_same_v<T, bool> && std::is_unsigned_v<T>;
+inline constexpr bool isUintV = std::is_integral_v<T> && !std::is_same_v<T, bool> && std::is_unsigned_v<T>;
 
 // Function signatures of callables.
 template <typename F>
-struct fn_traits : fn_traits<decltype(&F::operator())> {};
+struct fnTraits : fnTraits<decltype(&F::operator())> {};
 template <typename R, typename... A>
-struct fn_traits<R (*)(A...)> {
+struct fnTraits<R (*)(A...)> {
     using result = R;
     using args = std::tuple<A...>;
 };
 template <typename R, typename... A>
-struct fn_traits<R(A...)> : fn_traits<R (*)(A...)> {};
+struct fnTraits<R(A...)> : fnTraits<R (*)(A...)> {};
 template <typename C, typename R, typename... A>
-struct fn_traits<R (C::*)(A...) const> : fn_traits<R (*)(A...)> {};
+struct fnTraits<R (C::*)(A...) const> : fnTraits<R (*)(A...)> {};
 template <typename C, typename R, typename... A>
-struct fn_traits<R (C::*)(A...)> : fn_traits<R (*)(A...)> {};
+struct fnTraits<R (C::*)(A...)> : fnTraits<R (*)(A...)> {};
 template <typename C, typename R, typename... A>
-struct fn_traits<R (C::*)(A...) const noexcept> : fn_traits<R (*)(A...)> {};
+struct fnTraits<R (C::*)(A...) const noexcept> : fnTraits<R (*)(A...)> {};
 template <typename C, typename R, typename... A>
-struct fn_traits<R (C::*)(A...) noexcept> : fn_traits<R (*)(A...)> {};
+struct fnTraits<R (C::*)(A...) noexcept> : fnTraits<R (*)(A...)> {};
 template <typename R, typename... A>
-struct fn_traits<R (*)(A...) noexcept> : fn_traits<R (*)(A...)> {};
+struct fnTraits<R (*)(A...) noexcept> : fnTraits<R (*)(A...)> {};
 
 template <typename T>
-struct is_std_function : std::false_type {};
+struct isStdFunction : std::false_type {};
 template <typename S>
-struct is_std_function<std::function<S>> : std::true_type {};
+struct isStdFunction<std::function<S>> : std::true_type {};
 
 template <typename T>
-struct is_variadic_param : std::false_type {};
+struct isVariadicParam : std::false_type {};
 template <typename T>
-struct is_variadic_param<Variadic<T>> : std::true_type {
+struct isVariadicParam<Variadic<T>> : std::true_type {
     using elem = T;
 };
 
 template <typename T>
-struct is_result_pair : std::false_type {};
+struct isResultPair : std::false_type {};
 template <typename T>
-struct is_result_pair<std::pair<T, gopp::error>> : std::true_type {
+struct isResultPair<std::pair<T, gopp::error>> : std::true_type {
     using elem = T;
 };
 
@@ -541,25 +541,25 @@ std::string_view typeName();
 // The value a C++ object becomes, referring to it with owner (or
 // copying scalars).
 template <typename T>
-Value toValue(const T& v, const owner_t& owner);
+Value toValue(const T& v, const ownerT& owner);
 
 // Conversions from values to parameter types; the executor has checked the
 // kinds. An object parameter takes a value of exactly its type.
 template <typename P>
-struct from_value {
+struct fromValue {
     static P get(const Value& v);
 };
 
 template <typename T>
-inline constexpr bool is_object_v =
-    !std::is_arithmetic_v<T> && !is_string_like_v<T> && !is_named_string_v<T> && !std::is_same_v<T, Value>;
+inline constexpr bool isObjectV =
+    !std::is_arithmetic_v<T> && !isStringLikeV<T> && !isNamedStringV<T> && !std::is_same_v<T, Value>;
 
 template <typename R>
 std::pair<Value, gopp::error> wrapResult(R&& r) {
     using U = std::remove_cvref_t<R>;
-    if constexpr (is_result_pair<U>::value) {
+    if constexpr (isResultPair<U>::value) {
         if (r.second) return {Value(), r.second};
-        if constexpr (std::is_same_v<typename is_result_pair<U>::elem, Value>) return {std::move(r.first), nullptr};
+        if constexpr (std::is_same_v<typename isResultPair<U>::elem, Value>) return {std::move(r.first), nullptr};
         else return {Value::Of(std::move(r.first)), nullptr};
     } else if constexpr (std::is_same_v<U, Value>) {
         return {std::forward<R>(r), nullptr};
@@ -573,23 +573,23 @@ auto argsFrom(std::span<const Value> args, std::index_sequence<I...>) {
     constexpr std::size_t n = sizeof...(I);
     [[maybe_unused]] auto one = [&]<std::size_t K>() {  // unused without arguments
         using P = std::remove_cvref_t<std::tuple_element_t<K, Tuple>>;
-        if constexpr (is_variadic_param<P>::value && K == n - 1) {
+        if constexpr (isVariadicParam<P>::value && K == n - 1) {
             P rest;
-            for (std::size_t j = K; j < args.size(); j++) rest.push_back(from_value<typename is_variadic_param<P>::elem>::get(args[j]));
+            for (std::size_t j = K; j < args.size(); j++) rest.push_back(fromValue<typename isVariadicParam<P>::elem>::get(args[j]));
             return rest;
         } else {
-            return from_value<P>::get(args[K]);
+            return fromValue<P>::get(args[K]);
         }
     };
     return std::tuple<std::remove_cvref_t<std::tuple_element_t<I, Tuple>>...>(one.template operator()<I>()...);
 }
 
 template <typename Tuple, std::size_t... I>
-std::array<ops_fn, sizeof...(I)> paramsOf(std::index_sequence<I...>) {
-    [[maybe_unused]] auto one = []<std::size_t K>() -> ops_fn {  // unused without arguments
+std::array<opsFn, sizeof...(I)> paramsOf(std::index_sequence<I...>) {
+    [[maybe_unused]] auto one = []<std::size_t K>() -> opsFn {  // unused without arguments
         using P = std::remove_cvref_t<std::tuple_element_t<K, Tuple>>;
-        if constexpr (is_variadic_param<P>::value) {
-            using E = typename is_variadic_param<P>::elem;
+        if constexpr (isVariadicParam<P>::value) {
+            using E = typename isVariadicParam<P>::elem;
             if constexpr (std::is_same_v<E, Value>) return nullptr;
             else return &opsOf<E>;
         } else if constexpr (std::is_same_v<P, Value>) {
@@ -605,7 +605,7 @@ template <typename Tuple>
 constexpr bool lastIsVariadic() {
     constexpr std::size_t n = std::tuple_size_v<Tuple>;
     if constexpr (n == 0) return false;
-    else return is_variadic_param<std::remove_cvref_t<std::tuple_element_t<n - 1, Tuple>>>::value;
+    else return isVariadicParam<std::remove_cvref_t<std::tuple_element_t<n - 1, Tuple>>>::value;
 }
 
 // Reflection over classes.
@@ -648,7 +648,7 @@ consteval auto methodsOf() {
 }
 
 template <std::meta::info M>
-struct method_glue {
+struct methodGlue {
     using R = typename[:std::meta::return_type_of(M):];
     static constexpr std::size_t nparams = std::meta::parameters_of(M).size();
 
@@ -656,19 +656,19 @@ struct method_glue {
     using param = std::remove_cvref_t<typename[:std::meta::type_of(std::meta::parameters_of(M)[K]):]>;
 
     template <std::size_t... I>
-    static auto tuple_type(std::index_sequence<I...>) -> std::tuple<param<I>...>;
-    using args_t = decltype(tuple_type(std::make_index_sequence<nparams>()));
+    static auto tupleType(std::index_sequence<I...>) -> std::tuple<param<I>...>;
+    using argsT = decltype(tupleType(std::make_index_sequence<nparams>()));
 
-    static inline const std::array<ops_fn, nparams> params = paramsOf<args_t>(std::make_index_sequence<nparams>());
+    static inline const std::array<opsFn, nparams> params = paramsOf<argsT>(std::make_index_sequence<nparams>());
 
     template <typename C>
-    static std::pair<Value, gopp::error> call(const void* obj, const owner_t& owner, std::span<const Value> args) {
+    static std::pair<Value, gopp::error> call(const void* obj, const ownerT& owner, std::span<const Value> args) {
         const C& self = *static_cast<const C*>(obj);
-        auto tup = argsFrom<args_t>(args, std::make_index_sequence<nparams>());
+        auto tup = argsFrom<argsT>(args, std::make_index_sequence<nparams>());
         if constexpr (std::is_reference_v<R>) {
             // A reference into the receiver lives as long as it does.
             const auto& r = std::apply([&](auto&&... a) -> decltype(auto) { return (self.[:M:])(std::move(a)...); }, tup);
-            if constexpr (is_result_pair<std::remove_cvref_t<R>>::value) {
+            if constexpr (isResultPair<std::remove_cvref_t<R>>::value) {
                 if (r.second) return {Value(), r.second};
                 return {toValue(r.first, owner), nullptr};
             } else {
@@ -681,14 +681,14 @@ struct method_glue {
 };
 
 template <typename T>
-const std::span<const field_info> structFields() {
+const std::span<const fieldInfo> structFields() {
     static constexpr auto fs = fieldsOf<T>();
     static const auto arr = [] {
-        std::array<field_info, fs.size()> a{};
+        std::array<fieldInfo, fs.size()> a{};
         [[maybe_unused]] std::size_t i = 0;  // unused without fields
         template for (constexpr std::meta::info m : fs) {
-            a[i++] = field_info{std::define_static_string(std::meta::identifier_of(m)),
-                                [](const void* obj, const owner_t& owner) {
+            a[i++] = fieldInfo{std::define_static_string(std::meta::identifier_of(m)),
+                                [](const void* obj, const ownerT& owner) {
                                     return toValue(static_cast<const T*>(obj)->[:m:], owner);
                                 }};
         }
@@ -698,15 +698,15 @@ const std::span<const field_info> structFields() {
 }
 
 template <typename T>
-const std::span<const method_info> structMethods() {
+const std::span<const methodInfo> structMethods() {
     static constexpr auto ms = methodsOf<T>();
     static const auto arr = [] {
-        std::array<method_info, ms.size()> a{};
+        std::array<methodInfo, ms.size()> a{};
         [[maybe_unused]] std::size_t i = 0;  // unused without methods
         template for (constexpr std::meta::info m : ms) {
-            using G = method_glue<m>;
-            a[i++] = method_info{std::define_static_string(std::meta::identifier_of(m)), std::span<const ops_fn>(G::params),
-                                 lastIsVariadic<typename G::args_t>(), &G::template call<T>};
+            using G = methodGlue<m>;
+            a[i++] = methodInfo{std::define_static_string(std::meta::identifier_of(m)), std::span<const opsFn>(G::params),
+                                 lastIsVariadic<typename G::argsT>(), &G::template call<T>};
         }
         return a;
     }();
@@ -727,97 +727,97 @@ Value zeroOf() {
 }
 
 template <typename T>
-type_ops makeOps();
+typeOps makeOps();
 
 template <typename T>
-const type_ops* opsOf() {
-    static const type_ops ops = makeOps<T>();
+const typeOps* opsOf() {
+    static const typeOps ops = makeOps<T>();
     return &ops;
 }
 
 // The builtin scalar descriptors (defined in value.cpp).
-const type_ops* boolOps();
-const type_ops* intOps();      // Go's int: template constants, C++ int
-const type_ops* stringOps();   // Go's string
-const type_ops* float64Ops();
-const type_ops* complexOps();
-const type_ops* errorOps();
-const type_ops* anyOps();      // a Value field: Go's any
-const type_ops* jsonOps();     // json::Value: Go's any
-const type_ops* funcOps();     // tmpl::Func
-const type_ops* scalarOps(Kind k, std::string_view name);
+const typeOps* boolOps();
+const typeOps* intOps();      // Go's int: template constants, C++ int
+const typeOps* stringOps();   // Go's string
+const typeOps* float64Ops();
+const typeOps* complexOps();
+const typeOps* errorOps();
+const typeOps* anyOps();      // a Value field: Go's any
+const typeOps* jsonOps();     // json::Value: Go's any
+const typeOps* funcOps();     // tmpl::Func
+const typeOps* scalarOps(Kind k, std::string_view name);
 
 template <typename T>
-type_ops makeOps() {
+typeOps makeOps() {
     using U = std::remove_cv_t<T>;
-    type_ops o{};
+    typeOps o{};
     o.name = typeName<U>();
     o.zero = &zeroOf<U>;
     if constexpr (std::is_same_v<U, bool>) {
         o.kind = Kind::Bool;
-    } else if constexpr (is_int_v<U> || std::is_enum_v<U>) {
+    } else if constexpr (isIntV<U> || std::is_enum_v<U>) {
         o.kind = Kind::Int;
-    } else if constexpr (is_uint_v<U>) {
+    } else if constexpr (isUintV<U>) {
         o.kind = Kind::Uint;
     } else if constexpr (std::is_floating_point_v<U>) {
         o.kind = Kind::Float;
     } else if constexpr (std::is_same_v<U, std::complex<double>>) {
         o.kind = Kind::Complex;
-    } else if constexpr (is_string_like_v<U> || is_named_string_v<U>) {
+    } else if constexpr (isStringLikeV<U> || isNamedStringV<U>) {
         o.kind = Kind::String;
     } else if constexpr (std::is_same_v<U, Value> || std::is_same_v<U, json::Value> || std::is_same_v<U, gopp::error>) {
         o.kind = Kind::Interface;
-    } else if constexpr (is_vector_like<U>::value || is_std_array<U>::value) {
-        o.kind = is_std_array<U>::value ? Kind::Array : Kind::Slice;
+    } else if constexpr (isVectorLike<U>::value || isStdArray<U>::value) {
+        o.kind = isStdArray<U>::value ? Kind::Array : Kind::Slice;
         using E = std::remove_cv_t<typename U::value_type>;
         o.elem = &opsOf<E>;
         o.len = [](const void* p) -> std::size_t { return static_cast<const U*>(p)->size(); };
-        o.index = [](const void* p, const owner_t& owner, std::size_t i) {
+        o.index = [](const void* p, const ownerT& owner, std::size_t i) {
             return toValue((*static_cast<const U*>(p))[i], owner);
         };
-        if constexpr (is_vector_like<U>::value) {
+        if constexpr (isVectorLike<U>::value) {
             o.isNil = [](const void* p) {
                 if constexpr (std::is_same_v<U, gopp::slice<E>>) return static_cast<const U*>(p)->isNil();
                 else return false;
             };
         }
-    } else if constexpr (is_map_like<U>::value) {
+    } else if constexpr (isMapLike<U>::value) {
         o.kind = Kind::Map;
         using K = std::remove_cv_t<typename U::key_type>;
         using V = std::remove_cv_t<typename U::mapped_type>;
         o.key = &opsOf<K>;
         o.elem = &opsOf<V>;
         o.len = [](const void* p) -> std::size_t { return static_cast<const U*>(p)->size(); };
-        o.map_index = [](const void* p, const owner_t& owner, const Value& key) -> Value {
+        o.mapIndex = [](const void* p, const ownerT& owner, const Value& key) -> Value {
             const U& m = *static_cast<const U*>(p);
-            auto it = m.find(from_value<K>::get(key));
+            auto it = m.find(fromValue<K>::get(key));
             if (it == m.end()) return Value();
             return toValue(it->second, owner);
         };
-        o.entries = [](const void* p, const owner_t& owner, std::vector<std::pair<Value, Value>>& out) {
+        o.entries = [](const void* p, const ownerT& owner, std::vector<std::pair<Value, Value>>& out) {
             const U& m = *static_cast<const U*>(p);
             std::vector<const typename U::value_type*> es;
             for (auto& e : m) es.push_back(&e);
-            if constexpr (!is_map_like<U>::value || requires { typename U::key_compare; }) {
+            if constexpr (!isMapLike<U>::value || requires { typename U::key_compare; }) {
                 // std::map is ordered already, by the key's operator<.
             } else {
                 std::sort(es.begin(), es.end(), [](auto* a, auto* b) { return a->first < b->first; });
             }
             for (auto* e : es) out.emplace_back(toValue(e->first, owner), toValue(e->second, owner));
         };
-    } else if constexpr (pointer_traits<U>::value) {
+    } else if constexpr (pointerTraits<U>::value) {
         o.kind = Kind::Pointer;
-        using E = typename pointer_traits<U>::elem;
+        using E = typename pointerTraits<U>::elem;
         o.elem = &opsOf<E>;
-        o.isNil = [](const void* p) { return pointer_traits<U>::get(*static_cast<const U*>(p)) == nullptr; };
-        o.raw = [](const void* p) -> const void* { return pointer_traits<U>::get(*static_cast<const U*>(p)); };
-        o.deref = [](const void* p, const owner_t& owner) -> Value {
-            const E* e = pointer_traits<U>::get(*static_cast<const U*>(p));
+        o.isNil = [](const void* p) { return pointerTraits<U>::get(*static_cast<const U*>(p)) == nullptr; };
+        o.raw = [](const void* p) -> const void* { return pointerTraits<U>::get(*static_cast<const U*>(p)); };
+        o.deref = [](const void* p, const ownerT& owner) -> Value {
+            const E* e = pointerTraits<U>::get(*static_cast<const U*>(p));
             if (!e) return Value();
             // The pointee lives as long as the pointer's owner does.
             return toValue(*e, owner);
         };
-    } else if constexpr (is_std_function<U>::value || std::is_function_v<std::remove_pointer_t<U>>) {
+    } else if constexpr (isStdFunction<U>::value || std::is_function_v<std::remove_pointer_t<U>>) {
         o.kind = Kind::Func;
         o.isNil = [](const void* p) { return !static_cast<bool>(*static_cast<const U*>(p)); };
         o.func = [](const void* p) -> const Func* {
@@ -856,18 +856,18 @@ std::string_view typeName() {
     else if constexpr (std::is_same_v<U, unsigned long> || std::is_same_v<U, unsigned long long>) return "uint64";
     else if constexpr (std::is_same_v<U, float>) return "float32";
     else if constexpr (std::is_same_v<U, double> || std::is_same_v<U, long double>) return "float64";
-    else if constexpr (is_string_like_v<U>) return "string";
+    else if constexpr (isStringLikeV<U>) return "string";
     else if constexpr (std::is_same_v<U, gopp::error>) return "error";
     else if constexpr (std::is_same_v<U, Value> || std::is_same_v<U, json::Value>) return "interface {}";
-    else if constexpr (is_vector_like<U>::value) return intern("[]" + std::string(typeName<typename U::value_type>()));
-    else if constexpr (is_std_array<U>::value) {
+    else if constexpr (isVectorLike<U>::value) return intern("[]" + std::string(typeName<typename U::value_type>()));
+    else if constexpr (isStdArray<U>::value) {
         return intern("[" + std::to_string(std::tuple_size_v<U>) + "]" + std::string(typeName<typename U::value_type>()));
-    } else if constexpr (is_map_like<U>::value) {
+    } else if constexpr (isMapLike<U>::value) {
         return intern("map[" + std::string(typeName<typename U::key_type>()) + "]" +
                       std::string(typeName<typename U::mapped_type>()));
-    } else if constexpr (pointer_traits<U>::value) {
-        return intern("*" + std::string(typeName<typename pointer_traits<U>::elem>()));
-    } else if constexpr (is_std_function<U>::value || std::is_function_v<std::remove_pointer_t<U>>) {
+    } else if constexpr (pointerTraits<U>::value) {
+        return intern("*" + std::string(typeName<typename pointerTraits<U>::elem>()));
+    } else if constexpr (isStdFunction<U>::value || std::is_function_v<std::remove_pointer_t<U>>) {
         return "func";
     } else if constexpr (std::is_class_v<U>) {
         constexpr std::meta::info t = std::meta::dealias(^^U);
@@ -879,7 +879,7 @@ std::string_view typeName() {
 }
 
 template <typename T>
-Value toValue(const T& v, const owner_t& owner) {
+Value toValue(const T& v, const ownerT& owner) {
     using U = std::remove_cv_t<T>;
     if constexpr (std::is_same_v<U, Value>) {
         return v;
@@ -887,9 +887,9 @@ Value toValue(const T& v, const owner_t& owner) {
         return Value::scalar(boolOps(), v);
     } else if constexpr (std::is_same_v<U, int>) {
         return Value::scalarInt(intOps(), v);
-    } else if constexpr (is_int_v<U>) {
+    } else if constexpr (isIntV<U>) {
         return Value::scalarInt(scalarOps(Kind::Int, typeName<U>()), static_cast<int64>(v));
-    } else if constexpr (is_uint_v<U>) {
+    } else if constexpr (isUintV<U>) {
         return Value::scalarUint(scalarOps(Kind::Uint, typeName<U>()), static_cast<uint64>(v));
     } else if constexpr (std::is_same_v<U, double>) {
         return Value::scalarFloat(float64Ops(), v);
@@ -899,9 +899,9 @@ Value toValue(const T& v, const owner_t& owner) {
         return Value::scalarFloat(complexOps(), v.real(), v.imag());
     } else if constexpr (std::is_same_v<U, const char*> || std::is_same_v<U, char*>) {
         return Value::scalarString(stringOps(), v ? string(v) : string());
-    } else if constexpr (is_string_like_v<U>) {
+    } else if constexpr (isStringLikeV<U>) {
         return Value::scalarString(stringOps(), string(v));
-    } else if constexpr (is_named_string_v<U>) {
+    } else if constexpr (isNamedStringV<U>) {
         return Value::scalarString(opsOf<U>(), v.value);
     } else if constexpr (std::is_array_v<U> && std::is_same_v<std::remove_cv_t<std::remove_extent_t<U>>, char>) {
         return Value::scalarString(stringOps(), string(std::string_view(v)));
@@ -919,7 +919,7 @@ Value toValue(const T& v, const owner_t& owner) {
 }
 
 template <typename P>
-P from_value<P>::get(const Value& v) {
+P fromValue<P>::get(const Value& v) {
     if constexpr (std::is_same_v<P, Value>) {
         return v;
     } else if constexpr (std::is_same_v<P, bool>) {
@@ -936,7 +936,7 @@ P from_value<P>::get(const Value& v) {
         return v.Str().str();
     } else if constexpr (std::is_same_v<P, std::string_view>) {
         return v.Str().view();
-    } else if constexpr (is_named_string_v<P>) {
+    } else if constexpr (isNamedStringV<P>) {
         return P(v.Str());
     } else if constexpr (std::is_same_v<P, const char*>) {
         return v.Str().data();  // valid while the argument lives
@@ -949,7 +949,7 @@ P from_value<P>::get(const Value& v) {
         if (const E* e = v.template As<E>()) return const_cast<P>(e);
         if (v.Kind() == Kind::Pointer && !v.IsNil() && v.Type()->raw) {
             // A pointer of another kind (T*, ptr<T>, optional<T>) to an E.
-            const type_ops* elem = v.Type()->elem ? v.Type()->elem() : nullptr;
+            const typeOps* elem = v.Type()->elem ? v.Type()->elem() : nullptr;
             if (elem == opsOf<E>() || (elem && elem->kind == opsOf<E>()->kind && elem->name == opsOf<E>()->name)) {
                 return static_cast<P>(const_cast<void*>(v.Type()->raw(v.ptr())));
             }
@@ -974,7 +974,7 @@ template <typename T>
     requires(!std::is_same_v<std::remove_cvref_t<T>, Value>)
 Value Value::Of(T&& v) {
     using U = std::remove_cvref_t<T>;
-    if constexpr (std::is_arithmetic_v<U> || detail::is_string_like_v<U> || detail::is_named_string_v<U> ||
+    if constexpr (std::is_arithmetic_v<U> || detail::isStringLikeV<U> || detail::isNamedStringV<U> ||
                   std::is_enum_v<U> ||
                   std::is_same_v<U, std::complex<double>> ||
                   (std::is_array_v<U> && std::is_same_v<std::remove_cv_t<std::remove_extent_t<U>>, char>)) {
@@ -987,7 +987,7 @@ Value Value::Of(T&& v) {
 }
 
 template <typename T>
-Value Value::Ref(const T& v, detail::owner_t owner) {
+Value Value::Ref(const T& v, detail::ownerT owner) {
     if constexpr (std::is_same_v<T, Value>) return v;
     else return detail::toValue(v, owner);
 }
@@ -995,7 +995,7 @@ Value Value::Ref(const T& v, detail::owner_t owner) {
 template <typename T>
 const T* Value::As() const noexcept {
     if (!t_ || !p_) return nullptr;
-    if constexpr (std::is_arithmetic_v<T> || detail::is_string_like_v<T> || detail::is_named_string_v<T>) {
+    if constexpr (std::is_arithmetic_v<T> || detail::isStringLikeV<T> || detail::isNamedStringV<T>) {
         return nullptr;  // held by value: Type() tells a named string apart
     } else if constexpr (std::is_same_v<T, gopp::error>) {
         return t_ == detail::errorOps() ? static_cast<const T*>(p_) : nullptr;
@@ -1011,7 +1011,7 @@ const T* Value::As() const noexcept {
 template <typename F>
     requires(!std::is_same_v<std::remove_cvref_t<F>, Func>)
 Func::Func(F f) {
-    using Tr = detail::fn_traits<std::remove_cvref_t<F>>;
+    using Tr = detail::fnTraits<std::remove_cvref_t<F>>;
     using Args = typename Tr::args;
     constexpr std::size_t n = std::tuple_size_v<Args>;
     auto params = detail::paramsOf<Args>(std::make_index_sequence<n>());

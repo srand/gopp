@@ -1,4 +1,4 @@
-// Ported from Go 1.27.3's time/format_test.go, with Go's test names.
+// Ported from Go 1.27.3's time/formatTest.go, with Go's test names.
 //
 // As in Go, Local is America/Los_Angeles for these tests (from the
 // system's zoneinfo; Go's tests use the zip file in its tree).

@@ -28,20 +28,20 @@ namespace {
 
 struct result {
     int64 requests;      // in the measured period
-    int64 all_requests;  // including the warmup
+    int64 allRequests;  // including the warmup
     int64 errors;
     double seconds;
     double rps;
-    double p50_us;
-    double p90_us;
-    double p99_us;
-    double p999_us;
-    double max_us;
+    double p50Us;
+    double p90Us;
+    double p99Us;
+    double p999Us;
+    double maxUs;
 };
 
 // Sends requests until end. Returns the latencies of the requests that
-// started after measure_from, and the count of all requests.
-std::tuple<slice<time::Duration>, int64, error> run(const string& url, time::Time measure_from, time::Time end) {
+// started after measureFrom, and the count of all requests.
+std::tuple<slice<time::Duration>, int64, error> run(const string& url, time::Time measureFrom, time::Time end) {
     auto lats = slice<time::Duration>::make(0, 1 << 16);
     int64 n = 0;
     for (;;) {
@@ -57,7 +57,7 @@ std::tuple<slice<time::Duration>, int64, error> run(const string& url, time::Tim
         resp->Body->Close();
         if (cerr) return {lats, n, cerr};
         n++;
-        if (!t0.Before(measure_from)) lats = append(std::move(lats), time::Since(t0));
+        if (!t0.Before(measureFrom)) lats = append(std::move(lats), time::Since(t0));
     }
 }
 
@@ -77,8 +77,8 @@ int main(int argc, char** argv) {
     http::DefaultTransport()->MaxIdleConnsPerHost = static_cast<int>(conns);
     string url = "http://" + addr + path;
     auto start = time::Now();
-    auto measure_from = start.Add(warmup);
-    auto end = measure_from.Add(dur);
+    auto measureFrom = start.Add(warmup);
+    auto end = measureFrom.Add(dur);
 
     std::atomic<int64> all{0}, errs{0};
     sync::Mutex mu;
@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
     sync::WaitGroup wg;
     for (isize i = 0; i < conns; i++) {
         wg.Go([&] {
-            auto [local, n, err] = run(url, measure_from, end);
+            auto [local, n, err] = run(url, measureFrom, end);
             all += n;
             if (err) {
                 errs++;
@@ -105,15 +105,15 @@ int main(int argc, char** argv) {
     };
     result r{
         .requests = static_cast<int64>(lats.len()),
-        .all_requests = all.load(),
+        .allRequests = all.load(),
         .errors = errs.load(),
         .seconds = dur.Seconds(),
         .rps = static_cast<double>(lats.len()) / dur.Seconds(),
-        .p50_us = pct(0.50),
-        .p90_us = pct(0.90),
-        .p99_us = pct(0.99),
-        .p999_us = pct(0.999),
-        .max_us = pct(1),
+        .p50Us = pct(0.50),
+        .p90Us = pct(0.90),
+        .p99Us = pct(0.99),
+        .p999Us = pct(0.999),
+        .maxUs = pct(1),
     };
     json::NewEncoder(os::Stdout).Encode(r);
 }

@@ -19,7 +19,7 @@
 
 namespace {
 
-class leak_listener final : public testing::EmptyTestEventListener {
+class leakListener final : public testing::EmptyTestEventListener {
 public:
     void OnTestIterationStart(const testing::UnitTest&, int iteration) override {
         checking_ = GTEST_FLAG_GET(repeat) == 1 || iteration > 0;
@@ -64,7 +64,7 @@ private:
 };
 
 const bool registered = [] {
-    testing::UnitTest::GetInstance()->listeners().Append(new leak_listener);
+    testing::UnitTest::GetInstance()->listeners().Append(new leakListener);
     return true;
 }();
 

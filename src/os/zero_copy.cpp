@@ -34,7 +34,7 @@ private:
     error wrap(std::string_view op, error err) {
         if (!err) return nullptr;
         if (err == poll::ErrFileClosing) err = ErrClosed;
-        return detail::path_error(op, f_->Name().view(), err);
+        return detail::pathError(op, f_->Name().view(), err);
     }
     ptr<File> f_;  // keeps the file, and so pfd_, alive
     poll::FD& pfd_;
@@ -97,7 +97,7 @@ std::pair<int64, error> File::ReadFrom(io::Reader& r) {
     int64 n = 0;
     bool handled = false;
     error e;
-    if (!f_->append_mode) {
+    if (!f_->appendMode) {
         // Go's copyFileRange: from another file.
         auto [lr, src, remain] = tryLimitedReader(r);
         if (remain <= 0) return {0, nullptr};

@@ -24,10 +24,10 @@ namespace {
 constexpr std::size_t maxProtoLength = sizeof("RSVP-E2E-IGNORE") - 1 + 10;
 
 // The minimal mappings, completed from /etc/protocols on first use.
-using protocol_map = std::map<std::string, int, std::less<>>;
+using protocolMap = std::map<std::string, int, std::less<>>;
 
-protocol_map loadProtocols() {
-    protocol_map p = {
+protocolMap loadProtocols() {
+    protocolMap p = {
         {"icmp", 1}, {"igmp", 2}, {"tcp", 6}, {"udp", 17}, {"ipv6-icmp", 58},
     };
     runtime::blocking([&] {
@@ -53,13 +53,13 @@ protocol_map loadProtocols() {
     return p;
 }
 
-const protocol_map& protocols() {
+const protocolMap& protocols() {
     // Loaded under a sync::Once, not by the static's initializer: loading
     // parks the fiber, and fibers waiting on a static's guard block their
     // threads, and with them the Ps the loading fiber needs to finish.
     struct table {
         sync::Once once;
-        protocol_map m;
+        protocolMap m;
     };
     static auto* t = new table;
     t->once.Do([] { t->m = loadProtocols(); });
@@ -104,7 +104,7 @@ std::tuple<isize, ptr<IPAddr>, error> IPConn::ReadFromIP(std::span<byte> b) {
     auto [n, oobn, flags, err] = fd_->readMsg(b, {}, 0, &from);
     ptr<IPAddr> addr = asIp(sockaddrToAddr(from, SOCK_RAW));
     if (from.ss_family == AF_INET) n = stripIPv4Header(n, b);
-    if (err) return {n, addr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    if (err) return {n, addr, opError("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
     return {n, addr, nullptr};
 }
 
@@ -117,13 +117,13 @@ std::tuple<isize, isize, int, ptr<IPAddr>, error> IPConn::ReadMsgIP(std::span<by
     sockaddr_storage from;
     auto [n, oobn, flags, err] = fd_->readMsg(b, oob, 0, &from);
     ptr<IPAddr> addr = asIp(sockaddrToAddr(from, SOCK_RAW));
-    if (err) return {n, oobn, flags, addr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    if (err) return {n, oobn, flags, addr, opError("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
     return {n, oobn, flags, addr, nullptr};
 }
 
 std::pair<isize, error> IPConn::WriteToIP(std::span<const byte> b, const ptr<IPAddr>& addr) {
     auto fail = [&](error err) {
-        return std::pair<isize, error>{0, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+        return std::pair<isize, error>{0, opError("write", fd_->network(), fd_->laddr, addr, err)};
     };
     if (fd_->raddr) return fail(ErrWriteToConnected);
     if (!addr) return fail(errMissingAddress);
@@ -131,20 +131,20 @@ std::pair<isize, error> IPConn::WriteToIP(std::span<const byte> b, const ptr<IPA
     socklen_t len;
     if (error err = addrSockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
     auto [n, oobn, err] = fd_->writeMsg(b, {}, &sa, len);
-    if (err) return {n, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    if (err) return {n, opError("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, nullptr};
 }
 
 std::pair<isize, error> IPConn::WriteTo(std::span<const byte> b, const ptr<net::Addr>& addr) {
     auto a = asIp(addr);
-    if (!a) return {0, op_error("write", fd_->network(), fd_->laddr, addr, errnoError(EINVAL))};
+    if (!a) return {0, opError("write", fd_->network(), fd_->laddr, addr, errnoError(EINVAL))};
     return WriteToIP(b, a);
 }
 
 std::tuple<isize, isize, error> IPConn::WriteMsgIP(std::span<const byte> b, std::span<const byte> oob,
                                                    const ptr<IPAddr>& addr) {
     auto fail = [&](error err) {
-        return std::tuple<isize, isize, error>{0, 0, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+        return std::tuple<isize, isize, error>{0, 0, opError("write", fd_->network(), fd_->laddr, addr, err)};
     };
     if (fd_->raddr) return fail(ErrWriteToConnected);
     if (!addr) return fail(errMissingAddress);
@@ -152,7 +152,7 @@ std::tuple<isize, isize, error> IPConn::WriteMsgIP(std::span<const byte> b, std:
     socklen_t len;
     if (error err = addrSockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
     auto [n, oobn, err] = fd_->writeMsg(b, oob, &sa, len);
-    if (err) return {n, oobn, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    if (err) return {n, oobn, opError("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, oobn, nullptr};
 }
 
@@ -177,10 +177,10 @@ std::pair<ptr<IPConn>, error> sysListener::listenIP(const ptr<context::Context>&
 
 std::pair<ptr<IPConn>, error> DialIP(std::string_view network, const ptr<IPAddr>& laddr, const ptr<IPAddr>& raddr) {
     string net(network);
-    if (!raddr) return {nullptr, op_error("dial", net, laddr, nullptr, errMissingAddress)};
+    if (!raddr) return {nullptr, opError("dial", net, laddr, nullptr, errMissingAddress)};
     sysDialer sd{.d = {}, .network = net, .address = raddr->String()};
     auto [c, err] = sd.dialIP(context::Background(), laddr.get(), raddr.get());
-    if (err) return {nullptr, op_error("dial", net, laddr, raddr, err)};
+    if (err) return {nullptr, opError("dial", net, laddr, raddr, err)};
     return {c, nullptr};
 }
 
@@ -189,7 +189,7 @@ std::pair<ptr<IPConn>, error> ListenIP(std::string_view network, const ptr<IPAdd
     ptr<IPAddr> laddr = laddr0 ? laddr0 : make_ptr<IPAddr>();
     sysListener sl{.lc = {}, .network = net, .address = laddr->String()};
     auto [c, err] = sl.listenIP(context::Background(), laddr.get());
-    if (err) return {nullptr, op_error("listen", net, nullptr, laddr0, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, laddr0, err)};
     return {c, nullptr};
 }
 

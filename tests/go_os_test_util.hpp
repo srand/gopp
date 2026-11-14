@@ -38,19 +38,19 @@ using os::FileMode;
 
 inline std::string str(const string& s) { return std::string(s.view()); }
 
-inline std::string test_name() {
+inline std::string testName() {
     auto* t = testing::UnitTest::GetInstance()->current_test_info();
     return std::string(t->name());
 }
 
 // Go's filepath.Join for the simple paths of these tests.
-inline std::string join(std::string_view a, std::string_view b) { return os::detail::join_path(a, b); }
+inline std::string join(std::string_view a, std::string_view b) { return os::detail::joinPath(a, b); }
 
 // t.TempDir(): a new directory, removed at the end of the test.
 class TempDir {
 public:
     TempDir() {
-        auto [d, err] = os::MkdirTemp("", "gopp_os_" + test_name());
+        auto [d, err] = os::MkdirTemp("", "gopp_os_" + testName());
         if (err) ADD_FAILURE() << "MkdirTemp: " << err;
         path_ = str(d);
     }
@@ -94,7 +94,7 @@ struct InTempDir {
 class NewFile {
 public:
     NewFile() {
-        auto [f, err] = os::CreateTemp("", "_Go_" + test_name());
+        auto [f, err] = os::CreateTemp("", "_Go_" + testName());
         if (err) ADD_FAILURE() << err;
         f_ = f;
     }
@@ -113,13 +113,13 @@ private:
 inline std::span<const byte> b(std::string_view s) { return as_bytes(s); }
 
 // Reads all of f from its current offset.
-inline std::string read_all(File& f) {
+inline std::string readAll(File& f) {
     auto [data, err] = io::ReadAll(f);
     EXPECT_FALSE(err) << err;
     return std::string(asStringView(data));
 }
 
-inline std::string read_file(std::string_view name) {
+inline std::string readFile(std::string_view name) {
     auto [data, err] = os::ReadFile(name);
     EXPECT_FALSE(err) << err;
     return std::string(asStringView(data));
@@ -138,7 +138,7 @@ inline const std::vector<std::string> dot = {
 };
 
 inline const std::string sfdir = "/etc";
-inline const std::vector<std::string> sysdir_files = {"group", "hosts", "passwd"};
+inline const std::vector<std::string> sysdirFiles = {"group", "hosts", "passwd"};
 inline const std::string sfname = "group";
 
 inline int64 fileSize(std::string_view name) {

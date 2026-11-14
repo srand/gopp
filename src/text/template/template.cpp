@@ -13,16 +13,16 @@ using namespace detail;
 
 namespace {
 
-std::atomic<long> n_live{0};  // templates alive
+std::atomic<long> nLive{0};  // templates alive
 
 }  // namespace
 
 // Templates alive, for tests.
-long detail::liveTemplates() noexcept { return n_live.load(); }
+long detail::liveTemplates() noexcept { return nLive.load(); }
 
-Template::Template(string name) : name_(std::move(name)) { n_live.fetch_add(1, std::memory_order_relaxed); }
+Template::Template(string name) : name_(std::move(name)) { nLive.fetch_add(1, std::memory_order_relaxed); }
 
-Template::~Template() { n_live.fetch_sub(1, std::memory_order_relaxed); }
+Template::~Template() { nLive.fetch_sub(1, std::memory_order_relaxed); }
 
 common::~common() {
     for (Template* t : members) delete t;
@@ -67,8 +67,8 @@ ptr<Template> Template::New(string name) {
     init();
     auto nt = make_ptr<Template>(std::move(name));
     nt->join(common_);
-    nt->left_delim_ = left_delim_;
-    nt->right_delim_ = right_delim_;
+    nt->leftDelim_ = leftDelim_;
+    nt->rightDelim_ = rightDelim_;
     return nt;
 }
 
@@ -76,8 +76,8 @@ ptr<Template> Template::copy(common* c) const {
     auto nt = make_ptr<Template>(name_);
     nt->Tree = Tree;
     if (c) nt->join(c);
-    nt->left_delim_ = left_delim_;
-    nt->right_delim_ = right_delim_;
+    nt->leftDelim_ = leftDelim_;
+    nt->rightDelim_ = rightDelim_;
     return nt;
 }
 
@@ -85,8 +85,8 @@ std::pair<ptr<Template>, gopp::error> Template::Clone() const {
     auto nt = copy(nullptr);
     nt->init();
     if (!common_) return {nt, nullptr};
-    nt->common_->missing_key = common_->missing_key;
-    common_->mu_tmpl.RLock();
+    nt->common_->missingKey = common_->missingKey;
+    common_->muTmpl.RLock();
     for (auto& [k, v] : common_->tmpl) {
         if (k == name_.view()) {
             nt->common_->tmpl[k] = nt.get();
@@ -95,38 +95,38 @@ std::pair<ptr<Template>, gopp::error> Template::Clone() const {
         // The associated templates share nt's common structure.
         nt->common_->tmpl[k] = v->copy(nt->common_).get();  // the set keeps it
     }
-    common_->mu_tmpl.RUnlock();
-    common_->mu_funcs.RLock();
-    nt->common_->parse_funcs = common_->parse_funcs;
-    nt->common_->exec_funcs = common_->exec_funcs;
-    common_->mu_funcs.RUnlock();
+    common_->muTmpl.RUnlock();
+    common_->muFuncs.RLock();
+    nt->common_->parseFuncs = common_->parseFuncs;
+    nt->common_->execFuncs = common_->execFuncs;
+    common_->muFuncs.RUnlock();
     return {nt, nullptr};
 }
 
 std::pair<ptr<Template>, gopp::error> Template::AddParseTree(std::string_view name, ptr<parse::Tree> tree) {
     init();
-    common_->mu_tmpl.Lock();
+    common_->muTmpl.Lock();
     ptr<Template> nt(this);
     if (name != name_.view()) nt = New(string(name));
     // Even if nt == t, we need to install it in the common.tmpl map.
     if (associate(nt, tree) || !nt->Tree) nt->Tree = tree;
-    common_->mu_tmpl.Unlock();
+    common_->muTmpl.Unlock();
     return {nt, nullptr};
 }
 
 std::vector<ptr<Template>> Template::Templates() const {
     std::vector<ptr<Template>> m;
     if (!common_) return m;
-    common_->mu_tmpl.RLock();
+    common_->muTmpl.RLock();
     for (auto& [k, v] : common_->tmpl) m.push_back(ptr<Template>(v));
-    common_->mu_tmpl.RUnlock();
+    common_->muTmpl.RUnlock();
     return m;
 }
 
 Template* Template::Delims(std::string_view left, std::string_view right) {
     init();
-    left_delim_ = string(left);
-    right_delim_ = string(right);
+    leftDelim_ = string(left);
+    rightDelim_ = string(right);
     return this;
 }
 
@@ -139,7 +139,7 @@ bool goodName(std::string_view name) {
         if (r == '_') {
         } else if (i == 0 && !detail::isLetter(r)) {
             return false;
-        } else if (!detail::isLetter(r) && !detail::is_digit(r)) {
+        } else if (!detail::isLetter(r) && !detail::isDigit(r)) {
             return false;
         }
         i += static_cast<std::size_t>(w);
@@ -151,34 +151,34 @@ bool goodName(std::string_view name) {
 
 Template* Template::Funcs(const FuncMap& funcs) {
     init();
-    common_->mu_funcs.Lock();
+    common_->muFuncs.Lock();
     for (auto& [name, fn] : funcs) {
         if (!goodName(name)) {
-            common_->mu_funcs.Unlock();
+            common_->muFuncs.Unlock();
             panic("function name " + detail::quote(name) + " is not a valid identifier");
         }
-        common_->exec_funcs[name] = fn;
-        common_->parse_funcs.insert(name);
+        common_->execFuncs[name] = fn;
+        common_->parseFuncs.insert(name);
     }
-    common_->mu_funcs.Unlock();
+    common_->muFuncs.Unlock();
     return this;
 }
 
 ptr<Template> Template::Lookup(std::string_view name) const {
     if (!common_) return nullptr;
-    common_->mu_tmpl.RLock();
+    common_->muTmpl.RLock();
     auto it = common_->tmpl.find(name);
     ptr<Template> t = it == common_->tmpl.end() ? nullptr : ptr<Template>(it->second);
-    common_->mu_tmpl.RUnlock();
+    common_->muTmpl.RUnlock();
     return t;
 }
 
 std::pair<ptr<Template>, gopp::error> Template::Parse(std::string_view text) {
     init();
-    common_->mu_funcs.RLock();
-    parse::FuncNames funcs = common_->parse_funcs;
-    common_->mu_funcs.RUnlock();
-    auto [trees, err] = parse::Parse(name_, text, left_delim_, right_delim_, {&funcs, &builtinNames()});
+    common_->muFuncs.RLock();
+    parse::FuncNames funcs = common_->parseFuncs;
+    common_->muFuncs.RUnlock();
+    auto [trees, err] = parse::Parse(name_, text, leftDelim_, rightDelim_, {&funcs, &builtinNames()});
     if (err) return {nullptr, err};
     // Add the newly parsed trees, including the one for t, into our common
     // structure.
@@ -207,13 +207,13 @@ bool Template::associate(const ptr<Template>& nt, const ptr<parse::Tree>& tree) 
 string Template::DefinedTemplates() const {
     if (!common_) return {};
     std::string b;
-    common_->mu_tmpl.RLock();
+    common_->muTmpl.RLock();
     for (auto& [name, tmpl] : common_->tmpl) {
         if (!tmpl->Tree || !tmpl->Tree->Root) continue;
         b += b.empty() ? "; defined templates are: " : ", ";
         b += detail::quote(name);
     }
-    common_->mu_tmpl.RUnlock();
+    common_->muTmpl.RUnlock();
     return string(b);
 }
 
@@ -228,15 +228,15 @@ Template* Template::Option(std::initializer_list<std::string_view> opts) {
         if (eq != std::string_view::npos && opt.substr(0, eq) == "missingkey") {
             std::string_view value = opt.substr(eq + 1);
             if (value == "invalid" || value == "default") {
-                common_->missing_key = map_invalid;
+                common_->missingKey = mapInvalid;
                 continue;
             }
             if (value == "zero") {
-                common_->missing_key = map_zero_value;
+                common_->missingKey = mapZeroValue;
                 continue;
             }
             if (value == "error") {
-                common_->missing_key = map_error;
+                common_->missingKey = mapError;
                 continue;
             }
         }
@@ -254,7 +254,7 @@ ptr<Template> Must(std::pair<ptr<Template>, gopp::error> r) {
 
 namespace {
 
-std::pair<std::string, gopp::error> read_file(std::string_view file) {
+std::pair<std::string, gopp::error> readFile(std::string_view file) {
     std::ifstream in{std::string(file), std::ios::binary};
     if (!in) return {{}, errors::New("open " + string(file) + ": no such file or directory")};
     std::ostringstream ss;
@@ -274,7 +274,7 @@ std::pair<ptr<Template>, gopp::error> parseFiles(ptr<Template> t, std::span<cons
         return {nullptr, errors::New("template: no files named in call to ParseFiles")};
     }
     for (auto& filename : filenames) {
-        auto [s, err] = read_file(filename);
+        auto [s, err] = readFile(filename);
         if (err) return {nullptr, err};
         std::string name = baseName(filename);
         // First template becomes return value if not already defined, and

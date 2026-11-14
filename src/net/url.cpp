@@ -9,7 +9,7 @@ namespace gopp::url {
 
 namespace {
 
-enum class encoding { path, path_segment, query_component, fragment };
+enum class encoding { path, pathSegment, queryComponent, fragment };
 
 bool ishex(char c) noexcept { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
 
@@ -26,8 +26,8 @@ bool shouldEscape(unsigned char c, encoding mode) noexcept {
     case '$': case '&': case '+': case ',': case '/': case ':': case ';': case '=': case '?': case '@':
         switch (mode) {
         case encoding::path: return c == '?';
-        case encoding::path_segment: return c == '/' || c == ';' || c == ',' || c == '?';
-        case encoding::query_component: return true;
+        case encoding::pathSegment: return c == '/' || c == ';' || c == ',' || c == '?';
+        case encoding::queryComponent: return true;
         case encoding::fragment: return false;
         }
     }
@@ -41,7 +41,7 @@ bool shouldEscape(unsigned char c, encoding mode) noexcept {
 
 std::pair<string, error> unescape(std::string_view s, encoding mode) {
     std::size_t n = 0;
-    bool has_plus = false;
+    bool hasPlus = false;
     for (std::size_t i = 0; i < s.size();) {
         if (s[i] == '%') {
             n++;
@@ -51,11 +51,11 @@ std::pair<string, error> unescape(std::string_view s, encoding mode) {
             }
             i += 3;
         } else {
-            has_plus = has_plus || s[i] == '+';
+            hasPlus = hasPlus || s[i] == '+';
             i++;
         }
     }
-    if (n == 0 && !(has_plus && mode == encoding::query_component)) return {string(s), nullptr};
+    if (n == 0 && !(hasPlus && mode == encoding::queryComponent)) return {string(s), nullptr};
     std::string out;
     out.reserve(s.size() - 2 * n);
     for (std::size_t i = 0; i < s.size(); i++) {
@@ -63,7 +63,7 @@ std::pair<string, error> unescape(std::string_view s, encoding mode) {
         if (c == '%') {
             out.push_back(static_cast<char>(unhex(s[i + 1]) << 4 | unhex(s[i + 2])));
             i += 2;
-        } else if (c == '+' && mode == encoding::query_component) {
+        } else if (c == '+' && mode == encoding::queryComponent) {
             out.push_back(' ');
         } else {
             out.push_back(c);
@@ -76,7 +76,7 @@ string escape(std::string_view s, encoding mode) {
     std::size_t hex = 0, spaces = 0;
     for (unsigned char c : s) {
         if (shouldEscape(c, mode)) {
-            if (c == ' ' && mode == encoding::query_component) spaces++;
+            if (c == ' ' && mode == encoding::queryComponent) spaces++;
             else hex++;
         }
     }
@@ -85,7 +85,7 @@ string escape(std::string_view s, encoding mode) {
     std::string out;
     out.reserve(s.size() + 2 * hex);
     for (unsigned char c : s) {
-        if (c == ' ' && mode == encoding::query_component) {
+        if (c == ' ' && mode == encoding::queryComponent) {
             out.push_back('+');
         } else if (shouldEscape(c, mode)) {
             out.push_back('%');
@@ -116,7 +116,7 @@ std::pair<std::string_view, std::string_view> getScheme(std::string_view raw) {
     return {{}, raw};
 }
 
-std::pair<URL, error> parseImpl(std::string_view rawurl, bool via_request) {
+std::pair<URL, error> parseImpl(std::string_view rawurl, bool viaRequest) {
     URL u;
     auto fail = [&](string msg) {
         auto e = make_ptr<Error>();
@@ -128,7 +128,7 @@ std::pair<URL, error> parseImpl(std::string_view rawurl, bool via_request) {
     for (char c : rawurl) {
         if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) return fail("net/url: invalid control character in URL");
     }
-    if (rawurl.empty() && via_request) return fail("empty url");
+    if (rawurl.empty() && viaRequest) return fail("empty url");
     if (rawurl == "*") {
         u.Path = string::fromStatic("*");
         return {u, nullptr};
@@ -147,10 +147,10 @@ std::pair<URL, error> parseImpl(std::string_view rawurl, bool via_request) {
             u.Opaque = string(rest);
             return {u, nullptr};
         }
-        if (via_request) return fail("invalid URI for request");
+        if (viaRequest) return fail("invalid URI for request");
     }
 
-    if ((!u.Scheme.empty() || !via_request) && rest.starts_with("//")) {
+    if ((!u.Scheme.empty() || !viaRequest) && rest.starts_with("//")) {
         std::string_view authority = rest.substr(2);
         std::size_t slash = authority.find('/');
         if (slash != authority.npos) {
@@ -175,10 +175,10 @@ std::pair<URL, error> parseImpl(std::string_view rawurl, bool via_request) {
 
 string Error::message() const { return Op + " " + strconv::Quote(URL) + ": " + Err.Error(); }
 
-std::pair<string, error> PathUnescape(std::string_view s) { return unescape(s, encoding::path_segment); }
-std::pair<string, error> QueryUnescape(std::string_view s) { return unescape(s, encoding::query_component); }
-string PathEscape(std::string_view s) { return escape(s, encoding::path_segment); }
-string QueryEscape(std::string_view s) { return escape(s, encoding::query_component); }
+std::pair<string, error> PathUnescape(std::string_view s) { return unescape(s, encoding::pathSegment); }
+std::pair<string, error> QueryUnescape(std::string_view s) { return unescape(s, encoding::queryComponent); }
+string PathEscape(std::string_view s) { return escape(s, encoding::pathSegment); }
+string QueryEscape(std::string_view s) { return escape(s, encoding::queryComponent); }
 
 std::pair<URL, error> Parse(std::string_view rawurl) {
     std::string_view frag;

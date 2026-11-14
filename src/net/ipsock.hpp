@@ -9,16 +9,16 @@
 
 namespace gopp::net {
 
-using addr_list = std::vector<ptr<Addr>>;
+using addrList = std::vector<ptr<Addr>>;
 
 
 // The IP, port and zone of a TCPAddr or UDPAddr.
-struct ip_port {
+struct ipPort {
     IP ip;
     int port = 0;
     string zone;
     bool ok = false;
 };
-ip_port ipPortOf(const Addr* a);
+ipPort ipPortOf(const Addr* a);
 
 }  // namespace gopp::net

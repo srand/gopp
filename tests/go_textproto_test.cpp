@@ -300,7 +300,7 @@ TEST(GoTextproto, Issue46363) {
     };
     auto rc = make_ptr<rwc>();
     rc->c = r;
-    auto done = makeChan<MIMEHeader>(1);
+    auto done = make_chan<MIMEHeader>(1);
     go([rc, done] { done.send(textproto::NewConn(rc)->ReadMIMEHeader().first); });
     io::WriteString(*w, "A: 1\r\nB: 2\r\nC: 3\r\n\r\n");
     MIMEHeader want = {{"A", {"1"}}, {"B", {"2"}}, {"C", {"3"}}};
@@ -389,7 +389,7 @@ TEST(GoTextproto, Pipeline) {
     textproto::Pipeline p;
     std::vector<int> order;
     sync::Mutex mu;
-    auto done = makeChan<empty>(3);
+    auto done = make_chan<empty>(3);
     uint64 ids[3] = {p.Next(), p.Next(), p.Next()};
     for (int i = 2; i >= 0; i--) {
         go([&, i] {

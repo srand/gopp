@@ -15,12 +15,12 @@ namespace {
 
 // Runs f when it goes out of scope (Go's defer).
 template <typename F>
-struct defer_t {
+struct defer {
     F f;
-    ~defer_t() { f(); }
+    ~defer() { f(); }
 };
 template <typename F>
-defer_t(F) -> defer_t<F>;
+defer(F) -> defer<F>;
 
 // GODEBUG=multipathtcp: "0" turns listening off, "1" turns dialing on,
 // "3" both (Go's multipathtcp setting).
@@ -95,7 +95,7 @@ bool matchAddrFamily(const IP& ip, const IP& x) {
 }
 
 bool isWildcardIP(const Addr* a) {
-    ip_port ip = ipPortOf(a);
+    ipPort ip = ipPortOf(a);
     return ip.ip.empty() || ip.ip.IsUnspecified();
 }
 
@@ -117,7 +117,7 @@ std::pair<time::Time, error> partialDeadline(time::Time now, time::Time deadline
 }
 
 bool isIPv4(const Addr* a) {
-    ip_port ip = ipPortOf(a);
+    ipPort ip = ipPortOf(a);
     return ip.ok && !ip.ip.To4().empty();
 }
 
@@ -244,8 +244,8 @@ std::pair<ptr<Conn>, error> sysDialer::dialParallel(const ptr<context::Context>&
                                                     const addrList& fallbacks) {
     if (fallbacks.empty()) return dialSerial(ctx, primaries);
 
-    auto returned = makeChan<empty>();
-    defer_t closeReturned{[&] { returned.close(); }};
+    auto returned = make_chan<empty>();
+    defer closeReturned{[&] { returned.close(); }};
 
     struct dialResult {
         ptr<Conn> conn;
@@ -253,7 +253,7 @@ std::pair<ptr<Conn>, error> sysDialer::dialParallel(const ptr<context::Context>&
         bool primary = false;
         bool done = false;
     };
-    auto results = makeChan<dialResult>();  // unbuffered
+    auto results = make_chan<dialResult>();  // unbuffered
 
     // The racers share the dialer through a copy.
     auto self = std::make_shared<sysDialer>(*this);
@@ -270,14 +270,14 @@ std::pair<ptr<Conn>, error> sysDialer::dialParallel(const ptr<context::Context>&
 
     // Start the main racer.
     auto [primaryCtx, primaryCancel] = context::WithCancel(ctx);
-    defer_t cancelPrimary{[&] { primaryCancel(); }};
+    defer cancelPrimary{[&] { primaryCancel(); }};
     startRacer(primaryCtx, true);
 
     // Start the timer for the fallback racer.
     auto fallbackTimer = time::NewTimer(fallbackDelay(d));
-    defer_t stopTimer{[&] { fallbackTimer->Stop(); }};
+    defer stopTimer{[&] { fallbackTimer->Stop(); }};
     std::vector<context::CancelFunc> fallbackCancels;
-    defer_t cancelFallbacks{[&] {
+    defer cancelFallbacks{[&] {
         for (auto& c : fallbackCancels) c();
     }};
 
@@ -310,18 +310,18 @@ std::pair<ptr<Conn>, error> sysDialer::dialParallel(const ptr<context::Context>&
 std::pair<ptr<Conn>, error> sysDialer::dialSerial(const ptr<context::Context>& ctx, const addrList& ras) {
     error firstErr;  // the error from the first address is most relevant
     std::vector<context::CancelFunc> cancels;
-    defer_t cancelAll{[&] {
+    defer cancelAll{[&] {
         for (auto& c : cancels) c();
     }};
     for (std::size_t i = 0; i < ras.size(); i++) {
         const auto& ra = ras[i];
-        if (error cerr = ctx->Err()) return {nullptr, op_error("dial", network, d.LocalAddr, ra, mapErr(cerr))};
+        if (error cerr = ctx->Err()) return {nullptr, opError("dial", network, d.LocalAddr, ra, mapErr(cerr))};
         ptr<context::Context> dctx = ctx;
         if (auto deadline = ctx->Deadline()) {
             auto [pd, err] = partialDeadline(time::Now(), *deadline, int(ras.size() - i));
             if (err) {
                 // Ran out of time.
-                if (!firstErr) firstErr = op_error("dial", network, d.LocalAddr, ra, err);
+                if (!firstErr) firstErr = opError("dial", network, d.LocalAddr, ra, err);
                 break;
             }
             if (pd.Before(*deadline)) {
@@ -334,7 +334,7 @@ std::pair<ptr<Conn>, error> sysDialer::dialSerial(const ptr<context::Context>& c
         if (!err) return {c, nullptr};
         if (!firstErr) firstErr = err;
     }
-    if (!firstErr) firstErr = op_error("dial", network, nullptr, nullptr, errMissingAddress);
+    if (!firstErr) firstErr = opError("dial", network, nullptr, nullptr, errMissingAddress);
     return {nullptr, firstErr};
 }
 
@@ -352,10 +352,10 @@ std::pair<ptr<Conn>, error> sysDialer::dialSingle(const ptr<context::Context>& c
     } else if (auto* x = dynamic_cast<const UnixAddr*>(ra.get())) {
         std::tie(c, err) = dialUnix(ctx, dynamic_cast<const UnixAddr*>(la), x);
     } else {
-        return {nullptr, op_error("dial", network, d.LocalAddr, ra,
+        return {nullptr, opError("dial", network, d.LocalAddr, ra,
                                   make_ptr<AddrError>(string::fromStatic("unexpected address type"), address))};
     }
-    if (err) return {nullptr, op_error("dial", network, d.LocalAddr, ra, err)};
+    if (err) return {nullptr, opError("dial", network, d.LocalAddr, ra, err)};
     return {c, nullptr};
 }
 
@@ -377,10 +377,10 @@ std::pair<ptr<Conn>, error> Dialer::Dial(std::string_view network, std::string_v
 std::pair<ptr<Conn>, error> Dialer::DialContext(const ptr<context::Context>& ctx0, std::string_view network,
                                                 std::string_view address) {
     auto [ctx, cancel] = dialCtx(*this, ctx0);
-    defer_t cancelCtx{[&] { cancel(); }};
+    defer cancelCtx{[&] { cancel(); }};
     string net(network);
     auto [addrs, err] = resolveAddrList(Resolver.get(), ctx, "dial", network, address, LocalAddr.get());
-    if (err) return {nullptr, op_error("dial", net, nullptr, nullptr, err)};
+    if (err) return {nullptr, opError("dial", net, nullptr, nullptr, err)};
     sysDialer sd{.d = *this, .network = net, .address = string(address)};
     addrList primaries, fallbacks;
     if (dualStack(*this) && network == "tcp") std::tie(primaries, fallbacks) = partition(addrs, isIPv4);
@@ -391,62 +391,62 @@ std::pair<ptr<Conn>, error> Dialer::DialContext(const ptr<context::Context>& ctx
 std::pair<ptr<TCPConn>, error> Dialer::DialTCP(const ptr<context::Context>& ctx0, std::string_view network,
                                                netip::AddrPort laddr, netip::AddrPort raddr) {
     auto [ctx, cancel] = dialCtx(*this, ctx0);
-    defer_t cancelCtx{[&] { cancel(); }};
+    defer cancelCtx{[&] { cancel(); }};
     string net(network);
     ptr<TCPAddr> la = laddr.IsValid() ? TCPAddrFromAddrPort(laddr) : nullptr;
     ptr<TCPAddr> ra = raddr.IsValid() ? TCPAddrFromAddrPort(raddr) : nullptr;
     if (network != "tcp" && network != "tcp4" && network != "tcp6") {
-        return {nullptr, op_error("dial", net, la, ra, make_ptr<UnknownNetworkError>(net))};
+        return {nullptr, opError("dial", net, la, ra, make_ptr<UnknownNetworkError>(net))};
     }
-    if (!ra) return {nullptr, op_error("dial", net, la, nullptr, errMissingAddress)};
+    if (!ra) return {nullptr, opError("dial", net, la, nullptr, errMissingAddress)};
     sysDialer sd{.d = *this, .network = net, .address = ra->String()};
     auto [c, err] = MultipathTCP() ? sd.dialMPTCP(ctx, la.get(), ra.get()) : sd.dialTCP(ctx, la.get(), ra.get());
-    if (err) return {nullptr, op_error("dial", net, la, ra, err)};
+    if (err) return {nullptr, opError("dial", net, la, ra, err)};
     return {c, nullptr};
 }
 
 std::pair<ptr<UDPConn>, error> Dialer::DialUDP(const ptr<context::Context>& ctx0, std::string_view network,
                                                netip::AddrPort laddr, netip::AddrPort raddr) {
     auto [ctx, cancel] = dialCtx(*this, ctx0);
-    defer_t cancelCtx{[&] { cancel(); }};
+    defer cancelCtx{[&] { cancel(); }};
     string net(network);
     ptr<UDPAddr> la = laddr.IsValid() ? UDPAddrFromAddrPort(laddr) : nullptr;
     ptr<UDPAddr> ra = raddr.IsValid() ? UDPAddrFromAddrPort(raddr) : nullptr;
     if (network != "udp" && network != "udp4" && network != "udp6") {
-        return {nullptr, op_error("dial", net, la, ra, make_ptr<UnknownNetworkError>(net))};
+        return {nullptr, opError("dial", net, la, ra, make_ptr<UnknownNetworkError>(net))};
     }
-    if (!ra) return {nullptr, op_error("dial", net, la, nullptr, errMissingAddress)};
+    if (!ra) return {nullptr, opError("dial", net, la, nullptr, errMissingAddress)};
     sysDialer sd{.d = *this, .network = net, .address = ra->String()};
     auto [c, err] = sd.dialUDP(ctx, la.get(), ra.get());
-    if (err) return {nullptr, op_error("dial", net, la, ra, err)};
+    if (err) return {nullptr, opError("dial", net, la, ra, err)};
     return {c, nullptr};
 }
 
 std::pair<ptr<UnixConn>, error> Dialer::DialUnix(const ptr<context::Context>& ctx0, std::string_view network,
                                                  const ptr<UnixAddr>& laddr, const ptr<UnixAddr>& raddr) {
     auto [ctx, cancel] = dialCtx(*this, ctx0);
-    defer_t cancelCtx{[&] { cancel(); }};
+    defer cancelCtx{[&] { cancel(); }};
     string net(network);
     if (network != "unix" && network != "unixgram" && network != "unixpacket") {
-        return {nullptr, op_error("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
+        return {nullptr, opError("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
     }
     sysDialer sd{.d = *this, .network = net, .address = raddr ? raddr->String() : string()};
     auto [c, err] = sd.dialUnix(ctx, laddr.get(), raddr.get());
-    if (err) return {nullptr, op_error("dial", net, laddr, raddr, err)};
+    if (err) return {nullptr, opError("dial", net, laddr, raddr, err)};
     return {c, nullptr};
 }
 
 std::pair<ptr<IPConn>, error> Dialer::DialIP(const ptr<context::Context>& ctx0, std::string_view network,
                                              netip::Addr laddr, netip::Addr raddr) {
     auto [ctx, cancel] = dialCtx(*this, ctx0);
-    defer_t cancelCtx{[&] { cancel(); }};
+    defer cancelCtx{[&] { cancel(); }};
     string net(network);
     // Go's ipAddrFromAddr: an invalid Addr is a nil IP.
     auto la = make_ptr<IPAddr>(IP(laddr.AsSlice()), laddr.Zone());
     auto ra = make_ptr<IPAddr>(IP(raddr.AsSlice()), raddr.Zone());
     sysDialer sd{.d = *this, .network = net, .address = ra->String()};
     auto [c, err] = sd.dialIP(ctx, la.get(), ra.get());
-    if (err) return {nullptr, op_error("dial", net, la, ra, err)};
+    if (err) return {nullptr, opError("dial", net, la, ra, err)};
     return {c, nullptr};
 }
 
@@ -475,7 +475,7 @@ std::pair<ptr<net::Listener>, error> ListenConfig::Listen(const ptr<context::Con
                                                           std::string_view address) {
     string net(network);
     auto [addrs, err] = resolveAddrList(nullptr, ctx, "listen", network, address, nullptr);
-    if (err) return {nullptr, op_error("listen", net, nullptr, nullptr, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, nullptr, err)};
     sysListener sl{.lc = *this, .network = net, .address = string(address)};
     ptr<Addr> la = first(addrs, isIPv4);
     ptr<net::Listener> l;
@@ -484,10 +484,10 @@ std::pair<ptr<net::Listener>, error> ListenConfig::Listen(const ptr<context::Con
     } else if (auto* u = dynamic_cast<const UnixAddr*>(la.get())) {
         std::tie(l, err) = sl.listenUnix(ctx, u);
     } else {
-        return {nullptr, op_error("listen", net, nullptr, la,
+        return {nullptr, opError("listen", net, nullptr, la,
                                   make_ptr<AddrError>(string::fromStatic("unexpected address type"), string(address)))};
     }
-    if (err) return {nullptr, op_error("listen", net, nullptr, la, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, la, err)};
     return {l, nullptr};
 }
 
@@ -495,7 +495,7 @@ std::pair<ptr<net::PacketConn>, error> ListenConfig::ListenPacket(const ptr<cont
                                                                  std::string_view network, std::string_view address) {
     string net(network);
     auto [addrs, err] = resolveAddrList(nullptr, ctx, "listen", network, address, nullptr);
-    if (err) return {nullptr, op_error("listen", net, nullptr, nullptr, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, nullptr, err)};
     sysListener sl{.lc = *this, .network = net, .address = string(address)};
     ptr<Addr> la = first(addrs, isIPv4);
     ptr<net::PacketConn> c;
@@ -506,10 +506,10 @@ std::pair<ptr<net::PacketConn>, error> ListenConfig::ListenPacket(const ptr<cont
     } else if (auto* x = dynamic_cast<const UnixAddr*>(la.get())) {
         std::tie(c, err) = sl.listenUnixgram(ctx, x);
     } else {
-        return {nullptr, op_error("listen", net, nullptr, la,
+        return {nullptr, opError("listen", net, nullptr, la,
                                   make_ptr<AddrError>(string::fromStatic("unexpected address type"), string(address)))};
     }
-    if (err) return {nullptr, op_error("listen", net, nullptr, la, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, la, err)};
     return {c, nullptr};
 }
 

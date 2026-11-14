@@ -95,7 +95,7 @@ struct Name {
     }
 };
 
-using compression_map = std::map<std::string, uint16, std::less<>>;
+using compressionMap = std::map<std::string, uint16, std::less<>>;
 
 // NewName: a Name of name, which must be at most 255 bytes.
 std::pair<Name, error> NewName(std::string_view name);
@@ -123,7 +123,7 @@ struct ResourceHeader {
     bool DNSSECAllowed() const;
     RCode ExtendedRCode(RCode rcode) const;
 
-    error pack(slice<byte>& msg, compression_map* compression, int compressionOff, int* lenOff) const;
+    error pack(slice<byte>& msg, compressionMap* compression, int compressionOff, int* lenOff) const;
     std::pair<int, error> unpack(const slice<byte>& msg, int off);
     error fixLen(slice<byte>& msg, int lenOff, int preLen);
 };
@@ -131,7 +131,7 @@ struct ResourceHeader {
 // The body of a resource record.
 struct ResourceBody : public virtual object {
     virtual Type realType() const = 0;
-    virtual error pack(slice<byte>& msg, compression_map* compression, int compressionOff) const = 0;
+    virtual error pack(slice<byte>& msg, compressionMap* compression, int compressionOff) const = 0;
 };
 
 struct CNAMEResource final : ResourceBody {
@@ -139,7 +139,7 @@ struct CNAMEResource final : ResourceBody {
     CNAMEResource() = default;
     explicit CNAMEResource(Name n) : CNAME(n) {}
     Type realType() const override { return TypeCNAME; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct MXResource final : ResourceBody {
@@ -148,7 +148,7 @@ struct MXResource final : ResourceBody {
     MXResource() = default;
     MXResource(uint16 p, Name n) : Pref(p), MX(n) {}
     Type realType() const override { return TypeMX; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct NSResource final : ResourceBody {
@@ -156,7 +156,7 @@ struct NSResource final : ResourceBody {
     NSResource() = default;
     explicit NSResource(Name n) : NS(n) {}
     Type realType() const override { return TypeNS; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct PTRResource final : ResourceBody {
@@ -164,7 +164,7 @@ struct PTRResource final : ResourceBody {
     PTRResource() = default;
     explicit PTRResource(Name n) : PTR(n) {}
     Type realType() const override { return TypePTR; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct SOAResource final : ResourceBody {
@@ -174,7 +174,7 @@ struct SOAResource final : ResourceBody {
     // The minimum TTL of the zone (RFC 2308: negative caching).
     uint32 MinTTL = 0;
     Type realType() const override { return TypeSOA; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct TXTResource final : ResourceBody {
@@ -182,14 +182,14 @@ struct TXTResource final : ResourceBody {
     TXTResource() = default;
     explicit TXTResource(std::vector<std::string> t) : TXT(std::move(t)) {}
     Type realType() const override { return TypeTXT; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct SRVResource final : ResourceBody {
     uint16 Priority = 0, Weight = 0, Port = 0;
     Name Target;  // not compressed, as RFC 2782 says
     Type realType() const override { return TypeSRV; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct AResource final : ResourceBody {
@@ -197,7 +197,7 @@ struct AResource final : ResourceBody {
     AResource() = default;
     explicit AResource(std::array<byte, 4> a) : A(a) {}
     Type realType() const override { return TypeA; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct AAAAResource final : ResourceBody {
@@ -205,7 +205,7 @@ struct AAAAResource final : ResourceBody {
     AAAAResource() = default;
     explicit AAAAResource(std::array<byte, 16> a) : AAAA(a) {}
     Type realType() const override { return TypeAAAA; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 // An option of an OPT pseudo-record.
@@ -217,21 +217,21 @@ struct Option {
 struct OPTResource final : ResourceBody {
     std::vector<Option> Options;
     Type realType() const override { return TypeOPT; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 struct UnknownResource final : ResourceBody {
     dnsmessage::Type Type = dnsmessage::Type(0);
     slice<byte> Data;
     dnsmessage::Type realType() const override { return Type; }
-    error pack(slice<byte>& msg, compression_map* c, int off) const override;
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
 // A DNS resource record.
 struct Resource {
     ResourceHeader Header;
     ptr<ResourceBody> Body;
-    error pack(slice<byte>& msg, compression_map* compression, int compressionOff);
+    error pack(slice<byte>& msg, compressionMap* compression, int compressionOff);
 };
 
 // A DNS message.
@@ -360,7 +360,7 @@ private:
     section section_ = sectionNotStarted;
     header header_;
     int start_ = 0;
-    std::unique_ptr<compression_map> compression_;
+    std::unique_ptr<compressionMap> compression_;
 };
 
 inline Builder NewBuilder(slice<byte> buf, Header h) { return Builder(std::move(buf), h); }

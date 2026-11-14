@@ -30,7 +30,7 @@ std::string x(std::span<const byte> b) { return std::string(hex::EncodeToString(
 // Go's testGolden: the one-shot sum, then the running hash written whole
 // twice and in two halves with a Sum between them, with Reset after each.
 template <std::size_t N>
-void testGolden(const char* name, std::span<const golden_test> golden,
+void testGolden(const char* name, std::span<const goldenTest> golden,
                 std::function<std::array<byte, N>(std::span<const byte>)> sum, ptr<hash::Hash> c) {
     for (const auto& g : golden) {
         ASSERT_EQ(x(sum(as_bytes(g.in))), g.out) << "Sum function: " << name << "(" << g.in << ")";
@@ -69,8 +69,8 @@ void testLarge(ptr<hash::Hash> c, int N, const std::string& ok) {
 // crypto/sha256
 
 TEST(GoSha256, Golden) {
-    testGolden<32>("sha256", sha256_golden, [](std::span<const byte> b) { return sha256::Sum256(b); }, sha256::New());
-    testGolden<28>("sha224", sha256_golden224, [](std::span<const byte> b) { return sha256::Sum224(b); },
+    testGolden<32>("sha256", sha256Golden, [](std::span<const byte> b) { return sha256::Sum256(b); }, sha256::New());
+    testGolden<28>("sha224", sha256Golden224, [](std::span<const byte> b) { return sha256::Sum224(b); },
                    sha256::New224());
 }
 
@@ -95,13 +95,13 @@ TEST(GoSha256, BlockSize) { EXPECT_EQ(sha256::New()->BlockSize(), sha256::BlockS
 // crypto/sha512
 
 TEST(GoSha512, Golden) {
-    testGolden<28>("SHA512/224", sha512_golden224, [](std::span<const byte> b) { return sha512::Sum512_224(b); },
+    testGolden<28>("SHA512/224", sha512Golden224, [](std::span<const byte> b) { return sha512::Sum512_224(b); },
                    sha512::New512_224());
-    testGolden<32>("SHA512/256", sha512_golden256, [](std::span<const byte> b) { return sha512::Sum512_256(b); },
+    testGolden<32>("SHA512/256", sha512Golden256, [](std::span<const byte> b) { return sha512::Sum512_256(b); },
                    sha512::New512_256());
-    testGolden<48>("SHA384", sha512_golden384, [](std::span<const byte> b) { return sha512::Sum384(b); },
+    testGolden<48>("SHA384", sha512Golden384, [](std::span<const byte> b) { return sha512::Sum384(b); },
                    sha512::New384());
-    testGolden<64>("SHA512", sha512_golden512, [](std::span<const byte> b) { return sha512::Sum512(b); },
+    testGolden<64>("SHA512", sha512Golden512, [](std::span<const byte> b) { return sha512::Sum512(b); },
                    sha512::New());
 }
 
@@ -118,7 +118,7 @@ TEST(GoSha512, BlockSize) { EXPECT_EQ(sha512::New()->BlockSize(), sha512::BlockS
 // crypto/sha1
 
 TEST(GoSha1, Golden) {
-    testGolden<20>("sha1", sha1_golden, [](std::span<const byte> b) { return sha1::Sum(b); }, sha1::New());
+    testGolden<20>("sha1", sha1Golden, [](std::span<const byte> b) { return sha1::Sum(b); }, sha1::New());
 }
 
 TEST(GoSha1, Size) { EXPECT_EQ(sha1::New()->Size(), sha1::Size); }
@@ -129,7 +129,7 @@ TEST(GoSha1, BlockSize) { EXPECT_EQ(sha1::New()->BlockSize(), sha1::BlockSize); 
 // crypto/md5
 
 TEST(GoMd5, Golden) {
-    for (const auto& g : md5_golden) {
+    for (const auto& g : md5Golden) {
         ASSERT_EQ(x(md5::Sum(as_bytes(g.in))), g.out) << "Sum function: md5(" << g.in << ")";
         auto c = md5::New();
         std::vector<byte> buf(g.in.size() + 4);

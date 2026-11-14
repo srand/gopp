@@ -55,7 +55,7 @@ std::pair<Result, error> query(const ptr<context::Context>& ctx, string kind, st
 // Asks every replica of a kind and returns the first answer. The channel
 // has room for all of them, so the ones that lose don't block on their send.
 Result first(const ptr<context::Context>& ctx, sync::WaitGroup& replicas, string kind, int n, string q) {
-    auto answers = makeChan<Result>(n);
+    auto answers = make_chan<Result>(n);
     for (int i = 1; i <= n; i++) {
         replicas.Go([=] {
             auto [r, err] = query(ctx, kind, fmt::Sprint("{}{}", kind, i), q);
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
     sync::WaitGroup replicas;
 
     const std::vector<string> kinds = {"web", "image", "video"};
-    auto results = makeChan<Result>(kinds.size());
+    auto results = make_chan<Result>(kinds.size());
     sync::WaitGroup searches;
     for (const string& kind : kinds) {
         searches.Go([&, kind] { results.send(first(ctx, replicas, kind, n, q)); });

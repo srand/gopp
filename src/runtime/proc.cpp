@@ -33,7 +33,7 @@ namespace gopp::runtime {
 
 void fatal(const char* msg) noexcept { dofatal(msg); }
 
-void lock_t::lockSlow() noexcept {
+void lockT::lockSlow() noexcept {
     for (int i = 0; i < 64; i++) {
         uint32_t c = 0;
         if (s_.load(std::memory_order_relaxed) == 0 && s_.compare_exchange_weak(c, 1, std::memory_order_acquire)) return;
@@ -48,8 +48,8 @@ void lock_t::lockSlow() noexcept {
 
 namespace {
 
-struct sched_t {
-    lock_t lock;
+struct schedT {
+    lockT lock;
 
     // Global run queue.
     glist runq;
@@ -70,10 +70,10 @@ struct sched_t {
 
     // Network poller: lastpoll is 0 while an M blocks in netpoll.
     std::atomic<int64_t> lastpoll{1};
-    std::atomic<int64_t> poll_until{0};
+    std::atomic<int64_t> pollUntil{0};
 
     // Free Gs, shared between Ps.
-    lock_t gflock;
+    lockT gflock;
     G* gfree = nullptr;
     int32_t ngfree = 0;
 
@@ -89,32 +89,32 @@ struct sched_t {
 };
 
 // Never destroyed: Ms keep running while the process exits.
-alignas(sched_t) unsigned char sched_storage[sizeof(sched_t)];
-sched_t& sched = *reinterpret_cast<sched_t*>(sched_storage);
+alignas(schedT) unsigned char schedStorage[sizeof(schedT)];
+schedT& sched = *reinterpret_cast<schedT*>(schedStorage);
 
-std::once_flag init_once;
+std::once_flag initOnce;
 std::atomic<bool> inited{false};
 
-thread_local M* tls_m = nullptr;
-thread_local G* tls_thread_g = nullptr;
-thread_local uint64_t tls_rand = 0;
+thread_local M* tlsM = nullptr;
+thread_local G* tlsThreadG = nullptr;
+thread_local uint64_t tlsRand = 0;
 
 // All Gs, for tracebacks: pushed at the head, never removed, so that a
 // crash can walk the list while other threads add to it.
-constinit std::atomic<G*> allgs_head{nullptr};
-constinit std::atomic<pid_t> main_tid{0};
+constinit std::atomic<G*> allgsHead{nullptr};
+constinit std::atomic<pid_t> mainTid{0};
 
 void allgadd(G* gp) noexcept {
-    G* head = allgs_head.load(std::memory_order_relaxed);
+    G* head = allgsHead.load(std::memory_order_relaxed);
     do gp->alllink = head;
-    while (!allgs_head.compare_exchange_weak(head, gp, std::memory_order_release, std::memory_order_relaxed));
+    while (!allgsHead.compare_exchange_weak(head, gp, std::memory_order_release, std::memory_order_relaxed));
 }
 
 // Marks the pseudo-G of a thread dead when the thread exits, so that
 // tracebacks don't signal its thread id, which may be reused.
-struct thread_g_reaper {
+struct threadGReaper {
     G* gp = nullptr;
-    ~thread_g_reaper() {
+    ~threadGReaper() {
         if (!gp) return;
         gp->tid = 0;
         gp->status.store(gstatus::dead, std::memory_order_release);
@@ -126,7 +126,7 @@ int ncpu = 1;
 
 // GODEBUG=asyncpreemptoff=1: sysmon doesn't take Ps from long-running
 // fibers, and scheduling is purely cooperative.
-bool preempt_off = false;
+bool preemptOff = false;
 
 void schedule(M* m) noexcept;
 
@@ -158,20 +158,20 @@ G* fiberOf(M* m) noexcept { return m ? m->curg : nullptr; }
 
 [[gnu::noinline]] M* getm() noexcept {
     asm volatile("" ::: "memory");
-    return tls_m;
+    return tlsM;
 }
 
 [[gnu::noinline]] G* getg() noexcept {
     asm volatile("" ::: "memory");
-    if (M* m = tls_m) return m->curg;
-    G* gp = tls_thread_g;
+    if (M* m = tlsM) return m->curg;
+    G* gp = tlsThreadG;
     if (!gp) {
         gp = new G();
-        gp->is_thread = true;
+        gp->isThread = true;
         gp->tid = gettid();
         gp->status.store(gstatus::running, std::memory_order_relaxed);
-        tls_thread_g = gp;
-        thread_local thread_g_reaper reaper;
+        tlsThreadG = gp;
+        thread_local threadGReaper reaper;
         reaper.gp = gp;
         ensureSigaltstack();
         allgadd(gp);
@@ -179,18 +179,18 @@ G* fiberOf(M* m) noexcept { return m ? m->curg : nullptr; }
     return gp;
 }
 
-G* allgs() noexcept { return allgs_head.load(std::memory_order_acquire); }
+G* allgs() noexcept { return allgsHead.load(std::memory_order_acquire); }
 
 G* getgIfAny() noexcept {
-    if (M* m = tls_m) return m->curg;
-    return tls_thread_g;
+    if (M* m = tlsM) return m->curg;
+    return tlsThreadG;
 }
 
-bool isMainThread(pid_t t) noexcept { return t != 0 && t == main_tid.load(std::memory_order_relaxed); }
+bool isMainThread(pid_t t) noexcept { return t != 0 && t == mainTid.load(std::memory_order_relaxed); }
 
 uint32_t fastrand() noexcept {
     // wyrand
-    uint64_t& s = tls_rand;
+    uint64_t& s = tlsRand;
     if (s == 0) s = reinterpret_cast<uintptr_t>(&s) ^ static_cast<uint64_t>(nanotime());
     s += 0xa0761d6478bd642fULL;
     __uint128_t r = static_cast<__uint128_t>(s) * (s ^ 0xe7037ed1a0b428dbULL);
@@ -282,8 +282,8 @@ void runqput(P* pp, G* gp, bool next) noexcept {
     for (;;) {
         uint32_t h = pp->runqhead.load(std::memory_order_acquire);
         uint32_t t = pp->runqtail.load(std::memory_order_relaxed);
-        if (t - h < runq_size) {
-            pp->runq[t % runq_size].store(gp, std::memory_order_relaxed);
+        if (t - h < runqSize) {
+            pp->runq[t % runqSize].store(gp, std::memory_order_relaxed);
             pp->runqtail.store(t + 1, std::memory_order_release);
             return;
         }
@@ -293,10 +293,10 @@ void runqput(P* pp, G* gp, bool next) noexcept {
 
 // Moves half of the full local queue, and gp, to the global queue.
 bool runqputslow(P* pp, G* gp, uint32_t h, uint32_t t) noexcept {
-    G* batch[runq_size / 2 + 1];
+    G* batch[runqSize / 2 + 1];
     uint32_t n = (t - h) / 2;
-    if (n != runq_size / 2) fatal("runqputslow: queue is not full");
-    for (uint32_t i = 0; i < n; i++) batch[i] = pp->runq[(h + i) % runq_size].load(std::memory_order_relaxed);
+    if (n != runqSize / 2) fatal("runqputslow: queue is not full");
+    for (uint32_t i = 0; i < n; i++) batch[i] = pp->runq[(h + i) % runqSize].load(std::memory_order_relaxed);
     if (!pp->runqhead.compare_exchange_strong(h, h + n, std::memory_order_release, std::memory_order_relaxed)) return false;
     batch[n] = gp;
     glist list;
@@ -314,7 +314,7 @@ G* runqget(P* pp) noexcept {
         uint32_t h = pp->runqhead.load(std::memory_order_acquire);
         uint32_t t = pp->runqtail.load(std::memory_order_relaxed);
         if (t == h) return nullptr;
-        G* gp = pp->runq[h % runq_size].load(std::memory_order_relaxed);
+        G* gp = pp->runq[h % runqSize].load(std::memory_order_relaxed);
         if (pp->runqhead.compare_exchange_weak(h, h + 1, std::memory_order_release, std::memory_order_relaxed)) return gp;
     }
 }
@@ -328,15 +328,15 @@ bool runqempty(P* pp) noexcept {
     }
 }
 
-// Grabs half of pp's queue into batch, starting at batch_head.
-uint32_t runqgrab(P* pp, std::atomic<G*>* batch, uint32_t batch_head, bool steal_runnext) noexcept {
+// Grabs half of pp's queue into batch, starting at batchHead.
+uint32_t runqgrab(P* pp, std::atomic<G*>* batch, uint32_t batchHead, bool stealRunnext) noexcept {
     for (;;) {
         uint32_t h = pp->runqhead.load(std::memory_order_acquire);
         uint32_t t = pp->runqtail.load(std::memory_order_acquire);
         uint32_t n = t - h;
         n = n - n / 2;
         if (n == 0) {
-            if (steal_runnext) {
+            if (stealRunnext) {
                 if (G* next = pp->runnext.load(std::memory_order_acquire)) {
                     if (pp->running.load(std::memory_order_relaxed)) {
                         // pp is running and likely about to schedule its
@@ -344,31 +344,31 @@ uint32_t runqgrab(P* pp, std::atomic<G*>* batch, uint32_t batch_head, bool steal
                         for (int i = 0; i < 50; i++) cpuRelax();
                     }
                     if (!pp->runnext.compare_exchange_strong(next, nullptr, std::memory_order_acq_rel)) continue;
-                    batch[batch_head % runq_size].store(next, std::memory_order_relaxed);
+                    batch[batchHead % runqSize].store(next, std::memory_order_relaxed);
                     return 1;
                 }
             }
             return 0;
         }
-        if (n > runq_size / 2) continue;  // read inconsistent h and t
+        if (n > runqSize / 2) continue;  // read inconsistent h and t
         for (uint32_t i = 0; i < n; i++) {
-            G* gp = pp->runq[(h + i) % runq_size].load(std::memory_order_relaxed);
-            batch[(batch_head + i) % runq_size].store(gp, std::memory_order_relaxed);
+            G* gp = pp->runq[(h + i) % runqSize].load(std::memory_order_relaxed);
+            batch[(batchHead + i) % runqSize].store(gp, std::memory_order_relaxed);
         }
         if (pp->runqhead.compare_exchange_strong(h, h + n, std::memory_order_acq_rel)) return n;
     }
 }
 
 // Steals half of p2's queue into pp's and returns one of the stolen Gs.
-G* runqsteal(P* pp, P* p2, bool steal_runnext) noexcept {
+G* runqsteal(P* pp, P* p2, bool stealRunnext) noexcept {
     uint32_t t = pp->runqtail.load(std::memory_order_relaxed);
-    uint32_t n = runqgrab(p2, pp->runq, t, steal_runnext);
+    uint32_t n = runqgrab(p2, pp->runq, t, stealRunnext);
     if (n == 0) return nullptr;
     n--;
-    G* gp = pp->runq[(t + n) % runq_size].load(std::memory_order_relaxed);
+    G* gp = pp->runq[(t + n) % runqSize].load(std::memory_order_relaxed);
     if (n == 0) return gp;
     uint32_t h = pp->runqhead.load(std::memory_order_acquire);
-    if (t - h + n >= runq_size) fatal("runqsteal: runq overflow");
+    if (t - h + n >= runqSize) fatal("runqsteal: runq overflow");
     pp->runqtail.store(t + n, std::memory_order_release);
     return gp;
 }
@@ -380,7 +380,7 @@ G* globrunqget(P* pp, int32_t max) noexcept {
     int32_t n = size / sched.gomaxprocs + 1;
     if (n > size) n = size;
     if (max > 0 && n > max) n = max;
-    if (n > static_cast<int32_t>(runq_size / 2)) n = runq_size / 2;
+    if (n > static_cast<int32_t>(runqSize / 2)) n = runqSize / 2;
     sched.runqsize.fetch_sub(n, std::memory_order_relaxed);
     G* gp = sched.runq.pop();
     n--;
@@ -585,9 +585,9 @@ top:
     // Poll the network without blocking.
     if (netpollAnyWaiters() && sched.lastpoll.load() != 0) {
         glist list = netpoll(0);
-        statInc(m->stats.poll_nb);
+        statInc(m->stats.pollNb);
         if (!list.empty()) {
-            statInc(m->stats.poll_nb_ready);
+            statInc(m->stats.pollNbReady);
             G* gp = list.pop();
             injectglist(list);
             gp->status.store(gstatus::runnable, std::memory_order_relaxed);
@@ -603,10 +603,10 @@ top:
             statInc(m->stats.spin);
         }
         if (G* gp = stealWork(m, pp)) {
-            statInc(m->stats.steal_ok);
+            statInc(m->stats.stealOk);
             return gp;
         }
-        statInc(m->stats.steal_fail);
+        statInc(m->stats.stealFail);
     }
 
     // Nothing to do: give up the P.
@@ -629,7 +629,7 @@ top:
     // The delicate dance: drop nmspinning first, then check all sources of
     // work again. In the other order, work submitted between the checks and
     // the decrement would see a spinning M and wake nobody.
-    bool was_spinning = m->spinning;
+    bool wasSpinning = m->spinning;
     if (m->spinning) {
         m->spinning = false;
         if (sched.nmspinning.fetch_sub(1) < 1) fatal("findrunnable: negative nmspinning");
@@ -673,18 +673,18 @@ top:
     }
 
     // Block in the network poller, unless another M already does.
-    int64_t poll_until = nextTimer();
-    if ((netpollAnyWaiters() || poll_until != INT64_MAX) && sched.lastpoll.exchange(0) != 0) {
-        sched.poll_until.store(poll_until == INT64_MAX ? 0 : poll_until);
+    int64_t pollUntil = nextTimer();
+    if ((netpollAnyWaiters() || pollUntil != INT64_MAX) && sched.lastpoll.exchange(0) != 0) {
+        sched.pollUntil.store(pollUntil == INT64_MAX ? 0 : pollUntil);
         int64_t delay = -1;
-        if (poll_until != INT64_MAX) {
-            delay = poll_until - nanotime();
+        if (pollUntil != INT64_MAX) {
+            delay = pollUntil - nanotime();
             if (delay < 0) delay = 0;
         }
         glist list = netpoll(delay);
-        statInc(m->stats.poll_block);
-        if (!list.empty()) statInc(m->stats.poll_block_ready);
-        sched.poll_until.store(0);
+        statInc(m->stats.pollBlock);
+        if (!list.empty()) statInc(m->stats.pollBlockReady);
+        sched.pollUntil.store(0);
         sched.lastpoll.store(nanotime());
 
         sched.lock.lock();
@@ -697,17 +697,17 @@ top:
             if (!list.empty()) {
                 G* gp = list.pop();
                 injectglist(list);
-                if (was_spinning) becomeSpinning(m);
+                if (wasSpinning) becomeSpinning(m);
                 gp->status.store(gstatus::runnable, std::memory_order_relaxed);
                 return gp;
             }
-            if (was_spinning) becomeSpinning(m);
+            if (wasSpinning) becomeSpinning(m);
             goto top;
         }
-    } else if (poll_until != INT64_MAX) {
+    } else if (pollUntil != INT64_MAX) {
         // The poller may sleep past our timer: wake it to recompute.
-        int64_t pu = sched.poll_until.load();
-        if (pu == 0 || pu > poll_until) netpollBreak();
+        int64_t pu = sched.pollUntil.load();
+        if (pu == 0 || pu > pollUntil) netpollBreak();
     }
 
     stopm(m);
@@ -844,7 +844,7 @@ void schedule(M* m) noexcept {
 }
 
 void mstart(M* m) noexcept {
-    tls_m = m;
+    tlsM = m;
     m->tid = gettid();
     ensureSigaltstack();
     // The thread inherits its creator's signal mask: a program that blocks
@@ -867,24 +867,24 @@ void mcall(G* gp, gaction action) noexcept {
     std::atomic_signal_fence(std::memory_order_seq_cst);
     gp->action = action;
     // Where a traceback of the switched-out fiber starts.
-    gp->sched_fp = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
+    gp->schedFp = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
     gp->caller = std::move(gp->caller).resume();
     std::atomic_signal_fence(std::memory_order_seq_cst);
     gp->nopreempt--;
 }
 
 // Preemption: sysmon takes the P from a fiber that has run for
-// force_preempt while other work waits, and hands it to another M. The
+// forcePreempt while other work waits, and hands it to another M. The
 // fiber keeps running on its thread without a P, and gets one back when it
 // next parks, yields or returns from a blocking call. It is never switched
 // out at an arbitrary instruction, so errno, thread_local values and locks
 // stay valid.
-constexpr int64_t force_preempt = 10'000'000;  // ns
+constexpr int64_t forcePreempt = 10'000'000;  // ns
 // When to ask again after the handler declined because the fiber was
 // inside the runtime, which it leaves soon.
-constexpr int64_t preempt_retry = 1'000'000;  // ns
+constexpr int64_t preemptRetry = 1'000'000;  // ns
 
-std::atomic<uint64_t> sysmon_retakes{0};
+std::atomic<uint64_t> sysmonRetakes{0};
 
 // Whether fibers wait that pp's M doesn't get to: pp's own queue, or the
 // global one while no P is idle to take them.
@@ -894,21 +894,21 @@ bool workWaiting(P* pp) noexcept {
 }
 
 // sysmon's view of a P: the schedtick it last saw and when.
-struct sysmon_pdesc {
+struct sysmonPdesc {
     uint32_t schedtick = 0;
     int64_t schedwhen = 0;
 };
 
-// Asks the M of each P that has run one fiber for force_preempt, while
+// Asks the M of each P that has run one fiber for forcePreempt, while
 // work waits, to give the P up. Returns whether it asked any.
-bool retake(std::vector<sysmon_pdesc>& pd, int64_t now) noexcept {
+bool retake(std::vector<sysmonPdesc>& pd, int64_t now) noexcept {
     bool asked = false;
     // Each request answered adds a thread that runs without a P; count the
     // ones whose handlers haven't run yet (a thread waiting for a CPU) too.
     int32_t budget = sched.gomaxprocs - sched.npreempted.load(std::memory_order_relaxed);
     for (int32_t i = 0; i < sched.gomaxprocs; i++) {
         M* mp = sched.allp[i].m.load(std::memory_order_acquire);
-        if (mp && mp->preempt_p.load(std::memory_order_relaxed)) budget--;
+        if (mp && mp->preemptP.load(std::memory_order_relaxed)) budget--;
     }
     for (int32_t i = 0; i < sched.gomaxprocs; i++) {
         P* pp = &sched.allp[i];
@@ -919,12 +919,12 @@ bool retake(std::vector<sysmon_pdesc>& pd, int64_t now) noexcept {
             continue;
         }
         if (budget <= 0) continue;
-        bool declined = mp->preempt_declined.load(std::memory_order_relaxed) == (uint64_t{1} << 32 | t);
-        if (now - pd[i].schedwhen < (declined ? preempt_retry : force_preempt) || !workWaiting(pp)) continue;
-        mp->preempt_tick.store(t, std::memory_order_relaxed);
-        mp->preempt_p.store(pp, std::memory_order_release);
+        bool declined = mp->preemptDeclined.load(std::memory_order_relaxed) == (uint64_t{1} << 32 | t);
+        if (now - pd[i].schedwhen < (declined ? preemptRetry : forcePreempt) || !workWaiting(pp)) continue;
+        mp->preemptTick.store(t, std::memory_order_relaxed);
+        mp->preemptP.store(pp, std::memory_order_release);
         ::tgkill(::getpid(), mp->tid, SIGURG);
-        pd[i].schedwhen = now;  // at most one request per force_preempt
+        pd[i].schedwhen = now;  // at most one request per forcePreempt
         budget--;
         asked = true;
     }
@@ -940,24 +940,24 @@ int handoffRetaken(std::vector<P*>& ps) noexcept {
     }
     sched.lock.unlock();
     for (P* pp : ps) handoffp(pp);
-    sysmon_retakes.fetch_add(ps.size(), std::memory_order_relaxed);
+    sysmonRetakes.fetch_add(ps.size(), std::memory_order_relaxed);
     return static_cast<int>(ps.size());
 }
 
 // Times sysmon found the network unpolled with fibers or threads waiting
 // on it, and polled it (schedtrace's sysmon_poll).
-std::atomic<uint64_t> sysmon_polls{0};
-std::atomic<uint64_t> sysmon_timers{0};
+std::atomic<uint64_t> sysmonPolls{0};
+std::atomic<uint64_t> sysmonTimers{0};
 
 // sysmon (after Go's): a thread outside the scheduler that polls the
 // network when nobody has for 10ms while something waits on it. The
 // scheduler keeps an M polling whenever it idles with waiters, so this is a
 // safety net; schedtrace counts each time it was needed.
 void sysmon() {
-    constexpr int64_t force_poll = 10'000'000;  // ns
+    constexpr int64_t forcePoll = 10'000'000;  // ns
     int64_t delay = 20'000;                     // ns; backs off to 10ms
     int idle = 0;
-    std::vector<sysmon_pdesc> pd(sched.gomaxprocs);
+    std::vector<sysmonPdesc> pd(sched.gomaxprocs);
     std::vector<P*> retaken;
     retaken.reserve(sched.gomaxprocs);
     for (;;) {
@@ -965,11 +965,11 @@ void sysmon() {
         int64_t now = nanotime();
         int64_t last = sched.lastpoll.load();
         bool polled = false;
-        if (netpollAnyWaiters() && last != 0 && last + force_poll < now &&
+        if (netpollAnyWaiters() && last != 0 && last + forcePoll < now &&
             sched.lastpoll.compare_exchange_strong(last, now)) {
             glist list = netpoll(0);
             if (!list.empty()) {
-                sysmon_polls.fetch_add(1, std::memory_order_relaxed);
+                sysmonPolls.fetch_add(1, std::memory_order_relaxed);
                 injectglist(list);
                 polled = true;
             }
@@ -979,15 +979,15 @@ void sysmon() {
         // (fibers aren't preempted), they'd starve: a sleeping thread
         // wouldn't wake. Run timers that are late here; their functions
         // don't block.
-        constexpr int64_t timer_slack = 1'000'000;  // ns
-        if (int64_t nt = nextTimer(); nt != INT64_MAX && nt + timer_slack < now) {
+        constexpr int64_t timerSlack = 1'000'000;  // ns
+        if (int64_t nt = nextTimer(); nt != INT64_MAX && nt + timerSlack < now) {
             runDueTimers(now);
-            sysmon_timers.fetch_add(1, std::memory_order_relaxed);
+            sysmonTimers.fetch_add(1, std::memory_order_relaxed);
             polled = true;
         }
         // Ps given up since the last round, then new requests: a request
         // keeps the delay short, so that its answer is handed off soon.
-        if (!preempt_off) {
+        if (!preemptOff) {
             if (handoffRetaken(retaken) > 0) polled = true;
             if (retake(pd, now)) polled = true;
         }
@@ -995,7 +995,7 @@ void sysmon() {
             idle = 0;
             delay = 20'000;
         } else if (++idle > 50) {
-            delay = std::min<int64_t>(delay * 2, force_poll);
+            delay = std::min<int64_t>(delay * 2, forcePoll);
         }
     }
 }
@@ -1036,9 +1036,9 @@ void schedtrace(int ms) {
                            " runq=" + std::to_string(sched.runqsize.load()) +
                            " pollwaiters=" + std::to_string(netpollWaiters()) +
                            " polling=" + std::to_string(sched.lastpoll.load() == 0) +
-                           " sysmon_poll=" + std::to_string(sysmon_polls.load(std::memory_order_relaxed)) +
-                           " sysmon_timers=" + std::to_string(sysmon_timers.load(std::memory_order_relaxed)) +
-                           " retake=" + std::to_string(sysmon_retakes.load(std::memory_order_relaxed));
+                           " sysmon_poll=" + std::to_string(sysmonPolls.load(std::memory_order_relaxed)) +
+                           " sysmon_timers=" + std::to_string(sysmonTimers.load(std::memory_order_relaxed)) +
+                           " retake=" + std::to_string(sysmonRetakes.load(std::memory_order_relaxed));
         for (int i = 0; i < nfields; i++) {
             line += " " + std::string(names[i]) + "=" + std::to_string(static_cast<uint64_t>((cur[i] - prev[i]) / secs));
             prev[i] = cur[i];
@@ -1048,7 +1048,7 @@ void schedtrace(int ms) {
 }
 
 void init() noexcept {
-    new (&sched) sched_t();
+    new (&sched) schedT();
     ncpu = static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
     cpu_set_t set;
     if (sched_getaffinity(0, sizeof(set), &set) == 0) ncpu = std::max(1, CPU_COUNT(&set));
@@ -1069,7 +1069,7 @@ void init() noexcept {
         while (!v.empty()) {
             std::string_view kv = v.substr(0, v.find(','));
             v.remove_prefix(std::min(v.size(), kv.size() + 1));
-            if (kv.starts_with("asyncpreemptoff=")) preempt_off = kv == "asyncpreemptoff=1";
+            if (kv.starts_with("asyncpreemptoff=")) preemptOff = kv == "asyncpreemptoff=1";
         }
     }
     netpollInit();
@@ -1086,7 +1086,7 @@ void init() noexcept {
 void wakeNetpoller(int64_t when) noexcept {
     if (sched.lastpoll.load() == 0) {
         // An M is blocked in netpoll; wake it if it would sleep past when.
-        int64_t pu = sched.poll_until.load();
+        int64_t pu = sched.pollUntil.load();
         if (pu == 0 || pu > when) netpollBreak();
     } else {
         wakep();
@@ -1112,7 +1112,7 @@ void ensurePoller() noexcept {
 }
 
 void ensureInit() noexcept {
-    if (!inited.load(std::memory_order_acquire)) std::call_once(init_once, init);
+    if (!inited.load(std::memory_order_acquire)) std::call_once(initOnce, init);
 }
 
 bool hasRunnable() noexcept {
@@ -1130,7 +1130,7 @@ namespace {
 // tracebacks. The main thread gets its pseudo-G here, so that tracebacks
 // list it.
 [[gnu::constructor]] void installSignalHandlers() {
-    main_tid.store(gettid(), std::memory_order_relaxed);
+    mainTid.store(gettid(), std::memory_order_relaxed);
     initsig();
     getg();
 }
@@ -1156,11 +1156,11 @@ uintptr_t gentryPc() noexcept { return reinterpret_cast<uintptr_t>(&gentry); }
     gp->nopreempt = 1;  // gentry drops it once the fiber runs
     gp->fn = std::move(fn);
     gp->goid = sched.goidgen.fetch_add(1, std::memory_order_relaxed) + 1;
-    gp->sched_fp = 0;
+    gp->schedFp = 0;
     gp->gopc = gopc;
-    gp->parent_goid = m && m->curg ? m->curg->goid : 0;
+    gp->parentGoid = m && m->curg ? m->curg->goid : 0;
     gp->wait = waitreason::none;
-    gp->ctx = boost::context::fiber(std::allocator_arg, stack_allocator{gp},
+    gp->ctx = boost::context::fiber(std::allocator_arg, stackAllocator{gp},
                                     [gp](boost::context::fiber&& caller) { return gentry(gp, std::move(caller)); });
     gp->status.store(gstatus::runnable, std::memory_order_relaxed);
     sched.ngoroutines.fetch_add(1, std::memory_order_relaxed);
@@ -1175,19 +1175,19 @@ uintptr_t gentryPc() noexcept { return reinterpret_cast<uintptr_t>(&gentry); }
     wakep();
 }
 
-void park(unlock_fn unlockf, void* arg, waitreason reason) noexcept {
+void park(unlockFn unlockf, void* arg, waitreason reason) noexcept {
     G* gp = getg();
     if (!gp) fatal("park on scheduler stack");
-    nopreemptGuard g{gp->is_thread ? nullptr : gp};
-    if (!gp->is_thread && !gp->m->p) exitsyscall();  // parking inside a blocking call
+    nopreemptGuard g{gp->isThread ? nullptr : gp};
+    if (!gp->isThread && !gp->m->p) exitsyscall();  // parking inside a blocking call
     gp->wait = reason;
     gp->status.store(gstatus::waiting, std::memory_order_relaxed);
-    if (gp->is_thread) {
+    if (gp->isThread) {
         if (unlockf && !unlockf(gp, arg)) {
             gp->status.store(gstatus::running, std::memory_order_relaxed);
             return;
         }
-        while (gp->thread_sema.exchange(0, std::memory_order_acquire) == 0) gp->thread_sema.wait(0, std::memory_order_acquire);
+        while (gp->threadSema.exchange(0, std::memory_order_acquire) == 0) gp->threadSema.wait(0, std::memory_order_acquire);
         gp->status.store(gstatus::running, std::memory_order_relaxed);
         return;
     }
@@ -1196,19 +1196,19 @@ void park(unlock_fn unlockf, void* arg, waitreason reason) noexcept {
     mcall(gp, gaction::park);
 }
 
-void parkUnlock(lock_t* l, waitreason reason) noexcept {
+void parkUnlock(lockT* l, waitreason reason) noexcept {
     park(
         [](G*, void* arg) {
-            static_cast<lock_t*>(arg)->unlock();
+            static_cast<lockT*>(arg)->unlock();
             return true;
         },
         l, reason);
 }
 
 void ready(G* gp) noexcept {
-    if (gp->is_thread) {
-        gp->thread_sema.store(1, std::memory_order_release);
-        gp->thread_sema.notify_one();
+    if (gp->isThread) {
+        gp->threadSema.store(1, std::memory_order_release);
+        gp->threadSema.notify_one();
         return;
     }
     gp->status.store(gstatus::runnable, std::memory_order_relaxed);
@@ -1254,7 +1254,7 @@ void injectglist(glist& list) noexcept {
 
 void Gosched() {
     G* gp = getg();
-    if (!gp || gp->is_thread) {
+    if (!gp || gp->isThread) {
         sched_yield();
         return;
     }
@@ -1293,15 +1293,15 @@ void exitsyscall() noexcept {
 // the P if the M still runs the same fiber on it and the fiber is outside
 // the runtime. It only moves the P to m->retaken; sysmon hands it off.
 void preemptSignal() noexcept {
-    M* m = tls_m;
+    M* m = tlsM;
     if (!m) return;
-    P* pp = m->preempt_p.exchange(nullptr, std::memory_order_acquire);
+    P* pp = m->preemptP.exchange(nullptr, std::memory_order_acquire);
     if (!pp || pp != m->p) return;
-    if (pp->schedtick.load(std::memory_order_relaxed) != m->preempt_tick.load(std::memory_order_relaxed)) return;
+    if (pp->schedtick.load(std::memory_order_relaxed) != m->preemptTick.load(std::memory_order_relaxed)) return;
     G* gp = m->curg;
     if (!gp) return;
     if (gp->nopreempt != 0) {
-        m->preempt_declined.store(uint64_t{1} << 32 | pp->schedtick.load(std::memory_order_relaxed),
+        m->preemptDeclined.store(uint64_t{1} << 32 | pp->schedtick.load(std::memory_order_relaxed),
                                   std::memory_order_relaxed);
         return;
     }

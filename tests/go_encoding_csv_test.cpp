@@ -604,13 +604,13 @@ const std::vector<readTest>& readTests() {
     return tests;
 }
 
-using positions_t = std::vector<std::vector<std::array<int, 2>>>;
+using positionsT = std::vector<std::vector<std::array<int, 2>>>;
 
 // The expected field positions of all the fields in text, the positions of
 // any errors, and the text with the position markers removed.
-std::tuple<positions_t, std::map<int, std::array<int, 2>>, std::string> makePositions(std::string_view text) {
+std::tuple<positionsT, std::map<int, std::array<int, 2>>, std::string> makePositions(std::string_view text) {
     std::string buf;
-    positions_t positions;
+    positionsT positions;
     std::map<int, std::array<int, 2>> errPositions;
     int line = 1, col = 1;
     int recNum = 0;
@@ -645,7 +645,7 @@ std::tuple<positions_t, std::map<int, std::array<int, 2>>, std::string> makePosi
 
 // err with the position adjusted according to its record's index in
 // positions.
-error errorWithPosition(const error& err, int recNum, const positions_t& positions,
+error errorWithPosition(const error& err, int recNum, const positionsT& positions,
                         const std::map<int, std::array<int, 2>>& errPositions) {
     auto pe = errors::As<csv::ParseError>(err);
     if (!pe) return err;
@@ -656,7 +656,7 @@ error errorWithPosition(const error& err, int recNum, const positions_t& positio
 }
 
 // The first non-nil error in errs, with its position adjusted.
-error firstError(const std::vector<error>& errs, const positions_t& positions,
+error firstError(const std::vector<error>& errs, const positionsT& positions,
                  const std::map<int, std::array<int, 2>>& errPositions) {
     for (std::size_t i = 0; i < errs.size(); i++) {
         if (errs[i]) return errorWithPosition(errs[i], int(i), positions, errPositions);

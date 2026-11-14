@@ -323,12 +323,12 @@ class netfd;
 class Buffers;
 
 // The methods TCPConn, UDPConn and UnixConn share (Go's net.conn).
-class conn_base : public Conn, public syscall::Conn {
+class connBase : public Conn, public syscall::Conn {
 public:
-    explicit conn_base(ptr<netfd> fd);
+    explicit connBase(ptr<netfd> fd);
     // A dropped connection is closed, as a garbage-collected one would be
     // in Go eventually.
-    ~conn_base() override;
+    ~connBase() override;
 
     std::pair<isize, error> Read(std::span<byte> p) override;
     std::pair<isize, error> Write(std::span<const byte> p) override;
@@ -367,9 +367,9 @@ struct KeepAliveConfig {
 // net.TCPConn. io::Copy to it from another TCP or Unix stream connection
 // uses splice(2), and from an os::File sendfile(2); from it to an os::File,
 // splice(2).
-class TCPConn final : public conn_base, public io::ReaderFrom, public io::WriterTo {
+class TCPConn final : public connBase, public io::ReaderFrom, public io::WriterTo {
 public:
-    using conn_base::conn_base;
+    using connBase::connBase;
     // ReadFrom and WriteTo: io::ReaderFrom and io::WriterTo.
     std::pair<int64, error> ReadFrom(io::Reader& r) override;
     std::pair<int64, error> WriteTo(io::Writer& w) override;
@@ -412,9 +412,9 @@ private:
 
 // net.UDPConn: both a Conn, for a socket connected to a peer (DialUDP),
 // and a PacketConn.
-class UDPConn final : public conn_base, public PacketConn {
+class UDPConn final : public connBase, public PacketConn {
 public:
-    using conn_base::conn_base;
+    using connBase::connBase;
 
     std::tuple<isize, ptr<UDPAddr>, error> ReadFromUDP(std::span<byte> b);
     std::tuple<isize, ptr<net::Addr>, error> ReadFrom(std::span<byte> b) override;
@@ -434,18 +434,18 @@ public:
                                                         netip::AddrPort addr);
 
     // Conn and PacketConn both have these.
-    error Close() override { return conn_base::Close(); }
-    ptr<net::Addr> LocalAddr() const override { return conn_base::LocalAddr(); }
-    error SetDeadline(time::Time t) override { return conn_base::SetDeadline(t); }
-    error SetReadDeadline(time::Time t) override { return conn_base::SetReadDeadline(t); }
-    error SetWriteDeadline(time::Time t) override { return conn_base::SetWriteDeadline(t); }
+    error Close() override { return connBase::Close(); }
+    ptr<net::Addr> LocalAddr() const override { return connBase::LocalAddr(); }
+    error SetDeadline(time::Time t) override { return connBase::SetDeadline(t); }
+    error SetReadDeadline(time::Time t) override { return connBase::SetReadDeadline(t); }
+    error SetWriteDeadline(time::Time t) override { return connBase::SetWriteDeadline(t); }
 };
 
 // net.IPConn: a raw IP socket ("ip4:icmp", "ip6:58", ...). Raw sockets
 // need CAP_NET_RAW.
-class IPConn final : public conn_base, public PacketConn {
+class IPConn final : public connBase, public PacketConn {
 public:
-    using conn_base::conn_base;
+    using connBase::connBase;
 
     // Reads a packet; on IPv4 its IP header is removed.
     std::tuple<isize, ptr<IPAddr>, error> ReadFromIP(std::span<byte> b);
@@ -458,18 +458,18 @@ public:
     std::tuple<isize, isize, error> WriteMsgIP(std::span<const byte> b, std::span<const byte> oob,
                                                const ptr<IPAddr>& addr);
 
-    error Close() override { return conn_base::Close(); }
-    ptr<net::Addr> LocalAddr() const override { return conn_base::LocalAddr(); }
-    error SetDeadline(time::Time t) override { return conn_base::SetDeadline(t); }
-    error SetReadDeadline(time::Time t) override { return conn_base::SetReadDeadline(t); }
-    error SetWriteDeadline(time::Time t) override { return conn_base::SetWriteDeadline(t); }
+    error Close() override { return connBase::Close(); }
+    ptr<net::Addr> LocalAddr() const override { return connBase::LocalAddr(); }
+    error SetDeadline(time::Time t) override { return connBase::SetDeadline(t); }
+    error SetReadDeadline(time::Time t) override { return connBase::SetReadDeadline(t); }
+    error SetWriteDeadline(time::Time t) override { return connBase::SetWriteDeadline(t); }
 };
 
 // net.UnixConn: a Unix domain socket, stream ("unix"), datagram
 // ("unixgram") or sequenced packet ("unixpacket").
-class UnixConn final : public conn_base, public PacketConn {
+class UnixConn final : public connBase, public PacketConn {
 public:
-    using conn_base::conn_base;
+    using connBase::connBase;
 
     // Shut down reading or writing (shutdown(2)).
     error CloseRead();
@@ -488,11 +488,11 @@ public:
     std::tuple<isize, isize, error> WriteMsgUnix(std::span<const byte> b, std::span<const byte> oob,
                                                  const ptr<UnixAddr>& addr);
 
-    error Close() override { return conn_base::Close(); }
-    ptr<net::Addr> LocalAddr() const override { return conn_base::LocalAddr(); }
-    error SetDeadline(time::Time t) override { return conn_base::SetDeadline(t); }
-    error SetReadDeadline(time::Time t) override { return conn_base::SetReadDeadline(t); }
-    error SetWriteDeadline(time::Time t) override { return conn_base::SetWriteDeadline(t); }
+    error Close() override { return connBase::Close(); }
+    ptr<net::Addr> LocalAddr() const override { return connBase::LocalAddr(); }
+    error SetDeadline(time::Time t) override { return connBase::SetDeadline(t); }
+    error SetReadDeadline(time::Time t) override { return connBase::SetReadDeadline(t); }
+    error SetWriteDeadline(time::Time t) override { return connBase::SetWriteDeadline(t); }
 };
 
 // net.UnixListener. Closing it removes its socket file, unless
@@ -599,7 +599,7 @@ struct NS : public virtual object {
 };
 
 namespace detail {
-struct lookup_group;
+struct lookupGroup;
 }
 
 // net.Resolver: looks up names and numbers. go++ has Go's own resolver
@@ -648,10 +648,10 @@ public:
     // The names of addr (reverse lookup).
     std::pair<std::vector<string>, error> LookupAddr(const ptr<context::Context>& ctx, std::string_view addr);
 
-    const std::shared_ptr<detail::lookup_group>& lookupGroupPtr() const { return group_; }
+    const std::shared_ptr<detail::lookupGroup>& lookupGroupPtr() const { return group_; }
 
 private:
-    std::shared_ptr<detail::lookup_group> group_;
+    std::shared_ptr<detail::lookupGroup> group_;
 };
 
 // net.DefaultResolver: the resolver of the package-level functions.

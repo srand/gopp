@@ -1,4 +1,4 @@
-// Ported from Go 1.27.3's cmp/cmp_test.go, with Go's test names and table
+// Ported from Go 1.27.3's cmp/cmpTest.go, with Go's test names and table
 // (the examples as tests).
 #include <gopp/cmp.hpp>
 #include <gopp/slices.hpp>

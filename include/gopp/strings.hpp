@@ -201,8 +201,8 @@ string Itoa(int64 i);
 string FormatInt(int64 i, int base);
 string FormatUint(uint64 i, int base);
 std::pair<isize, error> Atoi(std::string_view s);
-std::pair<int64, error> ParseInt(std::string_view s, int base = 10, int bit_size = 64);
-std::pair<uint64, error> ParseUint(std::string_view s, int base = 10, int bit_size = 64);
+std::pair<int64, error> ParseInt(std::string_view s, int base = 10, int bitSize = 64);
+std::pair<uint64, error> ParseUint(std::string_view s, int base = 10, int bitSize = 64);
 std::pair<bool, error> ParseBool(std::string_view s);
 // strconv.Quote, for ASCII and UTF-8 text.
 string Quote(std::string_view s);

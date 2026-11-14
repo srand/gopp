@@ -23,10 +23,10 @@ struct Row {
 int main() {
     constexpr int width = 100;
     constexpr int height = 40;
-    constexpr int max_iterations = 500;
+    constexpr int maxIterations = 500;
 
-    auto jobs = makeChan<int>(height);
-    auto rows = makeChan<Row>(height);
+    auto jobs = make_chan<int>(height);
+    auto rows = make_chan<Row>(height);
     sync::WaitGroup workers;
     for (int i = 0; i < 8; ++i) {
         workers.Go([jobs, rows] {
@@ -38,15 +38,15 @@ int main() {
                     double cx = -2.1 + 3.0 * x / (width - 1);
                     double zx = 0.0, zy = 0.0;
                     int iteration = 0;
-                    while (zx * zx + zy * zy <= 4.0 && iteration < max_iterations) {
-                        double next_zx = zx * zx - zy * zy + cx;
+                    while (zx * zx + zy * zy <= 4.0 && iteration < maxIterations) {
+                        double nextZx = zx * zx - zy * zy + cx;
                         zy = 2.0 * zx * zy + cy;
-                        zx = next_zx;
+                        zx = nextZx;
                         ++iteration;
                     }
-                    std::size_t shade = iteration == max_iterations
+                    std::size_t shade = iteration == maxIterations
                         ? sizeof(palette) - 2
-                        : static_cast<std::size_t>(iteration) * (sizeof(palette) - 2) / max_iterations;
+                        : static_cast<std::size_t>(iteration) * (sizeof(palette) - 2) / maxIterations;
                     pixels.push_back(palette[shade]);
                 }
                 rows.send(Row{y, std::move(pixels)});

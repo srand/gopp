@@ -15,14 +15,14 @@ std::string_view intern(std::string s) {
     return *names->insert(std::move(s)).first;
 }
 
-const type_ops* scalarOps(Kind k, std::string_view name) {
+const typeOps* scalarOps(Kind k, std::string_view name) {
     static std::mutex mu;
-    static auto* m = new std::map<std::pair<int, std::string>, type_ops*>();
+    static auto* m = new std::map<std::pair<int, std::string>, typeOps*>();
     std::lock_guard l(mu);
     auto key = std::make_pair(static_cast<int>(k), std::string(name));
     auto it = m->find(key);
     if (it != m->end()) return it->second;
-    auto* o = new type_ops{};
+    auto* o = new typeOps{};
     o->name = intern(std::string(name));
     o->kind = k;
     o->zero = [] { return Value(); };
@@ -30,66 +30,66 @@ const type_ops* scalarOps(Kind k, std::string_view name) {
     return o;
 }
 
-const type_ops* boolOps() {
-    static const type_ops* o = [] {
-        auto* t = const_cast<type_ops*>(scalarOps(Kind::Bool, "bool"));
+const typeOps* boolOps() {
+    static const typeOps* o = [] {
+        auto* t = const_cast<typeOps*>(scalarOps(Kind::Bool, "bool"));
         t->zero = [] { return Value::scalar(boolOps(), false); };
         return t;
     }();
     return o;
 }
 
-const type_ops* intOps() {
-    static const type_ops* o = [] {
-        auto* t = const_cast<type_ops*>(scalarOps(Kind::Int, "int"));
+const typeOps* intOps() {
+    static const typeOps* o = [] {
+        auto* t = const_cast<typeOps*>(scalarOps(Kind::Int, "int"));
         t->zero = [] { return Value::scalarInt(intOps(), 0); };
         return t;
     }();
     return o;
 }
 
-const type_ops* stringOps() {
-    static const type_ops* o = [] {
-        auto* t = const_cast<type_ops*>(scalarOps(Kind::String, "string"));
+const typeOps* stringOps() {
+    static const typeOps* o = [] {
+        auto* t = const_cast<typeOps*>(scalarOps(Kind::String, "string"));
         t->zero = [] { return Value::scalarString(stringOps(), string()); };
         return t;
     }();
     return o;
 }
 
-const type_ops* float64Ops() {
-    static const type_ops* o = [] {
-        auto* t = const_cast<type_ops*>(scalarOps(Kind::Float, "float64"));
+const typeOps* float64Ops() {
+    static const typeOps* o = [] {
+        auto* t = const_cast<typeOps*>(scalarOps(Kind::Float, "float64"));
         t->zero = [] { return Value::scalarFloat(float64Ops(), 0); };
         return t;
     }();
     return o;
 }
 
-const type_ops* complexOps() { return scalarOps(Kind::Complex, "complex128"); }
+const typeOps* complexOps() { return scalarOps(Kind::Complex, "complex128"); }
 
 namespace {
 
 // The dynamic value of a non-nil error: something with an Error method.
-const method_info error_methods[] = {
+const methodInfo errorMethods[] = {
     {"Error", {}, false,
-     [](const void* obj, const owner_t&, std::span<const Value>) -> std::pair<Value, gopp::error> {
+     [](const void* obj, const ownerT&, std::span<const Value>) -> std::pair<Value, gopp::error> {
          return {Value::scalarString(stringOps(), static_cast<const gopp::error*>(obj)->Error()), nullptr};
      }},
 };
 
-const type_ops* errorValueOps() {
-    static const type_ops o = [] {
-        type_ops t{};
+const typeOps* errorValueOps() {
+    static const typeOps o = [] {
+        typeOps t{};
         t.name = "*errors.errorString";
         t.kind = Kind::Struct;  // prints by its Error method
-        t.methods = error_methods;
+        t.methods = errorMethods;
         return t;
     }();
     return &o;
 }
 
-Value jsonDynamic(const json::Value& j, const owner_t& owner) {
+Value jsonDynamic(const json::Value& j, const ownerT& owner) {
     switch (j.type()) {
     case json::Value::kind::null: return Value();
     case json::Value::kind::boolean: return Value::scalar(boolOps(), j.AsBool());
@@ -103,13 +103,13 @@ Value jsonDynamic(const json::Value& j, const owner_t& owner) {
 
 }  // namespace
 
-const type_ops* errorOps() {
-    static const type_ops o = [] {
-        type_ops t{};
+const typeOps* errorOps() {
+    static const typeOps o = [] {
+        typeOps t{};
         t.name = "error";
         t.kind = Kind::Interface;
         t.isNil = [](const void* p) { return !*static_cast<const gopp::error*>(p); };
-        t.deref = [](const void* p, const owner_t& owner) -> Value {
+        t.deref = [](const void* p, const ownerT& owner) -> Value {
             if (!*static_cast<const gopp::error*>(p)) return Value();
             return Value::object(errorValueOps(), p, owner);
         };
@@ -119,24 +119,24 @@ const type_ops* errorOps() {
     return &o;
 }
 
-const type_ops* jsonOps() {
-    static const type_ops o = [] {
-        type_ops t{};
+const typeOps* jsonOps() {
+    static const typeOps o = [] {
+        typeOps t{};
         t.name = "interface {}";
         t.kind = Kind::Interface;
         t.isNil = [](const void* p) { return static_cast<const json::Value*>(p)->IsNull(); };
-        t.deref = [](const void* p, const owner_t& owner) { return jsonDynamic(*static_cast<const json::Value*>(p), owner); };
+        t.deref = [](const void* p, const ownerT& owner) { return jsonDynamic(*static_cast<const json::Value*>(p), owner); };
         t.zero = [] { return Value(); };
         return t;
     }();
     return &o;
 }
 
-const type_ops* anyOps() { return jsonOps(); }
+const typeOps* anyOps() { return jsonOps(); }
 
-const type_ops* funcOps() {
-    static const type_ops o = [] {
-        type_ops t{};
+const typeOps* funcOps() {
+    static const typeOps o = [] {
+        typeOps t{};
         t.name = "func";
         t.kind = Kind::Func;
         t.isNil = [](const void* p) { return !*static_cast<const Func*>(p); };
@@ -152,28 +152,28 @@ const type_ops* funcOps() {
 // ---------------------------------------------------------------------------
 // Value
 
-Value Value::scalar(const detail::type_ops* t, bool b) {
+Value Value::scalar(const detail::typeOps* t, bool b) {
     Value v;
     v.t_ = t;
     v.s_.b = b;
     return v;
 }
 
-Value Value::scalarInt(const detail::type_ops* t, int64 i) {
+Value Value::scalarInt(const detail::typeOps* t, int64 i) {
     Value v;
     v.t_ = t;
     v.s_.i = i;
     return v;
 }
 
-Value Value::scalarUint(const detail::type_ops* t, uint64 u) {
+Value Value::scalarUint(const detail::typeOps* t, uint64 u) {
     Value v;
     v.t_ = t;
     v.s_.u = u;
     return v;
 }
 
-Value Value::scalarFloat(const detail::type_ops* t, double f, double im) {
+Value Value::scalarFloat(const detail::typeOps* t, double f, double im) {
     Value v;
     v.t_ = t;
     v.s_.f = f;
@@ -181,14 +181,14 @@ Value Value::scalarFloat(const detail::type_ops* t, double f, double im) {
     return v;
 }
 
-Value Value::scalarString(const detail::type_ops* t, string s) {
+Value Value::scalarString(const detail::typeOps* t, string s) {
     Value v;
     v.t_ = t;
     v.str_ = std::move(s);
     return v;
 }
 
-Value Value::object(const detail::type_ops* t, const void* p, detail::owner_t owner) {
+Value Value::object(const detail::typeOps* t, const void* p, detail::ownerT owner) {
     Value v;
     v.t_ = t;
     v.p_ = p;
@@ -215,7 +215,7 @@ Value Value::Index(std::size_t i) const {
 }
 
 Value Value::MapIndex(const Value& key) const {
-    if (t_ && t_->map_index) return t_->map_index(p_, owner_, key);
+    if (t_ && t_->mapIndex) return t_->mapIndex(p_, owner_, key);
     return Value();
 }
 
@@ -233,7 +233,7 @@ std::optional<Value> Value::FieldByName(std::string_view name) const {
     return std::nullopt;
 }
 
-const detail::method_info* Value::MethodByName(std::string_view name) const {
+const detail::methodInfo* Value::MethodByName(std::string_view name) const {
     if (!t_) return nullptr;
     for (auto& m : t_->methods) {
         if (m.name == name) return &m;
@@ -257,15 +257,15 @@ const Func* Value::AsFunc() const {
     return nullptr;
 }
 
-Func Func::Raw(int n_in, bool variadic, std::function<std::pair<Value, gopp::error>(std::span<const Value>)> fn) {
+Func Func::Raw(int nIn, bool variadic, std::function<std::pair<Value, gopp::error>(std::span<const Value>)> fn) {
     Func f;
-    f.in_.assign(static_cast<std::size_t>(n_in), nullptr);
+    f.in_.assign(static_cast<std::size_t>(nIn), nullptr);
     f.variadic_ = variadic;
     f.fn_ = std::move(fn);
     return f;
 }
 
-Func Func::Raw(std::vector<detail::ops_fn> in, bool variadic,
+Func Func::Raw(std::vector<detail::opsFn> in, bool variadic,
                std::function<std::pair<Value, gopp::error>(std::span<const Value>)> fn) {
     Func f;
     f.in_ = std::move(in);

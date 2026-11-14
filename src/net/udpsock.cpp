@@ -48,7 +48,7 @@ error addrportSockaddr(netip::AddrPort ap, int family, sockaddr_storage* sa, soc
             return make_ptr<AddrError>(string::fromStatic("non-IPv4 address"), addr.String());
         }
     }
-    return ip_to_sockaddr(family, IP(addr.AsSlice()), ap.Port(), addr.Zone().view(), sa, len);
+    return ipToSockaddr(family, IP(addr.AsSlice()), ap.Port(), addr.Zone().view(), sa, len);
 }
 
 }  // namespace
@@ -66,7 +66,7 @@ ptr<UDPAddr> UDPAddrFromAddrPort(netip::AddrPort addr) {
 std::tuple<isize, ptr<UDPAddr>, error> UDPConn::ReadFromUDP(std::span<byte> b) {
     sockaddr_storage from;
     auto [n, oobn, flags, err] = fd_->readMsg(b, {}, 0, &from);
-    if (err) return {n, nullptr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    if (err) return {n, nullptr, opError("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
     ptr<Addr> a = sockaddrToAddr(from, SOCK_DGRAM);
     return {n, ptr<UDPAddr>(dynamic_cast<UDPAddr*>(a.get())), nullptr};
 }
@@ -79,14 +79,14 @@ std::tuple<isize, ptr<net::Addr>, error> UDPConn::ReadFrom(std::span<byte> b) {
 std::tuple<isize, netip::AddrPort, error> UDPConn::ReadFromUDPAddrPort(std::span<byte> b) {
     sockaddr_storage from;
     auto [n, oobn, flags, err] = fd_->readMsg(b, {}, 0, &from);
-    if (err) return {n, {}, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    if (err) return {n, {}, opError("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
     return {n, sockaddrAddrport(from), nullptr};
 }
 
 std::tuple<isize, isize, int, ptr<UDPAddr>, error> UDPConn::ReadMsgUDP(std::span<byte> b, std::span<byte> oob) {
     sockaddr_storage from;
     auto [n, oobn, flags, err] = fd_->readMsg(b, oob, 0, &from);
-    if (err) return {n, oobn, flags, nullptr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    if (err) return {n, oobn, flags, nullptr, opError("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
     ptr<Addr> a = sockaddrToAddr(from, SOCK_DGRAM);
     return {n, oobn, flags, ptr<UDPAddr>(dynamic_cast<UDPAddr*>(a.get())), nullptr};
 }
@@ -95,13 +95,13 @@ std::tuple<isize, isize, int, netip::AddrPort, error> UDPConn::ReadMsgUDPAddrPor
                                                                                 std::span<byte> oob) {
     sockaddr_storage from;
     auto [n, oobn, flags, err] = fd_->readMsg(b, oob, 0, &from);
-    if (err) return {n, oobn, flags, {}, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    if (err) return {n, oobn, flags, {}, opError("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
     return {n, oobn, flags, sockaddrAddrport(from), nullptr};
 }
 
 std::pair<isize, error> UDPConn::WriteToUDP(std::span<const byte> b, const ptr<UDPAddr>& addr) {
     auto fail = [&](error err) {
-        return std::pair<isize, error>{0, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+        return std::pair<isize, error>{0, opError("write", fd_->network(), fd_->laddr, addr, err)};
     };
     if (fd_->raddr) return fail(ErrWriteToConnected);
     if (!addr) return fail(errMissingAddress);
@@ -109,14 +109,14 @@ std::pair<isize, error> UDPConn::WriteToUDP(std::span<const byte> b, const ptr<U
     socklen_t len;
     if (error err = addrSockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
     auto [n, oobn, err] = fd_->writeMsg(b, {}, &sa, len);
-    if (err) return {n, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    if (err) return {n, opError("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, nullptr};
 }
 
 std::pair<isize, error> UDPConn::WriteToUDPAddrPort(std::span<const byte> b, netip::AddrPort addr) {
     auto fail = [&](error err) {
         return std::pair<isize, error>{
-            0, op_error("write", fd_->network(), fd_->laddr, UDPAddrFromAddrPort(addr), err)};
+            0, opError("write", fd_->network(), fd_->laddr, UDPAddrFromAddrPort(addr), err)};
     };
     if (fd_->raddr) return fail(ErrWriteToConnected);
     if (!addr.IsValid()) return fail(errMissingAddress);
@@ -130,14 +130,14 @@ std::pair<isize, error> UDPConn::WriteToUDPAddrPort(std::span<const byte> b, net
 
 std::pair<isize, error> UDPConn::WriteTo(std::span<const byte> b, const ptr<net::Addr>& addr) {
     auto* a = dynamic_cast<UDPAddr*>(addr.get());
-    if (!a) return {0, op_error("write", fd_->network(), fd_->laddr, addr, errnoError(EINVAL))};
+    if (!a) return {0, opError("write", fd_->network(), fd_->laddr, addr, errnoError(EINVAL))};
     return WriteToUDP(b, ptr<UDPAddr>(a));
 }
 
 std::tuple<isize, isize, error> UDPConn::WriteMsgUDP(std::span<const byte> b, std::span<const byte> oob,
                                                      const ptr<UDPAddr>& addr) {
     auto fail = [&](error err) {
-        return std::tuple<isize, isize, error>{0, 0, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+        return std::tuple<isize, isize, error>{0, 0, opError("write", fd_->network(), fd_->laddr, addr, err)};
     };
     if (fd_->raddr && addr) return fail(ErrWriteToConnected);
     if (!fd_->raddr && !addr) return fail(errMissingAddress);
@@ -145,7 +145,7 @@ std::tuple<isize, isize, error> UDPConn::WriteMsgUDP(std::span<const byte> b, st
     socklen_t len = 0;
     if (error err = addrSockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
     auto [n, oobn, err] = fd_->writeMsg(b, oob, addr ? &sa : nullptr, len);
-    if (err) return {n, oobn, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    if (err) return {n, oobn, opError("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, oobn, nullptr};
 }
 
@@ -153,7 +153,7 @@ std::tuple<isize, isize, error> UDPConn::WriteMsgUDPAddrPort(std::span<const byt
                                                              netip::AddrPort addr) {
     auto fail = [&](error err) {
         return std::tuple<isize, isize, error>{
-            0, 0, op_error("write", fd_->network(), fd_->laddr, UDPAddrFromAddrPort(addr), err)};
+            0, 0, opError("write", fd_->network(), fd_->laddr, UDPAddrFromAddrPort(addr), err)};
     };
     if (fd_->raddr && addr.IsValid()) return fail(ErrWriteToConnected);
     if (!fd_->raddr && !addr.IsValid()) return fail(errMissingAddress);
@@ -185,21 +185,21 @@ std::pair<ptr<UDPConn>, error> sysListener::listenUDP(const ptr<context::Context
 
 std::pair<ptr<UDPConn>, error> ListenUDP(std::string_view network, const ptr<UDPAddr>& laddr0) {
     string net(network);
-    if (!isUdp(network)) return {nullptr, op_error("listen", net, nullptr, laddr0, make_ptr<UnknownNetworkError>(net))};
+    if (!isUdp(network)) return {nullptr, opError("listen", net, nullptr, laddr0, make_ptr<UnknownNetworkError>(net))};
     ptr<UDPAddr> laddr = laddr0 ? laddr0 : make_ptr<UDPAddr>();
     sysListener sl{.lc = {}, .network = net, .address = laddr->String()};
     auto [c, err] = sl.listenUDP(context::Background(), laddr.get());
-    if (err) return {nullptr, op_error("listen", net, nullptr, laddr0, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, laddr0, err)};
     return {c, nullptr};
 }
 
 std::pair<ptr<UDPConn>, error> DialUDP(std::string_view network, const ptr<UDPAddr>& laddr, const ptr<UDPAddr>& raddr) {
     string net(network);
-    if (!isUdp(network)) return {nullptr, op_error("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
-    if (!raddr) return {nullptr, op_error("dial", net, laddr, nullptr, errMissingAddress)};
+    if (!isUdp(network)) return {nullptr, opError("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
+    if (!raddr) return {nullptr, opError("dial", net, laddr, nullptr, errMissingAddress)};
     sysDialer sd{.d = {}, .network = net, .address = raddr->String()};
     auto [c, err] = sd.dialUDP(context::Background(), laddr.get(), raddr.get());
-    if (err) return {nullptr, op_error("dial", net, laddr, raddr, err)};
+    if (err) return {nullptr, opError("dial", net, laddr, raddr, err)};
     return {c, nullptr};
 }
 

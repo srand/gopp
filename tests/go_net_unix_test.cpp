@@ -104,7 +104,7 @@ TEST(GoNetUnix, ReadUnixgramWithUnnamedSocket) {
     ASSERT_FALSE(lerr) << lerr;
 
     const byte data[5] = {1, 2, 3, 4, 5};
-    auto off = makeChan<bool>();
+    auto off = make_chan<bool>();
     go([&] {
         sendtoUnix(addr, data);
         off.send(true);
@@ -493,7 +493,7 @@ TEST(GoNetUnix, UnixgramLinuxAbstractLongName) {
     ASSERT_FALSE(lerr) << lerr;
 
     const byte data[5] = {1, 2, 3, 4, 5};
-    auto off = makeChan<bool>();
+    auto off = make_chan<bool>();
     go([&] {
         sendtoUnix(addr, data);
         off.send(true);

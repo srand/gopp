@@ -25,9 +25,9 @@ namespace {
 
 using fields = std::vector<std::pair<std::string, std::string>>;
 
-class server_tester {
+class serverTester {
 public:
-    explicit server_tester(http::handler_fn h, std::function<void(http::Server&)> configure = nullptr) {
+    explicit serverTester(http::handlerFn h, std::function<void(http::Server&)> configure = nullptr) {
         http::Protocols p;
         p.SetHTTP1(true);
         p.SetUnencryptedHTTP2(true);
@@ -36,17 +36,17 @@ public:
         if (configure) configure(srv);
         auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
         EXPECT_FALSE(err) << err;
-        done = makeChan<gopp::error>(1);
+        done = make_chan<gopp::error>(1);
         go([this, ln] { done.send(srv.Serve(ln)); });
         auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
         EXPECT_FALSE(derr) << derr;
         cc = c;
         br = make_ptr<bufio::Reader>(cc, 1 << 16);
         fr = std::make_unique<h2::Framer>(br);
-        fr->read_meta_headers = &dec;
+        fr->readMetaHeaders = &dec;
     }
 
-    ~server_tester() {
+    ~serverTester() {
         if (cc) cc->Close();
         srv.Close();
         done.recv();
@@ -57,7 +57,7 @@ public:
         ASSERT_FALSE(err) << err;
     }
 
-    void writePreface() { writeRaw(h2::client_preface); }
+    void writePreface() { writeRaw(h2::clientPreface); }
 
     void writeSettings(std::vector<h2::Setting> s = {}) {
         std::string out;
@@ -73,7 +73,7 @@ public:
         h2::Frame f = readFrame();
         ASSERT_EQ(f.type(), FrameType::settings) << f.header.String();
         ASSERT_FALSE(f.isAck());
-        server_settings = f.settings;
+        serverSettings = f.settings;
         std::string ack;
         h2::appendSettingsAck(ack);
         writeRaw(ack);
@@ -81,7 +81,7 @@ public:
         // update may come first.
         for (;;) {
             h2::Frame g = readFrame();
-            if (g.type() == FrameType::window_update && g.streamId() == 0) continue;
+            if (g.type() == FrameType::windowUpdate && g.streamId() == 0) continue;
             ASSERT_EQ(g.type(), FrameType::settings) << g.header.String();
             ASSERT_TRUE(g.isAck());
             break;
@@ -90,9 +90,9 @@ public:
 
     std::string encode(const fields& fs) {
         std::string block;
-        enc_out.clear();
+        encOut.clear();
         for (auto& [k, v] : fs) enc.writeField({string(k), string(v)});
-        block.swap(enc_out);
+        block.swap(encOut);
         return block;
     }
 
@@ -116,7 +116,7 @@ public:
 
     void writeHeaders(uint32 id, bool endStream, const fields& fs) {
         std::string out;
-        h2::appendHeaders(out, id, encode(fs), endStream, h2::initial_max_frame_size);
+        h2::appendHeaders(out, id, encode(fs), endStream, h2::initialMaxFrameSize);
         writeRaw(out);
     }
 
@@ -145,12 +145,12 @@ public:
         for (;;) {
             h2::Frame f = readFrame();
             if (f.type() == t) return f;
-            if (f.type() == FrameType::window_update || f.type() == FrameType::settings || f.type() == FrameType::ping)
+            if (f.type() == FrameType::windowUpdate || f.type() == FrameType::settings || f.type() == FrameType::ping)
                 continue;
             // A handler done before the request body: the server ends the
             // stream with RST_STREAM(NO_ERROR) after the response, as Go's.
             // DATA still in flight for such a stream gets STREAM_CLOSED.
-            if (f.type() == FrameType::rst_stream && (f.err_code == ErrCode::no || f.err_code == ErrCode::stream_closed))
+            if (f.type() == FrameType::rstStream && (f.errCode == ErrCode::no || f.errCode == ErrCode::streamClosed))
                 continue;
             ADD_FAILURE() << "got " << f.header.String() << ", want " << h2::to_string(t);
             return f;
@@ -187,13 +187,13 @@ public:
 
     void wantGoaway(ErrCode code) {
         h2::Frame f = want(FrameType::goaway);
-        EXPECT_EQ(f.err_code, code) << h2::to_string(f.err_code);
+        EXPECT_EQ(f.errCode, code) << h2::to_string(f.errCode);
     }
 
     void wantRst(uint32 id, ErrCode code) {
-        h2::Frame f = want(FrameType::rst_stream);
+        h2::Frame f = want(FrameType::rstStream);
         EXPECT_EQ(f.streamId(), id);
-        EXPECT_EQ(f.err_code, code) << h2::to_string(f.err_code);
+        EXPECT_EQ(f.errCode, code) << h2::to_string(f.errCode);
     }
 
     // The connection ends (after an optional GOAWAY).
@@ -214,25 +214,25 @@ public:
     ptr<bufio::Reader> br;
     std::unique_ptr<h2::Framer> fr;
     hpack::Decoder dec{4096, nullptr};
-    std::string enc_out;
-    hpack::Encoder enc{&enc_out};
-    std::vector<h2::Setting> server_settings;
+    std::string encOut;
+    hpack::Encoder enc{&encOut};
+    std::vector<h2::Setting> serverSettings;
 };
 
 // testBodyContents: the handler checks the request body.
-void test_body_contents(int64 want_content_length, std::string wantBody, std::function<void(server_tester&)> write,
-                        std::string want_read_err = "") {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter& w, http::Request& r) {
+void testBodyContents(int64 wantContentLength, std::string wantBody, std::function<void(serverTester&)> write,
+                        std::string wantReadErr = "") {
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter& w, http::Request& r) {
         std::string msg;
         if (r.Method != "POST") msg += "method " + r.Method.str() + "; ";
-        if (r.ContentLength != want_content_length) msg += "content length " + std::to_string(r.ContentLength) + "; ";
+        if (r.ContentLength != wantContentLength) msg += "content length " + std::to_string(r.ContentLength) + "; ";
         auto [data, err] = io::ReadAll(*r.Body);
-        if (want_read_err.empty()) {
+        if (wantReadErr.empty()) {
             if (err) msg += "read error " + err.Error().str() + "; ";
             if (asStringView(data) != wantBody) msg += "body " + std::string(asStringView(data)) + "; ";
-        } else if (!err || !strings::Contains(err.Error(), want_read_err)) {
-            msg += "read error " + (err ? err.Error().str() : std::string("nil")) + ", want " + want_read_err + "; ";
+        } else if (!err || !strings::Contains(err.Error(), wantReadErr)) {
+            msg += "read error " + (err ? err.Error().str() : std::string("nil")) + ", want " + wantReadErr + "; ";
         }
         got.send(msg);
     });
@@ -243,9 +243,9 @@ void test_body_contents(int64 want_content_length, std::string wantBody, std::fu
 }
 
 // testRejectRequest: the request is refused with RST_STREAM.
-void test_reject_request(fields fs, ErrCode code = ErrCode::protocol) {
+void testRejectRequest(fields fs, ErrCode code = ErrCode::protocol) {
     bool ran = false;
-    server_tester st([&](http::ResponseWriter&, http::Request&) { ran = true; });
+    serverTester st([&](http::ResponseWriter&, http::Request&) { ran = true; });
     st.greet();
     st.writeHeaders(1, true, fs);
     st.wantRst(1, code);
@@ -253,8 +253,8 @@ void test_reject_request(fields fs, ErrCode code = ErrCode::protocol) {
 }
 
 // testServerRejectsConn: the connection ends with GOAWAY and code.
-void test_server_rejects_conn(std::function<void(server_tester&)> write, ErrCode code = ErrCode::protocol) {
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+void testServerRejectsConn(std::function<void(serverTester&)> write, ErrCode code = ErrCode::protocol) {
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.greet();
     write(st);
     st.wantGoaway(code);
@@ -267,8 +267,8 @@ struct response {
     std::string body;
 };
 
-response testResponse(http::handler_fn h, fields req = server_tester::request()) {
-    server_tester st(std::move(h));
+response testResponse(http::handlerFn h, fields req = serverTester::request()) {
+    serverTester st(std::move(h));
     st.greet();
     st.writeHeaders(1, true, req);
     response r;
@@ -281,22 +281,22 @@ response testResponse(http::handler_fn h, fields req = server_tester::request())
 
 TEST(Http2Server, Server) {
     // The server's SETTINGS: what Go's server announces.
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.greet();
     auto has = [&](h2::SettingID id, uint32 v) {
-        for (auto& s : st.server_settings) {
+        for (auto& s : st.serverSettings) {
             if (s.id == id) return s.val == v;
         }
         return false;
     };
-    EXPECT_TRUE(has(h2::SettingID::max_frame_size, 1 << 20));
-    EXPECT_TRUE(has(h2::SettingID::max_concurrent_streams, 250));
-    EXPECT_TRUE(has(h2::SettingID::initial_window_size, 1 << 20));
+    EXPECT_TRUE(has(h2::SettingID::maxFrameSize, 1 << 20));
+    EXPECT_TRUE(has(h2::SettingID::maxConcurrentStreams, 250));
+    EXPECT_TRUE(has(h2::SettingID::initialWindowSize, 1 << 20));
 }
 
 TEST(Http2Server, Request_Get) {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter& w, http::Request& r) {
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter& w, http::Request& r) {
         std::string msg;
         if (r.Method != "GET") msg += "method; ";
         if (r.URL.Path != "/") msg += "path; ";
@@ -307,133 +307,133 @@ TEST(Http2Server, Request_Get) {
         got.send(msg);
     });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request({{"foo-bar", "some-value"}}));
+    st.writeHeaders(1, true, serverTester::request({{"foo-bar", "some-value"}}));
     EXPECT_EQ(got.recv(), "");
     auto h = st.wantHeaders(1, true);
     EXPECT_EQ(h[":status"], std::vector<std::string>{"200"});
 }
 
 TEST(Http2Server, Request_Get_PathSlashes) {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.RequestURI.str() + " " + r.URL.Path.str()); });
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.RequestURI.str() + " " + r.URL.Path.str()); });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request({{":path", "/%2f/"}}));
+    st.writeHeaders(1, true, serverTester::request({{":path", "/%2f/"}}));
     EXPECT_EQ(got.recv(), "/%2f/ ///");
 }
 
 TEST(Http2Server, Request_Post_NoContentLength_EndStream) {
-    test_body_contents(0, "", [](server_tester& st) { st.writeHeaders(1, true, server_tester::request({}, true)); });
+    testBodyContents(0, "", [](serverTester& st) { st.writeHeaders(1, true, serverTester::request({}, true)); });
 }
 
 TEST(Http2Server, Request_Post_Body_ImmediateEOF) {
-    test_body_contents(-1, "", [](server_tester& st) {
-        st.writeHeaders(1, false, server_tester::request({}, true));
+    testBodyContents(-1, "", [](serverTester& st) {
+        st.writeHeaders(1, false, serverTester::request({}, true));
         st.writeData(1, true, "");
     });
 }
 
 TEST(Http2Server, Request_Post_Body_OneData) {
-    test_body_contents(-1, "Some content", [](server_tester& st) {
-        st.writeHeaders(1, false, server_tester::request({}, true));
+    testBodyContents(-1, "Some content", [](serverTester& st) {
+        st.writeHeaders(1, false, serverTester::request({}, true));
         st.writeData(1, true, "Some content");
     });
 }
 
 TEST(Http2Server, Request_Post_Body_TwoData) {
-    test_body_contents(-1, "Some content", [](server_tester& st) {
-        st.writeHeaders(1, false, server_tester::request({}, true));
+    testBodyContents(-1, "Some content", [](serverTester& st) {
+        st.writeHeaders(1, false, serverTester::request({}, true));
         st.writeData(1, false, "Some ");
         st.writeData(1, true, "content");
     });
 }
 
 TEST(Http2Server, Request_Post_Body_ContentLength_Correct) {
-    test_body_contents(3, "foo", [](server_tester& st) {
-        st.writeHeaders(1, false, server_tester::request({{"content-length", "3"}}, true));
+    testBodyContents(3, "foo", [](serverTester& st) {
+        st.writeHeaders(1, false, serverTester::request({{"content-length", "3"}}, true));
         st.writeData(1, true, "foo");
     });
 }
 
 TEST(Http2Server, Request_Post_Body_ContentLength_TooLarge) {
-    test_body_contents(3, "", [](server_tester& st) {
-        st.writeHeaders(1, false, server_tester::request({{"content-length", "3"}}, true));
+    testBodyContents(3, "", [](serverTester& st) {
+        st.writeHeaders(1, false, serverTester::request({{"content-length", "3"}}, true));
         st.writeData(1, true, "12345");
     }, "sender tried to send more than declared Content-Length of 3 bytes");
 }
 
 TEST(Http2Server, Request_Post_Body_ContentLength_TooSmall) {
-    test_body_contents(4, "", [](server_tester& st) {
-        st.writeHeaders(1, false, server_tester::request({{"content-length", "4"}}, true));
+    testBodyContents(4, "", [](serverTester& st) {
+        st.writeHeaders(1, false, serverTester::request({{"content-length", "4"}}, true));
         st.writeData(1, true, "123");
     }, "request declared a Content-Length of 4 but only wrote 3 bytes");
 }
 
 TEST(Http2Server, Request_Post_Body_ContentLength_EndStream) {
     // A Content-Length with END_STREAM on the HEADERS: malformed.
-    test_reject_request(server_tester::request({{"content-length", "3"}}, true));
+    testRejectRequest(serverTester::request({{"content-length", "3"}}, true));
 }
 
 TEST(Http2Server, Request_Get_Host) {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Host.str()); });
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Host.str()); });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request({{":authority", "\x7f"}, {"host", "foo.com"}}));
+    st.writeHeaders(1, true, serverTester::request({{":authority", "\x7f"}, {"host", "foo.com"}}));
     EXPECT_EQ(got.recv(), "foo.com");
 }
 
 TEST(Http2Server, Request_Get_Authority) {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Host.str()); });
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Host.str()); });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request({{":authority", "foo.com"}}));
+    st.writeHeaders(1, true, serverTester::request({{":authority", "foo.com"}}));
     EXPECT_EQ(got.recv(), "foo.com");
 }
 
 TEST(Http2Server, Request_WithContinuation) {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Header.Get("Foo").str() + r.Header.Get("Bar").str()); });
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Header.Get("Foo").str() + r.Header.Get("Bar").str()); });
     st.greet();
-    std::string block = st.encode(server_tester::request({{"foo", std::string(100, 'a')}, {"bar", std::string(100, 'b')}}));
+    std::string block = st.encode(serverTester::request({{"foo", std::string(100, 'a')}, {"bar", std::string(100, 'b')}}));
     // Split into a HEADERS and two CONTINUATIONs.
     std::size_t a = block.size() / 3, b = 2 * block.size() / 3;
     st.writeFrame(FrameType::headers, h2::flags::endStream, 1, block.substr(0, a));
     st.writeFrame(FrameType::continuation, 0, 1, block.substr(a, b - a));
-    st.writeFrame(FrameType::continuation, h2::flags::end_headers, 1, block.substr(b));
+    st.writeFrame(FrameType::continuation, h2::flags::endHeaders, 1, block.substr(b));
     EXPECT_EQ(got.recv(), std::string(100, 'a') + std::string(100, 'b'));
 }
 
 TEST(Http2Server, Request_CookieConcat) {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Header.Get("Cookie").str()); });
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Header.Get("Cookie").str()); });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request({{"cookie", "a=b"}, {"cookie", "c=d"}, {"cookie", "e=f"}}));
+    st.writeHeaders(1, true, serverTester::request({{"cookie", "a=b"}, {"cookie", "c=d"}, {"cookie", "e=f"}}));
     EXPECT_EQ(got.recv(), "a=b; c=d; e=f");
 }
 
-TEST(Http2Server, Request_Reject_CapitalHeader) { test_reject_request(server_tester::request({{"UPPER", "v"}})); }
-TEST(Http2Server, Request_Reject_HeaderFieldNameColon) { test_reject_request(server_tester::request({{"has:colon", "v"}})); }
-TEST(Http2Server, Request_Reject_HeaderFieldNameNULL) { test_reject_request(server_tester::request({{std::string("has\0null", 8), "v"}})); }
-TEST(Http2Server, Request_Reject_HeaderFieldNameEmpty) { test_reject_request(server_tester::request({{"", "v"}})); }
-TEST(Http2Server, Request_Reject_HeaderFieldValueNewline) { test_reject_request(server_tester::request({{"foo", "bar\nbaz"}})); }
-TEST(Http2Server, Request_Reject_HeaderFieldValueCR) { test_reject_request(server_tester::request({{"foo", "bar\rbaz"}})); }
-TEST(Http2Server, Request_Reject_HeaderFieldValueDEL) { test_reject_request(server_tester::request({{"foo", "bar\x7f" "baz"}})); }
-TEST(Http2Server, Request_Reject_Pseudo_Missing_method) { test_reject_request(server_tester::request({{":method", "\x7f"}})); }
+TEST(Http2Server, Request_Reject_CapitalHeader) { testRejectRequest(serverTester::request({{"UPPER", "v"}})); }
+TEST(Http2Server, Request_Reject_HeaderFieldNameColon) { testRejectRequest(serverTester::request({{"has:colon", "v"}})); }
+TEST(Http2Server, Request_Reject_HeaderFieldNameNULL) { testRejectRequest(serverTester::request({{std::string("has\0null", 8), "v"}})); }
+TEST(Http2Server, Request_Reject_HeaderFieldNameEmpty) { testRejectRequest(serverTester::request({{"", "v"}})); }
+TEST(Http2Server, Request_Reject_HeaderFieldValueNewline) { testRejectRequest(serverTester::request({{"foo", "bar\nbaz"}})); }
+TEST(Http2Server, Request_Reject_HeaderFieldValueCR) { testRejectRequest(serverTester::request({{"foo", "bar\rbaz"}})); }
+TEST(Http2Server, Request_Reject_HeaderFieldValueDEL) { testRejectRequest(serverTester::request({{"foo", "bar\x7f" "baz"}})); }
+TEST(Http2Server, Request_Reject_Pseudo_Missing_method) { testRejectRequest(serverTester::request({{":method", "\x7f"}})); }
 TEST(Http2Server, Request_Reject_Pseudo_ExactlyOne) {
     // A duplicate pseudo header.
-    fields fs = server_tester::request();
+    fields fs = serverTester::request();
     fs.emplace_back(":method", "GET");
-    test_reject_request(fs);
+    testRejectRequest(fs);
 }
 TEST(Http2Server, Request_Reject_Pseudo_AfterRegular) {
-    test_reject_request({{":method", "GET"}, {"foo", "bar"}, {":scheme", "https"}, {":path", "/"}, {":authority", "x"}});
+    testRejectRequest({{":method", "GET"}, {"foo", "bar"}, {":scheme", "https"}, {":path", "/"}, {":authority", "x"}});
 }
-TEST(Http2Server, Request_Reject_Pseudo_Missing_path) { test_reject_request(server_tester::request({{":path", "\x7f"}})); }
-TEST(Http2Server, Request_Reject_Pseudo_Missing_scheme) { test_reject_request(server_tester::request({{":scheme", "\x7f"}})); }
-TEST(Http2Server, Request_Reject_Pseudo_scheme_invalid) { test_reject_request(server_tester::request({{":scheme", "bogus"}})); }
-TEST(Http2Server, Request_Reject_Pseudo_Unknown) { test_reject_request(server_tester::request({{":unknown_thing", ""}})); }
+TEST(Http2Server, Request_Reject_Pseudo_Missing_path) { testRejectRequest(serverTester::request({{":path", "\x7f"}})); }
+TEST(Http2Server, Request_Reject_Pseudo_Missing_scheme) { testRejectRequest(serverTester::request({{":scheme", "\x7f"}})); }
+TEST(Http2Server, Request_Reject_Pseudo_scheme_invalid) { testRejectRequest(serverTester::request({{":scheme", "bogus"}})); }
+TEST(Http2Server, Request_Reject_Pseudo_Unknown) { testRejectRequest(serverTester::request({{":unknown_thing", ""}})); }
 
 TEST(Http2Server, RejectFrameOnIdle_WindowUpdate) {
-    test_server_rejects_conn([](server_tester& st) {
+    testServerRejectsConn([](serverTester& st) {
         std::string out;
         h2::appendWindowUpdate(out, 123, 456);
         st.writeRaw(out);
@@ -441,11 +441,11 @@ TEST(Http2Server, RejectFrameOnIdle_WindowUpdate) {
 }
 
 TEST(Http2Server, RejectFrameOnIdle_Data) {
-    test_server_rejects_conn([](server_tester& st) { st.writeData(123, true, "foo"); });
+    testServerRejectsConn([](serverTester& st) { st.writeData(123, true, "foo"); });
 }
 
 TEST(Http2Server, RejectFrameOnIdle_RSTStream) {
-    test_server_rejects_conn([](server_tester& st) {
+    testServerRejectsConn([](serverTester& st) {
         std::string out;
         h2::appendRstStream(out, 123, ErrCode::cancel);
         st.writeRaw(out);
@@ -453,23 +453,23 @@ TEST(Http2Server, RejectFrameOnIdle_RSTStream) {
 }
 
 TEST(Http2Server, Request_Connect) {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Method.str() + " " + r.Host.str()); });
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) { got.send(r.Method.str() + " " + r.Host.str()); });
     st.greet();
     st.writeHeaders(1, true, {{":method", "CONNECT"}, {":authority", "example.com:123"}});
     EXPECT_EQ(got.recv(), "CONNECT example.com:123");
 }
 
 TEST(Http2Server, Request_Connect_InvalidPath) {
-    test_reject_request({{":method", "CONNECT"}, {":authority", "example.com:123"}, {":path", "/bogus"}});
+    testRejectRequest({{":method", "CONNECT"}, {":authority", "example.com:123"}, {":path", "/bogus"}});
 }
 
 TEST(Http2Server, Request_Connect_InvalidScheme) {
-    test_reject_request({{":method", "CONNECT"}, {":authority", "example.com:123"}, {":scheme", "https"}});
+    testRejectRequest({{":method", "CONNECT"}, {":authority", "example.com:123"}, {":scheme", "https"}});
 }
 
 TEST(Http2Server, Ping) {
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.greet();
     // An ack must be ignored.
     std::string out;
@@ -482,18 +482,18 @@ TEST(Http2Server, Ping) {
 }
 
 TEST(Http2Server, RejectsLargeFrames) {
-    test_server_rejects_conn([](server_tester& st) {
+    testServerRejectsConn([](serverTester& st) {
         std::string out;
         h2::appendFrameHeader(out, FrameType::data, 0, 1, (1 << 20) + 1);
         st.writeRaw(out);
         st.writeRaw(std::string((1 << 20) + 1, 'x'));
-    }, ErrCode::frame_size);
+    }, ErrCode::frameSize);
 }
 
 TEST(Http2Server, Handler_Sends_WindowUpdate) {
-    auto read = makeChan<int>(1);
-    auto proceed = makeChan<bool>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) {
+    auto read = make_chan<int>(1);
+    auto proceed = make_chan<bool>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) {
         byte buf[1 << 15];
         int64 total = 0;
         while (total < 1 << 16) {
@@ -505,7 +505,7 @@ TEST(Http2Server, Handler_Sends_WindowUpdate) {
         proceed.recv();
     });
     st.greet();
-    st.writeHeaders(1, false, server_tester::request({}, true));
+    st.writeHeaders(1, false, serverTester::request({}, true));
     st.writeData(1, false, std::string(1 << 15, 'a'));
     st.writeData(1, false, std::string(1 << 15, 'b'));
     EXPECT_EQ(read.recv(), 1 << 16);
@@ -513,7 +513,7 @@ TEST(Http2Server, Handler_Sends_WindowUpdate) {
     // stream.
     bool conn = false, stream = false;
     while (!conn || !stream) {
-        h2::Frame f = st.want(FrameType::window_update);
+        h2::Frame f = st.want(FrameType::windowUpdate);
         if (f.streamId() == 0) conn = true;
         if (f.streamId() == 1) stream = true;
     }
@@ -521,34 +521,34 @@ TEST(Http2Server, Handler_Sends_WindowUpdate) {
 }
 
 TEST(Http2Server, Send_GoAway_After_Bogus_WindowUpdate) {
-    test_server_rejects_conn([](server_tester& st) {
+    testServerRejectsConn([](serverTester& st) {
         std::string out;
         h2::appendWindowUpdate(out, 0, 0x7fffffff);  // overflows the connection's window
         st.writeRaw(out);
-    }, ErrCode::flow_control);
+    }, ErrCode::flowControl);
 }
 
 TEST(Http2Server, Send_RstStream_After_Bogus_WindowUpdate) {
-    auto unblock = makeChan<bool>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request&) { unblock.recv(); });
+    auto unblock = make_chan<bool>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request&) { unblock.recv(); });
     st.greet();
-    st.writeHeaders(1, false, server_tester::request({}, true));
+    st.writeHeaders(1, false, serverTester::request({}, true));
     std::string out;
     h2::appendWindowUpdate(out, 1, 0x7fffffff);  // overflows the stream's window
     st.writeRaw(out);
-    st.wantRst(1, ErrCode::flow_control);
+    st.wantRst(1, ErrCode::flowControl);
     unblock.send(true);
 }
 
 TEST(Http2Server, RSTStream_Unblocks_Read) {
-    auto got = makeChan<std::string>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) {
+    auto got = make_chan<std::string>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) {
         byte b[1];
         auto [n, err] = r.Body->Read(b);
         got.send(err ? err.Error().str() : std::string("nil"));
     });
     st.greet();
-    st.writeHeaders(1, false, server_tester::request({}, true));
+    st.writeHeaders(1, false, serverTester::request({}, true));
     std::string out;
     h2::appendRstStream(out, 1, ErrCode::cancel);
     st.writeRaw(out);
@@ -556,26 +556,26 @@ TEST(Http2Server, RSTStream_Unblocks_Read) {
 }
 
 TEST(Http2Server, DeadConn_Unblocks_Read) {
-    auto got = makeChan<bool>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) {
+    auto got = make_chan<bool>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) {
         byte b[1];
         auto [n, err] = r.Body->Read(b);
         got.send(static_cast<bool>(err));
     });
     st.greet();
-    st.writeHeaders(1, false, server_tester::request({}, true));
+    st.writeHeaders(1, false, serverTester::request({}, true));
     st.cc->Close();
     EXPECT_TRUE(got.recv());
 }
 
 TEST(Http2Server, CloseNotify_After_RSTStream) {
-    auto done = makeChan<bool>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request& r) {
+    auto done = make_chan<bool>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request& r) {
         r.Context()->Done().recv();
         done.send(true);
     });
     st.greet();
-    st.writeHeaders(1, false, server_tester::request({}, true));
+    st.writeHeaders(1, false, serverTester::request({}, true));
     std::string out;
     h2::appendRstStream(out, 1, ErrCode::cancel);
     st.writeRaw(out);
@@ -583,16 +583,16 @@ TEST(Http2Server, CloseNotify_After_RSTStream) {
 }
 
 TEST(Http2Server, Rejects_HeadersNoEnd_Then_Headers) {
-    test_server_rejects_conn([](server_tester& st) {
-        std::string block = st.encode(server_tester::request());
+    testServerRejectsConn([](serverTester& st) {
+        std::string block = st.encode(serverTester::request());
         st.writeFrame(FrameType::headers, h2::flags::endStream, 1, block);
-        st.writeFrame(FrameType::headers, h2::flags::endStream | h2::flags::end_headers, 3, block);
+        st.writeFrame(FrameType::headers, h2::flags::endStream | h2::flags::endHeaders, 3, block);
     });
 }
 
 TEST(Http2Server, Rejects_HeadersNoEnd_Then_Ping) {
-    test_server_rejects_conn([](server_tester& st) {
-        st.writeFrame(FrameType::headers, h2::flags::endStream, 1, st.encode(server_tester::request()));
+    testServerRejectsConn([](serverTester& st) {
+        st.writeFrame(FrameType::headers, h2::flags::endStream, 1, st.encode(serverTester::request()));
         std::string out;
         h2::appendPing(out, false, "foobar!!");
         st.writeRaw(out);
@@ -600,36 +600,36 @@ TEST(Http2Server, Rejects_HeadersNoEnd_Then_Ping) {
 }
 
 TEST(Http2Server, Rejects_HeadersEnd_Then_Continuation) {
-    auto got = makeChan<bool>(1);
-    server_tester st([&](http::ResponseWriter&, http::Request&) { got.send(true); });
+    auto got = make_chan<bool>(1);
+    serverTester st([&](http::ResponseWriter&, http::Request&) { got.send(true); });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request());
+    st.writeHeaders(1, true, serverTester::request());
     got.recv();
     st.wantHeaders(1, true);
-    st.writeFrame(FrameType::continuation, h2::flags::end_headers, 1, "x");
+    st.writeFrame(FrameType::continuation, h2::flags::endHeaders, 1, "x");
     st.wantGoaway(ErrCode::protocol);
 }
 
 TEST(Http2Server, Rejects_HeadersNoEnd_Then_ContinuationWrongStream) {
-    test_server_rejects_conn([](server_tester& st) {
-        std::string block = st.encode(server_tester::request());
+    testServerRejectsConn([](serverTester& st) {
+        std::string block = st.encode(serverTester::request());
         st.writeFrame(FrameType::headers, h2::flags::endStream, 1, block.substr(0, 3));
-        st.writeFrame(FrameType::continuation, h2::flags::end_headers, 3, block.substr(3));
+        st.writeFrame(FrameType::continuation, h2::flags::endHeaders, 3, block.substr(3));
     });
 }
 
 TEST(Http2Server, Rejects_Headers0) {
-    test_server_rejects_conn([](server_tester& st) {
-        st.writeFrame(FrameType::headers, h2::flags::endStream | h2::flags::end_headers, 0, st.encode(server_tester::request()));
+    testServerRejectsConn([](serverTester& st) {
+        st.writeFrame(FrameType::headers, h2::flags::endStream | h2::flags::endHeaders, 0, st.encode(serverTester::request()));
     });
 }
 
 TEST(Http2Server, Rejects_Continuation0) {
-    test_server_rejects_conn([](server_tester& st) { st.writeFrame(FrameType::continuation, h2::flags::end_headers, 0, "x"); });
+    testServerRejectsConn([](serverTester& st) { st.writeFrame(FrameType::continuation, h2::flags::endHeaders, 0, "x"); });
 }
 
 TEST(Http2Server, Rejects_Priority0) {
-    test_server_rejects_conn([](server_tester& st) {
+    testServerRejectsConn([](serverTester& st) {
         std::string out;
         h2::appendPriority(out, 0, {1, false, 16});
         st.writeRaw(out);
@@ -637,16 +637,16 @@ TEST(Http2Server, Rejects_Priority0) {
 }
 
 TEST(Http2Server, Rejects_HeadersSelfDependence) {
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.greet();
-    std::string block = st.encode(server_tester::request());
+    std::string block = st.encode(serverTester::request());
     std::string payload = std::string("\x00\x00\x00\x01\x0f", 5) + block;  // depends on itself
-    st.writeFrame(FrameType::headers, h2::flags::endStream | h2::flags::end_headers | h2::flags::priority, 1, payload);
+    st.writeFrame(FrameType::headers, h2::flags::endStream | h2::flags::endHeaders | h2::flags::priority, 1, payload);
     st.wantRst(1, ErrCode::protocol);
 }
 
 TEST(Http2Server, Rejects_PrioritySelfDependence) {
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.greet();
     std::string out;
     h2::appendPriority(out, 1, {1, false, 16});
@@ -655,24 +655,24 @@ TEST(Http2Server, Rejects_PrioritySelfDependence) {
 }
 
 TEST(Http2Server, Rejects_PushPromise) {
-    test_server_rejects_conn([](server_tester& st) {
-        st.writeFrame(FrameType::push_promise, h2::flags::end_headers, 1, std::string("\x00\x00\x00\x02", 4) + st.encode(server_tester::request()));
+    testServerRejectsConn([](serverTester& st) {
+        st.writeFrame(FrameType::pushPromise, h2::flags::endHeaders, 1, std::string("\x00\x00\x00\x02", 4) + st.encode(serverTester::request()));
     });
 }
 
 TEST(Http2Server, Response_NoData) {
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.greet();
-    st.writeHeaders(1, true, server_tester::request());
+    st.writeHeaders(1, true, serverTester::request());
     auto h = st.wantHeaders(1, true);
     EXPECT_EQ(h[":status"], std::vector<std::string>{"200"});
     EXPECT_EQ(h["content-length"], std::vector<std::string>{"0"});
 }
 
 TEST(Http2Server, Response_NoData_Header_FooBar) {
-    server_tester st([](http::ResponseWriter& w, http::Request&) { w.Header().Set("Foo-Bar", "some-value"); });
+    serverTester st([](http::ResponseWriter& w, http::Request&) { w.Header().Set("Foo-Bar", "some-value"); });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request());
+    st.writeHeaders(1, true, serverTester::request());
     auto h = st.wantHeaders(1, true);
     EXPECT_EQ(h["foo-bar"], std::vector<std::string>{"some-value"});
 }
@@ -723,12 +723,12 @@ TEST(Http2Server, Response_LargeWrite) {
 TEST(Http2Server, Response_LargeWrite_FlowControlled) {
     // A client window of 0: no DATA until the client opens it.
     const std::string reply = "AAAABBBBCCCC";
-    server_tester st([&](http::ResponseWriter& w, http::Request&) {
+    serverTester st([&](http::ResponseWriter& w, http::Request&) {
         io::WriteString(w, reply);
         dynamic_cast<http::Flusher&>(w).Flush();
     });
-    st.greet({{h2::SettingID::initial_window_size, 0}});
-    st.writeHeaders(1, true, server_tester::request());
+    st.greet({{h2::SettingID::initialWindowSize, 0}});
+    st.writeHeaders(1, true, serverTester::request());
     st.wantHeaders(1, false);
     std::string got;
     for (int i = 0; i < 3; i++) {
@@ -743,14 +743,14 @@ TEST(Http2Server, Response_LargeWrite_FlowControlled) {
 }
 
 TEST(Http2Server, Response_RST_Unblocks_LargeWrite) {
-    auto got = makeChan<bool>(1);
-    server_tester st([&](http::ResponseWriter& w, http::Request&) {
+    auto got = make_chan<bool>(1);
+    serverTester st([&](http::ResponseWriter& w, http::Request&) {
         std::string big(1 << 20, 'x');
         auto [n, err] = io::WriteString(w, big);
         got.send(static_cast<bool>(err));
     });
-    st.greet({{h2::SettingID::initial_window_size, 0}});
-    st.writeHeaders(1, true, server_tester::request());
+    st.greet({{h2::SettingID::initialWindowSize, 0}});
+    st.writeHeaders(1, true, serverTester::request());
     st.wantHeaders(1, false);
     std::string out;
     h2::appendRstStream(out, 1, ErrCode::cancel);
@@ -759,12 +759,12 @@ TEST(Http2Server, Response_RST_Unblocks_LargeWrite) {
 }
 
 TEST(Http2Server, Response_Automatic100Continue) {
-    server_tester st([](http::ResponseWriter& w, http::Request& r) {
+    serverTester st([](http::ResponseWriter& w, http::Request& r) {
         auto [data, err] = io::ReadAll(*r.Body);
         io::WriteString(w, "read " + std::string(asStringView(data)));
     });
     st.greet();
-    st.writeHeaders(1, false, server_tester::request({{"expect", "100-continue"}}, true));
+    st.writeHeaders(1, false, serverTester::request({{"expect", "100-continue"}}, true));
     auto h = st.wantHeaders(1, false);
     EXPECT_EQ(h[":status"], std::vector<std::string>{"100"});
     st.writeData(1, true, "some data");
@@ -774,39 +774,39 @@ TEST(Http2Server, Response_Automatic100Continue) {
 }
 
 TEST(Http2Server, Rejects_Too_Many_Streams) {
-    auto unblock = makeChan<bool>(250);
-    server_tester st([&](http::ResponseWriter&, http::Request&) { unblock.recv(); });
+    auto unblock = make_chan<bool>(250);
+    serverTester st([&](http::ResponseWriter&, http::Request&) { unblock.recv(); });
     st.greet();
     uint32 id = 1;
-    for (int i = 0; i < 250; i++, id += 2) st.writeHeaders(id, true, server_tester::request());
-    st.writeHeaders(id, true, server_tester::request());
+    for (int i = 0; i < 250; i++, id += 2) st.writeHeaders(id, true, serverTester::request());
+    st.writeHeaders(id, true, serverTester::request());
     st.wantRst(id, ErrCode::protocol);
     for (int i = 0; i < 250; i++) unblock.send(true);
 }
 
 TEST(Http2Server, Response_ManyHeaders_With_Continuation) {
-    server_tester st([](http::ResponseWriter& w, http::Request&) {
+    serverTester st([](http::ResponseWriter& w, http::Request&) {
         for (int i = 0; i < 5000; i++) w.Header().Set("Foo-" + std::to_string(i), std::to_string(i));
     });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request());
+    st.writeHeaders(1, true, serverTester::request());
     auto h = st.wantHeaders(1, true);
     EXPECT_EQ(h["foo-4999"], std::vector<std::string>{"4999"});
 }
 
 TEST(Http2Server, Rejects_ConnHeaders) {
     response r = testResponse([](http::ResponseWriter&, http::Request&) { ADD_FAILURE() << "handler ran"; },
-                               server_tester::request({{"connection", "foo"}}));
+                               serverTester::request({{"connection", "foo"}}));
     EXPECT_EQ(r.header[":status"], std::vector<std::string>{"400"});
     EXPECT_TRUE(strings::Contains(r.body, "request header \"Connection\" is not valid in HTTP/2")) << r.body;
 }
 
 TEST(Http2Server, DoS_MaxHeaderListSize) {
-    server_tester st([](http::ResponseWriter&, http::Request&) { ADD_FAILURE() << "handler ran"; },
+    serverTester st([](http::ResponseWriter&, http::Request&) { ADD_FAILURE() << "handler ran"; },
                      [](http::Server& s) { s.MaxHeaderBytes = 1 << 10; });
     st.greet();
     // More than MaxHeaderBytes, in a few CONTINUATIONs.
-    fields fs = server_tester::request();
+    fields fs = serverTester::request();
     for (int i = 0; i < 20; i++) fs.emplace_back("x-" + std::to_string(i), std::string(100, 'v'));
     st.writeHeaders(1, true, fs);
     auto h = st.wantHeaders(1, false);
@@ -814,24 +814,24 @@ TEST(Http2Server, DoS_MaxHeaderListSize) {
 }
 
 TEST(Http2Server, NoAutoContentLengthOnHead) {
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.greet();
-    st.writeHeaders(1, true, server_tester::request({{":method", "HEAD"}}));
+    st.writeHeaders(1, true, serverTester::request({{":method", "HEAD"}}));
     auto h = st.wantHeaders(1, true);
     EXPECT_FALSE(h.contains("content-length"));
 }
 
 TEST(Http2Server, HandlerConnectionClose) {
     // Connection: close from a handler starts a graceful shutdown.
-    server_tester st([](http::ResponseWriter& w, http::Request&) { w.Header().Set("Connection", "close"); });
+    serverTester st([](http::ResponseWriter& w, http::Request&) { w.Header().Set("Connection", "close"); });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request());
+    st.writeHeaders(1, true, serverTester::request());
     bool goaway = false, headers = false;
     while (!goaway || !headers) {
         h2::Frame f = st.readFrame();
         if (f.type() == FrameType::goaway) {
             goaway = true;
-            EXPECT_EQ(f.err_code, ErrCode::no);
+            EXPECT_EQ(f.errCode, ErrCode::no);
         }
         if (f.type() == FrameType::headers) {
             headers = true;
@@ -842,17 +842,17 @@ TEST(Http2Server, HandlerConnectionClose) {
 }
 
 TEST(Http2Server, GracefulShutdown) {
-    auto entered = makeChan<bool>(1);
-    auto proceed = makeChan<bool>(1);
-    server_tester st([&](http::ResponseWriter& w, http::Request&) {
+    auto entered = make_chan<bool>(1);
+    auto proceed = make_chan<bool>(1);
+    serverTester st([&](http::ResponseWriter& w, http::Request&) {
         entered.send(true);
         proceed.recv();
         io::WriteString(w, "done");
     });
     st.greet();
-    st.writeHeaders(1, true, server_tester::request());
+    st.writeHeaders(1, true, serverTester::request());
     entered.recv();
-    auto shut = makeChan<gopp::error>(1);
+    auto shut = make_chan<gopp::error>(1);
     go([&] { shut.send(st.srv.Shutdown(context::Background())); });
     st.wantGoaway(ErrCode::no);
     proceed.send(true);
@@ -863,7 +863,7 @@ TEST(Http2Server, GracefulShutdown) {
 }
 
 TEST(Http2Server, IdleTimeout) {
-    server_tester st([](http::ResponseWriter&, http::Request&) {},
+    serverTester st([](http::ResponseWriter&, http::Request&) {},
                      [](http::Server& s) { s.IdleTimeout = 100 * time::Millisecond; });
     st.greet();
     st.wantGoaway(ErrCode::no);
@@ -873,10 +873,10 @@ TEST(Http2Server, IdleTimeout) {
 TEST(Http2Server, UnreadFlowControlReturned_Server) {
     // A handler that doesn't read the body: the connection's window comes
     // back when the stream ends, so other streams can still send.
-    server_tester st([](http::ResponseWriter& w, http::Request& r) { io::WriteString(w, r.URL.Path.str()); });
+    serverTester st([](http::ResponseWriter& w, http::Request& r) { io::WriteString(w, r.URL.Path.str()); });
     st.greet();
     for (uint32 id = 1; id < 40; id += 2) {
-        st.writeHeaders(id, false, server_tester::request({{":path", "/" + std::to_string(id)}}, true));
+        st.writeHeaders(id, false, serverTester::request({{":path", "/" + std::to_string(id)}}, true));
         st.writeData(id, true, std::string(16 << 10, 'x'));
         st.wantHeaders(id, false);
         EXPECT_EQ(st.wantBody(id), "/" + std::to_string(id));
@@ -885,7 +885,7 @@ TEST(Http2Server, UnreadFlowControlReturned_Server) {
 
 TEST(Http2Server, Rejects_TooSmall) {
     // A client that doesn't start with SETTINGS.
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.writePreface();
     std::string out;
     h2::appendPing(out, false, "12345678");
@@ -894,7 +894,7 @@ TEST(Http2Server, Rejects_TooSmall) {
 }
 
 TEST(Http2Server, InvalidPreface) {
-    server_tester st([](http::ResponseWriter&, http::Request&) {});
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
     st.writeRaw("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");  // the real one, to pass the h2c check
     st.writeRaw("bogus");
     st.wantClosed();

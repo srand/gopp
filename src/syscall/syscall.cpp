@@ -82,7 +82,7 @@ const error ESRCH_ = errnoError(ESRCH);
 namespace {
 
 // Go's zerrors_linux_amd64.go signals table.
-constexpr const char* signal_names[] = {
+constexpr const char* signalNames[] = {
     nullptr,
     "hangup",
     "interrupt",
@@ -120,8 +120,8 @@ constexpr const char* signal_names[] = {
 }  // namespace
 
 string Signal::String() const {
-    if (value >= 0 && value < static_cast<int>(std::size(signal_names)) && signal_names[value]) {
-        return string::fromStatic(signal_names[value]);
+    if (value >= 0 && value < static_cast<int>(std::size(signalNames)) && signalNames[value]) {
+        return string::fromStatic(signalNames[value]);
     }
     return string("signal " + std::to_string(value));
 }

@@ -13,7 +13,7 @@ int main() {
     constexpr int count = 25;
     constexpr int limit = 200;
 
-    auto numbers = makeChan<int>();
+    auto numbers = make_chan<int>();
     go([numbers] {
         for (int n = 2; n <= limit; n++) numbers.send(n);
         numbers.close();
@@ -27,7 +27,7 @@ int main() {
         if (!ok) break;
         fmt::Print(" {}", prime);
 
-        auto output = makeChan<int>();
+        auto output = make_chan<int>();
         filters.Go([input, output, prime] {
             for (int n : input) {
                 if (n % prime != 0) output.send(n);

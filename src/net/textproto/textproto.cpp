@@ -652,7 +652,7 @@ struct Pipeline::sequencer {
             mu.unlock();
             return;
         }
-        auto c = makeChan<empty>();
+        auto c = make_chan<empty>();
         wait[id_] = c;
         mu.unlock();
         c.recv();

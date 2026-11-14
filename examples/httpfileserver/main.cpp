@@ -29,9 +29,9 @@ namespace signal = os::signal;
 // A ResponseWriter that records the status and size of the response, for
 // the access log. It's an io::ReaderFrom like the server's, which it hands
 // the copy to: the files still go out with sendfile(2).
-class logging_writer final : public http::ResponseWriter, public http::Flusher, public io::ReaderFrom {
+class loggingWriter final : public http::ResponseWriter, public http::Flusher, public io::ReaderFrom {
 public:
-    explicit logging_writer(http::ResponseWriter& w) : w_(w) {}
+    explicit loggingWriter(http::ResponseWriter& w) : w_(w) {}
 
     http::Header& Header() override { return w_.Header(); }
     void WriteHeader(int code) override {
@@ -66,7 +66,7 @@ private:
 ptr<http::Handler> logRequests(ptr<http::Handler> h) {
     return make_ptr<http::HandlerFunc>([h](http::ResponseWriter& w, http::Request& r) {
         time::Time start = time::Now();
-        logging_writer lw(w);
+        loggingWriter lw(w);
         h->ServeHTTP(lw, r);
         fmt::Println("{} {} {} {} {}B {}", r.RemoteAddr, r.Method, r.URL.Path, lw.status, lw.size, time::Since(start));
     });
@@ -98,22 +98,22 @@ int main(int argc, char** argv) {
     mux->Handle(prefix, files);
 
     http::Server srv{.Addr = addr, .Handler = logRequests(mux)};
-    auto served = makeChan<error>(1);
+    auto served = make_chan<error>(1);
     go([&srv, served] { served.send(srv.ListenAndServe()); });
     fmt::Println("serving {} at http://{}{}", root->Name(), addr, prefix);
 
     // Wait for the server to fail, or for Ctrl-C.
     auto [ctx, stop] = signal::NotifyContext(context::Background(), os::Interrupt, syscall::SIGTERM_);
-    error serve_err;
+    error serveErr;
     select(
         recv(served, [&](error e) { 
-            serve_err = e; 
+            serveErr = e; 
         }),
         recv(ctx->Done(), [] {})
     );
     stop();
-    if (serve_err) {
-        fmt::Println(os::Stderr, "httpfileserver: {}", serve_err);
+    if (serveErr) {
+        fmt::Println(os::Stderr, "httpfileserver: {}", serveErr);
         return 1;
     }
 

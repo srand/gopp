@@ -23,12 +23,12 @@ namespace sha1 = gopp::sha1;
 namespace sha256 = gopp::sha256;
 namespace sha512 = gopp::sha512;
 
-struct golden_test {
+struct goldenTest {
     std::string_view out;
     std::string_view in;
 };
 
-inline constexpr golden_test sha256_golden[] = {
+inline constexpr goldenTest sha256Golden[] = {
     {"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", ""},
     {"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb", "a"},
     {"fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603", "ab"},
@@ -62,7 +62,7 @@ inline constexpr golden_test sha256_golden[] = {
     {"4f9b189a13d030838269dce846b16a1ce9ce81fe63e65de2f636863336a98fe6", "How can you write a big system without C++\077  -Paul Glick"},
 };
 
-inline constexpr golden_test sha256_golden224[] = {
+inline constexpr goldenTest sha256Golden224[] = {
     {"d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", ""},
     {"abd37534c7d9a2efb9465de931cd7055ffdb8879563ae98078d6d6d5", "a"},
     {"db3cda86d4429a1d39c148989566b38f7bda0156296bd364ba2f878b", "ab"},
@@ -96,7 +96,7 @@ inline constexpr golden_test sha256_golden224[] = {
     {"86ed2eaa9c75ba98396e5c9fb2f679ecf0ea2ed1e0ee9ceecb4a9332", "How can you write a big system without C++\077  -Paul Glick"},
 };
 
-inline constexpr golden_test sha512_golden224[] = {
+inline constexpr goldenTest sha512Golden224[] = {
     {"6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4", ""},
     {"d5cdb9ccc769a5121d4175f2bfdd13d6310e0d3d361ea75d82108327", "a"},
     {"b35878d07bfedf39fc638af08547eb5d1072d8546319f247b442fbf5", "ab"},
@@ -130,7 +130,7 @@ inline constexpr golden_test sha512_golden224[] = {
     {"e3763669d1b760c1be7bfcb6625f92300a8430419d1dbad57ec9f53c", "How can you write a big system without C++\077  -Paul Glick"},
 };
 
-inline constexpr golden_test sha512_golden256[] = {
+inline constexpr goldenTest sha512Golden256[] = {
     {"c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a", ""},
     {"455e518824bc0601f9fb858ff5c37d417d67c2f8e0df2babe4808858aea830f8", "a"},
     {"22d4d37ec6370571af7109fb12eae79673d5f7c83e6e677083faa3cfac3b2c14", "ab"},
@@ -164,7 +164,7 @@ inline constexpr golden_test sha512_golden256[] = {
     {"3fa46d52094b01021cff5af9a438982b887a5793f624c0a6644149b6b7c3f485", "How can you write a big system without C++\077  -Paul Glick"},
 };
 
-inline constexpr golden_test sha512_golden384[] = {
+inline constexpr goldenTest sha512Golden384[] = {
     {"38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b", ""},
     {"54a59b9f22b0b80880d8427e548b7c23abd873486e1f035dce9cd697e85175033caa88e6d57bc35efae0b5afd3145f31", "a"},
     {"c7be03ba5bcaa384727076db0018e99248e1a6e8bd1b9ef58a9ec9dd4eeebb3f48b836201221175befa74ddc3d35afdd", "ab"},
@@ -198,7 +198,7 @@ inline constexpr golden_test sha512_golden384[] = {
     {"1764b700eb1ead52a2fc33cc28975c2180f1b8faa5038d94cffa8d78154aab16e91dd787e7b0303948ebed62561542c8", "How can you write a big system without C++\077  -Paul Glick"},
 };
 
-inline constexpr golden_test sha512_golden512[] = {
+inline constexpr goldenTest sha512Golden512[] = {
     {"cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", ""},
     {"1f40fc92da241694750979ee6cf582f2d5d7d28e18335de05abc54d0560e0f5302860c652bf08d560252aa5e74210546f369fbbbce8c12cfc7957b2652fe9a75", "a"},
     {"2d408a0717ec188158278a796c689044361dc6fdde28d6f04973b80896e1823975cdbf12eb63f9e0591328ee235d80e9b5bf1aa6a44f4617ff3caf6400eb172d", "ab"},
@@ -232,7 +232,7 @@ inline constexpr golden_test sha512_golden512[] = {
     {"833f9248ab4a3b9e5131f745fda1ffd2dd435b30e965957e78291c7ab73605fd1912b0794e5c233ab0a12d205a39778d19b83515d6a47003f19cdee51d98c7e0", "How can you write a big system without C++\077  -Paul Glick"},
 };
 
-inline constexpr golden_test sha1_golden[] = {
+inline constexpr goldenTest sha1Golden[] = {
     {"76245dbf96f661bd221046197ab8b9f063f11bad", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\012"},
     {"da39a3ee5e6b4b0d3255bfef95601890afd80709", ""},
     {"86f7e437faa5a7fce15d1ddcb9eaeaea377667b8", "a"},
@@ -267,7 +267,7 @@ inline constexpr golden_test sha1_golden[] = {
     {"6627d6904d71420b0bf3886ab629623538689f45", "How can you write a big system without C++\077  -Paul Glick"},
 };
 
-inline constexpr golden_test md5_golden[] = {
+inline constexpr goldenTest md5Golden[] = {
     {"d41d8cd98f00b204e9800998ecf8427e", ""},
     {"0cc175b9c0f1b6a831c399e269772661", "a"},
     {"187ef4436122d1cc2f40dc2b92f0eba0", "ab"},
@@ -301,7 +301,7 @@ inline constexpr golden_test md5_golden[] = {
     {"132f7619d33b523b1d9e5bd8e0928355", "How can you write a big system without C++\077  -Paul Glick"},
 };
 
-inline std::vector<byte> bytes_of(std::string_view s) { return std::vector<byte>(s.begin(), s.end()); }
+inline std::vector<byte> bytesOf(std::string_view s) { return std::vector<byte>(s.begin(), s.end()); }
 
 struct hmacTest {
     std::function<gopp::ptr<hash::Hash>()> hash;
@@ -327,7 +327,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
             0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
         },
-        bytes_of("Sample #1"),
+        bytesOf("Sample #1"),
         "4f4ca3d5d68ba7cc0a1208c9c61e9c5da0403c0a",
         sha1::Size,
         sha1::BlockSize,
@@ -339,7 +339,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
             0x40, 0x41, 0x42, 0x43,
         },
-        bytes_of("Sample #2"),
+        bytesOf("Sample #2"),
         "0922d3405faa3d194f82a45830737d5cc6c75d24",
         sha1::Size,
         sha1::BlockSize,
@@ -361,7 +361,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
             0xb0, 0xb1, 0xb2, 0xb3,
         },
-        bytes_of("Sample #3"),
+        bytesOf("Sample #3"),
         "bcf41eab8bb2d802f3d05caf7cb092ecf8d1a3aa",
         sha1::Size,
         sha1::BlockSize,
@@ -370,8 +370,8 @@ inline const std::vector<hmacTest> hmacTests = {
     // Test from Plan 9.
     {
         md5::New,
-        bytes_of("Jefe"),
-        bytes_of("what do ya want for nothing?"),
+        bytesOf("Jefe"),
+        bytesOf("what do ya want for nothing?"),
         "750c783e6ab0b503eaa86e310a5db738",
         md5::Size,
         md5::BlockSize,
@@ -385,15 +385,15 @@ inline const std::vector<hmacTest> hmacTests = {
             0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
             0x0b, 0x0b, 0x0b, 0x0b,
         },
-        bytes_of("Hi There"),
+        bytesOf("Hi There"),
         "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
         sha256::Size,
         sha256::BlockSize,
     },
     {
         sha256::New,
-        bytes_of("Jefe"),
-        bytes_of("what do ya want for nothing?"),
+        bytesOf("Jefe"),
+        bytesOf("what do ya want for nothing?"),
         "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
         sha256::Size,
         sha256::BlockSize,
@@ -460,7 +460,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
             0xaa, 0xaa, 0xaa,
         },
-        bytes_of("Test Using Larger Than Block-Size Key - Hash Key First"),
+        bytesOf("Test Using Larger Than Block-Size Key - Hash Key First"),
         "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
         sha256::Size,
         sha256::BlockSize,
@@ -486,7 +486,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
             0xaa, 0xaa, 0xaa,
         },
-        bytes_of("This is a test using a larger than block-size key "
+        bytesOf("This is a test using a larger than block-size key "
             "and a larger than block-size data. The key needs to "
             "be hashed before being used by the HMAC algorithm."),
         "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2",
@@ -508,7 +508,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
             0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "5fd596ee78d5553c8ff4e72d266dfd192366da29",
         sha1::Size,
         sha1::BlockSize,
@@ -520,7 +520,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
             0x10, 0x11, 0x12, 0x13,
         },
-        bytes_of("Sample message for keylen<blocklen"),
+        bytesOf("Sample message for keylen<blocklen"),
         "4c99ff0cb1b31bd33f8431dbaf4d17fcd356a807",
         sha1::Size,
         sha1::BlockSize,
@@ -542,7 +542,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
             0x60, 0x61, 0x62, 0x63,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "2d51b2f7750e410584662e38f133435f4c4fd42a",
         sha1::Size,
         sha1::BlockSize,
@@ -559,7 +559,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
             0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "c7405e3ae058e8cd30b08b4140248581ed174cb34e1224bcc1efc81b",
         sha256::Size224,
         sha256::BlockSize,
@@ -572,7 +572,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
             0x18, 0x19, 0x1a, 0x1b,
         },
-        bytes_of("Sample message for keylen<blocklen"),
+        bytesOf("Sample message for keylen<blocklen"),
         "e3d249a8cfb67ef8b7a169e9a0a599714a2cecba65999a51beb8fbbe",
         sha256::Size224,
         sha256::BlockSize,
@@ -594,7 +594,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
             0x60, 0x61, 0x62, 0x63,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "91c52509e5af8531601ae6230099d90bef88aaefb961f4080abc014d",
         sha256::Size224,
         sha256::BlockSize,
@@ -611,7 +611,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
             0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "8bb9a1db9806f20df7f77b82138c7914d174d59e13dc4d0169c9057b133e1d62",
         sha256::Size,
         sha256::BlockSize,
@@ -624,7 +624,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
             0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
         },
-        bytes_of("Sample message for keylen<blocklen"),
+        bytesOf("Sample message for keylen<blocklen"),
         "a28cf43130ee696a98f14a37678b56bcfcbdd9e5cf69717fecf5480f0ebdf790",
         sha256::Size,
         sha256::BlockSize,
@@ -646,7 +646,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
             0x60, 0x61, 0x62, 0x63,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "bdccb6c72ddeadb500ae768386cb38cc41c63dbb0878ddb9c7a38a431b78378d",
         sha256::Size,
         sha256::BlockSize,
@@ -671,7 +671,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
             0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "63c5daa5e651847ca897c95814ab830bededc7d25e83eef9195cd45857a37f448947858f5af50cc2b1b730ddf29671a9",
         sha512::Size384,
         sha512::BlockSize,
@@ -686,7 +686,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
             0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
         },
-        bytes_of("Sample message for keylen<blocklen"),
+        bytesOf("Sample message for keylen<blocklen"),
         "6eb242bdbb582ca17bebfa481b1e23211464d2b7f8c20b9ff2201637b93646af5ae9ac316e98db45d9cae773675eeed0",
         sha512::Size384,
         sha512::BlockSize,
@@ -720,7 +720,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,
             0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "5b664436df69b0ca22551231a3f0a3d5b4f97991713cfa84bff4d0792eff96c27dccbbb6f79b65d548b40e8564cef594",
         sha512::Size384,
         sha512::BlockSize,
@@ -745,7 +745,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
             0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "fc25e240658ca785b7a811a8d3f7b4ca"
             "48cfa26a8a366bf2cd1f836b05fcb024bd36853081811d6c"
             "ea4216ebad79da1cfcb95ea4586b8a0ce356596a55fb1347",
@@ -764,7 +764,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
             0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
         },
-        bytes_of("Sample message for keylen<blocklen"),
+        bytesOf("Sample message for keylen<blocklen"),
         "fd44c18bda0bb0a6ce0e82b031bf2818"
             "f6539bd56ec00bdc10a8a2d730b3634de2545d639b0f2cf7"
             "10d0692c72a1896f1f211c2b922d1a96c392e07e7ea9fedc",
@@ -800,7 +800,7 @@ inline const std::vector<hmacTest> hmacTests = {
             0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,
             0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
         },
-        bytes_of("Sample message for keylen=blocklen"),
+        bytesOf("Sample message for keylen=blocklen"),
         "d93ec8d2de1ad2a9957cb9b83f14e76a"
             "d6b5e0cce285079a127d3b14bccb7aa7286d4ac0d4ce6421"
             "5f2bc9e6870b33d97438be4aaa20cda5c5a912b48b8e27f3",
@@ -811,7 +811,7 @@ inline const std::vector<hmacTest> hmacTests = {
     {
         sha1::New,
         std::vector<byte>{},
-        bytes_of("message"),
+        bytesOf("message"),
         "d5d1ed05121417247616cfc8378f360a39da7cfa",
         sha1::Size,
         sha1::BlockSize,
@@ -819,7 +819,7 @@ inline const std::vector<hmacTest> hmacTests = {
     {
         sha256::New,
         std::vector<byte>{},
-        bytes_of("message"),
+        bytesOf("message"),
         "eb08c1f56d5ddee07f7bdf80468083da06b64cf4fac64fe3a90883df5feacae4",
         sha256::Size,
         sha256::BlockSize,
@@ -827,7 +827,7 @@ inline const std::vector<hmacTest> hmacTests = {
     {
         sha512::New,
         std::vector<byte>{},
-        bytes_of("message"),
+        bytesOf("message"),
         "08fce52f6395d59c2a3fb8abb281d74ad6f112b9a9c787bcea290d94dadbc82b2ca3e5e12bf2277c7fedbb0154d5493e41bb7459f63c8e39554ea3651b812492",
         sha512::Size,
         sha512::BlockSize,

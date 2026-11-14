@@ -34,13 +34,13 @@ string Weekday::String() const {
 
 namespace {
 
-struct split_days {
+struct splitDays {
     uint64 century;
     uint32 cyear;
     uint32 ayday;  // day of the March-based year, 0-based
 };
 
-split_days daysSplit(absDays days) {
+splitDays daysSplit(absDays days) {
     uint64 d = 4 * days + 3;
     uint64 century = d / 146097;
     uint32 cd = static_cast<uint32>(d % 146097) | 3;

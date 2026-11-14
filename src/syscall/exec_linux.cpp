@@ -147,18 +147,18 @@ namespace {
 using detail::rawSyscall;
 
 // The kernel's struct sigaction (with sa_restorer, on x86-64 and ARM64).
-struct kernel_sigaction {
+struct kernelSigaction {
     unsigned long handler;
     unsigned long flags;
     unsigned long restorer;
     uint64_t mask;
 };
 
-constexpr int child_stack_size = 64 * 1024;
+constexpr int childStackSize = 64 * 1024;
 constexpr int nsig = 65;
 
 // What the child needs, made by the parent before the clone.
-struct child_args {
+struct childArgs {
     const char* argv0;
     char* const* argv;
     char* const* envv;
@@ -175,22 +175,22 @@ struct child_args {
     const sigset_t* oldmask;  // the mask to restore
     // The ID mappings: the pipe the parent reports writing them on, -1
     // without; and what the child writes after unshare(CLONE_NEWUSER).
-    int map_pipe[2];
+    int mapPipe[2];
     const char* uidmap;
-    long uidmap_len;
+    long uidmapLen;
     const char* gidmap;
-    long gidmap_len;
+    long gidmapLen;
     const char* setgroups;
-    long setgroups_len;
+    long setgroupsLen;
 };
 
 // The kernel's capabilities, version 3 (Go's caps).
-constexpr uint32_t linux_capability_version_3 = 0x20080522;
-struct cap_header {
+constexpr uint32_t linuxCapabilityVersion3 = 0x20080522;
+struct capHeader {
     uint32_t version;
     int32_t pid;
 };
-struct cap_data {
+struct capData {
     uint32_t effective;
     uint32_t permitted;
     uint32_t inheritable;
@@ -199,7 +199,7 @@ struct cap_data {
 // The child: system calls only, then exec. On failure, writes the errno
 // to the pipe and exits.
 [[gnu::noinline]] int childMain(void* arg) {
-    auto* a = static_cast<child_args*>(arg);
+    auto* a = static_cast<childArgs*>(arg);
     const SysProcAttr* sys = a->sys;
     long r = 0;
     int err1 = 0;
@@ -217,10 +217,10 @@ struct cap_data {
     if (!sys->AmbientCaps.empty()) CHILD_CALL(SYS_prctl, PR_SET_KEEPCAPS, 1, 0, 0, 0, 0);
 
     // Wait for the User ID/Group ID mappings to be written.
-    if (a->map_pipe[0] >= 0) {
-        CHILD_CALL(SYS_close, a->map_pipe[1], 0, 0, 0, 0, 0);
+    if (a->mapPipe[0] >= 0) {
+        CHILD_CALL(SYS_close, a->mapPipe[1], 0, 0, 0, 0, 0);
         int err2 = 0;
-        CHILD_CALL(SYS_read, a->map_pipe[0], reinterpret_cast<long>(&err2), sizeof(err2), 0, 0, 0);
+        CHILD_CALL(SYS_read, a->mapPipe[0], reinterpret_cast<long>(&err2), sizeof(err2), 0, 0, 0);
         if (r != sizeof(err2)) {
             r = -EINVAL;
             goto childerror;
@@ -245,11 +245,11 @@ struct cap_data {
     // Go's runtime_AfterForkInChild: the handlers of this process back to
     // the default, ignored signals kept ignored; then the signal mask.
     for (int s = 1; s < nsig; s++) {
-        kernel_sigaction old{};
+        kernelSigaction old{};
         if (rawSyscall(SYS_rt_sigaction, s, 0, reinterpret_cast<long>(&old), 8, 0, 0) < 0) continue;
         if (old.handler != reinterpret_cast<unsigned long>(SIG_DFL) &&
             old.handler != reinterpret_cast<unsigned long>(SIG_IGN)) {
-            kernel_sigaction dfl{};
+            kernelSigaction dfl{};
             rawSyscall(SYS_rt_sigaction, s, reinterpret_cast<long>(&dfl), 0, 8, 0, 0);
         }
     }
@@ -265,14 +265,14 @@ struct cap_data {
                 long len;
             } maps[3] = {};
             int n = 0;
-            static const char setgroups_path[] = "/proc/self/setgroups";
-            static const char gid_map_path[] = "/proc/self/gid_map";
-            static const char uid_map_path[] = "/proc/self/uid_map";
+            static const char setgroupsPath[] = "/proc/self/setgroups";
+            static const char gidMapPath[] = "/proc/self/gid_map";
+            static const char uidMapPath[] = "/proc/self/uid_map";
             if (a->gidmap) {
-                maps[n++] = {setgroups_path, a->setgroups, a->setgroups_len};
-                maps[n++] = {gid_map_path, a->gidmap, a->gidmap_len};
+                maps[n++] = {setgroupsPath, a->setgroups, a->setgroupsLen};
+                maps[n++] = {gidMapPath, a->gidmap, a->gidmapLen};
             }
-            if (a->uidmap) maps[n++] = {uid_map_path, a->uidmap, a->uidmap_len};
+            if (a->uidmap) maps[n++] = {uidMapPath, a->uidmap, a->uidmapLen};
             for (int k = 0; k < n; k++) {
                 CHILD_CALL(SYS_openat, AT_FDCWD, reinterpret_cast<long>(maps[k].path), O_WRONLY, 0, 0, 0);
                 long fd1 = r;
@@ -305,8 +305,8 @@ struct cap_data {
     }
 
     if (!sys->AmbientCaps.empty()) {
-        cap_header hdr{linux_capability_version_3, 0};
-        cap_data data[2] = {};
+        capHeader hdr{linuxCapabilityVersion3, 0};
+        capData data[2] = {};
         CHILD_CALL(SYS_capget, reinterpret_cast<long>(&hdr), reinterpret_cast<long>(data), 0, 0, 0, 0);
         // Add each capability to the permitted and inheritable sets,
         // otherwise it can't be added to the ambient set.
@@ -402,28 +402,28 @@ struct cstrings {
     }
 };
 
-const SysProcAttr zero_sys_proc_attr{};
+const SysProcAttr zeroSysProcAttr{};
 
 // The kernel's struct clone_args, of clone3(2).
-struct clone_args_k {
+struct cloneArgsK {
     uint64_t flags;
     uint64_t pidfd;
-    uint64_t child_tid;
-    uint64_t parent_tid;
-    uint64_t exit_signal;
+    uint64_t childTid;
+    uint64_t parentTid;
+    uint64_t exitSignal;
     uint64_t stack;
     uint64_t stackSize;
     uint64_t tls;
-    uint64_t set_tid;
-    uint64_t set_tid_size;
+    uint64_t setTid;
+    uint64_t setTidSize;
     uint64_t cgroup;
 };
 
 // Makes a child running child_main(args) with clone(2), or clone3(2) if
 // clone3 isn't null (its flags, pidfd and cgroup set); returns its pid, or
 // -errno. Signals are blocked around it.
-long cloneChild(child_args& args, int flags, int* pidfd, clone_args_k* clone3) {
-    void* stack = ::mmap(nullptr, child_stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK,
+long cloneChild(childArgs& args, int flags, int* pidfd, cloneArgsK* clone3) {
+    void* stack = ::mmap(nullptr, childStackSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK,
                          -1, 0);
     if (stack == MAP_FAILED) return -errno;
     sigset_t all, old;
@@ -437,16 +437,16 @@ long cloneChild(child_args& args, int flags, int* pidfd, clone_args_k* clone3) {
         args.oldmask = &old;
         if (clone3) {
             clone3->stack = reinterpret_cast<uint64_t>(stack);
-            clone3->stackSize = child_stack_size;
+            clone3->stackSize = childStackSize;
             pid = gopp_clone3_trampoline(clone3, sizeof(*clone3), childMain, &args);
         } else {
-            pid = ::clone(childMain, static_cast<char*>(stack) + child_stack_size, flags, &args, pidfd, nullptr,
+            pid = ::clone(childMain, static_cast<char*>(stack) + childStackSize, flags, &args, pidfd, nullptr,
                           nullptr);
             if (pid < 0) pid = -errno;
         }
         pthread_sigmask(SIG_SETMASK, &old, nullptr);
     }
-    ::munmap(stack, child_stack_size);
+    ::munmap(stack, childStackSize);
     return pid;
 }
 
@@ -492,14 +492,14 @@ int writeUidGidMappings(long pid, const SysProcAttr& sys, const std::string& uid
 
 namespace detail {
 
-bool force_clone3 = false;
+bool forceClone3 = false;
 
-bool check_clone_pidfd() {
+bool checkClonePidfd() {
     // A child that exits at once, without an exit signal, as in Go: a
     // SIGCHLD would reach a program that notifies SIGCHLD.
     int pidfd = -1;
-    child_args args{};
-    void* stack = ::mmap(nullptr, child_stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK,
+    childArgs args{};
+    void* stack = ::mmap(nullptr, childStackSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK,
                          -1, 0);
     if (stack == MAP_FAILED) return false;
     sigset_t all, old;
@@ -509,10 +509,10 @@ bool check_clone_pidfd() {
         [](void*) -> int {
             for (;;) rawSyscall(SYS_exit_group, 0, 0, 0, 0, 0, 0);
         },
-        static_cast<char*>(stack) + child_stack_size, CLONE_VM | CLONE_VFORK | CLONE_PIDFD, &args, &pidfd,
+        static_cast<char*>(stack) + childStackSize, CLONE_VM | CLONE_VFORK | CLONE_PIDFD, &args, &pidfd,
         nullptr, nullptr);
     pthread_sigmask(SIG_SETMASK, &old, nullptr);
-    ::munmap(stack, child_stack_size);
+    ::munmap(stack, childStackSize);
     if (pid < 0) return false;
     int status;
     // A child without an exit signal is a "clone" child: __WCLONE.
@@ -526,9 +526,9 @@ bool check_clone_pidfd() {
 }  // namespace detail
 
 std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const string> argv, const ProcAttr* attr) {
-    static const ProcAttr zero_attr{};
-    if (!attr) attr = &zero_attr;
-    const SysProcAttr* sys = attr->Sys ? attr->Sys : &zero_sys_proc_attr;
+    static const ProcAttr zeroAttr{};
+    if (!attr) attr = &zeroAttr;
+    const SysProcAttr* sys = attr->Sys ? attr->Sys : &zeroSysProcAttr;
 
     // The C forms of the arguments.
     if (argv0.find('\0') != std::string_view::npos) return {0, EINVAL_};
@@ -579,11 +579,11 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     if (sys->PidFD) flags |= CLONE_PIDFD;
     int pidfd = -1;
     // Whether to use clone3: CLONE_INTO_CGROUP and CLONE_NEWTIME need it.
-    std::optional<clone_args_k> clone3;
-    if (sys->UseCgroupFD || (flags & CLONE_NEWTIME_) != 0 || detail::force_clone3) {
-        clone3 = clone_args_k{};
+    std::optional<cloneArgsK> clone3;
+    if (sys->UseCgroupFD || (flags & CLONE_NEWTIME_) != 0 || detail::forceClone3) {
+        clone3 = cloneArgsK{};
         clone3->flags = flags;
-        clone3->exit_signal = SIGCHLD;
+        clone3->exitSignal = SIGCHLD;
         if (sys->UseCgroupFD) {
             clone3->flags |= CLONE_INTO_CGROUP;
             clone3->cgroup = static_cast<uint64_t>(sys->CgroupFD);
@@ -591,7 +591,7 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
         if (sys->PidFD) clone3->pidfd = reinterpret_cast<uint64_t>(&pidfd);
     }
 
-    child_args args{};
+    childArgs args{};
     args.argv0 = argv0s.c_str();
     args.argv = argvp.p.data();
     args.envv = envvp.p.data();
@@ -604,16 +604,16 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     args.groups = groups.data();
     args.ngroups = static_cast<long>(groups.size());
     args.ppid = sys->Pdeathsig.value != 0 ? static_cast<long>(::getpid()) : 0;
-    args.map_pipe[0] = args.map_pipe[1] = -1;
+    args.mapPipe[0] = args.mapPipe[1] = -1;
     if (!sys->UidMappings.empty()) {
         args.uidmap = uidmap.c_str();
-        args.uidmap_len = static_cast<long>(uidmap.size());
+        args.uidmapLen = static_cast<long>(uidmap.size());
     }
     if (!sys->GidMappings.empty()) {
         args.gidmap = gidmap.c_str();
-        args.gidmap_len = static_cast<long>(gidmap.size());
+        args.gidmapLen = static_cast<long>(gidmap.size());
         args.setgroups = setgroups.c_str();
-        args.setgroups_len = static_cast<long>(setgroups.size());
+        args.setgroupsLen = static_cast<long>(setgroups.size());
     }
 
     ForkLock.Lock();
@@ -627,7 +627,7 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     args.pipe = p[1];
     // Another pipe for parent to child communication for synchronizing
     // writing of User ID/Group ID mappings.
-    if (mappings && ::pipe2(args.map_pipe, O_CLOEXEC) < 0) {
+    if (mappings && ::pipe2(args.mapPipe, O_CLOEXEC) < 0) {
         int e = errno;
         ForkLock.Unlock();
         ::close(p[0]);
@@ -640,21 +640,21 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     if (pid < 0) {
         ::close(p[0]);
         if (mappings) {
-            ::close(args.map_pipe[0]);
-            ::close(args.map_pipe[1]);
+            ::close(args.mapPipe[0]);
+            ::close(args.mapPipe[1]);
         }
         return {0, errnoError(static_cast<int>(-pid))};
     }
 
     if (mappings) {
-        ::close(args.map_pipe[0]);
+        ::close(args.mapPipe[0]);
         // The uid/gid mappings are written after fork, or by the child
         // after unshare(2) of its user namespace.
         int err2 = 0;
         if ((sys->Unshareflags & CLONE_NEWUSER_) == 0) err2 = writeUidGidMappings(pid, *sys, uidmap, gidmap);
-        while (::write(args.map_pipe[1], &err2, sizeof(err2)) < 0 && errno == EINTR) {
+        while (::write(args.mapPipe[1], &err2, sizeof(err2)) < 0 && errno == EINTR) {
         }
-        ::close(args.map_pipe[1]);
+        ::close(args.mapPipe[1]);
     }
 
     // The child's error, or EOF if exec closed the pipe. Without

@@ -13,22 +13,22 @@ namespace gopp::sql {
 
 namespace detail {
 
-const error err_nil_ptr = errors::New("destination pointer is nil");
-const error err_uint64_high_bit = errors::New("uint64 values with high bit set are not supported");
+const error errNilPtr = errors::New("destination pointer is nil");
+const error errUint64HighBit = errors::New("uint64 values with high bit set are not supported");
 
 namespace {
 
-struct wrapped_error final : errorInterface {
+struct wrappedError final : errorInterface {
     string msg;
     gopp::error inner;
-    wrapped_error(string m, gopp::error e) : msg(std::move(m)), inner(std::move(e)) {}
+    wrappedError(string m, gopp::error e) : msg(std::move(m)), inner(std::move(e)) {}
     string Error() const override { return msg; }
     const errorInterface* Unwrap() const noexcept override { return inner.get(); }
 };
 
 }  // namespace
 
-error wrapf(string msg, error inner) { return make_ptr<wrapped_error>(std::move(msg), std::move(inner)); }
+error wrapf(string msg, error inner) { return make_ptr<wrappedError>(std::move(msg), std::move(inner)); }
 error errorf(string msg) { return errors::New(std::move(msg)); }
 
 string quote(std::string_view s) { return strconv::Quote(s); }
@@ -110,7 +110,7 @@ std::string formatRfc3339Nano(const time::Time& t) { return std::string(t.Format
 namespace {
 
 // asString
-std::string as_string(const driver::Value& src) {
+std::string asString(const driver::Value& src) {
     switch (src.index()) {
     case 5: return std::get<string>(src).str();
     case 4: return std::string(asStringView(std::get<slice<byte>>(src).span()));
@@ -124,15 +124,15 @@ std::string as_string(const driver::Value& src) {
 // asBytes: appends src's text for numbers, bools and strings.
 bool appendText(std::string& buf, const driver::Value& src) {
     switch (src.index()) {
-    case 1: case 2: case 3: case 5: buf += as_string(src); return true;
+    case 1: case 2: case 3: case 5: buf += asString(src); return true;
     default: return false;
     }
 }
 
-slice<byte> bytes_of(std::string_view s) { return slice<byte>::of(gopp::as_bytes(s)); }
+slice<byte> bytesOf(std::string_view s) { return slice<byte>::of(gopp::as_bytes(s)); }
 
 // strconvErr: the cause of a strconv.NumError.
-error strconv_err(const error& err) {
+error strconvErr(const error& err) {
     if (auto* ne = errors::As<strconv::NumError>(err)) return ne->Err;
     return err;
 }
@@ -143,14 +143,14 @@ error nullUnsupported(std::string_view kind) {
 
 error convertFailed(const driver::Value& src, const std::string& s, std::string_view kind, const error& err) {
     return errorf("converting driver.Value type " + string(driver::TypeName(src)) + " (" + quote(s) + ") to a " +
-                  string(kind) + ": " + strconv_err(err).Error());
+                  string(kind) + ": " + strconvErr(err).Error());
 }
 
 }  // namespace
 
-error unsupportedScan(const driver::Value& src, std::string_view dest_type) {
+error unsupportedScan(const driver::Value& src, std::string_view destType) {
     return errorf("unsupported Scan, storing driver.Value type " + string(driver::TypeName(src)) + " into type " +
-                  string(dest_type));
+                  string(destType));
 }
 
 error convertString(const driver::Value& src, gopp::string& out) {
@@ -159,40 +159,40 @@ error convertString(const driver::Value& src, gopp::string& out) {
     case 4: out = string(asStringView(std::get<slice<byte>>(src).span())); return nullptr;
     case 6: out = string(formatRfc3339Nano(std::get<time::Time>(src))); return nullptr;
     case 0: return nullUnsupported("string");
-    default: out = string(as_string(src)); return nullptr;
+    default: out = string(asString(src)); return nullptr;
     }
 }
 
 error convertBytes(const driver::Value& src, slice<byte>& out) {
     switch (src.index()) {
-    case 5: out = bytes_of(std::get<string>(src)); return nullptr;
+    case 5: out = bytesOf(std::get<string>(src)); return nullptr;
     case 4: out = slice<byte>::of(std::get<slice<byte>>(src).span()); return nullptr;  // a copy
-    case 6: out = bytes_of(formatRfc3339Nano(std::get<time::Time>(src))); return nullptr;
+    case 6: out = bytesOf(formatRfc3339Nano(std::get<time::Time>(src))); return nullptr;
     case 0: out = slice<byte>(); return nullptr;
     }
     std::string b;
     if (appendText(b, src)) {
-        out = bytes_of(b);
+        out = bytesOf(b);
         return nullptr;
     }
     return unsupportedScan(src, "*[]uint8");
 }
 
 error convertRawBytes(const driver::Value& src, RawBytes& out, Rows* rows) {
-    auto append_raw = [&](std::string_view s) {
+    auto appendRaw = [&](std::string_view s) {
         slice<byte> buf = rows ? rows->rawbuf() : slice<byte>();
         slice<byte> b = appendSpan(buf, gopp::as_bytes(s));
         out = rows ? rows->setrawbuf(b) : RawBytes(b);
     };
     switch (src.index()) {
-    case 5: append_raw(std::get<string>(src)); return nullptr;
+    case 5: appendRaw(std::get<string>(src)); return nullptr;
     case 4: out = RawBytes(std::get<slice<byte>>(src)); return nullptr;  // the driver's memory, as in Go
-    case 6: append_raw(formatRfc3339Nano(std::get<time::Time>(src))); return nullptr;
+    case 6: appendRaw(formatRfc3339Nano(std::get<time::Time>(src))); return nullptr;
     case 0: out = RawBytes(); return nullptr;
     }
     std::string b;
     if (appendText(b, src)) {
-        append_raw(b);
+        appendRaw(b);
         return nullptr;
     }
     return unsupportedScan(src, "*sql.RawBytes");
@@ -215,7 +215,7 @@ error convertAny(const driver::Value& src, driver::Value& out) {
 
 error convertInt(const driver::Value& src, int bits, std::string_view kind, int64& out) {
     if (std::holds_alternative<std::nullptr_t>(src)) return nullUnsupported(kind);
-    std::string s = as_string(src);
+    std::string s = asString(src);
     auto [i, err] = strconv::ParseInt(s, 10, bits);
     if (err) return convertFailed(src, s, kind, err);
     out = i;
@@ -224,7 +224,7 @@ error convertInt(const driver::Value& src, int bits, std::string_view kind, int6
 
 error convertUint(const driver::Value& src, int bits, std::string_view kind, uint64& out) {
     if (std::holds_alternative<std::nullptr_t>(src)) return nullUnsupported(kind);
-    std::string s = as_string(src);
+    std::string s = asString(src);
     auto [u, err] = strconv::ParseUint(s, 10, bits);
     if (err) return convertFailed(src, s, kind, err);
     out = u;
@@ -233,7 +233,7 @@ error convertUint(const driver::Value& src, int bits, std::string_view kind, uin
 
 error convertFloat(const driver::Value& src, int bits, std::string_view kind, double& out) {
     if (std::holds_alternative<std::nullptr_t>(src)) return nullUnsupported(kind);
-    std::string s = as_string(src);
+    std::string s = asString(src);
     auto [f, err] = parseFloat(s, bits);
     if (err) return convertFailed(src, s, kind, err);
     out = f;
@@ -267,7 +267,7 @@ error validateNamedValueName(std::string_view name) {
 }
 
 // ccChecker: arguments through a driver's ColumnConverter.
-struct cc_checker {
+struct ccChecker {
     driver::ColumnConverter* cci = nullptr;
     int want = -1;
 
@@ -292,13 +292,13 @@ error defaultCheckNamedValue(driver::NamedValue& nv) {
 
 }  // namespace
 
-std::pair<std::vector<driver::NamedValue>, error> driver_args_conn_locked(driver::Conn* ci, driver_stmt* ds,
+std::pair<std::vector<driver::NamedValue>, error> driverArgsConnLocked(driver::Conn* ci, driverStmt* ds,
                                                                           std::span<const arg> args) {
     std::vector<driver::NamedValue> nvargs;
     nvargs.reserve(args.size());
     int want = -1;
     driver::Stmt* si = nullptr;
-    cc_checker cc;
+    ccChecker cc;
     if (ds) {
         si = ds->si.get();
         want = si->NumInput();
@@ -320,19 +320,19 @@ std::pair<std::vector<driver::NamedValue>, error> driver_args_conn_locked(driver
         if (a.err) {
             return {{}, wrapf("sql: converting argument " + describeNamedValue(nv) + " type: " + a.err.Error(), a.err)};
         }
-        enum { default_check, nvc_check, cc_check } checker = default_check;
-        bool next_cc = false;
+        enum { defaultCheck, nvcCheck, ccCheck } checker = defaultCheck;
+        bool nextCc = false;
         if (nvc) {
-            next_cc = cci != nullptr;
-            checker = nvc_check;
+            nextCc = cci != nullptr;
+            checker = nvcCheck;
         } else if (cci) {
-            checker = cc_check;
+            checker = ccCheck;
         }
         for (;;) {
             error err;
             switch (checker) {
-            case nvc_check: err = nvc->CheckNamedValue(nv); break;
-            case cc_check: err = cc.check(nv); break;
+            case nvcCheck: err = nvc->CheckNamedValue(nv); break;
+            case ccCheck: err = cc.check(nv); break;
             default: err = defaultCheckNamedValue(nv); break;
             }
             if (!err) {
@@ -341,11 +341,11 @@ std::pair<std::vector<driver::NamedValue>, error> driver_args_conn_locked(driver
             }
             if (err == driver::ErrRemoveArgument) break;
             if (err == driver::ErrSkip) {
-                if (next_cc) {
-                    next_cc = false;
-                    checker = cc_check;
+                if (nextCc) {
+                    nextCc = false;
+                    checker = ccCheck;
                 } else {
-                    checker = default_check;
+                    checker = defaultCheck;
                 }
                 continue;
             }
@@ -376,7 +376,7 @@ error NullString::Scan(const driver::Value& value) {
         Valid = false;
         return nullptr;
     }
-    error err = convert_assign(&String, value);
+    error err = convertAssign(&String, value);
     Valid = !err;
     return err;
 }
@@ -392,7 +392,7 @@ error NullInt64::Scan(const driver::Value& value) {
         Valid = false;
         return nullptr;
     }
-    error err = convert_assign(&Int64, value);
+    error err = convertAssign(&Int64, value);
     Valid = !err;
     return err;
 }
@@ -408,7 +408,7 @@ error NullInt32::Scan(const driver::Value& value) {
         Valid = false;
         return nullptr;
     }
-    error err = convert_assign(&Int32, value);
+    error err = convertAssign(&Int32, value);
     Valid = !err;
     return err;
 }
@@ -424,7 +424,7 @@ error NullInt16::Scan(const driver::Value& value) {
         Valid = false;
         return nullptr;
     }
-    error err = convert_assign(&Int16, value);
+    error err = convertAssign(&Int16, value);
     Valid = !err;
     return err;
 }
@@ -440,7 +440,7 @@ error NullByte::Scan(const driver::Value& value) {
         Valid = false;
         return nullptr;
     }
-    error err = convert_assign(&Byte, value);
+    error err = convertAssign(&Byte, value);
     Valid = !err;
     return err;
 }
@@ -456,7 +456,7 @@ error NullFloat64::Scan(const driver::Value& value) {
         Valid = false;
         return nullptr;
     }
-    error err = convert_assign(&Float64, value);
+    error err = convertAssign(&Float64, value);
     Valid = !err;
     return err;
 }
@@ -472,7 +472,7 @@ error NullBool::Scan(const driver::Value& value) {
         Valid = false;
         return nullptr;
     }
-    error err = convert_assign(&Bool, value);
+    error err = convertAssign(&Bool, value);
     Valid = !err;
     return err;
 }

@@ -72,13 +72,13 @@ Logger::Logger(ptr<io::Writer> out, string prefix, int flag) {
 }
 
 void Logger::SetOutput(ptr<io::Writer> w) {
-    std::lock_guard lock(out_mu_);
-    is_discard_.store(w.get() == &io::Discard(), std::memory_order_relaxed);
+    std::lock_guard lock(outMu_);
+    isDiscard_.store(w.get() == &io::Discard(), std::memory_order_relaxed);
     out_ = std::move(w);
 }
 
 ptr<io::Writer> Logger::Writer() const {
-    std::lock_guard lock(out_mu_);
+    std::lock_guard lock(outMu_);
     return out_;
 }
 
@@ -111,10 +111,10 @@ error Logger::output(const std::source_location& loc, std::string_view s) {
     buf += s;
     if (buf.empty() || buf.back() != '\n') buf.push_back('\n');
 
-    std::lock_guard lock(out_mu_);
+    std::lock_guard lock(outMu_);
     if (!out_) return nullptr;
     auto p = std::span<const byte>(reinterpret_cast<const byte*>(buf.data()), buf.size());
-    if (auto* lw = dynamic_cast<detail::located_writer*>(out_.get())) return lw->WriteLocated(p, loc).second;
+    if (auto* lw = dynamic_cast<detail::locatedWriter*>(out_.get())) return lw->WriteLocated(p, loc).second;
     return out_->Write(p).second;
 }
 
@@ -126,8 +126,8 @@ ptr<Logger> New(ptr<io::Writer> out, string prefix, int flag) {
 
 ptr<Logger> Default() {
     // Made on first use: os::Stderr is a global of another file.
-    static const ptr<Logger> std_logger = New(ptr<io::Writer>(&os::Stderr), "", LstdFlags);
-    return std_logger;
+    static const ptr<Logger> stdLogger = New(ptr<io::Writer>(&os::Stderr), "", LstdFlags);
+    return stdLogger;
 }
 
 void SetOutput(ptr<io::Writer> w) { Default()->SetOutput(std::move(w)); }

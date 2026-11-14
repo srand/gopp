@@ -29,7 +29,7 @@ namespace gopp::maps {
 namespace detail {
 
 template <typename M>
-concept map_like = requires(M& m, const typename M::key_type& k) {
+concept mapLike = requires(M& m, const typename M::key_type& k) {
     typename M::key_type;
     typename M::mapped_type;
     { m.find(k) } -> std::same_as<typename M::iterator>;
@@ -43,19 +43,19 @@ concept hashable = requires(const K& k) {
 };
 
 template <typename R>
-using key_of = std::remove_cvref_t<std::tuple_element_t<0, std::ranges::range_value_t<R>>>;
+using keyOf = std::remove_cvref_t<std::tuple_element_t<0, std::ranges::range_value_t<R>>>;
 template <typename R>
-using value_of = std::remove_cvref_t<std::tuple_element_t<1, std::ranges::range_value_t<R>>>;
+using valueOf = std::remove_cvref_t<std::tuple_element_t<1, std::ranges::range_value_t<R>>>;
 
 // The map Collect makes: an unordered_map if the key is hashable, as Go's
 // map is, else a std::map.
 template <typename K, typename V>
-using map_for = std::conditional_t<hashable<K>, std::unordered_map<K, V>, std::map<K, V>>;
+using mapFor = std::conditional_t<hashable<K>, std::unordered_map<K, V>, std::map<K, V>>;
 
 }  // namespace detail
 
 // maps.Equal: the same keys with equal values.
-template <detail::map_like M1, detail::map_like M2>
+template <detail::mapLike M1, detail::mapLike M2>
 bool Equal(const M1& m1, const M2& m2) {
     if (m1.size() != m2.size()) return false;
     for (const auto& [k, v1] : m1) {
@@ -66,7 +66,7 @@ bool Equal(const M1& m1, const M2& m2) {
 }
 
 // maps.EqualFunc: the same keys, with values that eq says are equal.
-template <detail::map_like M1, detail::map_like M2, typename F>
+template <detail::mapLike M1, detail::mapLike M2, typename F>
 bool EqualFunc(const M1& m1, const M2& m2, F eq) {
     if (m1.size() != m2.size()) return false;
     for (const auto& [k, v1] : m1) {
@@ -77,19 +77,19 @@ bool EqualFunc(const M1& m1, const M2& m2, F eq) {
 }
 
 // maps.Clone: a shallow copy.
-template <detail::map_like M>
+template <detail::mapLike M>
 M Clone(const M& m) {
     return m;
 }
 
 // maps.Copy: sets each key of src in dst, overwriting existing values.
-template <detail::map_like M1, detail::map_like M2>
+template <detail::mapLike M1, detail::mapLike M2>
 void Copy(M1& dst, const M2& src) {
     for (const auto& [k, v] : src) dst.insert_or_assign(k, v);
 }
 
 // maps.DeleteFunc: deletes the entries del(key, value) is true for.
-template <detail::map_like M, typename F>
+template <detail::mapLike M, typename F>
 void DeleteFunc(M& m, F del) {
     for (auto it = m.begin(); it != m.end();) {
         if (del(it->first, it->second)) {
@@ -102,27 +102,27 @@ void DeleteFunc(M& m, F del) {
 
 // maps.All: (key, value) pairs.
 template <std::ranges::viewable_range M>
-    requires detail::map_like<std::remove_cvref_t<M>>
+    requires detail::mapLike<std::remove_cvref_t<M>>
 auto All(M&& m) {
     return std::views::all(std::forward<M>(m));
 }
 
 // maps.Keys: the keys.
 template <std::ranges::viewable_range M>
-    requires detail::map_like<std::remove_cvref_t<M>>
+    requires detail::mapLike<std::remove_cvref_t<M>>
 auto Keys(M&& m) {
     return std::views::keys(std::forward<M>(m));
 }
 
 // maps.Values: the values.
 template <std::ranges::viewable_range M>
-    requires detail::map_like<std::remove_cvref_t<M>>
+    requires detail::mapLike<std::remove_cvref_t<M>>
 auto Values(M&& m) {
     return std::views::values(std::forward<M>(m));
 }
 
 // maps.Insert: sets the (key, value) pairs of seq in m.
-template <detail::map_like M, std::ranges::input_range R>
+template <detail::mapLike M, std::ranges::input_range R>
 void Insert(M& m, R&& seq) {
     for (auto&& kv : seq) {
         auto&& [k, v] = kv;
@@ -131,7 +131,7 @@ void Insert(M& m, R&& seq) {
 }
 
 // maps.Collect: a new map of the (key, value) pairs of seq.
-template <std::ranges::input_range R, typename M = detail::map_for<detail::key_of<R>, detail::value_of<R>>>
+template <std::ranges::input_range R, typename M = detail::mapFor<detail::keyOf<R>, detail::valueOf<R>>>
 M Collect(R&& seq) {
     M m;
     Insert(m, std::forward<R>(seq));

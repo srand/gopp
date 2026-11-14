@@ -42,12 +42,12 @@ public:
 
     // Reads a line without its end of line; IsPrefix if it was too long
     // for the buffer.
-    struct line_result {
+    struct lineResult {
         std::span<const byte> line;
         bool IsPrefix;
         error err;
     };
-    line_result ReadLine();
+    lineResult ReadLine();
 
     // Reads until delim and returns a copy, including delim.
     std::pair<string, error> ReadString(byte delim);
@@ -67,7 +67,7 @@ private:
     std::size_t r_ = 0;
     std::size_t w_ = 0;
     error err_;
-    int last_byte_ = -1;
+    int lastByte_ = -1;
     int lastRuneSize_ = -1;
 };
 

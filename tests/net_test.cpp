@@ -70,11 +70,11 @@ TEST(Net, EchoServer) {
 TEST(Net, ReadDeadline) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    auto accepted = makeChan<ptr<net::Conn>>(1);
+    auto accepted = make_chan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
     auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
     ASSERT_FALSE(derr);
-    auto server_side = accepted.recv();
+    auto serverSide = accepted.recv();
 
     c->SetReadDeadline(time::Now().Add(20ms));
     byte buf[16];
@@ -90,13 +90,13 @@ TEST(Net, ReadDeadline) {
 TEST(Net, CloseUnblocksReader) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    auto accepted = makeChan<ptr<net::Conn>>(1);
+    auto accepted = make_chan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
     auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
     ASSERT_FALSE(derr);
-    auto server_side = accepted.recv();
+    auto serverSide = accepted.recv();
 
-    auto result = makeChan<error>(1);
+    auto result = make_chan<error>(1);
     go([c, result] {
         byte buf[16];
         result.send(c->Read(buf).second);
@@ -131,7 +131,7 @@ namespace {
 
 // A connected pair: the dialed side and the accepted one.
 std::pair<ptr<net::Conn>, ptr<net::Conn>> tcpPair(const ptr<net::Listener>& ln) {
-    auto accepted = makeChan<ptr<net::Conn>>(1);
+    auto accepted = make_chan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
     auto [c, err] = net::Dial("tcp", ln->Addr()->String());
     EXPECT_FALSE(err) << err;
@@ -291,7 +291,7 @@ TEST(Net, DialRefused) {
 // that hangs.
 namespace {
 
-const bool first_use_helper = go_helper::registerHelper("net-first-use", [](const std::vector<std::string>&) {
+const bool firstUseHelper = go_helper::registerHelper("net-first-use", [](const std::vector<std::string>&) {
     sync::WaitGroup wg;
     for (int i = 0; i < 16; i++) {
         wg.Go([i] {

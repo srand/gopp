@@ -17,17 +17,17 @@ namespace gopp::os {
 
 namespace {
 
-sync::RWMutex env_lock;
+sync::RWMutex envLock;
 
 }  // namespace
 
 std::pair<string, bool> LookupEnv(std::string_view key) {
     if (key.empty() || key.find('\0') != std::string_view::npos) return {string(), false};
     std::string k(key);
-    env_lock.RLock();
+    envLock.RLock();
     const char* v = std::getenv(k.c_str());
     std::pair<string, bool> r = v ? std::pair<string, bool>{string(v), true} : std::pair<string, bool>{string(), false};
-    env_lock.RUnlock();
+    envLock.RUnlock();
     return r;
 }
 
@@ -39,10 +39,10 @@ error Setenv(std::string_view key, std::string_view value) {
         return NewSyscallError("setenv", syscall::EINVAL_);
     }
     std::string k(key), v(value);
-    env_lock.Lock();
+    envLock.Lock();
     int r = ::setenv(k.c_str(), v.c_str(), 1);
     int e = errno;
-    env_lock.Unlock();
+    envLock.Unlock();
     if (r < 0) return NewSyscallError("setenv", syscall::errnoError(e));
     return nullptr;
 }
@@ -51,25 +51,25 @@ error Unsetenv(std::string_view key) {
     // Go's Unsetenv of a key that can't be set does nothing.
     if (key.empty() || key.find_first_of(std::string_view("=\0", 2)) != std::string_view::npos) return nullptr;
     std::string k(key);
-    env_lock.Lock();
+    envLock.Lock();
     ::unsetenv(k.c_str());
-    env_lock.Unlock();
+    envLock.Unlock();
     return nullptr;
 }
 
 void Clearenv() {
-    env_lock.Lock();
+    envLock.Lock();
     ::clearenv();
-    env_lock.Unlock();
+    envLock.Unlock();
 }
 
 slice<string> Environ() {
-    env_lock.RLock();
+    envLock.RLock();
     std::size_t n = 0;
     for (char** e = environ; e && *e; e++) n++;
     slice<string> a = slice<string>::make(0, n);
     for (char** e = environ; e && *e; e++) a = append(a, string(*e));
-    env_lock.RUnlock();
+    envLock.RUnlock();
     return a;
 }
 
@@ -91,7 +91,7 @@ bool isAlphaNum(char c) {
 // Go's getShellName: the name of the variable that s starts with (after
 // the $), and how many bytes it takes. A bad ${...} gives "" and the bytes
 // to eat.
-std::pair<std::string_view, std::size_t> get_shell_name(std::string_view s) {
+std::pair<std::string_view, std::size_t> getShellName(std::string_view s) {
     if (s[0] == '{') {
         if (s.size() > 2 && isShellSpecialVar(s[1]) && s[2] == '}') return {s.substr(1, 1), 3};
         for (std::size_t i = 1; i < s.size(); i++) {
@@ -121,7 +121,7 @@ string Expand(std::string_view s, const std::function<string(std::string_view)>&
                 any = true;
             }
             buf.append(s.substr(i, j - i));
-            auto [name, w] = get_shell_name(s.substr(j + 1));
+            auto [name, w] = getShellName(s.substr(j + 1));
             if (name.empty() && w > 0) {
                 // Bad syntax: eat the characters.
             } else if (name.empty()) {

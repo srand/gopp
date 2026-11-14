@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     std::vector<string> files = flag::Args();
     if (files.empty()) files.push_back("-");
 
-    auto results = makeChan<FileCounts>();
+    auto results = make_chan<FileCounts>();
     for (const string& name : files) {
         go([name, results] { results.send(count(name)); });
     }

@@ -281,7 +281,7 @@ The interfaces are in `modules/`, one per header. In module mode
   because C++ reserves a class's own name for its constructors: call it
   through `gopp::error`, or use `message()`; so does `exec::Error`. For the
   same reason `os::Signal` is a value type, like `gopp::error`, and the
-  interface behind it is `os::signal_interface`.
+  interface behind it is `os::signalInterface`.
 
 ## Under the hood
 

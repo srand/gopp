@@ -25,9 +25,9 @@ const error ErrFileClosing = errors::New("use of closed file");
 
 namespace {
 
-constexpr uint64_t closed_bit = uint64_t(1) << 63;
+constexpr uint64_t closedBit = uint64_t(1) << 63;
 // Reads and writes of streams are capped like Go's maxRW.
-constexpr std::size_t max_rw = std::size_t(1) << 30;
+constexpr std::size_t maxRw = std::size_t(1) << 30;
 
 error errnoError(int e) { return syscall::errnoError(e); }
 
@@ -43,19 +43,19 @@ auto sys(bool blocking, F&& f) {
 }
 
 // A read, pread, write or pwrite on a blocking descriptor, through
-// io_uring if it can and use_uring is set: off is the offset, or -1 for
+// io_uring if it can and useUring is set: off is the offset, or -1 for
 // the file's. Returns the count or -errno.
-long blockingRw(bool use_uring, bool write, int fd, void* p, std::size_t n, int64 off) {
+long blockingRw(bool useUring, bool write, int fd, void* p, std::size_t n, int64 off) {
     using runtime::uringOrBlocking;
     auto u64off = static_cast<__u64>(off);
     auto len = static_cast<unsigned>(n);
     if (write) {
         return uringOrBlocking(
-            use_uring ? IORING_OP_WRITE : -1, [&](io_uring_sqe* sqe) { io_uring_prep_write(sqe, fd, p, len, u64off); },
+            useUring ? IORING_OP_WRITE : -1, [&](io_uring_sqe* sqe) { io_uring_prep_write(sqe, fd, p, len, u64off); },
             [&] { return off < 0 ? ::write(fd, p, n) : ::pwrite(fd, p, n, off); });
     }
     return uringOrBlocking(
-        use_uring ? IORING_OP_READ : -1, [&](io_uring_sqe* sqe) { io_uring_prep_read(sqe, fd, p, len, u64off); },
+        useUring ? IORING_OP_READ : -1, [&](io_uring_sqe* sqe) { io_uring_prep_read(sqe, fd, p, len, u64off); },
         [&] { return off < 0 ? ::read(fd, p, n) : ::pread(fd, p, n, off); });
 }
 
@@ -106,7 +106,7 @@ int statat(int dirfd, const char* name, struct stat* st, int flags) noexcept {
 
 FD::~FD() {
     // Normally closed through Close; this handles a File that wasn't.
-    if (!(state_.load(std::memory_order_relaxed) & closed_bit) && sysfd_ >= 0) {
+    if (!(state_.load(std::memory_order_relaxed) & closedBit) && sysfd_ >= 0) {
         if (pd_) {
             runtime::pollUnblock(pd_);
             runtime::pollClose(pd_);
@@ -127,14 +127,14 @@ error FD::Init(bool pollable) {
 error FD::incref() noexcept {
     uint64_t s = state_.load(std::memory_order_relaxed);
     for (;;) {
-        if (s & closed_bit) return ErrFileClosing;
+        if (s & closedBit) return ErrFileClosing;
         if (state_.compare_exchange_weak(s, s + 1, std::memory_order_acquire)) return nullptr;
     }
 }
 
 error FD::decref() noexcept {
     uint64_t s = state_.fetch_sub(1, std::memory_order_acq_rel) - 1;
-    if (s == closed_bit) return destroy();
+    if (s == closedBit) return destroy();
     return nullptr;
 }
 
@@ -153,18 +153,18 @@ error FD::destroy() noexcept {
 error FD::Close() {
     uint64_t s = state_.load(std::memory_order_relaxed);
     for (;;) {
-        if (s & closed_bit) return ErrFileClosing;
+        if (s & closedBit) return ErrFileClosing;
         // The open reference becomes Close's own until decref below.
-        if (state_.compare_exchange_weak(s, s | closed_bit, std::memory_order_acq_rel)) break;
+        if (state_.compare_exchange_weak(s, s | closedBit, std::memory_order_acq_rel)) break;
     }
-    bool was_blocking = blocking_.load(std::memory_order_relaxed);
+    bool wasBlocking = blocking_.load(std::memory_order_relaxed);
     // Wake fibers parked on the descriptor; they fail with ErrFileClosing.
     if (pd_) runtime::pollUnblock(pd_);
     error err = decref();
     // Wait for the operations still using a pollable descriptor, so that
     // it's closed when Close returns. A blocking one can't be interrupted:
     // it's closed when its last operation returns.
-    if (!was_blocking) runtime::semacquire(&csema_);
+    if (!wasBlocking) runtime::semacquire(&csema_);
     return err;
 }
 
@@ -180,8 +180,8 @@ error FD::SetBlocking() {
 
 error FD::pollError(int pe) const {
     switch (pe) {
-    case runtime::poll_err_closing: return ErrFileClosing;
-    case runtime::poll_err_timeout: return os::ErrDeadlineExceeded;
+    case runtime::pollErrClosing: return ErrFileClosing;
+    case runtime::pollErrTimeout: return os::ErrDeadlineExceeded;
     default: return os::ErrNoDeadline;
     }
 }
@@ -200,7 +200,7 @@ std::pair<isize, error> FD::Read(std::span<byte> p) {
             return {0, pollError(pe)};
         }
     }
-    if (p.size() > max_rw) p = p.first(max_rw);
+    if (p.size() > maxRw) p = p.first(maxRw);
     if (blocking) {
         long n = blockingRw(regular_, false, sysfd_, p.data(), p.size(), -1);
         decref();
@@ -231,7 +231,7 @@ std::pair<isize, error> FD::Read(std::span<byte> p) {
 
 std::pair<isize, error> FD::Pread(std::span<byte> p, int64 off) {
     if (error err = incref()) return {0, err};
-    if (p.size() > max_rw) p = p.first(max_rw);
+    if (p.size() > maxRw) p = p.first(maxRw);
     long n;
     if (!pollable()) {
         n = blockingRw(regular_, false, sysfd_, p.data(), p.size(), off);
@@ -259,7 +259,7 @@ std::pair<isize, error> FD::Write(std::span<const byte> p) {
     }
     isize nn = 0;
     for (;;) {
-        std::size_t max = std::min(p.size(), max_rw);
+        std::size_t max = std::min(p.size(), maxRw);
         ssize_t n;
         if (blocking) {
             long r = blockingRw(regular_, true, sysfd_, const_cast<byte*>(p.data()), max, -1);
@@ -296,7 +296,7 @@ std::pair<isize, error> FD::Pwrite(std::span<const byte> p, int64 off) {
     bool blocking = !pollable();
     isize nn = 0;
     while (!p.empty()) {
-        std::size_t max = std::min(p.size(), max_rw);
+        std::size_t max = std::min(p.size(), maxRw);
         long n;
         if (blocking) {
             n = blockingRw(regular_, true, sysfd_, const_cast<byte*>(p.data()), max, off + nn);

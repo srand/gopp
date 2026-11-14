@@ -10,27 +10,27 @@
 
 namespace gopp::runtime {
 
-struct poll_desc;
+struct pollDesc;
 
 enum pollError : int {
-    poll_no_error = 0,
-    poll_err_closing = 1,
-    poll_err_timeout = 2,
-    poll_err_not_pollable = 3,
+    pollNoError = 0,
+    pollErrClosing = 1,
+    pollErrTimeout = 2,
+    pollErrNotPollable = 3,
 };
 
 // Registers fd; returns nullptr and sets err (an errno) on failure.
-poll_desc* pollOpen(int fd, int* err) noexcept;
+pollDesc* pollOpen(int fd, int* err) noexcept;
 // Unregisters and frees pd. poll_unblock must have been called.
-void pollClose(poll_desc* pd) noexcept;
+void pollClose(pollDesc* pd) noexcept;
 // Prepares for a read ('r') or write ('w'); returns a poll_error.
-int pollReset(poll_desc* pd, int mode) noexcept;
+int pollReset(pollDesc* pd, int mode) noexcept;
 // Waits until pd is ready for mode; returns a poll_error.
-int pollWait(poll_desc* pd, int mode) noexcept;
+int pollWait(pollDesc* pd, int mode) noexcept;
 // Sets the deadline of mode ('r', 'w' or 'r'+'w'): an absolute nanotime,
 // 0 for none, or negative for one that has passed.
-void pollSetDeadline(poll_desc* pd, int64_t deadline, int mode) noexcept;
+void pollSetDeadline(pollDesc* pd, int64_t deadline, int mode) noexcept;
 // Marks pd as closing and wakes its waiters.
-void pollUnblock(poll_desc* pd) noexcept;
+void pollUnblock(pollDesc* pd) noexcept;
 
 }  // namespace gopp::runtime

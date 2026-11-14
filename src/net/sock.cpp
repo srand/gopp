@@ -64,7 +64,7 @@ const ipStackCapabilities& ipStack() {
             ::setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &probes[i].v6only, sizeof(int));
             sockaddr_storage sa;
             socklen_t len;
-            bool ok = !ip_to_sockaddr(AF_INET6, probes[i].ip, 0, {}, &sa, &len) &&
+            bool ok = !ipToSockaddr(AF_INET6, probes[i].ip, 0, {}, &sa, &len) &&
                       (::bind(s, reinterpret_cast<sockaddr*>(&sa), len) == 0 || errno == EPERM || errno == EACCES);
             ::close(s);
             if (!ok) continue;
@@ -78,7 +78,7 @@ const ipStackCapabilities& ipStack() {
 
 // The sockaddr interface of Go's IP addresses: family and isWildcard.
 int addrFamily(const Addr* a) {
-    ip_port ip = ipPortOf(a);
+    ipPort ip = ipPortOf(a);
     if (!a || ip.ip.size() <= IPv4len) return AF_INET;
     if (!ip.ip.To4().empty()) return AF_INET;
     return AF_INET6;
@@ -87,7 +87,7 @@ int addrFamily(const Addr* a) {
 bool isWildcard(const Addr* a) {
     if (!a) return true;
     if (auto* u = dynamic_cast<const UnixAddr*>(a)) return u->Name.empty();
-    ip_port ip = ipPortOf(a);
+    ipPort ip = ipPortOf(a);
     return ip.ip.empty() || ip.ip.IsUnspecified();
 }
 
@@ -226,17 +226,17 @@ public:
     rawConn(ptr<netfd> fd, bool listener) : fd_(std::move(fd)), listener_(listener) {}
 
     error Control(std::function<void(uintptr)> f) override {
-        if (error err = fd_->rawControl(f)) return op_error("raw-control", fd_->network(), nullptr, fd_->laddr, err);
+        if (error err = fd_->rawControl(f)) return opError("raw-control", fd_->network(), nullptr, fd_->laddr, err);
         return nullptr;
     }
     error Read(std::function<bool(uintptr)> f) override {
         if (listener_) return errnoError(EINVAL);
-        if (error err = fd_->rawRead(f)) return op_error("raw-read", fd_->network(), fd_->laddr, fd_->raddr, err);
+        if (error err = fd_->rawRead(f)) return opError("raw-read", fd_->network(), fd_->laddr, fd_->raddr, err);
         return nullptr;
     }
     error Write(std::function<bool(uintptr)> f) override {
         if (listener_) return errnoError(EINVAL);
-        if (error err = fd_->rawWrite(f)) return op_error("raw-write", fd_->network(), fd_->laddr, fd_->raddr, err);
+        if (error err = fd_->rawWrite(f)) return opError("raw-write", fd_->network(), fd_->laddr, fd_->raddr, err);
         return nullptr;
     }
 

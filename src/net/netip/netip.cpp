@@ -23,19 +23,19 @@ uint128 uint128::bitsClearedFrom(uint8 bit) const noexcept { return and_(mask6(b
 
 namespace {
 
-const detail::addr_detail z4_detail{false, {}};
-const detail::addr_detail z6noz_detail{true, {}};
+const detail::addrDetail z4Detail{false, {}};
+const detail::addrDetail z6nozDetail{true, {}};
 
 // The zones seen, interned (Go's unique.Make). They live as long as the
 // program, as unique's handles do while used.
-struct zone_table {
+struct zoneTable {
     std::mutex mu;
-    std::vector<std::unique_ptr<detail::addr_detail>> details;
-    std::unordered_map<std::string_view, const detail::addr_detail*> byzone;
+    std::vector<std::unique_ptr<detail::addrDetail>> details;
+    std::unordered_map<std::string_view, const detail::addrDetail*> byzone;
 };
 
-zone_table& zones() {
-    static auto* t = new zone_table;
+zoneTable& zones() {
+    static auto* t = new zoneTable;
     return *t;
 }
 
@@ -251,17 +251,17 @@ bool atoi(std::string_view s, int* v) {
 
 }  // namespace
 
-const detail::addr_detail* const z4 = &z4_detail;
-const detail::addr_detail* const z6noz = &z6noz_detail;
+const detail::addrDetail* const z4 = &z4Detail;
+const detail::addrDetail* const z6noz = &z6nozDetail;
 
-const detail::addr_detail* MakeAddrDetail(bool isV6, std::string_view zone) {
+const detail::addrDetail* MakeAddrDetail(bool isV6, std::string_view zone) {
     if (!isV6) return z4;
     if (zone.empty()) return z6noz;
     auto& t = zones();
     std::lock_guard lock(t.mu);
     if (auto it = t.byzone.find(zone); it != t.byzone.end()) return it->second;
-    auto d = std::make_unique<detail::addr_detail>(detail::addr_detail{true, string(zone)});
-    const detail::addr_detail* p = d.get();
+    auto d = std::make_unique<detail::addrDetail>(detail::addrDetail{true, string(zone)});
+    const detail::addrDetail* p = d.get();
     t.byzone.emplace(sv(p->zoneV6), p);
     t.details.push_back(std::move(d));
     return p;

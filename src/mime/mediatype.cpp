@@ -49,7 +49,7 @@ bool isToken(std::string_view s) noexcept {
 }
 
 // encodedword.go's needsEncoding.
-bool needs_encoding(std::string_view s) noexcept {
+bool needsEncoding(std::string_view s) noexcept {
     for (unsigned char b : s) {
         if ((b < ' ' || b > '~') && b != '\t') return true;
     }
@@ -117,20 +117,20 @@ std::pair<string, bool> decode2231Enc(std::string_view v) {
     v = v.substr(q1 + 1);
     auto q2 = v.find('\'');
     if (q2 == v.npos) return {{}, false};
-    std::string_view ext_other_vals = v.substr(q2 + 1);
+    std::string_view extOtherVals = v.substr(q2 + 1);
     // Only us-ascii and utf-8 are supported, as in Go.
     string cs = strings::ToLower(charset);
     if (cs != "us-ascii" && cs != "utf-8") return {{}, false};
-    return percentHexUnescape(ext_other_vals);
+    return percentHexUnescape(extOtherVals);
 }
 
 error checkMediaTypeDisposition(std::string_view s) {
-    auto [typ, rest] = internal::consume_token(s);
+    auto [typ, rest] = internal::consumeToken(s);
     if (typ.empty()) return errNoMediaType;
     if (rest.empty()) return nullptr;
     if (!rest.starts_with('/')) return errNoSlashAfterFirstToken;
     rest.remove_prefix(1);
-    auto [subtype, rest2] = internal::consume_token(rest);
+    auto [subtype, rest2] = internal::consumeToken(rest);
     if (subtype.empty()) return errNoTokenAfterSlash;
     if (!rest2.empty()) return errUnexpectedContentAfterMediaSubtype;
     return nullptr;
@@ -142,7 +142,7 @@ namespace internal {
 
 // consumeToken: the token at the start of v and the rest; an empty token
 // if there is none.
-std::pair<std::string_view, std::string_view> consume_token(std::string_view v) {
+std::pair<std::string_view, std::string_view> consumeToken(std::string_view v) {
     for (std::size_t i = 0; i < v.size(); i++) {
         if (!isTokenChar(static_cast<unsigned char>(v[i]))) return {v.substr(0, i), v.substr(i)};
     }
@@ -151,10 +151,10 @@ std::pair<std::string_view, std::string_view> consume_token(std::string_view v) 
 
 // consumeValue: a token or a quoted string at the start of v, unquoted,
 // and the rest; an empty value and v if there is none.
-std::pair<string, std::string_view> consume_value(std::string_view v) {
+std::pair<string, std::string_view> consumeValue(std::string_view v) {
     if (v.empty()) return {{}, v};
     if (v[0] != '"') {
-        auto [tok, rest] = consume_token(v);
+        auto [tok, rest] = consumeToken(v);
         return {string(tok), rest};
     }
     // A quoted string.
@@ -179,17 +179,17 @@ std::pair<string, std::string_view> consume_value(std::string_view v) {
 
 // consumeMediaParam: "; name=value" at the start of v: the lowercase name,
 // the value and the rest; an empty name and v if there is none.
-std::tuple<string, string, std::string_view> consume_media_param(std::string_view v) {
+std::tuple<string, string, std::string_view> consumeMediaParam(std::string_view v) {
     std::string_view rest = trimLeftSpace(v);
     if (!rest.starts_with(';')) return {{}, {}, v};
     rest = trimLeftSpace(rest.substr(1));
-    auto [tok, after] = consume_token(rest);
+    auto [tok, after] = consumeToken(rest);
     string param = strings::ToLower(tok);
     if (param.empty()) return {{}, {}, v};
     rest = trimLeftSpace(after);
     if (!rest.starts_with('=')) return {{}, {}, v};
     rest = trimLeftSpace(rest.substr(1));
-    auto [value, rest2] = consume_value(rest);
+    auto [value, rest2] = consumeValue(rest);
     if (value.empty() && rest2 == rest) return {{}, {}, v};
     return {param, value, rest2};
 }
@@ -215,10 +215,10 @@ string FormatMediaType(std::string_view t, const Params& param) {
         if (!isToken(attribute)) return {};
         b += strings::ToLower(attribute).view();
 
-        bool need_enc = needs_encoding(value);
-        if (need_enc) b += '*';  // RFC 2231 section 4
+        bool needEnc = needsEncoding(value);
+        if (needEnc) b += '*';  // RFC 2231 section 4
         b += '=';
-        if (need_enc) {
+        if (needEnc) {
             b += "utf-8''";
             for (unsigned char ch : value) {
                 if (ch <= ' ' || ch >= 0x7F || ch == '*' || ch == '\'' || ch == '%' || isTspecial(ch)) {
@@ -258,7 +258,7 @@ std::tuple<string, Params, error> ParseMediaType(std::string_view v) {
     while (!v.empty()) {
         v = trimLeftSpace(v);
         if (v.empty()) break;
-        auto [key, value, rest] = internal::consume_media_param(v);
+        auto [key, value, rest] = internal::consumeMediaParam(v);
         if (key.empty()) {
             // Ignore a trailing semicolon.
             if (strings::TrimSpace(string(rest)) == ";") break;
@@ -281,9 +281,9 @@ std::tuple<string, Params, error> ParseMediaType(std::string_view v) {
 
     // Stitch together any continuations or things with stars
     // (i.e. RFC 2231 things with stars: "foo*0" or "foo*").
-    for (const auto& [key, piece_map] : continuation) {
-        string single_part_key = key + "*";
-        if (auto it = piece_map.find(single_part_key); it != piece_map.end()) {
+    for (const auto& [key, pieceMap] : continuation) {
+        string singlePartKey = key + "*";
+        if (auto it = pieceMap.find(singlePartKey); it != pieceMap.end()) {
             if (auto [decv, ok] = decode2231Enc(it->second); ok) params[key] = decv;
             continue;
         }
@@ -291,14 +291,14 @@ std::tuple<string, Params, error> ParseMediaType(std::string_view v) {
         std::string buf;
         bool valid = false;
         for (int n = 0;; n++) {
-            string simple_part = fmt::Sprint("{}*{}", key, n);
-            if (auto it = piece_map.find(simple_part); it != piece_map.end()) {
+            string simplePart = fmt::Sprint("{}*{}", key, n);
+            if (auto it = pieceMap.find(simplePart); it != pieceMap.end()) {
                 valid = true;
                 buf += it->second.view();
                 continue;
             }
-            auto it = piece_map.find(simple_part + "*");
-            if (it == piece_map.end()) break;
+            auto it = pieceMap.find(simplePart + "*");
+            if (it == pieceMap.end()) break;
             valid = true;
             if (n == 0) {
                 if (auto [decv, ok] = decode2231Enc(it->second); ok) buf += decv.view();

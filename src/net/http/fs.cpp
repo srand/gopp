@@ -30,11 +30,11 @@ struct readDirFile : public virtual object {
     virtual std::pair<std::vector<ptr<fs::DirEntry>>, gopp::error> ReadDir(int count) = 0;
 };
 
-using stat_fn = std::function<std::pair<ptr<fs::FileInfo>, gopp::error>(std::string_view)>;
+using statFn = std::function<std::pair<ptr<fs::FileInfo>, gopp::error>(std::string_view)>;
 
 // mapOpenError: turns the error of opening a file under a non-directory
 // ("index.html/x": ENOTDIR) into fs::ErrNotExist.
-gopp::error map_open_error(gopp::error original, std::string_view name, const stat_fn& stat) {
+gopp::error mapOpenError(gopp::error original, std::string_view name, const statFn& stat) {
     if (errors::Is(original, fs::ErrNotExist) || errors::Is(original, fs::ErrPermission)) return original;
     // Each prefix of name that ends a non-empty element, as Go joins the
     // elements split at the separator.
@@ -53,9 +53,9 @@ gopp::error map_open_error(gopp::error original, std::string_view name, const st
 }
 
 // An os::File as a File.
-class dir_file final : public File, public readDirFile {
+class dirFile final : public File, public readDirFile {
 public:
-    explicit dir_file(ptr<os::File> f) : f_(std::move(f)) {}
+    explicit dirFile(ptr<os::File> f) : f_(std::move(f)) {}
     std::pair<isize, gopp::error> Read(std::span<byte> p) override { return f_->Read(p); }
     std::pair<int64, gopp::error> Seek(int64 offset, int whence) override { return f_->Seek(offset, whence); }
     gopp::error Close() override { return f_->Close(); }
@@ -69,9 +69,9 @@ private:
 };
 
 // ioFile: an fs::File as a File.
-class io_file final : public File, public readDirFile {
+class ioFile final : public File, public readDirFile {
 public:
-    explicit io_file(ptr<fs::File> f) : file_(std::move(f)) {}
+    explicit ioFile(ptr<fs::File> f) : file_(std::move(f)) {}
     gopp::error Close() override { return file_->Close(); }
     std::pair<isize, gopp::error> Read(std::span<byte> p) override { return file_->Read(p); }
     std::pair<ptr<fs::FileInfo>, gopp::error> Stat() override { return file_->Stat(); }
@@ -115,15 +115,15 @@ private:
 // The os::File under a file of a Dir or an FS (os::DirFS, an os::Root's),
 // if there's one.
 os::File* osFile(File& f) {
-    if (auto* d = dynamic_cast<dir_file*>(&f)) return d->osFile();
-    if (auto* i = dynamic_cast<io_file*>(&f)) return i->osFile();
+    if (auto* d = dynamic_cast<dirFile*>(&f)) return d->osFile();
+    if (auto* i = dynamic_cast<ioFile*>(&f)) return i->osFile();
     return nullptr;
 }
 
 // ioFS: an fs::FS as a FileSystem.
-class io_fs final : public FileSystem {
+class ioFs final : public FileSystem {
 public:
-    explicit io_fs(ptr<fs::FS> fsys) : fsys_(std::move(fsys)) {}
+    explicit ioFs(ptr<fs::FS> fsys) : fsys_(std::move(fsys)) {}
 
     std::pair<ptr<File>, gopp::error> Open(std::string_view name) override {
         if (name == "/") {
@@ -133,9 +133,9 @@ public:
         }
         auto [file, err] = fsys_->Open(name);
         if (err) {
-            return {nullptr, map_open_error(err, name, [this](std::string_view p) { return fs::Stat(*fsys_, p); })};
+            return {nullptr, mapOpenError(err, name, [this](std::string_view p) { return fs::Stat(*fsys_, p); })};
         }
-        return {make_ptr<io_file>(std::move(file)), nullptr};
+        return {make_ptr<ioFile>(std::move(file)), nullptr};
     }
 
 private:
@@ -161,7 +161,7 @@ string htmlEscape(std::string_view s) {
     return string(out);
 }
 
-void dir_list(ResponseWriter& w, Request& r, File& f) {
+void dirList(ResponseWriter& w, Request& r, File& f) {
     struct ent {
         string name;
         bool dir;
@@ -208,7 +208,7 @@ void dir_list(ResponseWriter& w, Request& r, File& f) {
 // callers may have set headers for a successful response, which an error
 // mustn't carry. (Go keeps them with GODEBUG=httpservecontentkeepheaders=1;
 // go++ has no GODEBUG.)
-void serve_error(ResponseWriter& w, std::string_view text, int code) {
+void serveError(ResponseWriter& w, std::string_view text, int code) {
     Header& h = w.Header();
     for (std::string_view k : {"Cache-Control", "Content-Encoding", "Etag", "Last-Modified"}) h.Del(k);
     Error(w, text, code);
@@ -253,13 +253,13 @@ bool etagWeakMatch(std::string_view a, std::string_view b) {
 }
 
 // The result of a precondition check (RFC 7232 section 3).
-enum class cond_result { none, isTrue, is_false };
+enum class condResult { none, isTrue, isFalse };
 
-cond_result checkIfMatch(ResponseWriter& w, Request& r) {
-    string im_header = r.Header.Get("If-Match");
-    std::string_view im = im_header;
-    if (im.empty()) return cond_result::none;
-    string etag_header = w.Header().Get("Etag");
+condResult checkIfMatch(ResponseWriter& w, Request& r) {
+    string imHeader = r.Header.Get("If-Match");
+    std::string_view im = imHeader;
+    if (im.empty()) return condResult::none;
+    string etagHeader = w.Header().Get("Etag");
     for (;;) {
         im = trimString(im);
         if (im.empty()) break;
@@ -267,17 +267,17 @@ cond_result checkIfMatch(ResponseWriter& w, Request& r) {
             im.remove_prefix(1);
             continue;
         }
-        if (im[0] == '*') return cond_result::isTrue;
+        if (im[0] == '*') return condResult::isTrue;
         auto [etag, remain] = scanEtag(im);
         if (etag.empty()) break;
-        if (etagStrongMatch(etag, etag_header)) return cond_result::isTrue;
+        if (etagStrongMatch(etag, etagHeader)) return condResult::isTrue;
         im = remain;
     }
-    return cond_result::is_false;
+    return condResult::isFalse;
 }
 
 // isZeroTime: whether t is obviously unspecified: zero or the Unix epoch.
-bool is_zero_time(const time::Time& t) { return t.IsZero() || t.UnixNano() == 0; }
+bool isZeroTime(const time::Time& t) { return t.IsZero() || t.UnixNano() == 0; }
 
 // The Last-Modified header has whole seconds, so modtime is truncated too.
 time::Time truncateSecond(const time::Time& t) {
@@ -286,19 +286,19 @@ time::Time truncateSecond(const time::Time& t) {
     return time::Time::Unix(sec, 0);
 }
 
-cond_result checkIfUnmodifiedSince(Request& r, const time::Time& modtime) {
+condResult checkIfUnmodifiedSince(Request& r, const time::Time& modtime) {
     string ius = r.Header.Get("If-Unmodified-Since");
-    if (ius.empty() || is_zero_time(modtime)) return cond_result::none;
+    if (ius.empty() || isZeroTime(modtime)) return condResult::none;
     auto [t, err] = ParseTime(ius);
-    if (err) return cond_result::none;
-    if (truncateSecond(modtime).UnixNano() <= t.UnixNano()) return cond_result::isTrue;
-    return cond_result::is_false;
+    if (err) return condResult::none;
+    if (truncateSecond(modtime).UnixNano() <= t.UnixNano()) return condResult::isTrue;
+    return condResult::isFalse;
 }
 
-cond_result checkIfNoneMatch(ResponseWriter& w, Request& r) {
+condResult checkIfNoneMatch(ResponseWriter& w, Request& r) {
     string inm = r.Header.Get("If-None-Match");
-    if (inm.empty()) return cond_result::none;
-    string etag_header = w.Header().Get("Etag");
+    if (inm.empty()) return condResult::none;
+    string etagHeader = w.Header().Get("Etag");
     std::string_view buf = inm;
     for (;;) {
         buf = trimString(buf);
@@ -307,43 +307,43 @@ cond_result checkIfNoneMatch(ResponseWriter& w, Request& r) {
             buf.remove_prefix(1);
             continue;
         }
-        if (buf[0] == '*') return cond_result::is_false;
+        if (buf[0] == '*') return condResult::isFalse;
         auto [etag, remain] = scanEtag(buf);
         if (etag.empty()) break;
-        if (etagWeakMatch(etag, etag_header)) return cond_result::is_false;
+        if (etagWeakMatch(etag, etagHeader)) return condResult::isFalse;
         buf = remain;
     }
-    return cond_result::isTrue;
+    return condResult::isTrue;
 }
 
-cond_result checkIfModifiedSince(Request& r, const time::Time& modtime) {
-    if (r.Method != "GET" && r.Method != "HEAD") return cond_result::none;
+condResult checkIfModifiedSince(Request& r, const time::Time& modtime) {
+    if (r.Method != "GET" && r.Method != "HEAD") return condResult::none;
     string ims = r.Header.Get("If-Modified-Since");
-    if (ims.empty() || is_zero_time(modtime)) return cond_result::none;
+    if (ims.empty() || isZeroTime(modtime)) return condResult::none;
     auto [t, err] = ParseTime(ims);
-    if (err) return cond_result::none;
-    if (truncateSecond(modtime).UnixNano() <= t.UnixNano()) return cond_result::is_false;
-    return cond_result::isTrue;
+    if (err) return condResult::none;
+    if (truncateSecond(modtime).UnixNano() <= t.UnixNano()) return condResult::isFalse;
+    return condResult::isTrue;
 }
 
-cond_result checkIfRange(ResponseWriter& w, Request& r, const time::Time& modtime) {
-    if (r.Method != "GET" && r.Method != "HEAD") return cond_result::none;
+condResult checkIfRange(ResponseWriter& w, Request& r, const time::Time& modtime) {
+    if (r.Method != "GET" && r.Method != "HEAD") return condResult::none;
     string ir = r.Header.Get("If-Range");
-    if (ir.empty()) return cond_result::none;
+    if (ir.empty()) return condResult::none;
     auto [etag, remain] = scanEtag(ir);
     if (!etag.empty()) {
-        return etagStrongMatch(etag, w.Header().Get("Etag")) ? cond_result::isTrue : cond_result::is_false;
+        return etagStrongMatch(etag, w.Header().Get("Etag")) ? condResult::isTrue : condResult::isFalse;
     }
     // The If-Range value is typically the ETag value, but it may also be
     // the modtime date. See golang.org/issue/8367.
-    if (modtime.IsZero()) return cond_result::is_false;
+    if (modtime.IsZero()) return condResult::isFalse;
     auto [t, err] = ParseTime(ir);
-    if (err) return cond_result::is_false;
-    return t.Unix() == modtime.Unix() ? cond_result::isTrue : cond_result::is_false;
+    if (err) return condResult::isFalse;
+    return t.Unix() == modtime.Unix() ? condResult::isTrue : condResult::isFalse;
 }
 
 void setLastModified(ResponseWriter& w, const time::Time& modtime) {
-    if (!is_zero_time(modtime)) w.Header().Set("Last-Modified", modtime.FormatHTTP());
+    if (!isZeroTime(modtime)) w.Header().Set("Last-Modified", modtime.FormatHTTP());
 }
 
 void writeNotModified(ResponseWriter& w) {
@@ -363,51 +363,51 @@ void writeNotModified(ResponseWriter& w) {
 // following RFC 7232 section 6. Returns whether that answered the request
 // (304 Not Modified or 412 Precondition Failed), and the Range header to
 // honor.
-std::pair<bool, string> check_preconditions(ResponseWriter& w, Request& r, const time::Time& modtime) {
-    cond_result ch = checkIfMatch(w, r);
-    if (ch == cond_result::none) ch = checkIfUnmodifiedSince(r, modtime);
-    if (ch == cond_result::is_false) {
+std::pair<bool, string> checkPreconditions(ResponseWriter& w, Request& r, const time::Time& modtime) {
+    condResult ch = checkIfMatch(w, r);
+    if (ch == condResult::none) ch = checkIfUnmodifiedSince(r, modtime);
+    if (ch == condResult::isFalse) {
         w.WriteHeader(StatusPreconditionFailed);
         return {true, {}};
     }
     switch (checkIfNoneMatch(w, r)) {
-    case cond_result::is_false:
+    case condResult::isFalse:
         if (r.Method == "GET" || r.Method == "HEAD") {
             writeNotModified(w);
         } else {
             w.WriteHeader(StatusPreconditionFailed);
         }
         return {true, {}};
-    case cond_result::none:
-        if (checkIfModifiedSince(r, modtime) == cond_result::is_false) {
+    case condResult::none:
+        if (checkIfModifiedSince(r, modtime) == condResult::isFalse) {
             writeNotModified(w);
             return {true, {}};
         }
         break;
-    case cond_result::isTrue:
+    case condResult::isTrue:
         break;
     }
-    string range_header = r.Header.Get("Range");
-    if (!range_header.empty() && checkIfRange(w, r, modtime) == cond_result::is_false) range_header = {};
-    return {false, range_header};
+    string rangeHeader = r.Header.Get("Range");
+    if (!rangeHeader.empty() && checkIfRange(w, r, modtime) == condResult::isFalse) rangeHeader = {};
+    return {false, rangeHeader};
 }
 
 // httpRange: a byte range to send.
-struct http_range {
+struct httpRange {
     int64 start = 0, length = 0;
 
     string contentRange(int64 size) const { return fmt::Sprint("bytes {}-{}/{}", start, start + length - 1, size); }
 
     // The header of its part of a multipart/byteranges response, as
     // multipart.Writer.CreatePart writes it, with the keys sorted.
-    std::string partHeader(std::string_view boundary, bool first, std::string_view content_type, int64 size) const {
+    std::string partHeader(std::string_view boundary, bool first, std::string_view contentType, int64 size) const {
         std::string s = first ? "" : "\r\n";
         s += "--";
         s += boundary;
         s += "\r\nContent-Range: ";
         s += contentRange(size).view();
         s += "\r\nContent-Type: ";
-        s += content_type;
+        s += contentType;
         s += "\r\n\r\n";
         return s;
     }
@@ -431,19 +431,19 @@ std::string randomBoundary() {
 
 // The most ranges a Range header may have; more are ignored
 // (GODEBUG=httpservecontentmaxranges's default).
-constexpr std::size_t max_content_ranges = 200;
+constexpr std::size_t maxContentRanges = 200;
 
 // parseRange: the ranges of a Range header, as RFC 7233 has it; nothing
 // for an empty header; errNoOverlap if no range starts within the content.
-std::pair<std::vector<http_range>, gopp::error> parse_range(std::string_view s, int64 size) {
+std::pair<std::vector<httpRange>, gopp::error> parseRange(std::string_view s, int64 size) {
     if (s.empty()) return {{}, nullptr};  // header not present
     constexpr std::string_view b = "bytes=";
     if (!s.starts_with(b)) return {{}, errors::New("invalid range")};
     s.remove_prefix(b.size());
-    std::vector<http_range> ranges;
-    bool no_overlap = false;
-    std::size_t num_ranges = static_cast<std::size_t>(std::count(s.begin(), s.end(), ',')) + 1;
-    if (num_ranges > max_content_ranges) return {{}, nullptr};  // ignore a header with too many ranges
+    std::vector<httpRange> ranges;
+    bool noOverlap = false;
+    std::size_t numRanges = static_cast<std::size_t>(std::count(s.begin(), s.end(), ',')) + 1;
+    if (numRanges > maxContentRanges) return {{}, nullptr};  // ignore a header with too many ranges
     for (std::size_t pos = 0; pos <= s.size();) {
         auto comma = s.find(',', pos);
         std::string_view ra = trimString(s.substr(pos, comma == s.npos ? s.npos : comma - pos));
@@ -452,7 +452,7 @@ std::pair<std::vector<http_range>, gopp::error> parse_range(std::string_view s, 
         auto dash = ra.find('-');
         if (dash == ra.npos) return {{}, errors::New("invalid range")};
         std::string_view start = trimString(ra.substr(0, dash)), end = trimString(ra.substr(dash + 1));
-        http_range r;
+        httpRange r;
         if (start.empty()) {
             // If no start is specified, end specifies the range start
             // relative to the end of the file, and we are dealing with
@@ -470,7 +470,7 @@ std::pair<std::vector<http_range>, gopp::error> parse_range(std::string_view s, 
             if (i >= size) {
                 // If the range begins after the size of the content, then
                 // it does not overlap.
-                no_overlap = true;
+                noOverlap = true;
                 continue;
             }
             r.start = i;
@@ -488,22 +488,22 @@ std::pair<std::vector<http_range>, gopp::error> parse_range(std::string_view s, 
         ranges.push_back(r);
     }
     // The specified ranges did not overlap with the content.
-    if (no_overlap && ranges.empty()) return {{}, errNoOverlap};
+    if (noOverlap && ranges.empty()) return {{}, errNoOverlap};
     return {std::move(ranges), nullptr};
 }
 
 // rangesMIMESize: the length of the ranges as a multipart response.
-int64 rangesMimeSize(const std::vector<http_range>& ranges, std::string_view boundary,
-                       std::string_view content_type, int64 content_size) {
-    int64 enc_size = 0;
+int64 rangesMimeSize(const std::vector<httpRange>& ranges, std::string_view boundary,
+                       std::string_view contentType, int64 contentSize) {
+    int64 encSize = 0;
     for (std::size_t i = 0; i < ranges.size(); i++) {
-        enc_size += static_cast<int64>(ranges[i].partHeader(boundary, i == 0, content_type, content_size).size());
-        enc_size += ranges[i].length;
+        encSize += static_cast<int64>(ranges[i].partHeader(boundary, i == 0, contentType, contentSize).size());
+        encSize += ranges[i].length;
     }
-    return enc_size + static_cast<int64>(multipartClose(boundary).size());
+    return encSize + static_cast<int64>(multipartClose(boundary).size());
 }
 
-int64 sumRangesSize(const std::vector<http_range>& ranges) {
+int64 sumRangesSize(const std::vector<httpRange>& ranges) {
     int64 size = 0;
     for (const auto& ra : ranges) size += ra.length;
     return size;
@@ -511,13 +511,13 @@ int64 sumRangesSize(const std::vector<http_range>& ranges) {
 
 // serveContent: an empty name means the file name is unknown (for the
 // MIME type, before sniffing); a zero modtime that the modification time
-// is. content must be at its start. size_fn is called at most once, and
+// is. content must be at its start. sizeFn is called at most once, and
 // its error, if any, is sent in the response.
-void serve_content(ResponseWriter& w, Request& r, std::string_view name, const time::Time& modtime,
-                   const std::function<std::pair<int64, gopp::error>()>& size_fn, io::Reader& content,
+void serveContent(ResponseWriter& w, Request& r, std::string_view name, const time::Time& modtime,
+                   const std::function<std::pair<int64, gopp::error>()>& sizeFn, io::Reader& content,
                    io::Seeker& seeker) {
     setLastModified(w, modtime);
-    auto [done, range_req] = check_preconditions(w, r, modtime);
+    auto [done, rangeReq] = checkPreconditions(w, r, modtime);
     if (done) return;
 
     int code = StatusOK;
@@ -535,7 +535,7 @@ void serve_content(ResponseWriter& w, Request& r, std::string_view name, const t
             ctype = DetectContentType(std::span<const byte>(buf.data(), static_cast<std::size_t>(n)));
             // Rewind to output the whole file.
             if (seeker.Seek(0, io::SeekStart).second) {
-                serve_error(w, "seeker can't seek", StatusInternalServerError);
+                serveError(w, "seeker can't seek", StatusInternalServerError);
                 return;
             }
         }
@@ -544,20 +544,20 @@ void serve_content(ResponseWriter& w, Request& r, std::string_view name, const t
         ctype = w.Header().Get("Content-Type");
     }
 
-    auto [size, err] = size_fn();
+    auto [size, err] = sizeFn();
     if (err) {
-        serve_error(w, err.Error(), StatusInternalServerError);
+        serveError(w, err.Error(), StatusInternalServerError);
         return;
     }
     if (size < 0) {
         // Should never happen but just to be sure.
-        serve_error(w, "negative content size computed", StatusInternalServerError);
+        serveError(w, "negative content size computed", StatusInternalServerError);
         return;
     }
 
     // The Range header.
-    int64 send_size = size;
-    auto [ranges, rerr] = parse_range(range_req, size);
+    int64 sendSize = size;
+    auto [ranges, rerr] = parseRange(rangeReq, size);
     if (rerr) {
         if (rerr == errNoOverlap && size == 0) {
             // Some clients add a Range header to all requests to limit the
@@ -566,7 +566,7 @@ void serve_content(ResponseWriter& w, Request& r, std::string_view name, const t
             ranges.clear();
         } else {
             if (rerr == errNoOverlap) w.Header().Set("Content-Range", fmt::Sprint("bytes */{}", size));
-            serve_error(w, rerr.Error(), StatusRequestedRangeNotSatisfiable);
+            serveError(w, rerr.Error(), StatusRequestedRangeNotSatisfiable);
             return;
         }
     }
@@ -581,17 +581,17 @@ void serve_content(ResponseWriter& w, Request& r, std::string_view name, const t
         // RFC 7233 section 4.1: a single part is sent with a Content-Range
         // header, never as a multipart response, which a client that
         // didn't ask for several parts might not support.
-        const http_range& ra = ranges[0];
+        const httpRange& ra = ranges[0];
         if (auto [off, serr] = seeker.Seek(ra.start, io::SeekStart); serr) {
-            serve_error(w, serr.Error(), StatusRequestedRangeNotSatisfiable);
+            serveError(w, serr.Error(), StatusRequestedRangeNotSatisfiable);
             return;
         }
-        send_size = ra.length;
+        sendSize = ra.length;
         code = StatusPartialContent;
         w.Header().Set("Content-Range", ra.contentRange(size));
     } else if (ranges.size() > 1) {
         boundary = randomBoundary();
-        send_size = rangesMimeSize(ranges, boundary, ctype, size);
+        sendSize = rangesMimeSize(ranges, boundary, ctype, size);
         code = StatusPartialContent;
         w.Header().Set("Content-Type", fmt::Sprint("multipart/byteranges; boundary={}", boundary));
     }
@@ -603,18 +603,18 @@ void serve_content(ResponseWriter& w, Request& r, std::string_view name, const t
     // compresses, which changes the length. A range response always has
     // it, as compressing it was never going to work.
     if (!ranges.empty() || w.Header().Get("Content-Encoding").empty()) {
-        w.Header().Set("Content-Length", strconv::Itoa(send_size));
+        w.Header().Set("Content-Length", strconv::Itoa(sendSize));
     }
     w.WriteHeader(code);
 
     if (r.Method == "HEAD") return;
     if (ranges.size() <= 1) {
-        io::CopyN(w, content, send_size);
+        io::CopyN(w, content, sendSize);
         return;
     }
     // The parts, written as they're read (Go copies them through a pipe).
     for (std::size_t i = 0; i < ranges.size(); i++) {
-        const http_range& ra = ranges[i];
+        const httpRange& ra = ranges[i];
         if (io::WriteString(w, ra.partHeader(boundary, i == 0, ctype, size)).second) return;
         if (seeker.Seek(ra.start, io::SeekStart).second) return;
         if (io::CopyN(w, content, ra.length).second) return;
@@ -631,9 +631,9 @@ std::pair<std::string_view, int> toHttpError(const gopp::error& err) {
     return {"500 Internal Server Error", StatusInternalServerError};
 }
 
-// localRedirect: a 301 to new_path, which, unlike Redirect, stays
+// localRedirect: a 301 to newPath, which, unlike Redirect, stays
 // relative, so that it works under StripPrefix.
-void local_redirect(ResponseWriter& w, Request& r, string new_path) {
+void localRedirect(ResponseWriter& w, Request& r, string newPath) {
     // There is no reliable way to redirect correctly when the path has
     // escaped slashes, since StripPrefix might be in use. Just return 404.
     string p = r.URL.EscapedPath();
@@ -641,19 +641,19 @@ void local_redirect(ResponseWriter& w, Request& r, string new_path) {
         NotFound(w, r);
         return;
     }
-    if (!r.URL.RawQuery.empty()) new_path = new_path + "?" + r.URL.RawQuery;
-    w.Header().Set("Location", std::move(new_path));
+    if (!r.URL.RawQuery.empty()) newPath = newPath + "?" + r.URL.RawQuery;
+    w.Header().Set("Location", std::move(newPath));
     w.WriteHeader(StatusMovedPermanently);
 }
 
 // serveFile: name is slash-separated.
-void serve_file(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bool redirect) {
-    constexpr std::string_view index_page = "/index.html";
+void serveFile(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bool redirect) {
+    constexpr std::string_view indexPage = "/index.html";
 
     // Redirect .../index.html to .../. Redirect() can't be used: it makes
     // the path absolute, which would break under StripPrefix.
-    if (r.URL.Path.ends_with(index_page)) {
-        local_redirect(w, r, string::fromStatic("./"));
+    if (r.URL.Path.ends_with(indexPage)) {
+        localRedirect(w, r, string::fromStatic("./"));
         return;
     }
 
@@ -668,7 +668,7 @@ void serve_file(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bo
     auto [f, err] = fsys.Open(name);
     if (err) {
         auto [msg, code] = toHttpError(err);
-        serve_error(w, msg, code);
+        serveError(w, msg, code);
         return;
     }
     opened.files.push_back(f);
@@ -676,7 +676,7 @@ void serve_file(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bo
     auto [d, serr] = f->Stat();
     if (serr) {
         auto [msg, code] = toHttpError(serr);
-        serve_error(w, msg, code);
+        serveError(w, msg, code);
         return;
     }
 
@@ -686,7 +686,7 @@ void serve_file(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bo
         const string& url = r.URL.Path;
         if (d->IsDir()) {
             if (!url.ends_with("/")) {
-                local_redirect(w, r, path::Base(url) + "/");
+                localRedirect(w, r, path::Base(url) + "/");
                 return;
             }
         } else if (url.ends_with("/")) {
@@ -694,10 +694,10 @@ void serve_file(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bo
             if (base == "/" || base == ".") {
                 // The FileSystem maps a path like "/" or "/./" to a file
                 // instead of a directory.
-                serve_error(w, "http: attempting to traverse a non-directory", StatusInternalServerError);
+                serveError(w, "http: attempting to traverse a non-directory", StatusInternalServerError);
                 return;
             }
-            local_redirect(w, r, "../" + base);
+            localRedirect(w, r, "../" + base);
             return;
         }
     }
@@ -706,11 +706,11 @@ void serve_file(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bo
         // Redirect if the directory name doesn't end in a slash.
         const string& url = r.URL.Path;
         if (url.empty() || !url.ends_with("/")) {
-            local_redirect(w, r, path::Base(url) + "/");
+            localRedirect(w, r, path::Base(url) + "/");
             return;
         }
         // Use the contents of index.html for the directory, if present.
-        string index = strings::TrimSuffix(name, "/") + index_page;
+        string index = strings::TrimSuffix(name, "/") + indexPage;
         if (auto [ff, ferr] = fsys.Open(index); !ferr) {
             opened.files.push_back(ff);
             if (auto [dd, derr] = ff->Stat(); !derr) {
@@ -722,31 +722,31 @@ void serve_file(ResponseWriter& w, Request& r, FileSystem& fsys, string name, bo
 
     // Still a directory? (We didn't find an index.html file.)
     if (d->IsDir()) {
-        if (checkIfModifiedSince(r, d->ModTime()) == cond_result::is_false) {
+        if (checkIfModifiedSince(r, d->ModTime()) == condResult::isFalse) {
             writeNotModified(w);
             return;
         }
         setLastModified(w, d->ModTime());
-        dir_list(w, r, *f);
+        dirList(w, r, *f);
         return;
     }
 
-    // serve_content checks the modification time. It's given the os::File
+    // serveContent checks the modification time. It's given the os::File
     // under a Dir's or an FS's file, if there's one, so that the response
     // copies it to the connection with sendfile(2).
     int64 size = d->Size();
-    auto size_fn = [size] { return std::pair<int64, gopp::error>(size, nullptr); };
+    auto sizeFn = [size] { return std::pair<int64, gopp::error>(size, nullptr); };
     if (os::File* of = osFile(*f)) {
-        serve_content(w, r, d->Name(), d->ModTime(), size_fn, *of, *of);
+        serveContent(w, r, d->Name(), d->ModTime(), sizeFn, *of, *of);
     } else {
-        serve_content(w, r, d->Name(), d->ModTime(), size_fn, *f, *f);
+        serveContent(w, r, d->Name(), d->ModTime(), sizeFn, *f, *f);
     }
 }
 
 bool isSlash(char c) { return c == '/' || c == '\\'; }
 
 // containsDotDot: whether v has a ".." element, split at either slash.
-bool contains_dot_dot(std::string_view v) {
+bool containsDotDot(std::string_view v) {
     if (v.find("..") == v.npos) return false;
     for (std::size_t i = 0; i < v.size();) {
         while (i < v.size() && isSlash(v[i])) i++;
@@ -757,13 +757,13 @@ bool contains_dot_dot(std::string_view v) {
     return false;
 }
 
-class file_handler final : public Handler {
+class fileHandler final : public Handler {
 public:
-    explicit file_handler(ptr<FileSystem> root) : root_(std::move(root)) {}
+    explicit fileHandler(ptr<FileSystem> root) : root_(std::move(root)) {}
 
     void ServeHTTP(ResponseWriter& w, Request& r) override {
         if (!r.URL.Path.starts_with("/")) r.URL.Path = "/" + r.URL.Path;
-        serve_file(w, r, *root_, path::Clean(r.URL.Path), true);
+        serveFile(w, r, *root_, path::Clean(r.URL.Path), true);
     }
 
 private:
@@ -778,52 +778,52 @@ std::pair<ptr<File>, gopp::error> Dir::Open(std::string_view name) {
     // filepath.Localize: the name must be valid for the system.
     if (!fs::ValidPath(p) || p.find('\0') != string::npos) return {nullptr, errInvalidUnsafePath};
     std::string_view dir = dir_.empty() ? std::string_view(".") : std::string_view(dir_);
-    string full_name = path::Join(dir, p);
-    auto [f, err] = os::Open(full_name);
-    if (err) return {nullptr, map_open_error(err, full_name, [](std::string_view p) { return os::Stat(p); })};
-    return {make_ptr<dir_file>(std::move(f)), nullptr};
+    string fullName = path::Join(dir, p);
+    auto [f, err] = os::Open(fullName);
+    if (err) return {nullptr, mapOpenError(err, fullName, [](std::string_view p) { return os::Stat(p); })};
+    return {make_ptr<dirFile>(std::move(f)), nullptr};
 }
 
-ptr<FileSystem> FS(ptr<fs::FS> fsys) { return make_ptr<io_fs>(std::move(fsys)); }
+ptr<FileSystem> FS(ptr<fs::FS> fsys) { return make_ptr<ioFs>(std::move(fsys)); }
 
-ptr<Handler> FileServer(ptr<FileSystem> root) { return make_ptr<file_handler>(std::move(root)); }
+ptr<Handler> FileServer(ptr<FileSystem> root) { return make_ptr<fileHandler>(std::move(root)); }
 
 ptr<Handler> FileServerFS(ptr<fs::FS> root) { return FileServer(FS(std::move(root))); }
 
 void ServeFile(ResponseWriter& w, Request& r, std::string_view name) {
-    if (contains_dot_dot(r.URL.Path)) {
+    if (containsDotDot(r.URL.Path)) {
         // Too many programs use r.URL.Path to construct the argument to
         // ServeFile. Reject the request under the assumption that happened
         // here and ".." may not be wanted. (name might not contain "..",
         // if code used path::Join(dir, r.URL.Path), which cleans it.)
-        serve_error(w, "invalid URL path", StatusBadRequest);
+        serveError(w, "invalid URL path", StatusBadRequest);
         return;
     }
     auto [dir, file] = path::Split(name);
     Dir d(dir);
-    serve_file(w, r, d, file, false);
+    serveFile(w, r, d, file, false);
 }
 
 void ServeFileFS(ResponseWriter& w, Request& r, ptr<fs::FS> fsys, std::string_view name) {
-    if (contains_dot_dot(r.URL.Path)) {
-        serve_error(w, "invalid URL path", StatusBadRequest);
+    if (containsDotDot(r.URL.Path)) {
+        serveError(w, "invalid URL path", StatusBadRequest);
         return;
     }
-    io_fs f(std::move(fsys));
-    serve_file(w, r, f, string(name), false);
+    ioFs f(std::move(fsys));
+    serveFile(w, r, f, string(name), false);
 }
 
 namespace detail {
 
-void serve_content(ResponseWriter& w, Request& r, std::string_view name, time::Time modtime, io::Reader& content,
+void serveContent(ResponseWriter& w, Request& r, std::string_view name, time::Time modtime, io::Reader& content,
                    io::Seeker& seeker) {
-    auto size_fn = [&seeker]() -> std::pair<int64, gopp::error> {
+    auto sizeFn = [&seeker]() -> std::pair<int64, gopp::error> {
         auto [size, err] = seeker.Seek(0, io::SeekEnd);
         if (err) return {0, errSeeker};
         if (seeker.Seek(0, io::SeekStart).second) return {0, errSeeker};
         return {size, nullptr};
     };
-    http::serve_content(w, r, name, modtime, size_fn, content, seeker);
+    http::serveContent(w, r, name, modtime, sizeFn, content, seeker);
 }
 
 }  // namespace detail

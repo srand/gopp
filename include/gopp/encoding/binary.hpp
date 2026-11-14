@@ -128,13 +128,13 @@ inline const auto& NativeEndian = [] -> const auto& {
 namespace detail {
 
 template <typename T>
-struct is_std_array : std::false_type {};
+struct isStdArray : std::false_type {};
 template <typename T, std::size_t N>
-struct is_std_array<std::array<T, N>> : std::true_type {};
+struct isStdArray<std::array<T, N>> : std::true_type {};
 template <typename T>
-struct is_complex : std::false_type {};
+struct isComplex : std::false_type {};
 template <typename T>
-struct is_complex<std::complex<T>> : std::true_type {};
+struct isComplex<std::complex<T>> : std::true_type {};
 
 template <typename T>
 consteval auto fieldsOf() {
@@ -148,12 +148,12 @@ consteval isize sizeOf() {
         return 1;
     } else if constexpr (std::is_arithmetic_v<T>) {
         return isize(sizeof(T));
-    } else if constexpr (is_complex<T>::value) {
+    } else if constexpr (isComplex<T>::value) {
         return 2 * sizeOf<typename T::value_type>();
     } else if constexpr (std::is_array_v<T>) {
         constexpr isize e = sizeOf<std::remove_extent_t<T>>();
         return e < 0 ? -1 : e * isize(std::extent_v<T>);
-    } else if constexpr (is_std_array<T>::value) {
+    } else if constexpr (isStdArray<T>::value) {
         constexpr isize e = sizeOf<typename T::value_type>();
         return e < 0 ? -1 : e * isize(std::tuple_size_v<T>);
     } else if constexpr (std::is_class_v<T> && std::is_aggregate_v<T>) {
@@ -197,10 +197,10 @@ struct encoder {
             value(std::bit_cast<uint32>(v));
         } else if constexpr (std::is_same_v<T, double>) {
             value(std::bit_cast<uint64>(v));
-        } else if constexpr (is_complex<T>::value) {
+        } else if constexpr (isComplex<T>::value) {
             value(v.real());
             value(v.imag());
-        } else if constexpr (std::is_array_v<T> || is_std_array<T>::value) {
+        } else if constexpr (std::is_array_v<T> || isStdArray<T>::value) {
             for (const auto& e : v) value(e);
         } else {
             template for (constexpr std::meta::info m : fieldsOf<T>()) value(v.[:m:]);
@@ -238,12 +238,12 @@ struct decoder {
             uint64 u;
             value(u);
             v = std::bit_cast<double>(u);
-        } else if constexpr (is_complex<T>::value) {
+        } else if constexpr (isComplex<T>::value) {
             typename T::value_type re, im;
             value(re);
             value(im);
             v = T(re, im);
-        } else if constexpr (std::is_array_v<T> || is_std_array<T>::value) {
+        } else if constexpr (std::is_array_v<T> || isStdArray<T>::value) {
             for (auto& e : v) value(e);
         } else {
             template for (constexpr std::meta::info m : fieldsOf<T>()) value(v.[:m:]);

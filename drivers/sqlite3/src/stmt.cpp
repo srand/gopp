@@ -93,7 +93,7 @@ std::vector<driver::NamedValue> stmtArgs(std::span<const driver::NamedValue> arg
 // Statements
 
 stmt::stmt(ptr<conn> c, sqlite3_stmt* s, std::string tail) : c_(std::move(c)), s_(s), tail_(std::move(tail)) {
-    if (s_) num_input_ = sqlite3_bind_parameter_count(s_);
+    if (s_) numInput_ = sqlite3_bind_parameter_count(s_);
 }
 
 stmt::~stmt() { Close(); }
@@ -114,14 +114,14 @@ error stmt::Close() {
 }
 
 std::array<int, 3> stmt::bindNamedIndices(const std::string& name) {
-    if (auto it = named_params_.find(name); it != named_params_.end()) return it->second;
+    if (auto it = namedParams_.find(name); it != namedParams_.end()) return it->second;
     std::array<int, 3> indices{};
     const char prefixes[3] = {':', '@', '$'};
     for (int i = 0; i < 3; i++) {
         std::string pname = prefixes[i] + name;
         indices[i] = sqlite3_bind_parameter_index(s_, pname.c_str());
     }
-    named_params_[name] = indices;
+    namedParams_[name] = indices;
     return indices;
 }
 
@@ -263,13 +263,13 @@ std::vector<string> rows::Columns() {
 }
 
 const std::vector<std::string>& rows::declTypes() {
-    if (!have_decltype_ && s_ && s_->handle()) {
+    if (!haveDecltype_ && s_ && s_->handle()) {
         decltype_.resize(nc_);
         for (int i = 0; i < nc_; i++) {
             const char* d = sqlite3_column_decltype(s_->handle(), i);
             decltype_[i] = lower(d ? d : "");
         }
-        have_decltype_ = true;
+        haveDecltype_ = true;
     }
     return decltype_;
 }

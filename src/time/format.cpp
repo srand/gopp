@@ -682,14 +682,14 @@ std::pair<int, error> atoi(std::string_view s) {
 
 bool commaOrPeriod(char b) { return b == '.' || b == ','; }
 
-struct nanos_result {
+struct nanosResult {
     int ns = 0;
     std::string_view rangeErrString;
     error err;
 };
 
-nanos_result parseNanoseconds(std::string_view value, std::size_t nbytes) {
-    nanos_result r;
+nanosResult parseNanoseconds(std::string_view value, std::size_t nbytes) {
+    nanosResult r;
     if (!commaOrPeriod(value[0])) {
         r.err = errBad;
         return r;

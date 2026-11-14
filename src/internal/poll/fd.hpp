@@ -118,7 +118,7 @@ private:
     error ucall(int opcode, Prep&& prep, Call&& call);
 
     int sysfd_;
-    runtime::poll_desc* pd_ = nullptr;
+    runtime::pollDesc* pd_ = nullptr;
     std::atomic<bool> blocking_{true};
     bool regular_ = false;
     std::atomic<uint64_t> state_{1};  // bit 63: closed; low bits: references

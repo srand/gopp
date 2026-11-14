@@ -25,12 +25,12 @@ namespace gopp::net {
 
 namespace {
 
-constexpr uint64_t closed_bit = uint64_t(1) << 63;
+constexpr uint64_t closedBit = uint64_t(1) << 63;
 // Reads and writes of streams are capped like Go's maxRW.
-constexpr std::size_t max_rw = std::size_t(1) << 30;
+constexpr std::size_t maxRw = std::size_t(1) << 30;
 
 // Go's zoneCache: interface names and indexes.
-string zone_name(uint32_t index) {
+string zoneName(uint32_t index) {
     if (index == 0) return {};
     char name[IF_NAMESIZE];
     if (if_indextoname(index, name)) return string(name);
@@ -101,7 +101,7 @@ ptr<Addr> sockaddrToAddr(const sockaddr_storage& sa, int sotype) {
         auto* in6 = reinterpret_cast<const sockaddr_in6*>(&sa);
         ip = IP(slice<byte>::of(std::span(reinterpret_cast<const byte*>(&in6->sin6_addr), 16)));
         port = ntohs(in6->sin6_port);
-        zone = zone_name(in6->sin6_scope_id);
+        zone = zoneName(in6->sin6_scope_id);
     } else {
         return nullptr;
     }
@@ -110,7 +110,7 @@ ptr<Addr> sockaddrToAddr(const sockaddr_storage& sa, int sotype) {
     return make_ptr<TCPAddr>(std::move(ip), port, std::move(zone));
 }
 
-error ip_to_sockaddr(int family, const IP& ip0, int port, std::string_view zone, sockaddr_storage* sa,
+error ipToSockaddr(int family, const IP& ip0, int port, std::string_view zone, sockaddr_storage* sa,
                      socklen_t* len) {
     std::memset(sa, 0, sizeof(*sa));
     IP ip = ip0;
@@ -160,12 +160,12 @@ error netfd::init() {
     return nullptr;
 }
 
-void netfd::setAddrs(const sockaddr_storage* raddr_sa) {
+void netfd::setAddrs(const sockaddr_storage* raddrSa) {
     sockaddr_storage sa{};
     socklen_t len = sizeof(sa);
     if (getsockname(sysfd_, reinterpret_cast<sockaddr*>(&sa), &len) == 0) laddr = sockaddrToAddr(sa, sotype_);
-    if (raddr_sa) {
-        raddr = sockaddrToAddr(*raddr_sa, sotype_);
+    if (raddrSa) {
+        raddr = sockaddrToAddr(*raddrSa, sotype_);
         return;
     }
     sockaddr_storage pa{};
@@ -186,14 +186,14 @@ std::pair<ptr<os::File>, error> netfd::dup() {
 bool netfd::incref() noexcept {
     uint64_t s = state_.load(std::memory_order_relaxed);
     for (;;) {
-        if (s & closed_bit) return false;
+        if (s & closedBit) return false;
         if (state_.compare_exchange_weak(s, s + 1, std::memory_order_acquire)) return true;
     }
 }
 
 void netfd::decref() noexcept {
     uint64_t s = state_.fetch_sub(1, std::memory_order_acq_rel) - 1;
-    if (s == closed_bit) {
+    if (s == closedBit) {
         // Closed and the last operation finished: release the descriptor.
         if (pd_) runtime::pollClose(pd_);
         pd_ = nullptr;
@@ -205,8 +205,8 @@ void netfd::decref() noexcept {
 error netfd::Close() {
     uint64_t s = state_.load(std::memory_order_relaxed);
     for (;;) {
-        if (s & closed_bit) return ErrClosed;
-        if (state_.compare_exchange_weak(s, s | closed_bit, std::memory_order_acq_rel)) break;
+        if (s & closedBit) return ErrClosed;
+        if (state_.compare_exchange_weak(s, s | closedBit, std::memory_order_acq_rel)) break;
     }
     // Wake fibers blocked on the descriptor; they fail with ErrClosed.
     if (pd_) runtime::pollUnblock(pd_);
@@ -214,10 +214,10 @@ error netfd::Close() {
     return nullptr;
 }
 
-error netfd::op_error(int pollerr) const {
+error netfd::opError(int pollerr) const {
     switch (pollerr) {
-    case runtime::poll_err_closing: return ErrClosed;
-    case runtime::poll_err_timeout: return ErrDeadlineExceeded;
+    case runtime::pollErrClosing: return ErrClosed;
+    case runtime::pollErrTimeout: return ErrDeadlineExceeded;
     default: return errors::New("not pollable");
     }
 }
@@ -233,9 +233,9 @@ std::pair<isize, error> netfd::Read(std::span<byte> p) {
     }
     if (int pe = runtime::pollReset(pd_, 'r')) {
         decref();
-        return {0, op_error(pe)};
+        return {0, opError(pe)};
     }
-    if (sotype_ == SOCK_STREAM && p.size() > max_rw) p = p.first(max_rw);
+    if (sotype_ == SOCK_STREAM && p.size() > maxRw) p = p.first(maxRw);
     for (;;) {
         ssize_t n = ::read(sysfd_, p.data(), p.size());
         GOPP_STAT(read);
@@ -248,10 +248,10 @@ std::pair<isize, error> netfd::Read(std::span<byte> p) {
         int e = errno;
         if (e == EINTR) continue;
         if (e == EAGAIN) {
-            GOPP_STAT(read_eagain);
+            GOPP_STAT(readEagain);
             if (int pe = runtime::pollWait(pd_, 'r')) {
                 decref();
-                return {0, op_error(pe)};
+                return {0, opError(pe)};
             }
             continue;
         }
@@ -265,13 +265,13 @@ std::pair<isize, error> netfd::Write(std::span<const byte> p) {
     if (!incref()) return {0, ErrClosed};
     if (int pe = runtime::pollReset(pd_, 'w')) {
         decref();
-        return {0, op_error(pe)};
+        return {0, opError(pe)};
     }
     bool stream = sotype_ == SOCK_STREAM;
     isize nn = 0;
     // A packet is sent whole, even an empty one; a stream in pieces.
     do {
-        std::size_t max = stream ? std::min(p.size(), max_rw) : p.size();
+        std::size_t max = stream ? std::min(p.size(), maxRw) : p.size();
         ssize_t n = ::send(sysfd_, p.data(), max, MSG_NOSIGNAL);
         GOPP_STAT(write);
         if (n >= 0 && (n > 0 || !stream)) {
@@ -283,10 +283,10 @@ std::pair<isize, error> netfd::Write(std::span<const byte> p) {
         int e = errno;
         if (n < 0 && e == EINTR) continue;
         if (n < 0 && e == EAGAIN) {
-            GOPP_STAT(write_eagain);
+            GOPP_STAT(writeEagain);
             if (int pe = runtime::pollWait(pd_, 'w')) {
                 decref();
-                return {nn, op_error(pe)};
+                return {nn, opError(pe)};
             }
             continue;
         }
@@ -304,14 +304,14 @@ std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span
     if (!incref()) return {0, 0, 0, ErrClosed};
     if (int pe = runtime::pollReset(pd_, 'r')) {
         decref();
-        return {0, 0, 0, op_error(pe)};
+        return {0, 0, 0, opError(pe)};
     }
     // As Go's Recvmsg: with no buffer for data but some for control
     // messages, a stream socket reads one byte, which carries them.
     byte dummy;
-    bool use_dummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM && sotype_ != SOCK_RAW;
+    bool useDummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM && sotype_ != SOCK_RAW;
     for (;;) {
-        iovec iov{use_dummy ? &dummy : p.data(), use_dummy ? 1 : p.size()};
+        iovec iov{useDummy ? &dummy : p.data(), useDummy ? 1 : p.size()};
         msghdr msg{};
         msg.msg_name = from;
         msg.msg_namelen = sizeof(*from);
@@ -334,7 +334,7 @@ std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span
         if (e == EAGAIN) {
             if (int pe = runtime::pollWait(pd_, 'r')) {
                 decref();
-                return {0, 0, 0, op_error(pe)};
+                return {0, 0, 0, opError(pe)};
             }
             continue;
         }
@@ -349,14 +349,14 @@ std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::sp
     if (!incref()) return {0, 0, ErrClosed};
     if (int pe = runtime::pollReset(pd_, 'w')) {
         decref();
-        return {0, 0, op_error(pe)};
+        return {0, 0, opError(pe)};
     }
     // As Go's Sendmsg: control messages without data go with one byte on a
     // stream socket, which doesn't count.
     byte dummy = 0;
-    bool use_dummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM && sotype_ != SOCK_RAW;
+    bool useDummy = p.empty() && !oob.empty() && sotype_ != SOCK_DGRAM && sotype_ != SOCK_RAW;
     for (;;) {
-        iovec iov{use_dummy ? &dummy : const_cast<byte*>(p.data()), use_dummy ? 1 : p.size()};
+        iovec iov{useDummy ? &dummy : const_cast<byte*>(p.data()), useDummy ? 1 : p.size()};
         msghdr msg{};
         msg.msg_name = const_cast<void*>(sa);
         msg.msg_namelen = sa ? salen : 0;
@@ -369,7 +369,7 @@ std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::sp
         ssize_t n = ::sendmsg(sysfd_, &msg, MSG_NOSIGNAL);
         if (n >= 0) {
             decref();
-            if (use_dummy) n = 0;
+            if (useDummy) n = 0;
             return {static_cast<isize>(n), static_cast<isize>(oob.size()), nullptr};
         }
         int e = errno;
@@ -377,7 +377,7 @@ std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::sp
         if (e == EAGAIN) {
             if (int pe = runtime::pollWait(pd_, 'w')) {
                 decref();
-                return {0, 0, op_error(pe)};
+                return {0, 0, opError(pe)};
             }
             continue;
         }
@@ -391,7 +391,7 @@ std::pair<ptr<netfd>, error> netfd::accept() {
     if (!incref()) return {nullptr, ErrClosed};
     if (int pe = runtime::pollReset(pd_, 'r')) {
         decref();
-        return {nullptr, op_error(pe)};
+        return {nullptr, opError(pe)};
     }
     for (;;) {
         sockaddr_storage sa{};
@@ -409,7 +409,7 @@ std::pair<ptr<netfd>, error> netfd::accept() {
         if (e == EAGAIN) {
             if (int pe = runtime::pollWait(pd_, 'r')) {
                 decref();
-                return {nullptr, op_error(pe)};
+                return {nullptr, opError(pe)};
             }
             continue;
         }
@@ -438,7 +438,7 @@ error netfd::connect(const void* sa, unsigned salen, int64 deadline) {
     for (;;) {
         if (int pe = runtime::pollWait(pd_, 'w')) {
             if (deadline != 0) runtime::pollSetDeadline(pd_, 0, 'w');
-            return op_error(pe);
+            return opError(pe);
         }
         int soerr = 0;
         socklen_t len = sizeof(soerr);
@@ -511,7 +511,7 @@ error netfd::connect(const ptr<context::Context>& ctx, const void* sa, unsigned 
     chan<empty> stop;
     if (done) {
         if (auto d = ctx->Deadline()) SetDeadline(*d, 'w');
-        stop = makeChan<empty>();
+        stop = make_chan<empty>();
         ptr<netfd> self(this);
         go([done, stop, state, self] {
             select(recv(done, [&](empty) {
@@ -535,7 +535,7 @@ error netfd::connect(const ptr<context::Context>& ctx, const void* sa, unsigned 
     for (;;) {
         if (int pe = runtime::pollWait(pd_, 'w')) {
             if (done && ctx->Err()) return finish(mapErr(ctx->Err()));
-            return finish(op_error(pe));
+            return finish(opError(pe));
         }
         int soerr = 0;
         socklen_t len = sizeof(soerr);
@@ -571,10 +571,10 @@ std::pair<int64, error> netfd::writeBuffers(std::vector<slice<byte>>& v) {
     if (!incref()) return {0, ErrClosed};
     if (int pe = runtime::pollReset(pd_, 'w')) {
         decref();
-        return {0, op_error(pe)};
+        return {0, opError(pe)};
     }
     // Go's maxVec: the iovecs of one writev(2).
-    constexpr std::size_t max_vec = 1024;
+    constexpr std::size_t maxVec = 1024;
     int64 total = 0;
     error err;
     std::vector<iovec> iovs;
@@ -587,7 +587,7 @@ std::pair<int64, error> netfd::writeBuffers(std::vector<slice<byte>>& v) {
         }
         if (first == v.size()) break;
         iovs.clear();
-        for (std::size_t i = first; i < v.size() && iovs.size() < max_vec; i++) {
+        for (std::size_t i = first; i < v.size() && iovs.size() < maxVec; i++) {
             std::size_t skip = i == first ? off : 0;
             if (v[i].size() == skip) continue;
             iovs.push_back({v[i].data() + skip, v[i].size() - skip});
@@ -598,7 +598,7 @@ std::pair<int64, error> netfd::writeBuffers(std::vector<slice<byte>>& v) {
             if (e == EINTR) continue;
             if (e == EAGAIN) {
                 if (int pe = runtime::pollWait(pd_, 'w')) {
-                    err = op_error(pe);
+                    err = opError(pe);
                     break;
                 }
                 continue;
@@ -641,13 +641,13 @@ error netfd::rawRead(const std::function<bool(uintptr)>& f) {
     if (!incref()) return ErrClosed;
     if (int pe = runtime::pollReset(pd_, 'r')) {
         decref();
-        return op_error(pe);
+        return opError(pe);
     }
     for (;;) {
         if (f(static_cast<uintptr>(sysfd_))) break;
         if (int pe = runtime::pollWait(pd_, 'r')) {
             decref();
-            return op_error(pe);
+            return opError(pe);
         }
     }
     decref();
@@ -659,13 +659,13 @@ error netfd::rawWrite(const std::function<bool(uintptr)>& f) {
     if (!incref()) return ErrClosed;
     if (int pe = runtime::pollReset(pd_, 'w')) {
         decref();
-        return op_error(pe);
+        return opError(pe);
     }
     for (;;) {
         if (f(static_cast<uintptr>(sysfd_))) break;
         if (int pe = runtime::pollWait(pd_, 'w')) {
             decref();
-            return op_error(pe);
+            return opError(pe);
         }
     }
     decref();
@@ -676,14 +676,14 @@ error netfd::prepare(int mode) {
     if (!incref()) return ErrClosed;
     int pe = runtime::pollReset(pd_, mode);
     decref();
-    return pe ? op_error(pe) : nullptr;
+    return pe ? opError(pe) : nullptr;
 }
 
 error netfd::wait(int mode) {
     if (!incref()) return ErrClosed;
     int pe = runtime::pollWait(pd_, mode);
     decref();
-    return pe ? op_error(pe) : nullptr;
+    return pe ? opError(pe) : nullptr;
 }
 
 error netfd::getsockoptInt(int level, int name, int* value) {

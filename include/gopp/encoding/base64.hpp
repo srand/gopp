@@ -45,24 +45,24 @@ public:
     // them '\n' or '\r'. The padding is StdPadding.
     constexpr explicit Encoding(std::string_view encoder) {
         if (encoder.size() != 64) panic("encoding alphabet is not 64-bytes long");
-        decode_map_.fill(invalid_index);
+        decodeMap_.fill(invalidIndex);
         for (std::size_t i = 0; i < encoder.size(); i++) {
             auto c = static_cast<byte>(encoder[i]);
             if (c == '\n' || c == '\r') panic("encoding alphabet contains newline character");
-            if (decode_map_[c] != invalid_index) panic("encoding alphabet includes duplicate symbols");
+            if (decodeMap_[c] != invalidIndex) panic("encoding alphabet includes duplicate symbols");
             encode_[i] = c;
-            decode_map_[c] = static_cast<byte>(i);
+            decodeMap_[c] = static_cast<byte>(i);
         }
     }
 
     // A copy with padding character padding, or NoPadding.
     constexpr Encoding WithPadding(rune padding) const {
         if (padding < NoPadding || padding == '\r' || padding == '\n' || padding > 0xff) panic("invalid padding");
-        if (padding != NoPadding && decode_map_[static_cast<byte>(padding)] != invalid_index) {
+        if (padding != NoPadding && decodeMap_[static_cast<byte>(padding)] != invalidIndex) {
             panic("padding contained in alphabet");
         }
         Encoding e = *this;
-        e.pad_char_ = padding;
+        e.padChar_ = padding;
         return e;
     }
 
@@ -76,11 +76,11 @@ public:
 
     // The length of the encoding of n bytes.
     constexpr isize EncodedLen(isize n) const noexcept {
-        if (pad_char_ == NoPadding) return n / 3 * 4 + (n % 3 * 8 + 5) / 6;  // minimum # chars at 6 bits per char
+        if (padChar_ == NoPadding) return n / 3 * 4 + (n % 3 * 8 + 5) / 6;  // minimum # chars at 6 bits per char
         return (n + 2) / 3 * 4;  // minimum # 4-char quanta, 3 bytes each
     }
     // The most bytes n characters decode to.
-    constexpr isize DecodedLen(isize n) const noexcept { return decodedLen(n, pad_char_); }
+    constexpr isize DecodedLen(isize n) const noexcept { return decodedLen(n, padChar_); }
 
     // Writes the EncodedLen(len(src)) characters of src into dst.
     void Encode(std::span<byte> dst, std::span<const byte> src) const noexcept;
@@ -95,20 +95,20 @@ public:
     std::pair<slice<byte>, error> DecodeString(std::string_view s) const;
 
     // The padding character, or NoPadding.
-    constexpr rune padChar() const noexcept { return pad_char_; }
+    constexpr rune padChar() const noexcept { return padChar_; }
 
 private:
-    static constexpr byte invalid_index = 0xff;
+    static constexpr byte invalidIndex = 0xff;
 
     static constexpr isize decodedLen(isize n, rune padChar) noexcept {
         if (padChar == NoPadding) return n / 4 * 3 + n % 4 * 6 / 8;  // unpadded data may end with partial block of 2-3 characters
         return n / 4 * 3;  // padded base64 should always be a multiple of 4 characters in length
     }
-    std::tuple<isize, isize, error> decode_quantum(std::span<byte> dst, std::span<const byte> src, isize si) const;
+    std::tuple<isize, isize, error> decodeQuantum(std::span<byte> dst, std::span<const byte> src, isize si) const;
 
     std::array<byte, 64> encode_{};
-    std::array<byte, 256> decode_map_{};
-    rune pad_char_ = StdPadding;
+    std::array<byte, 256> decodeMap_{};
+    rune padChar_ = StdPadding;
     bool strict_ = false;
 };
 

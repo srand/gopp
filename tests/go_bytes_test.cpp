@@ -22,8 +22,8 @@ namespace {
 
 // A Go []byte in the test tables: nullopt for nil.
 using bs = std::optional<std::string>;
-bs bytes_of(std::string s) { return s; }
-const bs empty_bytes = ""s;
+bs bytesOf(std::string s) { return s; }
+const bs emptyBytes = ""s;
 
 slice<byte> b(const bs& v) { return v ? toBytes(*v) : slice<byte>(); }
 slice<byte> b(const std::string& s) { return toBytes(s); }
@@ -49,7 +49,7 @@ std::string repeat(const std::string& s, int n) {
     for (int i = 0; i < n; i++) r += s;
     return r;
 }
-constexpr isize max_int = std::numeric_limits<isize>::max();
+constexpr isize maxInt = std::numeric_limits<isize>::max();
 
 struct LinesTest {
     std::string a;
@@ -342,7 +342,7 @@ const std::vector<SplitTest> splittests = {
     {"1 2"s, " "s, 3, {"1"s, "2"s}},
     {"123"s, ""s, 2, {"1"s, "23"s}},
     {"123"s, ""s, 17, {"1"s, "2"s, "3"s}},
-    {"bT"s, "T"s, max_int / 4, {"b"s, ""s}},
+    {"bT"s, "T"s, maxInt / 4, {"b"s, ""s}},
     {"\xff-\xff"s, ""s, -1, {"\xff"s, "-"s, "\xff"s}},
     {"\xff-\xff"s, "-"s, -1, {"\xff"s, "\xff"s}},
 };
@@ -378,49 +378,49 @@ const std::vector<FieldsTest> fieldstests = {
 };
 
 const std::vector<StringTest> upperTests = {
-    {""s, bytes_of(""s)},
-    {"ONLYUPPER"s, bytes_of("ONLYUPPER"s)},
-    {"abc"s, bytes_of("ABC"s)},
-    {"AbC123"s, bytes_of("ABC123"s)},
-    {"azAZ09_"s, bytes_of("AZAZ09_"s)},
-    {"longStrinGwitHmixofsmaLLandcAps"s, bytes_of("LONGSTRINGWITHMIXOFSMALLANDCAPS"s)},
-    {"long\u0250string\u0250with\u0250nonascii\u2C6Fchars"s, bytes_of("LONG\u2C6FSTRING\u2C6FWITH\u2C6FNONASCII\u2C6FCHARS"s)},
-    {"\u0250\u0250\u0250\u0250\u0250"s, bytes_of("\u2C6F\u2C6F\u2C6F\u2C6F\u2C6F"s)}, // grows one byte per char
-    {"a\u0080\U0010FFFF"s, bytes_of("A\u0080\U0010FFFF"s)},                           // test utf8.RuneSelf and utf8.MaxRune
+    {""s, bytesOf(""s)},
+    {"ONLYUPPER"s, bytesOf("ONLYUPPER"s)},
+    {"abc"s, bytesOf("ABC"s)},
+    {"AbC123"s, bytesOf("ABC123"s)},
+    {"azAZ09_"s, bytesOf("AZAZ09_"s)},
+    {"longStrinGwitHmixofsmaLLandcAps"s, bytesOf("LONGSTRINGWITHMIXOFSMALLANDCAPS"s)},
+    {"long\u0250string\u0250with\u0250nonascii\u2C6Fchars"s, bytesOf("LONG\u2C6FSTRING\u2C6FWITH\u2C6FNONASCII\u2C6FCHARS"s)},
+    {"\u0250\u0250\u0250\u0250\u0250"s, bytesOf("\u2C6F\u2C6F\u2C6F\u2C6F\u2C6F"s)}, // grows one byte per char
+    {"a\u0080\U0010FFFF"s, bytesOf("A\u0080\U0010FFFF"s)},                           // test utf8.RuneSelf and utf8.MaxRune
 };
 
 const std::vector<StringTest> lowerTests = {
-    {""s, bytes_of(""s)},
-    {"abc"s, bytes_of("abc"s)},
-    {"AbC123"s, bytes_of("abc123"s)},
-    {"azAZ09_"s, bytes_of("azaz09_"s)},
-    {"longStrinGwitHmixofsmaLLandcAps"s, bytes_of("longstringwithmixofsmallandcaps"s)},
-    {"LONG\u2C6FSTRING\u2C6FWITH\u2C6FNONASCII\u2C6FCHARS"s, bytes_of("long\u0250string\u0250with\u0250nonascii\u0250chars"s)},
-    {"\u2C6D\u2C6D\u2C6D\u2C6D\u2C6D"s, bytes_of("\u0251\u0251\u0251\u0251\u0251"s)}, // shrinks one byte per char
-    {"A\u0080\U0010FFFF"s, bytes_of("a\u0080\U0010FFFF"s)},                           // test utf8.RuneSelf and utf8.MaxRune
+    {""s, bytesOf(""s)},
+    {"abc"s, bytesOf("abc"s)},
+    {"AbC123"s, bytesOf("abc123"s)},
+    {"azAZ09_"s, bytesOf("azaz09_"s)},
+    {"longStrinGwitHmixofsmaLLandcAps"s, bytesOf("longstringwithmixofsmallandcaps"s)},
+    {"LONG\u2C6FSTRING\u2C6FWITH\u2C6FNONASCII\u2C6FCHARS"s, bytesOf("long\u0250string\u0250with\u0250nonascii\u0250chars"s)},
+    {"\u2C6D\u2C6D\u2C6D\u2C6D\u2C6D"s, bytesOf("\u0251\u0251\u0251\u0251\u0251"s)}, // shrinks one byte per char
+    {"A\u0080\U0010FFFF"s, bytesOf("a\u0080\U0010FFFF"s)},                           // test utf8.RuneSelf and utf8.MaxRune
 };
 
 const std::vector<StringTest> trimSpaceTests = {
     {""s, {}},
-    {"  a"s, bytes_of("a"s)},
-    {"b  "s, bytes_of("b"s)},
-    {"abc"s, bytes_of("abc"s)},
-    {space + "abc"s + space, bytes_of("abc"s)},
+    {"  a"s, bytesOf("a"s)},
+    {"b  "s, bytesOf("b"s)},
+    {"abc"s, bytesOf("abc"s)},
+    {space + "abc"s + space, bytesOf("abc"s)},
     {" "s, {}},
     {"\u3000 "s, {}},
     {" \u3000"s, {}},
     {" \t\r\n \t\t\r\r\n\n "s, {}},
-    {" \t\r\n x\t\t\r\r\n\n "s, bytes_of("x"s)},
-    {" \u2000\t\r\n x\t\t\r\r\ny\n \u3000"s, bytes_of("x\t\t\r\r\ny"s)},
-    {"1 \t\r\n2"s, bytes_of("1 \t\r\n2"s)},
-    {" x\x80"s, bytes_of("x\x80"s)},
-    {" x\xc0"s, bytes_of("x\xc0"s)},
-    {"x \xc0\xc0 "s, bytes_of("x \xc0\xc0"s)},
-    {"x \xc0"s, bytes_of("x \xc0"s)},
-    {"x \xc0 "s, bytes_of("x \xc0"s)},
-    {"x \xc0\xc0 "s, bytes_of("x \xc0\xc0"s)},
-    {"x ☺\xc0\xc0 "s, bytes_of("x ☺\xc0\xc0"s)},
-    {"x ☺ "s, bytes_of("x ☺"s)},
+    {" \t\r\n x\t\t\r\r\n\n "s, bytesOf("x"s)},
+    {" \u2000\t\r\n x\t\t\r\r\ny\n \u3000"s, bytesOf("x\t\t\r\r\ny"s)},
+    {"1 \t\r\n2"s, bytesOf("1 \t\r\n2"s)},
+    {" x\x80"s, bytesOf("x\x80"s)},
+    {" x\xc0"s, bytesOf("x\xc0"s)},
+    {"x \xc0\xc0 "s, bytesOf("x \xc0\xc0"s)},
+    {"x \xc0"s, bytesOf("x \xc0"s)},
+    {"x \xc0 "s, bytesOf("x \xc0"s)},
+    {"x \xc0\xc0 "s, bytesOf("x \xc0\xc0"s)},
+    {"x ☺\xc0\xc0 "s, bytesOf("x ☺\xc0\xc0"s)},
+    {"x ☺ "s, bytesOf("x ☺"s)},
 };
 
 const std::vector<ToValidUTF8Test> toValidUTF8Tests = {
@@ -485,75 +485,75 @@ const std::vector<TrimTest> trimTests = {
 
 const std::vector<TrimNilTest> trimNilTests = {
     {"Trim"s, {}, ""s, {}},
-    {"Trim"s, empty_bytes, ""s, {}},
-    {"Trim"s, bytes_of("a"s), "a"s, {}},
-    {"Trim"s, bytes_of("aa"s), "a"s, {}},
-    {"Trim"s, bytes_of("a"s), "ab"s, {}},
-    {"Trim"s, bytes_of("ab"s), "ab"s, {}},
-    {"Trim"s, bytes_of("☺"s), "☺"s, {}},
+    {"Trim"s, emptyBytes, ""s, {}},
+    {"Trim"s, bytesOf("a"s), "a"s, {}},
+    {"Trim"s, bytesOf("aa"s), "a"s, {}},
+    {"Trim"s, bytesOf("a"s), "ab"s, {}},
+    {"Trim"s, bytesOf("ab"s), "ab"s, {}},
+    {"Trim"s, bytesOf("☺"s), "☺"s, {}},
     {"TrimLeft"s, {}, ""s, {}},
-    {"TrimLeft"s, empty_bytes, ""s, {}},
-    {"TrimLeft"s, bytes_of("a"s), "a"s, {}},
-    {"TrimLeft"s, bytes_of("aa"s), "a"s, {}},
-    {"TrimLeft"s, bytes_of("a"s), "ab"s, {}},
-    {"TrimLeft"s, bytes_of("ab"s), "ab"s, {}},
-    {"TrimLeft"s, bytes_of("☺"s), "☺"s, {}},
+    {"TrimLeft"s, emptyBytes, ""s, {}},
+    {"TrimLeft"s, bytesOf("a"s), "a"s, {}},
+    {"TrimLeft"s, bytesOf("aa"s), "a"s, {}},
+    {"TrimLeft"s, bytesOf("a"s), "ab"s, {}},
+    {"TrimLeft"s, bytesOf("ab"s), "ab"s, {}},
+    {"TrimLeft"s, bytesOf("☺"s), "☺"s, {}},
     {"TrimRight"s, {}, ""s, {}},
-    {"TrimRight"s, empty_bytes, ""s, empty_bytes},
-    {"TrimRight"s, bytes_of("a"s), "a"s, empty_bytes},
-    {"TrimRight"s, bytes_of("aa"s), "a"s, empty_bytes},
-    {"TrimRight"s, bytes_of("a"s), "ab"s, empty_bytes},
-    {"TrimRight"s, bytes_of("ab"s), "ab"s, empty_bytes},
-    {"TrimRight"s, bytes_of("☺"s), "☺"s, empty_bytes},
+    {"TrimRight"s, emptyBytes, ""s, emptyBytes},
+    {"TrimRight"s, bytesOf("a"s), "a"s, emptyBytes},
+    {"TrimRight"s, bytesOf("aa"s), "a"s, emptyBytes},
+    {"TrimRight"s, bytesOf("a"s), "ab"s, emptyBytes},
+    {"TrimRight"s, bytesOf("ab"s), "ab"s, emptyBytes},
+    {"TrimRight"s, bytesOf("☺"s), "☺"s, emptyBytes},
     {"TrimPrefix"s, {}, ""s, {}},
-    {"TrimPrefix"s, empty_bytes, ""s, empty_bytes},
-    {"TrimPrefix"s, bytes_of("a"s), "a"s, empty_bytes},
-    {"TrimPrefix"s, bytes_of("☺"s), "☺"s, empty_bytes},
+    {"TrimPrefix"s, emptyBytes, ""s, emptyBytes},
+    {"TrimPrefix"s, bytesOf("a"s), "a"s, emptyBytes},
+    {"TrimPrefix"s, bytesOf("☺"s), "☺"s, emptyBytes},
     {"TrimSuffix"s, {}, ""s, {}},
-    {"TrimSuffix"s, empty_bytes, ""s, empty_bytes},
-    {"TrimSuffix"s, bytes_of("a"s), "a"s, empty_bytes},
-    {"TrimSuffix"s, bytes_of("☺"s), "☺"s, empty_bytes},
+    {"TrimSuffix"s, emptyBytes, ""s, emptyBytes},
+    {"TrimSuffix"s, bytesOf("a"s), "a"s, emptyBytes},
+    {"TrimSuffix"s, bytesOf("☺"s), "☺"s, emptyBytes},
 };
 
 const std::vector<TrimFuncTest> trimFuncTests = {
     {isSpace, space + " hello "s + space,
-        bytes_of("hello"s),
-        bytes_of("hello "s + space),
-        bytes_of(space + " hello"s)},
+        bytesOf("hello"s),
+        bytesOf("hello "s + space),
+        bytesOf(space + " hello"s)},
     {isDigit, "\u0e50\u0e5212hello34\u0e50\u0e51"s,
-        bytes_of("hello"s),
-        bytes_of("hello34\u0e50\u0e51"s),
-        bytes_of("\u0e50\u0e5212hello"s)},
+        bytesOf("hello"s),
+        bytesOf("hello34\u0e50\u0e51"s),
+        bytesOf("\u0e50\u0e5212hello"s)},
     {isUpper, "\u2C6F\u2C6F\u2C6F\u2C6FABCDhelloEF\u2C6F\u2C6FGH\u2C6F\u2C6F"s,
-        bytes_of("hello"s),
-        bytes_of("helloEF\u2C6F\u2C6FGH\u2C6F\u2C6F"s),
-        bytes_of("\u2C6F\u2C6F\u2C6F\u2C6FABCDhello"s)},
+        bytesOf("hello"s),
+        bytesOf("helloEF\u2C6F\u2C6FGH\u2C6F\u2C6F"s),
+        bytesOf("\u2C6F\u2C6F\u2C6F\u2C6FABCDhello"s)},
     {not_(isSpace), "hello"s + space + "hello"s,
-        bytes_of(space),
-        bytes_of(space + "hello"s),
-        bytes_of("hello"s + space)},
+        bytesOf(space),
+        bytesOf(space + "hello"s),
+        bytesOf("hello"s + space)},
     {not_(isDigit), "hello\u0e50\u0e521234\u0e50\u0e51helo"s,
-        bytes_of("\u0e50\u0e521234\u0e50\u0e51"s),
-        bytes_of("\u0e50\u0e521234\u0e50\u0e51helo"s),
-        bytes_of("hello\u0e50\u0e521234\u0e50\u0e51"s)},
+        bytesOf("\u0e50\u0e521234\u0e50\u0e51"s),
+        bytesOf("\u0e50\u0e521234\u0e50\u0e51helo"s),
+        bytesOf("hello\u0e50\u0e521234\u0e50\u0e51"s)},
     {isValidRune, "ab\xc0" "a\xc0" "cd"s,
-        bytes_of("\xc0" "a\xc0"s),
-        bytes_of("\xc0" "a\xc0" "cd"s),
-        bytes_of("ab\xc0" "a\xc0"s)},
+        bytesOf("\xc0" "a\xc0"s),
+        bytesOf("\xc0" "a\xc0" "cd"s),
+        bytesOf("ab\xc0" "a\xc0"s)},
     {not_(isValidRune), "\xc0" "a\xc0"s,
-        bytes_of("a"s),
-        bytes_of("a\xc0"s),
-        bytes_of("\xc0" "a"s)},
+        bytesOf("a"s),
+        bytesOf("a\xc0"s),
+        bytesOf("\xc0" "a"s)},
     // The nils returned by TrimLeftFunc are odd behavior, but we need
     // to preserve backwards compatibility.
     {isSpace, ""s,
         {},
         {},
-        bytes_of(""s)},
+        bytesOf(""s)},
     {isSpace, " "s,
         {},
         {},
-        bytes_of(""s)},
+        bytesOf(""s)},
 };
 
 const std::vector<IndexFuncTest> indexFuncTests = {
@@ -653,61 +653,61 @@ const std::vector<CutSuffixTest> cutSuffixTests = {
 };
 
 const std::vector<ContainsTest> containsTests = {
-    {bytes_of("hello"s), bytes_of("hel"s), true},
-    {bytes_of("日本語"s), bytes_of("日本"s), true},
-    {bytes_of("hello"s), bytes_of("Hello, world"s), false},
-    {bytes_of("東京"s), bytes_of("京東"s), false},
+    {bytesOf("hello"s), bytesOf("hel"s), true},
+    {bytesOf("日本語"s), bytesOf("日本"s), true},
+    {bytesOf("hello"s), bytesOf("Hello, world"s), false},
+    {bytesOf("東京"s), bytesOf("京東"s), false},
 };
 
 const std::vector<ContainsAnyTest> ContainsAnyTests = {
-    {bytes_of(""s), ""s, false},
-    {bytes_of(""s), "a"s, false},
-    {bytes_of(""s), "abc"s, false},
-    {bytes_of("a"s), ""s, false},
-    {bytes_of("a"s), "a"s, true},
-    {bytes_of("aaa"s), "a"s, true},
-    {bytes_of("abc"s), "xyz"s, false},
-    {bytes_of("abc"s), "xcz"s, true},
-    {bytes_of("a☺b☻c☹d"s), "uvw☻xyz"s, true},
-    {bytes_of("aRegExp*"s), ".(|)*+?^$[]"s, true},
-    {bytes_of(dots + dots + dots), " "s, false},
+    {bytesOf(""s), ""s, false},
+    {bytesOf(""s), "a"s, false},
+    {bytesOf(""s), "abc"s, false},
+    {bytesOf("a"s), ""s, false},
+    {bytesOf("a"s), "a"s, true},
+    {bytesOf("aaa"s), "a"s, true},
+    {bytesOf("abc"s), "xyz"s, false},
+    {bytesOf("abc"s), "xcz"s, true},
+    {bytesOf("a☺b☻c☹d"s), "uvw☻xyz"s, true},
+    {bytesOf("aRegExp*"s), ".(|)*+?^$[]"s, true},
+    {bytesOf(dots + dots + dots), " "s, false},
 };
 
 const std::vector<ContainsRuneTest> ContainsRuneTests = {
-    {bytes_of(""s), U'a', false},
-    {bytes_of("a"s), U'a', true},
-    {bytes_of("aaa"s), U'a', true},
-    {bytes_of("abc"s), U'y', false},
-    {bytes_of("abc"s), U'c', true},
-    {bytes_of("a☺b☻c☹d"s), U'x', false},
-    {bytes_of("a☺b☻c☹d"s), U'☻', true},
-    {bytes_of("aRegExp*"s), U'*', true},
+    {bytesOf(""s), U'a', false},
+    {bytesOf("a"s), U'a', true},
+    {bytesOf("aaa"s), U'a', true},
+    {bytesOf("abc"s), U'y', false},
+    {bytesOf("abc"s), U'c', true},
+    {bytesOf("a☺b☻c☹d"s), U'x', false},
+    {bytesOf("a☺b☻c☹d"s), U'☻', true},
+    {bytesOf("aRegExp*"s), U'*', true},
 };
 
 const std::vector<CompareTest> compareTests = {
-    {bytes_of(""s), bytes_of(""s), 0},
-    {bytes_of("a"s), bytes_of(""s), 1},
-    {bytes_of(""s), bytes_of("a"s), -1},
-    {bytes_of("abc"s), bytes_of("abc"s), 0},
-    {bytes_of("abd"s), bytes_of("abc"s), 1},
-    {bytes_of("abc"s), bytes_of("abd"s), -1},
-    {bytes_of("ab"s), bytes_of("abc"s), -1},
-    {bytes_of("abc"s), bytes_of("ab"s), 1},
-    {bytes_of("x"s), bytes_of("ab"s), 1},
-    {bytes_of("ab"s), bytes_of("x"s), -1},
-    {bytes_of("x"s), bytes_of("a"s), 1},
-    {bytes_of("b"s), bytes_of("x"s), -1},
+    {bytesOf(""s), bytesOf(""s), 0},
+    {bytesOf("a"s), bytesOf(""s), 1},
+    {bytesOf(""s), bytesOf("a"s), -1},
+    {bytesOf("abc"s), bytesOf("abc"s), 0},
+    {bytesOf("abd"s), bytesOf("abc"s), 1},
+    {bytesOf("abc"s), bytesOf("abd"s), -1},
+    {bytesOf("ab"s), bytesOf("abc"s), -1},
+    {bytesOf("abc"s), bytesOf("ab"s), 1},
+    {bytesOf("x"s), bytesOf("ab"s), 1},
+    {bytesOf("ab"s), bytesOf("x"s), -1},
+    {bytesOf("x"s), bytesOf("a"s), 1},
+    {bytesOf("b"s), bytesOf("x"s), -1},
     // test runtime·memeq's chunked implementation
-    {bytes_of("abcdefgh"s), bytes_of("abcdefgh"s), 0},
-    {bytes_of("abcdefghi"s), bytes_of("abcdefghi"s), 0},
-    {bytes_of("abcdefghi"s), bytes_of("abcdefghj"s), -1},
-    {bytes_of("abcdefghj"s), bytes_of("abcdefghi"s), 1},
+    {bytesOf("abcdefgh"s), bytesOf("abcdefgh"s), 0},
+    {bytesOf("abcdefghi"s), bytesOf("abcdefghi"s), 0},
+    {bytesOf("abcdefghi"s), bytesOf("abcdefghj"s), -1},
+    {bytesOf("abcdefghj"s), bytesOf("abcdefghi"s), 1},
     // nil tests
     {{}, {}, 0},
-    {bytes_of(""s), {}, 0},
-    {{}, bytes_of(""s), 0},
-    {bytes_of("a"s), {}, 1},
-    {{}, bytes_of("a"s), -1},
+    {bytesOf(""s), {}, 0},
+    {{}, bytesOf(""s), 0},
+    {bytesOf("a"s), {}, 1},
+    {{}, bytesOf("a"s), -1},
 };
 
 TEST(GoBytes, Lines) {

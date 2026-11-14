@@ -31,11 +31,11 @@ std::pair<ptr<UnixAddr>, error> ResolveUnixAddr(std::string_view network, std::s
 // UnixConn
 
 error UnixConn::CloseRead() {
-    return op_error("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_RD));
+    return opError("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_RD));
 }
 
 error UnixConn::CloseWrite() {
-    return op_error("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_WR));
+    return opError("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_WR));
 }
 
 std::tuple<isize, ptr<UnixAddr>, error> UnixConn::ReadFromUnix(std::span<byte> b) {
@@ -54,12 +54,12 @@ std::tuple<isize, isize, int, ptr<UnixAddr>, error> UnixConn::ReadMsgUnix(std::s
     // An unnamed sender has no address.
     ptr<UnixAddr> addr = asUnix(sockaddrToAddr(from, fd_->sotype()));
     if (addr && addr->Name.empty()) addr = nullptr;
-    return {n, oobn, flags, addr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    return {n, oobn, flags, addr, opError("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
 }
 
 std::pair<isize, error> UnixConn::WriteToUnix(std::span<const byte> b, const ptr<UnixAddr>& addr) {
     auto fail = [&](error err) {
-        return std::pair<isize, error>{0, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+        return std::pair<isize, error>{0, opError("write", fd_->network(), fd_->laddr, addr, err)};
     };
     if (fd_->raddr) return fail(ErrWriteToConnected);
     if (!addr) return fail(errMissingAddress);
@@ -68,20 +68,20 @@ std::pair<isize, error> UnixConn::WriteToUnix(std::span<const byte> b, const ptr
     socklen_t len;
     if (error err = unixSockaddr(addr->Name.view(), &sa, &len)) return fail(err);
     auto [n, oobn, err] = fd_->writeMsg(b, {}, &sa, len);
-    if (err) return {n, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    if (err) return {n, opError("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, nullptr};
 }
 
 std::pair<isize, error> UnixConn::WriteTo(std::span<const byte> b, const ptr<net::Addr>& addr) {
     auto a = asUnix(addr);
-    if (!a) return {0, op_error("write", fd_->network(), fd_->laddr, addr, errnoError(EINVAL))};
+    if (!a) return {0, opError("write", fd_->network(), fd_->laddr, addr, errnoError(EINVAL))};
     return WriteToUnix(b, a);
 }
 
 std::tuple<isize, isize, error> UnixConn::WriteMsgUnix(std::span<const byte> b, std::span<const byte> oob,
                                                        const ptr<UnixAddr>& addr) {
     auto fail = [&](error err) {
-        return std::tuple<isize, isize, error>{0, 0, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+        return std::tuple<isize, isize, error>{0, 0, opError("write", fd_->network(), fd_->laddr, addr, err)};
     };
     if (fd_->sotype() == SOCK_DGRAM && fd_->raddr && addr) return fail(ErrWriteToConnected);
     sockaddr_storage sa;
@@ -91,7 +91,7 @@ std::tuple<isize, isize, error> UnixConn::WriteMsgUnix(std::span<const byte> b, 
         if (error err = unixSockaddr(addr->Name.view(), &sa, &len)) return fail(err);
     }
     auto [n, oobn, err] = fd_->writeMsg(b, oob, addr ? &sa : nullptr, len);
-    if (err) return {n, oobn, op_error("write", fd_->network(), fd_->laddr, addr, err)};
+    if (err) return {n, oobn, opError("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, oobn, nullptr};
 }
 
@@ -105,7 +105,7 @@ UnixListener::~UnixListener() { Close(); }
 
 std::pair<ptr<UnixConn>, error> UnixListener::AcceptUnix() {
     auto [nfd, err] = fd_->accept();
-    if (err) return {nullptr, op_error("accept", fd_->network(), nullptr, fd_->laddr, err)};
+    if (err) return {nullptr, opError("accept", fd_->network(), nullptr, fd_->laddr, err)};
     return {make_ptr<UnixConn>(nfd), nullptr};
 }
 
@@ -121,7 +121,7 @@ error UnixListener::Close() {
         std::string p(path_.view());
         ::unlink(p.c_str());
     }
-    if (error err = fd_->Close()) return op_error("close", fd_->network(), nullptr, fd_->laddr, err);
+    if (error err = fd_->Close()) return opError("close", fd_->network(), nullptr, fd_->laddr, err);
     return nullptr;
 }
 
@@ -131,7 +131,7 @@ error UnixListener::SetDeadline(time::Time t) { return fd_->SetDeadline(t, 'r' +
 
 std::pair<ptr<os::File>, error> UnixListener::File() {
     auto [f, err] = fd_->dup();
-    if (err) return {nullptr, op_error("file", fd_->network(), nullptr, fd_->laddr, err)};
+    if (err) return {nullptr, opError("file", fd_->network(), nullptr, fd_->laddr, err)};
     return {f, nullptr};
 }
 
@@ -163,32 +163,32 @@ std::pair<ptr<UnixConn>, error> sysListener::listenUnixgram(const ptr<context::C
 std::pair<ptr<UnixListener>, error> ListenUnix(std::string_view network, const ptr<UnixAddr>& laddr) {
     string net(network);
     if (network != "unix" && network != "unixpacket") {
-        return {nullptr, op_error("listen", net, nullptr, laddr, make_ptr<UnknownNetworkError>(net))};
+        return {nullptr, opError("listen", net, nullptr, laddr, make_ptr<UnknownNetworkError>(net))};
     }
-    if (!laddr) return {nullptr, op_error("listen", net, nullptr, nullptr, errMissingAddress)};
+    if (!laddr) return {nullptr, opError("listen", net, nullptr, nullptr, errMissingAddress)};
     sysListener sl{.lc = {}, .network = net, .address = laddr->String()};
     auto [ln, err] = sl.listenUnix(context::Background(), laddr.get());
-    if (err) return {nullptr, op_error("listen", net, nullptr, laddr, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, laddr, err)};
     return {ln, nullptr};
 }
 
 std::pair<ptr<UnixConn>, error> ListenUnixgram(std::string_view network, const ptr<UnixAddr>& laddr) {
     string net(network);
-    if (network != "unixgram") return {nullptr, op_error("listen", net, nullptr, laddr, make_ptr<UnknownNetworkError>(net))};
-    if (!laddr) return {nullptr, op_error("listen", net, nullptr, nullptr, errMissingAddress)};
+    if (network != "unixgram") return {nullptr, opError("listen", net, nullptr, laddr, make_ptr<UnknownNetworkError>(net))};
+    if (!laddr) return {nullptr, opError("listen", net, nullptr, nullptr, errMissingAddress)};
     sysListener sl{.lc = {}, .network = net, .address = laddr->String()};
     auto [c, err] = sl.listenUnixgram(context::Background(), laddr.get());
-    if (err) return {nullptr, op_error("listen", net, nullptr, laddr, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, laddr, err)};
     return {c, nullptr};
 }
 
 std::pair<ptr<UnixConn>, error> DialUnix(std::string_view network, const ptr<UnixAddr>& laddr,
                                          const ptr<UnixAddr>& raddr) {
     string net(network);
-    if (unixSotype(network) < 0) return {nullptr, op_error("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
+    if (unixSotype(network) < 0) return {nullptr, opError("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
     sysDialer sd{.d = {}, .network = net, .address = raddr ? raddr->String() : string()};
     auto [c, err] = sd.dialUnix(context::Background(), laddr.get(), raddr.get());
-    if (err) return {nullptr, op_error("dial", net, laddr, raddr, err)};
+    if (err) return {nullptr, opError("dial", net, laddr, raddr, err)};
     return {c, nullptr};
 }
 

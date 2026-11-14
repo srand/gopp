@@ -44,8 +44,8 @@ public:
 
 private:
     http::Header header_;
-    http::Header snap_header_;
-    bool wrote_header_ = false;
+    http::Header snapHeader_;
+    bool wroteHeader_ = false;
 };
 
 // httptest.NewRecorder

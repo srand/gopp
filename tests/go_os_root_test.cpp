@@ -171,12 +171,6 @@ bool errEndsTest(const error& err, bool wantError, const std::string& op) {
 
 std::string q(std::string_view s) { return str(strconv::Quote(s)); }
 
-std::string readAll(File& f) {
-    auto [b, err] = io::ReadAll(f);
-    EXPECT_FALSE(err) << err;
-    return std::string(asStringView(b));
-}
-
 }  // namespace
 
 TEST(GoOsRoot, RootOpen_File) {
@@ -269,7 +263,7 @@ TEST(GoOsRoot, RootChtimes) {
     for (auto& test : rootTestCases) {
         test.run([&](const std::string& target, os::Root& root) {
             if (!target.empty()) { ASSERT_FALSE(os::WriteFile(target, "", 0666)); }
-            struct times_t {
+            struct timesT {
                 time::Time atime, mtime;
             } timesList[] = {
                 {time::Now().Add(-1 * time::Minute), time::Now().Add(-1 * time::Minute)},
@@ -1046,8 +1040,8 @@ TEST(GoOsRoot, RootConcurrentClose) {
     TempDir dir;
     auto [r, err] = os::OpenRoot(dir.path());
     ASSERT_FALSE(err) << err;
-    auto ch = makeChan<error>(1);
-    auto done = makeChan<int>(1);
+    auto ch = make_chan<error>(1);
+    auto done = make_chan<int>(1);
     go([r, ch, done] {
         bool first = true;
         for (;;) {
@@ -1120,7 +1114,7 @@ TEST(GoOsRoot, RootRaceRenameDir) {
     // We're trying to exploit a race, so try this a number of times.
     for (int i = 0; i < 100; i++) {
         // Start a goroutine to open the file.
-        auto gotc = makeChan<std::string>();
+        auto gotc = make_chan<std::string>();
         go([r = r, path, gotc] {
             auto [f, err] = r->Open(path);
             if (err) {

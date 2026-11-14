@@ -582,7 +582,7 @@ std::tuple<std::vector<IPAddr>, dnsmessage::Name, error> goLookupIPCNAMEOrder(Re
         error err;
     };
     if (!conf) conf = getSystemDNSConfig();
-    auto lane = makeChan<result>(1);
+    auto lane = make_chan<result>(1);
     std::vector<dnsmessage::Type> qtypes = {dnsmessage::TypeA, dnsmessage::TypeAAAA};
     if (network == "CNAME") qtypes.push_back(dnsmessage::TypeCNAME);
     switch (ipVersion(network)) {
@@ -747,9 +747,9 @@ std::pair<std::vector<std::string>, error> goLookupPTR(Resolver* r, const ptr<co
 
 namespace detail {
 
-chan<lookup_result> lookup_group::DoChan(const std::string& key,
+chan<lookupResult> lookupGroup::DoChan(const std::string& key,
                                          std::function<std::pair<std::vector<IPAddr>, error>()> fn) {
-    auto ch = makeChan<lookup_result>(1);
+    auto ch = make_chan<lookupResult>(1);
     std::unique_lock l(mu);
     if (auto it = m.find(key); it != m.end()) {
         it->second->dups++;
@@ -767,12 +767,12 @@ chan<lookup_result> lookup_group::DoChan(const std::string& key,
         std::tie(c->val, c->err) = fn();
         std::lock_guard lg(mu);
         if (auto it = m.find(key); it != m.end() && it->second == c) m.erase(it);
-        for (auto& rc : c->chans) rc.send(lookup_result{c->val, c->err, c->dups > 0});
+        for (auto& rc : c->chans) rc.send(lookupResult{c->val, c->err, c->dups > 0});
     });
     return ch;
 }
 
-bool lookup_group::ForgetUnshared(const std::string& key) {
+bool lookupGroup::ForgetUnshared(const std::string& key) {
     std::lock_guard l(mu);
     auto it = m.find(key);
     if (it == m.end()) return true;
@@ -860,7 +860,7 @@ std::pair<std::vector<IPAddr>, error> lookupIPAddr(Resolver* r0, const ptr<conte
                     }
                     ret = {{}, newDNSError(mapErr(ctx->Err()), host, "")};
                 }),
-           recv(ch, [&](detail::lookup_result res) {
+           recv(ch, [&](detail::lookupResult res) {
                lookupGroupCancel();
                error err = res.err;
                if (err && !dynamic_cast<const DNSError*>(err.get())) err = newDNSError(mapErr(err), host, "");
@@ -917,7 +917,7 @@ std::pair<std::vector<ptr<Addr>>, error> internetAddrList(Resolver* r, const ptr
 
 const ptr<Resolver> DefaultResolver = make_ptr<Resolver>();
 
-Resolver::Resolver() : group_(std::make_shared<detail::lookup_group>()) {}
+Resolver::Resolver() : group_(std::make_shared<detail::lookupGroup>()) {}
 Resolver::~Resolver() = default;
 
 std::pair<std::vector<string>, error> Resolver::LookupHost(const ptr<context::Context>& ctx, std::string_view host) {

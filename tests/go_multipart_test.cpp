@@ -258,7 +258,7 @@ struct sentinelReader final : io::Reader {
 TEST(GoMultipart, MultipartStreamReadahead) {
     std::string testBody1 = crlf("\nThis is a multi-part message.  This line is ignored.\n--MyBoundary\nfoo-bar: baz\n\nBody\n--MyBoundary\n");
     std::string testBody2 = crlf("foo-bar: bop\n\nBody 2\n--MyBoundary--\n");
-    auto done1 = makeChan<empty>();
+    auto done1 = make_chan<empty>();
     auto reader = multipart::NewReader(
         io::MultiReader({strings::NewReader(testBody1), make_ptr<sentinelReader>(done1), strings::NewReader(testBody2)}),
         "MyBoundary");
@@ -1045,7 +1045,7 @@ TEST(GoMultipart, WriterBoundaryGoroutines) {
         std::pair<isize, error> Write(std::span<const byte> p) override { return {isize(p.size()), nullptr}; }
     };
     auto w = multipart::NewWriter(make_ptr<discard>());
-    auto done = makeChan<int>();
+    auto done = make_chan<int>();
     go([w, done] {
         w->CreateFormField("foo");
         done.send(1);

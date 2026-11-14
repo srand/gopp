@@ -1,5 +1,5 @@
-// Ported from Go 1.27.3's text/template/parse: lex_test.go and
-// parse_test.go, with Go's test names and tables (the tables are generated
+// Ported from Go 1.27.3's text/template/parse: lexTest.go and
+// parseTest.go, with Go's test names and tables (the tables are generated
 // from the Go sources). Left out: the benchmarks. TestNumberParse decides
 // complex inputs by their form where Go asks fmt.Sscan.
 #include "text/template/parse/lex.hpp"
@@ -20,13 +20,13 @@ namespace {
 
 item mk(itemType typ, std::string_view text) { return item{typ, 0, string(text), 0}; }
 
-struct lex_test {
+struct lexTest {
     std::string name;
     std::string input;
     std::vector<item> items;
 };
 
-struct number_test {
+struct numberTest {
     std::string text;
     bool isInt = false;
     bool isUint = false;
@@ -41,20 +41,20 @@ struct number_test {
 constexpr bool noError = true;
 constexpr bool hasError = false;
 
-struct parse_test {
+struct parseTest {
     std::string name;
     std::string input;
     bool ok;
     std::string result;  // what the user would see in an error message
 };
 
-struct is_empty_test {
+struct isEmptyTest {
     std::string name;
     std::string input;
     bool empty;
 };
 
-// Generated from Go 1.27.3 text/template/parse lex_test.go and parse_test.go.
+// Generated from Go 1.27.3 text/template/parse lexTest.go and parseTest.go.
 // clang-format off
 namespace lex_tables {
 const item tDot = mk(itemDot, ".");
@@ -74,7 +74,7 @@ const std::string rawNL = "`now is{{\n}}the time`"; // Contains newline inside r
 const item tRawQuote = mk(itemRawString, raw);
 const item tRawQuoteNL = mk(itemRawString, rawNL);
 
-const std::vector<lex_test> lexTests = {
+const std::vector<lexTest> lexTests = {
 	{"empty", "", {tEOF}},
 	{"spaces", " \t\n", {mk(itemText, " \t\n"), tEOF}},
 	{"text", std::string(R"__(now is the time)__"), {mk(itemText, "now is the time"), tEOF}},
@@ -381,7 +381,7 @@ const std::vector<lex_test> lexTests = {
 const item tLeftDelim = mk(itemLeftDelim, "$$");
 const item tRightDelim = mk(itemRightDelim, "@@");
 
-const std::vector<lex_test> lexDelimTests = {
+const std::vector<lexTest> lexDelimTests = {
 	{"punctuation", "$$,@%{{}}@@", {
 		tLeftDelim,
 		mk(itemChar, ","),
@@ -400,7 +400,7 @@ const std::vector<lex_test> lexDelimTests = {
 	{"raw quote", "$$" + raw + "@@", {tLeftDelim, tRawQuote, tRightDelim, tEOF}},
 };
 
-const std::vector<lex_test> lexPosTests = {
+const std::vector<lexTest> lexPosTests = {
 	{"empty", "", {{itemEOF, 0, "", 1}}},
 	{"punctuation", "{{,@%#}}", {
 		{itemLeftDelim, 0, "{{", 1},
@@ -450,7 +450,7 @@ const std::vector<lex_test> lexPosTests = {
 };
 }  // namespace lex_tables
 
-const std::vector<number_test> numberTests = {
+const std::vector<numberTest> numberTests = {
 	// basics
 	{"0", true, true, true, false, 0, 0, 0, 0},
 	{"-0", true, true, true, false, 0, 0, 0, 0}, // check that -0 is a uint.
@@ -511,7 +511,7 @@ const std::vector<number_test> numberTests = {
 	{"0xef", true, true, true, false, 0xef, 0xef, 0xef, 0},
 };
 
-const std::vector<parse_test> parseTests = {
+const std::vector<parseTest> parseTests = {
 	{"empty", "", noError,
 		std::string(R"__()__")},
 	{"comment", "{{/*\n\n\n*/}}", noError,
@@ -674,7 +674,7 @@ const std::vector<parse_test> parseTests = {
 	{"paren nesting with other constructs exceeds limit", "{{ if (((( true )))) }}YES{{ end }}", hasError, "template: test:1: max expression depth exceeded"},
 };
 
-const std::vector<is_empty_test> isEmptyTests = {
+const std::vector<isEmptyTest> isEmptyTests = {
 	{"empty", std::string(R"__()__"), true},
 	{"nonempty", std::string(R"__(hello)__"), false},
 	{"spaces only", " \t\n \t\n", true},
@@ -685,7 +685,7 @@ const std::vector<is_empty_test> isEmptyTests = {
 	{"definition and action", "{{define `x`}}something{{end}}{{if 3}}foo{{end}}", false},
 };
 
-const std::vector<parse_test> errorTests = {
+const std::vector<parseTest> errorTests = {
 	// Check line numbers are accurate.
 	{"unclosed1",
 		"line1\n{{",
@@ -787,9 +787,9 @@ const std::vector<parse_test> errorTests = {
 		hasError, std::string(R"__(range can only initialize variables)__")},
 };
 
-std::vector<item> collect(const lex_test& t, std::string_view left, std::string_view right) {
+std::vector<item> collect(const lexTest& t, std::string_view left, std::string_view right) {
     lexer l(string(t.name), string(t.input), left, right);
-    l.options = lex_options{.emit_comment = true, .break_ok = true, .continue_ok = true};
+    l.options = lexOptions{.emitComment = true, .breakOk = true, .continueOk = true};
     std::vector<item> items;
     for (;;) {
         item i = l.nextItem();
@@ -799,13 +799,13 @@ std::vector<item> collect(const lex_test& t, std::string_view left, std::string_
     return items;
 }
 
-bool equal(const std::vector<item>& i1, const std::vector<item>& i2, bool check_pos) {
+bool equal(const std::vector<item>& i1, const std::vector<item>& i2, bool checkPos) {
     if (i1.size() != i2.size()) return false;
     for (std::size_t k = 0; k < i1.size(); k++) {
         if (i1[k].typ != i2[k].typ) return false;
         if (i1[k].val != i2[k].val) return false;
-        if (check_pos && i1[k].pos != i2[k].pos) return false;
-        if (check_pos && i1[k].line != i2[k].line) return false;
+        if (checkPos && i1[k].pos != i2[k].pos) return false;
+        if (checkPos && i1[k].line != i2[k].line) return false;
     }
     return true;
 }
@@ -819,19 +819,19 @@ std::string show(const std::vector<item>& items) {
 const FuncNames builtins = {"printf", "contains"};
 
 // Go's tests use a small expression depth and quote text nodes.
-struct test_knobs {
-    int depth = max_stack_depth;
-    test_knobs() {
-        max_stack_depth = 3;
-        text_format_q = true;
+struct testKnobs {
+    int depth = maxStackDepth;
+    testKnobs() {
+        maxStackDepth = 3;
+        textFormatQ = true;
     }
-    ~test_knobs() {
-        max_stack_depth = depth;
-        text_format_q = false;
+    ~testKnobs() {
+        maxStackDepth = depth;
+        textFormatQ = false;
     }
 };
 
-using tree_set = std::map<std::string, ptr<Tree>, std::less<>>;
+using treeSet = std::map<std::string, ptr<Tree>, std::less<>>;
 
 }  // namespace
 
@@ -852,7 +852,7 @@ TEST(TextTemplateParse, Delims) {
 }
 
 TEST(TextTemplateParse, DelimsAlphaNumeric) {
-    lex_test test{"right delimiter with alphanumeric start", "{{hub .host hub}}", {
+    lexTest test{"right delimiter with alphanumeric start", "{{hub .host hub}}", {
         mk(itemLeftDelim, "{{hub"), mk(itemSpace, " "), mk(itemField, ".host"), mk(itemSpace, " "),
         mk(itemRightDelim, "hub}}"), tEOF}};
     auto items = collect(test, "{{hub", "hub}}");
@@ -860,7 +860,7 @@ TEST(TextTemplateParse, DelimsAlphaNumeric) {
 }
 
 TEST(TextTemplateParse, DelimsAndMarkers) {
-    lex_test test{"delims that look like markers", "{{- .x -}} {{- - .x - -}}", {
+    lexTest test{"delims that look like markers", "{{- .x -}} {{- - .x - -}}", {
         mk(itemLeftDelim, "{{- "), mk(itemField, ".x"), mk(itemRightDelim, " -}}"), mk(itemLeftDelim, "{{- "),
         mk(itemField, ".x"), mk(itemRightDelim, " -}}"), tEOF}};
     auto items = collect(test, "{{- ", " -}}");
@@ -926,10 +926,10 @@ TEST(TextTemplateParse, NumberParse) {
 
 namespace {
 
-void test_parse(bool do_copy) {
-    test_knobs knobs;
+void testParse(bool doCopy) {
+    testKnobs knobs;
     for (auto& test : parseTests) {
-        tree_set ts;
+        treeSet ts;
         auto [tmpl, err] = New(string(test.name))->Parse(test.input, "", "", ts, {&builtins});
         if (!err && !test.ok) {
             ADD_FAILURE() << test.name << ": expected error; got none";
@@ -940,21 +940,21 @@ void test_parse(bool do_copy) {
             continue;
         }
         if (err) continue;
-        std::string result = do_copy ? tmpl->Root->Copy()->String().str() : tmpl->Root->String().str();
+        std::string result = doCopy ? tmpl->Root->Copy()->String().str() : tmpl->Root->String().str();
         EXPECT_EQ(result, test.result) << test.name << "=(" << test.input << ")";
     }
 }
 
 }  // namespace
 
-TEST(TextTemplateParse, Parse) { test_parse(false); }
+TEST(TextTemplateParse, Parse) { testParse(false); }
 
 // Same as Parse, but we copy the node first.
-TEST(TextTemplateParse, ParseCopy) { test_parse(true); }
+TEST(TextTemplateParse, ParseCopy) { testParse(true); }
 
 TEST(TextTemplateParse, ParseWithComments) {
-    test_knobs knobs;
-    parse_test tests[] = {
+    testKnobs knobs;
+    parseTest tests[] = {
         {"comment", "{{/*\n\n\n*/}}", noError, "{{/*\n\n\n*/}}"},
         {"comment trim left", "x \r\n\t{{- /* hi */}}", noError, R"("x"{{/* hi */}})"},
         {"comment trim right", "{{/* hi */ -}}\n\n\ty", noError, R"({{/* hi */}}"y")"},
@@ -963,7 +963,7 @@ TEST(TextTemplateParse, ParseWithComments) {
     for (auto& test : tests) {
         auto tr = New(string(test.name));
         tr->Mode = ParseComments;
-        tree_set ts;
+        treeSet ts;
         auto [tmpl, err] = tr->Parse(test.input, "", "", ts);
         ASSERT_FALSE(err) << test.name << ": " << err;
         EXPECT_EQ(tmpl->Root->String(), test.result) << test.name;
@@ -978,7 +978,7 @@ TEST(TextTemplateParse, DelimsStringRoundtrip) {
                                    R"([[template "name" .]])"}) {
         auto tr = New(string::fromStatic("test"));
         tr->Mode = ParseComments;
-        tree_set ts;
+        treeSet ts;
         auto [tmpl, err] = tr->Parse(input, "[[", "]]", ts);
         ASSERT_FALSE(err) << input << ": " << err;
         EXPECT_EQ(tmpl->Root->String(), input);
@@ -988,27 +988,27 @@ TEST(TextTemplateParse, DelimsStringRoundtrip) {
 TEST(TextTemplateParse, KeywordsAndFuncs) {
     // When a break function is provided, the parser treats 'break' as a
     // function, not a keyword.
-    test_knobs knobs;
+    testKnobs knobs;
     std::string inp = "{{range .X}}{{break 20}}{{end}}";
     {
-        FuncNames with_break = {"break"};
-        tree_set ts;
-        auto [tmpl, err] = New(string())->Parse(inp, "", "", ts, {&with_break});
+        FuncNames withBreak = {"break"};
+        treeSet ts;
+        auto [tmpl, err] = New(string())->Parse(inp, "", "", ts, {&withBreak});
         EXPECT_TRUE(!err && tmpl) << "with break func: unexpected error: " << err;
     }
     {
         FuncNames none;
-        tree_set ts;
+        treeSet ts;
         auto [tmpl, err] = New(string())->Parse(inp, "", "", ts, {&none});
         EXPECT_TRUE(err && !tmpl) << "without break func: expected error; got none";
     }
 }
 
 TEST(TextTemplateParse, SkipFuncCheck) {
-    test_knobs knobs;
+    testKnobs knobs;
     auto tr = New(string::fromStatic("skip func check"));
     tr->Mode = SkipFuncCheck;
-    tree_set ts;
+    treeSet ts;
     auto [tmpl, err] = tr->Parse("{{fn 1 2}}", "", "", ts);
     ASSERT_FALSE(err) << err;
     EXPECT_EQ(tmpl->Root->String(), "{{fn 1 2}}");
@@ -1017,7 +1017,7 @@ TEST(TextTemplateParse, SkipFuncCheck) {
 TEST(TextTemplateParse, IsEmpty) {
     EXPECT_TRUE(IsEmptyTree(nullptr));
     for (auto& test : isEmptyTests) {
-        tree_set ts;
+        treeSet ts;
         auto [tree, err] = New(string::fromStatic("root"))->Parse(test.input, "", "", ts);
         ASSERT_FALSE(err) << test.name << ": " << err;
         EXPECT_EQ(IsEmptyTree(tree->Root.get()), test.empty) << test.name;
@@ -1025,20 +1025,20 @@ TEST(TextTemplateParse, IsEmpty) {
 }
 
 TEST(TextTemplateParse, ErrorContextWithTreeCopy) {
-    tree_set ts;
+    treeSet ts;
     auto [tree, err] = New(string::fromStatic("root"))->Parse("{{if true}}{{end}}", "", "", ts);
     ASSERT_FALSE(err) << err;
-    auto tree_copy = tree->Copy();
-    auto [want_location, want_context] = tree->ErrorContext(*tree->Root->Nodes[0]);
-    auto [got_location, got_context] = tree_copy->ErrorContext(*tree_copy->Root->Nodes[0]);
-    EXPECT_EQ(got_location, want_location);
-    EXPECT_EQ(got_context, want_context);
+    auto treeCopy = tree->Copy();
+    auto [wantLocation, wantContext] = tree->ErrorContext(*tree->Root->Nodes[0]);
+    auto [gotLocation, gotContext] = treeCopy->ErrorContext(*treeCopy->Root->Nodes[0]);
+    EXPECT_EQ(gotLocation, wantLocation);
+    EXPECT_EQ(gotContext, wantContext);
 }
 
 TEST(TextTemplateParse, Errors) {
-    test_knobs knobs;
+    testKnobs knobs;
     for (auto& test : errorTests) {
-        tree_set ts;
+        treeSet ts;
         auto [tmpl, err] = New(string(test.name))->Parse(test.input, "", "", ts);
         if (!err) {
             ADD_FAILURE() << test.name << ": expected error " << test.result << ", got nil";
@@ -1052,7 +1052,7 @@ TEST(TextTemplateParse, Block) {
     const std::string input = R"(a{{block "inner" .}}bar{{.}}baz{{end}}b)";
     const std::string outer = R"(a{{template "inner" .}}b)";
     const std::string inner = "bar{{.}}baz";
-    tree_set ts;
+    treeSet ts;
     auto [tmpl, err] = New(string::fromStatic("outer"))->Parse(input, "", "", ts);
     ASSERT_FALSE(err) << err;
     EXPECT_EQ(tmpl->Root->String(), outer);
@@ -1065,7 +1065,7 @@ TEST(TextTemplateParse, LineNum) {
     const int count = 3;
     std::string text;
     for (int i = 0; i < count; i++) text += "{{printf 1234}}\n";
-    tree_set ts;
+    treeSet ts;
     auto [tree, err] = New(string::fromStatic("bench"))->Parse(text, "", "", ts, {&builtins});
     ASSERT_FALSE(err) << err;
     // Each line is an action followed by text: two nodes per line.

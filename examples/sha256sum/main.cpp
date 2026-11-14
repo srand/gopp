@@ -49,9 +49,9 @@ Result sumFile(newHash algorithm, const string& name) {
     } else {
         auto [f, err] = os::Open(name);
         if (err) return {{}, err};
-        auto [_, copy_err] = io::Copy(*h, *f);
+        auto [_, copyErr] = io::Copy(*h, *f);
         f->Close();
-        if (copy_err) return {{}, copy_err};
+        if (copyErr) return {{}, copyErr};
     }
     return {hex::EncodeToString(h->Sum(slice<byte>())), nullptr};
 }
@@ -60,10 +60,10 @@ Result sumFile(newHash algorithm, const string& name) {
 // file's result.
 std::vector<chan<Result>> sumAll(newHash algorithm, const std::vector<string>& names, isize jobs) {
     std::vector<chan<Result>> results;
-    for (std::size_t i = 0; i < names.size(); i++) results.push_back(makeChan<Result>(1));
+    for (std::size_t i = 0; i < names.size(); i++) results.push_back(make_chan<Result>(1));
     // A buffered channel as a semaphore: a send takes a slot, a receive
     // gives it back.
-    auto slots = makeChan<empty>(jobs);
+    auto slots = make_chan<empty>(jobs);
     go([algorithm, names, results, slots] {
         for (std::size_t i = 0; i < names.size(); i++) {
             slots.send({});

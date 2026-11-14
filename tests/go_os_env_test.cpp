@@ -7,7 +7,7 @@ using namespace os_test;
 namespace {
 
 // testGetenv gives us a controlled set of variables for testing Expand.
-string test_getenv(std::string_view s) {
+string testGetenv(std::string_view s) {
     if (s == "*") return "all the args";
     if (s == "#") return "NARGS";
     if (s == "$") return "PID";
@@ -19,11 +19,11 @@ string test_getenv(std::string_view s) {
     return "";
 }
 
-struct expand_test {
+struct expandTest {
     std::string in, out;
 };
 
-const std::vector<expand_test> expand_tests = {
+const std::vector<expandTest> expandTests = {
     {"", ""},
     {"$*", "all the args"},
     {"$$", "PID"},
@@ -47,8 +47,8 @@ const std::vector<expand_test> expand_tests = {
 }  // namespace
 
 TEST(GoOs, Expand) {
-    for (const auto& test : expand_tests) {
-        string result = os::Expand(test.in, test_getenv);
+    for (const auto& test : expandTests) {
+        string result = os::Expand(test.in, testGetenv);
         EXPECT_EQ(result, test.out) << "Expand(" << test.in << ")";
     }
 }
@@ -62,23 +62,23 @@ TEST(GoOs, ConsistentEnviron) {
 }
 
 TEST(GoOs, Unsetenv) {
-    const std::string test_key = "GO_TEST_UNSETENV";
+    const std::string testKey = "GO_TEST_UNSETENV";
     auto set = [&] {
-        std::string prefix = test_key + "=";
+        std::string prefix = testKey + "=";
         for (const string& key : os::Environ()) {
             if (key.starts_with(prefix)) return true;
         }
         return false;
     };
-    ASSERT_FALSE(os::Setenv(test_key, "1")) << "Setenv";
+    ASSERT_FALSE(os::Setenv(testKey, "1")) << "Setenv";
     EXPECT_TRUE(set()) << "Setenv didn't set TestUnsetenv";
-    ASSERT_FALSE(os::Unsetenv(test_key)) << "Unsetenv";
+    ASSERT_FALSE(os::Unsetenv(testKey)) << "Unsetenv";
     EXPECT_FALSE(set()) << "Unsetenv didn't clear TestUnsetenv";
 }
 
 TEST(GoOs, Clearenv) {
-    const std::string test_key = "GO_TEST_CLEARENV";
-    const std::string test_value = "1";
+    const std::string testKey = "GO_TEST_CLEARENV";
+    const std::string testValue = "1";
 
     // Reset the environment at the end.
     struct restore {
@@ -93,11 +93,11 @@ TEST(GoOs, Clearenv) {
         }
     } restore;
 
-    ASSERT_FALSE(os::Setenv(test_key, test_value));
-    EXPECT_TRUE(os::LookupEnv(test_key).second) << "Setenv didn't set $" << test_key;
+    ASSERT_FALSE(os::Setenv(testKey, testValue));
+    EXPECT_TRUE(os::LookupEnv(testKey).second) << "Setenv didn't set $" << testKey;
     os::Clearenv();
-    auto [val, ok] = os::LookupEnv(test_key);
-    EXPECT_FALSE(ok) << "Clearenv() didn't clear $" << test_key << ", remained with value " << val;
+    auto [val, ok] = os::LookupEnv(testKey);
+    EXPECT_FALSE(ok) << "Clearenv() didn't clear $" << testKey << ", remained with value " << val;
 }
 
 TEST(GoOs, LookupEnv) {

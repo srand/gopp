@@ -55,7 +55,7 @@ struct boxed final : object {
     int v = 0;
 };
 
-struct with_box {
+struct withBox {
     ptr<boxed> box;
 };
 
@@ -137,7 +137,7 @@ TEST(Json, Containers) {
     EXPECT_EQ(marshalStr(ptr<boxed>()), "null");
     auto b = make_ptr<boxed>();
     b->v = 5;
-    EXPECT_EQ(marshalStr(with_box{b}), R"({"box":{"v":5}})");
+    EXPECT_EQ(marshalStr(withBox{b}), R"({"box":{"v":5}})");
 }
 
 TEST(Json, TimeAndDuration) {
@@ -322,13 +322,13 @@ TEST(Json, DeepNestingOnFiberStack) {
     // stack (256 KiB by default): scanning, decoding into json::Value and
     // destroying it are iterative.
     std::string deep = strings::Repeat("[", 9999).str() + strings::Repeat("]", 9999).str();
-    std::string too_deep = strings::Repeat("[", 3000000).str() + strings::Repeat("]", 3000000).str();
-    auto done = makeChan<std::pair<error, error>>(1);
+    std::string tooDeep = strings::Repeat("[", 3000000).str() + strings::Repeat("]", 3000000).str();
+    auto done = make_chan<std::pair<error, error>>(1);
     go([&] {
         json::Value v;
         error e1 = json::Unmarshal(deep, &v);
         json::Value w;
-        error e2 = json::Unmarshal(too_deep, &w);
+        error e2 = json::Unmarshal(tooDeep, &w);
         done.send({e1, e2});
     });
     auto [e1, e2] = done.recv();

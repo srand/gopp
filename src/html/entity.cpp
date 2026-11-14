@@ -2146,7 +2146,7 @@ const entity entities[] = {
     {"zwnj;", 0x200C},
 };
 
-const std::size_t n_entities = std::size(entities);
+const std::size_t nEntities = std::size(entities);
 
 const entity2 entities2[] = {
     {"NotEqualTilde;", {0x2242, 0x0338}},
@@ -2242,6 +2242,6 @@ const entity2 entities2[] = {
     {"vsupne;", {0x228B, 0xFE00}},
 };
 
-const std::size_t n_entities2 = std::size(entities2);
+const std::size_t nEntities2 = std::size(entities2);
 
 }  // namespace gopp::html::detail

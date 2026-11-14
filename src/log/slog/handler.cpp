@@ -17,12 +17,12 @@ namespace detail {
 
 namespace {
 
-constexpr char key_component_sep = '.';
+constexpr char keyComponentSep = '.';
 constexpr std::string_view hex = "0123456789abcdef";
 
 // The ASCII characters that need no escaping in JSON strings, nor quoting
 // in text (except ' ' and '=', and with '\\' allowed in text).
-constexpr std::array<bool, 128> safe_set = [] {
+constexpr std::array<bool, 128> safeSet = [] {
     std::array<bool, 128> s{};
     for (int c = ' '; c <= 0x7f; c++) s[static_cast<std::size_t>(c)] = true;
     s['"'] = false;
@@ -36,7 +36,7 @@ void appendEscapedJsonString(std::string& buf, std::string_view s) {
     for (std::size_t i = 0; i < s.size();) {
         auto b = static_cast<unsigned char>(s[i]);
         if (b < 0x80) {
-            if (safe_set[b]) {
+            if (safeSet[b]) {
                 i++;
                 continue;
             }
@@ -91,17 +91,17 @@ Value sourceGroup(const Source& s) {
 }  // namespace
 
 // Go's needsQuoting: whether the text handler quotes s.
-bool needs_quoting(std::string_view s) {
+bool needsQuoting(std::string_view s) {
     if (s.empty()) return true;
     for (std::size_t i = 0; i < s.size();) {
         auto b = static_cast<unsigned char>(s[i]);
         if (b < 0x80) {
-            if (b != '\\' && (b == ' ' || b == '=' || !safe_set[b])) return true;
+            if (b != '\\' && (b == ' ' || b == '=' || !safeSet[b])) return true;
             i++;
             continue;
         }
         auto [r, size] = utf8::DecodeRuneInString(s.substr(i));
-        if (r == utf8::RuneError || conv::is_space(r) || !conv::isPrint(r)) return true;
+        if (r == utf8::RuneError || conv::isSpace(r) || !conv::isPrint(r)) return true;
         i += static_cast<std::size_t>(size);
     }
     return false;
@@ -109,50 +109,50 @@ bool needs_quoting(std::string_view s) {
 
 // Go's appendRFC3339Millis: RFC 3339 with exactly three fractional digits.
 void appendRfc3339Millis(std::string& b, time::Time t) {
-    constexpr std::size_t prefix_len = std::string_view("2006-01-02T15:04:05.000").size();
+    constexpr std::size_t prefixLen = std::string_view("2006-01-02T15:04:05.000").size();
     // Truncate to milliseconds and add a tenth of one, so that Format
     // writes four digits, of which the fourth is dropped.
     t = t.Truncate(time::Millisecond).Add(time::Duration(time::Millisecond.ns / 10));
     std::string s(t.Format(time::RFC3339Nano).view());
-    if (s.size() > prefix_len) s.erase(prefix_len, 1);
+    if (s.size() > prefixLen) s.erase(prefixLen, 1);
     b += s;
 }
 
 // ---------------------------------------------------------------------------
-// common_handler
+// commonHandler
 
-std::shared_ptr<common_handler> common_handler::clone() const {
-    auto h = std::make_shared<common_handler>();
+std::shared_ptr<commonHandler> commonHandler::clone() const {
+    auto h = std::make_shared<commonHandler>();
     h->json = json;
     h->opts = opts;
-    h->preformatted_attrs = preformatted_attrs;
-    h->group_prefix = group_prefix;
+    h->preformattedAttrs = preformattedAttrs;
+    h->groupPrefix = groupPrefix;
     h->groups = groups;
-    h->n_open_groups = n_open_groups;
+    h->nOpenGroups = nOpenGroups;
     h->w = w;
     h->mu = mu;  // shared among all clones of this handler
     return h;
 }
 
-bool common_handler::enabled(Level l) const {
-    Level min_level = LevelInfo;
-    if (opts.Level) min_level = opts.Level.Level();
-    return l >= min_level;
+bool commonHandler::enabled(Level l) const {
+    Level minLevel = LevelInfo;
+    if (opts.Level) minLevel = opts.Level.Level();
+    return l >= minLevel;
 }
 
-std::shared_ptr<const common_handler> common_handler::with_attrs(std::span<const Attr> as) const {
+std::shared_ptr<const commonHandler> commonHandler::withAttrs(std::span<const Attr> as) const {
     // Not a clone if there's nothing to add.
-    bool all_empty = std::all_of(as.begin(), as.end(), [](const Attr& a) {
+    bool allEmpty = std::all_of(as.begin(), as.end(), [](const Attr& a) {
         return a.Value.Kind() == KindGroup && a.Value.Group().empty();
     });
-    if (all_empty) return shared_from_this();
+    if (allEmpty) return shared_from_this();
     auto h2 = clone();
-    // The attributes are formatted onto preformatted_attrs.
-    handle_state state(h2.get(), &h2->preformatted_attrs, "");
-    state.prefix = group_prefix;
-    if (!h2->preformatted_attrs.empty()) {
+    // The attributes are formatted onto preformattedAttrs.
+    handleState state(h2.get(), &h2->preformattedAttrs, "");
+    state.prefix = groupPrefix;
+    if (!h2->preformattedAttrs.empty()) {
         state.sep = attrSep();
-        if (h2->json && h2->preformatted_attrs.back() == '{') state.sep = "";
+        if (h2->json && h2->preformattedAttrs.back() == '{') state.sep = "";
     }
     // The position before the groups, in case all attrs are empty.
     std::size_t pos = state.buf->size();
@@ -160,24 +160,24 @@ std::shared_ptr<const common_handler> common_handler::with_attrs(std::span<const
     if (!state.appendAttrs(as)) {
         state.buf->resize(pos);
     } else {
-        h2->group_prefix = state.prefix;
-        h2->n_open_groups = h2->groups.size();
+        h2->groupPrefix = state.prefix;
+        h2->nOpenGroups = h2->groups.size();
     }
     return h2;
 }
 
-std::shared_ptr<const common_handler> common_handler::withGroup(std::string_view name) const {
+std::shared_ptr<const commonHandler> commonHandler::withGroup(std::string_view name) const {
     auto h2 = clone();
     h2->groups.emplace_back(name);
     return h2;
 }
 
-error common_handler::handle(const Record& r) const {
+error commonHandler::handle(const Record& r) const {
     std::string buf;
-    handle_state state(this, &buf, "");
+    handleState state(this, &buf, "");
     if (json) buf.push_back('{');
     // The built-in attributes go in no group, for ReplaceAttr.
-    std::vector<string> state_groups = std::move(state.groups);
+    std::vector<string> stateGroups = std::move(state.groups);
     state.groups.clear();
     const auto& rep = opts.ReplaceAttr;
     if (!r.Time.IsZero()) {
@@ -186,25 +186,25 @@ error common_handler::handle(const Record& r) const {
             state.appendKey(TimeKey);
             state.appendTime(val);
         } else {
-            state.append_attr(slog::Time(string::fromStatic(TimeKey), val));
+            state.appendAttr(slog::Time(string::fromStatic(TimeKey), val));
         }
     }
     if (!rep) {
         state.appendKey(LevelKey);
         state.appendString(r.Level.String().view());
     } else {
-        state.append_attr(slog::Any(string::fromStatic(LevelKey), r.Level));
+        state.appendAttr(slog::Any(string::fromStatic(LevelKey), r.Level));
     }
     if (opts.AddSource) {
-        state.append_attr(slog::Any(string::fromStatic(SourceKey), r.Source().value_or(Source{})));
+        state.appendAttr(slog::Any(string::fromStatic(SourceKey), r.Source().value_or(Source{})));
     }
     if (!rep) {
         state.appendKey(MessageKey);
         state.appendString(r.Message.view());
     } else {
-        state.append_attr(slog::String(string::fromStatic(MessageKey), r.Message));
+        state.appendAttr(slog::String(string::fromStatic(MessageKey), r.Message));
     }
-    state.groups = std::move(state_groups);  // the groups for ReplaceAttr again
+    state.groups = std::move(stateGroups);  // the groups for ReplaceAttr again
     state.appendNonBuiltins(r);
     buf.push_back('\n');
 
@@ -213,82 +213,82 @@ error common_handler::handle(const Record& r) const {
 }
 
 // ---------------------------------------------------------------------------
-// handle_state
+// handleState
 
-handle_state::handle_state(const common_handler* h_, std::string* buf_, std::string_view sep_)
+handleState::handleState(const commonHandler* h_, std::string* buf_, std::string_view sep_)
     : h(h_), buf(buf_), sep(sep_) {
     if (h->opts.ReplaceAttr) {
-        track_groups = true;
-        groups.assign(h->groups.begin(), h->groups.begin() + static_cast<std::ptrdiff_t>(h->n_open_groups));
+        trackGroups = true;
+        groups.assign(h->groups.begin(), h->groups.begin() + static_cast<std::ptrdiff_t>(h->nOpenGroups));
     }
 }
 
-void handle_state::appendNonBuiltins(const Record& r) {
+void handleState::appendNonBuiltins(const Record& r) {
     // The attributes of WithAttrs.
-    if (const std::string& pfa = h->preformatted_attrs; !pfa.empty()) {
+    if (const std::string& pfa = h->preformattedAttrs; !pfa.empty()) {
         *buf += sep;
         *buf += pfa;
         sep = h->attrSep();
         if (h->json && pfa.back() == '{') sep = "";
     }
     // The record's attributes, in the groups of WithGroup not yet opened.
-    std::size_t n_open_groups = h->n_open_groups;
+    std::size_t nOpenGroups = h->nOpenGroups;
     if (r.NumAttrs() > 0) {
-        prefix += h->group_prefix;
+        prefix += h->groupPrefix;
         // The position before the groups, in case all attrs are empty.
         std::size_t pos = buf->size();
         openGroups();
-        n_open_groups = h->groups.size();
+        nOpenGroups = h->groups.size();
         bool empty = true;
         r.Attrs([&](const Attr& a) {
-            if (append_attr(a)) empty = false;
+            if (appendAttr(a)) empty = false;
             return true;
         });
         if (empty) {
             buf->resize(pos);
-            n_open_groups = h->n_open_groups;
+            nOpenGroups = h->nOpenGroups;
         }
     }
     if (h->json) {
         // Close the groups, and the top-level object.
-        for (std::size_t i = 0; i < n_open_groups; i++) buf->push_back('}');
+        for (std::size_t i = 0; i < nOpenGroups; i++) buf->push_back('}');
         buf->push_back('}');
     }
 }
 
-void handle_state::openGroups() {
-    for (std::size_t i = h->n_open_groups; i < h->groups.size(); i++) openGroup(h->groups[i]);
+void handleState::openGroups() {
+    for (std::size_t i = h->nOpenGroups; i < h->groups.size(); i++) openGroup(h->groups[i]);
 }
 
-void handle_state::openGroup(const string& name) {
+void handleState::openGroup(const string& name) {
     if (h->json) {
         appendKey(name.view());
         buf->push_back('{');
         sep = "";
     } else {
         prefix += name.view();
-        prefix.push_back(key_component_sep);
+        prefix.push_back(keyComponentSep);
     }
-    if (track_groups) groups.push_back(name);
+    if (trackGroups) groups.push_back(name);
 }
 
-void handle_state::closeGroup(const string& name) {
+void handleState::closeGroup(const string& name) {
     if (h->json) buf->push_back('}');
     else prefix.resize(prefix.size() - name.size() - 1);
     sep = h->attrSep();
-    if (track_groups) groups.pop_back();
+    if (trackGroups) groups.pop_back();
 }
 
-bool handle_state::appendAttrs(std::span<const Attr> as) {
-    bool non_empty = false;
+bool handleState::appendAttrs(std::span<const Attr> as) {
+    bool nonEmpty = false;
     for (const Attr& a : as) {
-        if (append_attr(a)) non_empty = true;
+        if (appendAttr(a)) nonEmpty = true;
     }
-    return non_empty;
+    return nonEmpty;
 }
 
 // Go's appendAttr: whether something was written.
-bool handle_state::append_attr(Attr a) {
+bool handleState::appendAttr(Attr a) {
     a.Value = a.Value.Resolve();
     if (const auto& rep = h->opts.ReplaceAttr; rep && a.Value.Kind() != KindGroup) {
         a = rep(std::span<const string>(groups), std::move(a));
@@ -324,9 +324,9 @@ bool handle_state::append_attr(Attr a) {
     return true;
 }
 
-void handle_state::appendError(const error& err) { appendString("!ERROR:" + err.Error().str()); }
+void handleState::appendError(const error& err) { appendString("!ERROR:" + err.Error().str()); }
 
-void handle_state::appendKey(std::string_view key) {
+void handleState::appendKey(std::string_view key) {
     *buf += sep;
     if (!prefix.empty()) appendTwoStrings(prefix, key);
     else appendString(key);
@@ -334,13 +334,13 @@ void handle_state::appendKey(std::string_view key) {
     sep = h->attrSep();
 }
 
-void handle_state::appendTwoStrings(std::string_view x, std::string_view y) {
+void handleState::appendTwoStrings(std::string_view x, std::string_view y) {
     if (h->json) {
         buf->push_back('"');
         appendEscapedJsonString(*buf, x);
         appendEscapedJsonString(*buf, y);
         buf->push_back('"');
-    } else if (!needs_quoting(x) && !needs_quoting(y)) {
+    } else if (!needsQuoting(x) && !needsQuoting(y)) {
         *buf += x;
         *buf += y;
     } else {
@@ -350,24 +350,24 @@ void handle_state::appendTwoStrings(std::string_view x, std::string_view y) {
     }
 }
 
-void handle_state::appendString(std::string_view s) {
+void handleState::appendString(std::string_view s) {
     if (h->json) {
         buf->push_back('"');
         appendEscapedJsonString(*buf, s);
         buf->push_back('"');
-    } else if (needs_quoting(s)) {
+    } else if (needsQuoting(s)) {
         *buf += conv::quote(s);
     } else {
         *buf += s;
     }
 }
 
-void handle_state::appendValue(const Value& v) {
-    error err = h->json ? appendJsonValue(v) : append_text_value(v);
+void handleState::appendValue(const Value& v) {
+    error err = h->json ? appendJsonValue(v) : appendTextValue(v);
     if (err) appendError(err);
 }
 
-void handle_state::appendTime(const time::Time& t) {
+void handleState::appendTime(const time::Time& t) {
     if (h->json) {
         // Go's appendJSONTime.
         if (int y = t.Year(); y < 0 || y >= 10000) {
@@ -383,12 +383,12 @@ void handle_state::appendTime(const time::Time& t) {
 }
 
 // Go's appendTextValue.
-error handle_state::append_text_value(const Value& v) {
+error handleState::appendTextValue(const Value& v) {
     switch (v.Kind()) {
     case KindString: appendString(v.String().view()); break;
     case KindTime: appendTime(v.Time()); break;
     case KindAny: {
-        auto* p = std::get_if<ptr<const any_value>>(&v.data_);
+        auto* p = std::get_if<ptr<const anyValue>>(&v.data_);
         if (!p) {
             appendString("<nil>");
             break;
@@ -406,7 +406,7 @@ error handle_state::append_text_value(const Value& v) {
 }
 
 // Go's appendJSONValue.
-error handle_state::appendJsonValue(const Value& v) {
+error handleState::appendJsonValue(const Value& v) {
     switch (v.Kind()) {
     case KindString: appendString(v.String().view()); break;
     case KindInt64: *buf += std::to_string(v.Int64()); break;
@@ -423,13 +423,13 @@ error handle_state::appendJsonValue(const Value& v) {
     case KindDuration: *buf += std::to_string(v.Duration().Nanoseconds()); break;
     case KindTime: appendTime(v.Time()); break;
     case KindAny: {
-        auto* p = std::get_if<ptr<const any_value>>(&v.data_);
+        auto* p = std::get_if<ptr<const anyValue>>(&v.data_);
         if (!p) {
             *buf += "null";
             break;
         }
         std::string s;
-        if ((*p)->error_string(s)) {
+        if ((*p)->errorString(s)) {
             appendString(s);
             break;
         }
@@ -447,8 +447,8 @@ error handle_state::appendJsonValue(const Value& v) {
 
 namespace {
 
-std::shared_ptr<detail::common_handler> newCommonHandler(bool json, ptr<io::Writer> w, const HandlerOptions& opts) {
-    auto h = std::make_shared<detail::common_handler>();
+std::shared_ptr<detail::commonHandler> newCommonHandler(bool json, ptr<io::Writer> w, const HandlerOptions& opts) {
+    auto h = std::make_shared<detail::commonHandler>();
     h->json = json;
     h->w = std::move(w);
     h->opts = opts;
@@ -464,7 +464,7 @@ ptr<TextHandler> NewTextHandler(ptr<io::Writer> w, const HandlerOptions& opts) {
 
 bool TextHandler::Enabled(const ptr<context::Context>&, slog::Level level) { return h_->enabled(level); }
 error TextHandler::Handle(const ptr<context::Context>&, const Record& r) { return h_->handle(r); }
-ptr<Handler> TextHandler::WithAttrs(std::span<const Attr> attrs) { return make_ptr<TextHandler>(h_->with_attrs(attrs)); }
+ptr<Handler> TextHandler::WithAttrs(std::span<const Attr> attrs) { return make_ptr<TextHandler>(h_->withAttrs(attrs)); }
 ptr<Handler> TextHandler::WithGroup(std::string_view name) { return make_ptr<TextHandler>(h_->withGroup(name)); }
 
 ptr<JSONHandler> NewJSONHandler(ptr<io::Writer> w, const HandlerOptions& opts) {
@@ -473,7 +473,7 @@ ptr<JSONHandler> NewJSONHandler(ptr<io::Writer> w, const HandlerOptions& opts) {
 
 bool JSONHandler::Enabled(const ptr<context::Context>&, slog::Level level) { return h_->enabled(level); }
 error JSONHandler::Handle(const ptr<context::Context>&, const Record& r) { return h_->handle(r); }
-ptr<Handler> JSONHandler::WithAttrs(std::span<const Attr> attrs) { return make_ptr<JSONHandler>(h_->with_attrs(attrs)); }
+ptr<Handler> JSONHandler::WithAttrs(std::span<const Attr> attrs) { return make_ptr<JSONHandler>(h_->withAttrs(attrs)); }
 ptr<Handler> JSONHandler::WithGroup(std::string_view name) { return make_ptr<JSONHandler>(h_->withGroup(name)); }
 
 // ---------------------------------------------------------------------------
@@ -516,7 +516,7 @@ ptr<Handler> MultiHandler::WithGroup(std::string_view name) {
 
 namespace {
 
-struct discard_handler final : Handler {
+struct discardHandler final : Handler {
     bool Enabled(const ptr<context::Context>&, slog::Level) override { return false; }
     error Handle(const ptr<context::Context>&, const Record&) override { return nullptr; }
     ptr<Handler> WithAttrs(std::span<const Attr>) override { return ptr<Handler>(this); }
@@ -525,6 +525,6 @@ struct discard_handler final : Handler {
 
 }  // namespace
 
-const ptr<Handler> DiscardHandler = make_ptr<discard_handler>();
+const ptr<Handler> DiscardHandler = make_ptr<discardHandler>();
 
 }  // namespace gopp::slog

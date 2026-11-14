@@ -49,7 +49,7 @@ error setKeepAliveCount(netfd& fd, int n) {
 bool selfConnect(const ptr<netfd>& fd, const error& err) {
     if (err) return false;
     if (!fd->laddr || !fd->raddr) return true;
-    ip_port l = ipPortOf(fd->laddr.get()), r = ipPortOf(fd->raddr.get());
+    ipPort l = ipPortOf(fd->laddr.get()), r = ipPortOf(fd->raddr.get());
     return l.port == r.port && l.ip.Equal(r.ip);
 }
 
@@ -66,7 +66,7 @@ struct splicePipe {
 
 constexpr int maxSpliceSize = 1 << 20;
 
-std::mutex pipe_mu;
+std::mutex pipeMu;
 std::vector<splicePipe>& pipePool() {
     static auto* v = new std::vector<splicePipe>;
     return *v;
@@ -74,7 +74,7 @@ std::vector<splicePipe>& pipePool() {
 
 bool getPipe(splicePipe* p) {
     {
-        std::lock_guard l(pipe_mu);
+        std::lock_guard l(pipeMu);
         if (!pipePool().empty()) {
             *p = pipePool().back();
             pipePool().pop_back();
@@ -95,7 +95,7 @@ void putPipe(const splicePipe& p) {
         ::close(p.wfd);
         return;
     }
-    std::lock_guard l(pipe_mu);
+    std::lock_guard l(pipeMu);
     pipePool().push_back(p);
 }
 
@@ -112,7 +112,7 @@ struct fdref {
 
 // Go's spliceDrain: from the socket into the pipe.
 std::pair<int, error> spliceDrain(int pipefd, netfd& sock, int max) {
-    std::lock_guard l(sock.read_lock());
+    std::lock_guard l(sock.readLock());
     fdref ref(sock);
     if (!ref.ok) return {0, ErrClosed};
     if (error err = sock.prepare('r')) return {0, err};
@@ -128,7 +128,7 @@ std::pair<int, error> spliceDrain(int pipefd, netfd& sock, int max) {
 
 // Go's splicePump: from the pipe into the socket.
 std::pair<int, error> splicePump(netfd& sock, int pipefd, int inPipe) {
-    std::lock_guard l(sock.write_lock());
+    std::lock_guard l(sock.writeLock());
     fdref ref(sock);
     if (!ref.ok) return {0, ErrClosed};
     if (error err = sock.prepare('w')) return {0, err};
@@ -220,7 +220,7 @@ std::tuple<int64, error, bool> sendFile(netfd& c, io::Reader& r0) {
     if (serr || !fi->Mode().IsRegular()) return {0, nullptr, false};
     int src = int(f->Fd());
 
-    std::lock_guard l(c.write_lock());
+    std::lock_guard l(c.writeLock());
     fdref ref(c);
     if (!ref.ok) return {0, ErrClosed, true};
     if (error err = c.prepare('w')) return {0, err, true};
@@ -293,7 +293,7 @@ std::pair<int64, error> TCPConn::ReadFrom(io::Reader& r) {
         writerOnly w(*this);
         std::tie(n, err) = io::Copy(w, r);
     }
-    if (err && err != io::EOF_) err = op_error("readfrom", fd_->network(), fd_->laddr, fd_->raddr, err);
+    if (err && err != io::EOF_) err = opError("readfrom", fd_->network(), fd_->laddr, fd_->raddr, err);
     return {n, err};
 }
 
@@ -311,33 +311,33 @@ std::pair<int64, error> TCPConn::WriteTo(io::Writer& w) {
         writerOnly wo(w);
         std::tie(n, err) = io::Copy(wo, r);
     }
-    if (err && err != io::EOF_) err = op_error("writeto", fd_->network(), fd_->laddr, fd_->raddr, err);
+    if (err && err != io::EOF_) err = opError("writeto", fd_->network(), fd_->laddr, fd_->raddr, err);
     return {n, err};
 }
 
 error TCPConn::CloseRead() {
-    return op_error("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_RD));
+    return opError("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_RD));
 }
 
 error TCPConn::CloseWrite() {
-    return op_error("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_WR));
+    return opError("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->shutdown(SHUT_WR));
 }
 
 error TCPConn::SetLinger(int sec) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptLinger(sec));
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptLinger(sec));
 }
 
 error TCPConn::SetKeepAlive(bool keepalive) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr,
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr,
                     fd_->setsockoptInt(SOL_SOCKET, SO_KEEPALIVE, keepalive));
 }
 
 error TCPConn::SetKeepAlivePeriod(time::Duration d) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, setKeepAliveIdle(*fd_, d));
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr, setKeepAliveIdle(*fd_, d));
 }
 
 error TCPConn::SetKeepAliveConfig(const KeepAliveConfig& config) {
-    auto fail = [&](error err) { return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, err); };
+    auto fail = [&](error err) { return opError("set", fd_->network(), fd_->laddr, fd_->raddr, err); };
     if (error err = fd_->setsockoptInt(SOL_SOCKET, SO_KEEPALIVE, config.Enable)) return fail(err);
     if (error err = setKeepAliveIdle(*fd_, config.Idle)) return fail(err);
     if (error err = setKeepAliveInterval(*fd_, config.Interval)) return fail(err);
@@ -346,7 +346,7 @@ error TCPConn::SetKeepAliveConfig(const KeepAliveConfig& config) {
 }
 
 error TCPConn::SetNoDelay(bool noDelay) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr,
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr,
                     fd_->setsockoptInt(IPPROTO_TCP, TCP_NODELAY, noDelay));
 }
 
@@ -362,7 +362,7 @@ TCPListener::~TCPListener() { fd_->Close(); }
 
 std::pair<ptr<TCPConn>, error> TCPListener::AcceptTCP() {
     auto [nfd, err] = fd_->accept();
-    if (err) return {nullptr, op_error("accept", fd_->network(), nullptr, fd_->laddr, err)};
+    if (err) return {nullptr, opError("accept", fd_->network(), nullptr, fd_->laddr, err)};
     return {newTCPConn(nfd, keepAliveIdle_, keepalive_), nullptr};
 }
 
@@ -372,7 +372,7 @@ std::pair<ptr<Conn>, error> TCPListener::Accept() {
 }
 
 error TCPListener::Close() {
-    if (error err = fd_->Close()) return op_error("close", fd_->network(), nullptr, fd_->laddr, err);
+    if (error err = fd_->Close()) return opError("close", fd_->network(), nullptr, fd_->laddr, err);
     return nullptr;
 }
 
@@ -382,7 +382,7 @@ error TCPListener::SetDeadline(time::Time t) { return fd_->SetDeadline(t, 'r' + 
 
 std::pair<ptr<os::File>, error> TCPListener::File() {
     auto [f, err] = fd_->dup();
-    if (err) return {nullptr, op_error("file", fd_->network(), nullptr, fd_->laddr, err)};
+    if (err) return {nullptr, opError("file", fd_->network(), nullptr, fd_->laddr, err)};
     return {f, nullptr};
 }
 
@@ -418,27 +418,27 @@ std::pair<ptr<TCPListener>, error> sysListener::listenTCP(const ptr<context::Con
 std::pair<ptr<TCPConn>, error> DialTCP(std::string_view network, const ptr<TCPAddr>& laddr, const ptr<TCPAddr>& raddr) {
     string net(network);
     if (network != "tcp" && network != "tcp4" && network != "tcp6") {
-        return {nullptr, op_error("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
+        return {nullptr, opError("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
     }
-    if (!raddr) return {nullptr, op_error("dial", net, laddr, nullptr, errMissingAddress)};
+    if (!raddr) return {nullptr, opError("dial", net, laddr, nullptr, errMissingAddress)};
     sysDialer sd{.d = {}, .network = net, .address = raddr->String()};
     auto ctx = context::Background();
     auto [c, err] = sd.d.MultipathTCP() ? sd.dialMPTCP(ctx, laddr.get(), raddr.get())
                                         : sd.dialTCP(ctx, laddr.get(), raddr.get());
-    if (err) return {nullptr, op_error("dial", net, laddr, raddr, err)};
+    if (err) return {nullptr, opError("dial", net, laddr, raddr, err)};
     return {c, nullptr};
 }
 
 std::pair<ptr<TCPListener>, error> ListenTCP(std::string_view network, const ptr<TCPAddr>& laddr0) {
     string net(network);
     if (network != "tcp" && network != "tcp4" && network != "tcp6") {
-        return {nullptr, op_error("listen", net, nullptr, laddr0, make_ptr<UnknownNetworkError>(net))};
+        return {nullptr, opError("listen", net, nullptr, laddr0, make_ptr<UnknownNetworkError>(net))};
     }
     ptr<TCPAddr> laddr = laddr0 ? laddr0 : make_ptr<TCPAddr>();
     sysListener sl{.lc = {}, .network = net, .address = laddr->String()};
     auto ctx = context::Background();
     auto [ln, err] = sl.lc.MultipathTCP() ? sl.listenMPTCP(ctx, laddr.get()) : sl.listenTCP(ctx, laddr.get());
-    if (err) return {nullptr, op_error("listen", net, nullptr, laddr0, err)};
+    if (err) return {nullptr, opError("listen", net, nullptr, laddr0, err)};
     return {ln, nullptr};
 }
 

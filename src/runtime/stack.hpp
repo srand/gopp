@@ -16,7 +16,7 @@ std::size_t stackSize() noexcept;
 struct G;
 
 // Records the stack's bounds in gp, for tracebacks.
-struct stack_allocator {
+struct stackAllocator {
     G* gp = nullptr;
 
     boost::context::stack_context allocate();

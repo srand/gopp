@@ -69,9 +69,9 @@ namespace {
 
 // Forwards to a reader that isn't reference counted (one on the stack),
 // so that a LimitedReader can hold it.
-struct reader_ref final : Reader {
+struct readerRef final : Reader {
     Reader& r;
-    explicit reader_ref(Reader& r_) : r(r_) {}
+    explicit readerRef(Reader& r_) : r(r_) {}
     std::pair<isize, error> Read(std::span<byte> p) override { return r.Read(p); }
 };
 
@@ -82,7 +82,7 @@ std::pair<int64, error> CopyN(Writer& dst, Reader& src, int64 n) {
     // and the reader under it, so that a part of an os::File goes to a
     // socket with sendfile(2). A reader that someone holds a reference to
     // is held here too; one that nobody does would be freed by it.
-    LimitedReader lr(src.use_count() > 0 ? ptr<Reader>(&src) : make_ptr<reader_ref>(src), n);
+    LimitedReader lr(src.use_count() > 0 ? ptr<Reader>(&src) : make_ptr<readerRef>(src), n);
     auto [written, err] = Copy(dst, lr);
     if (written == n) return {n, nullptr};
     if (written < n && !err) err = EOF_;  // src ended early
@@ -104,12 +104,12 @@ std::pair<slice<byte>, error> ReadAll(Reader& r) {
 
 namespace {
 
-struct discard_writer final : Writer {
+struct discardWriter final : Writer {
     std::pair<isize, error> Write(std::span<const byte> p) override { return {static_cast<isize>(p.size()), nullptr}; }
 };
 
-struct nop_closer_t final : ReadCloser {
-    explicit nop_closer_t(ptr<Reader> r) : r(std::move(r)) {}
+struct nopCloser final : ReadCloser {
+    explicit nopCloser(ptr<Reader> r) : r(std::move(r)) {}
     std::pair<isize, error> Read(std::span<byte> p) override { return r->Read(p); }
     error Close() override { return nullptr; }
     ptr<Reader> r;
@@ -118,8 +118,8 @@ struct nop_closer_t final : ReadCloser {
 }  // namespace
 
 Writer& Discard() {
-    static discard_writer* w = [] {
-        auto* d = new discard_writer();
+    static discardWriter* w = [] {
+        auto* d = new discardWriter();
         d->addRef();  // never freed
         return d;
     }();
@@ -136,7 +136,7 @@ std::pair<isize, error> LimitedReader::Read(std::span<byte> p) {
 
 ptr<Reader> LimitReader(ptr<Reader> r, int64 n) { return make_ptr<LimitedReader>(std::move(r), n); }
 
-ptr<ReadCloser> NopCloser(ptr<Reader> r) { return make_ptr<nop_closer_t>(std::move(r)); }
+ptr<ReadCloser> NopCloser(ptr<Reader> r) { return make_ptr<nopCloser>(std::move(r)); }
 
 std::pair<isize, error> StringReader::Read(std::span<byte> p) {
     if (i_ >= s_.size()) return {0, EOF_};

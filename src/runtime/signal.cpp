@@ -65,26 +65,26 @@ constexpr bool isCrash(int s) noexcept {
     }
 }
 
-struct sig_state {
+struct sigState {
     std::atomic<uint32_t> wanted[nwords];   // signals Notify asked for
     std::atomic<uint32_t> ignored[nwords];  // signals ignored, by Ignore or from the start
     std::atomic<uint32_t> mask[nwords];     // signals queued for signal_recv
     std::atomic<uint32_t> handling[nwords]; // signals with the runtime's handler
     std::atomic<int32_t> delivering{0};     // handlers in sigsend
-    std::atomic<uint32_t> at_init[nwords];  // handlers installed by initsig, which stay
+    std::atomic<uint32_t> atInit[nwords];  // handlers installed by initsig, which stay
     // signal_recv's state: true while it waits with nothing queued.
     std::atomic<bool> receiving{false};
     std::atomic<int> wakefd{-1};            // eventfd that wakes signal_recv
-    poll_desc* pd = nullptr;
+    pollDesc* pd = nullptr;
     uint32_t recv[nwords] = {};             // signal_recv's local copy of mask
-    lock_t lock;                            // serializes enable, disable and ignore
+    lockT lock;                            // serializes enable, disable and ignore
     // The dispositions before the runtime's handler (Go's fwdSig).
     struct sigaction fwd[nsig] = {};
 };
 
 // Constant-initialized: initsig runs before dynamic initialization.
-constinit sig_state sig;
-constinit std::once_flag init_once;
+constinit sigState sig;
+constinit std::once_flag initOnce;
 
 bool test(const std::atomic<uint32_t>* words, uint32_t s) noexcept {
     return (words[s / 32].load(std::memory_order_acquire) >> (s % 32)) & 1;
@@ -156,7 +156,7 @@ void sighandler(int s, siginfo_t* info, void* ctx) {
         tracebackSignal(ctx);
         preemptSignal();
     }
-    bool crash = isCrash(s) && test(sig.at_init, static_cast<uint32_t>(s));
+    bool crash = isCrash(s) && test(sig.atInit, static_cast<uint32_t>(s));
     // Faults can't be notified: their handler returning would fault again.
     if (crash && !canNotify(static_cast<uint32_t>(s))) crashSignal(s, info, ctx);
     if (!sigsend(static_cast<uint32_t>(s))) {
@@ -199,7 +199,7 @@ void ensureReceiver() noexcept {
 }  // namespace
 
 void initsig() noexcept {
-    std::call_once(init_once, [] {
+    std::call_once(initOnce, [] {
         for (uint32_t s = 1; s < nsig; s++) {
             struct sigaction& old = sig.fwd[s];
             if (::sigaction(static_cast<int>(s), nullptr, &old) < 0) continue;
@@ -207,27 +207,27 @@ void initsig() noexcept {
             // keeps SIGHUP and SIGINT so; here all of them).
             if (!(old.sa_flags & SA_SIGINFO) && old.sa_handler == SIG_IGN) set(sig.ignored, s, true);
         }
-        auto is_default = [](uint32_t s) {
+        auto isDefault = [](uint32_t s) {
             const struct sigaction& old = sig.fwd[s];
             return !(old.sa_flags & SA_SIGINFO) && old.sa_handler == SIG_DFL;
         };
-        auto install_at_init = [](uint32_t s) {
+        auto installAtInit = [](uint32_t s) {
             install(static_cast<int>(s));
             set(sig.handling, s, true);
-            set(sig.at_init, s, true);
+            set(sig.atInit, s, true);
         };
         // Otherwise SIGPIPE, or a crash signal, was ignored, a parent's
         // choice, or has someone else's handler, such as a sanitizer's:
         // either stays.
-        if (is_default(SIGPIPE)) install_at_init(SIGPIPE);
+        if (isDefault(SIGPIPE)) installAtInit(SIGPIPE);
         for (uint32_t s = 1; s < nsig; s++)
-            if (isCrash(static_cast<int>(s)) && is_default(s)) install_at_init(s);
+            if (isCrash(static_cast<int>(s)) && isDefault(s)) installAtInit(s);
 
         // SIGURG preempts long-running fibers, and asks threads for their
         // stacks in tracebacks, so its handler goes in even if the program
         // started with it ignored, as Go's does. A handler that was there
         // before gets it forwarded.
-        install_at_init(SIGURG);
+        installAtInit(SIGURG);
 
         // An exception that escapes a thread is reported as a panic.
         std::set_terminate(terminateHandler);
@@ -269,7 +269,7 @@ void signalDisable(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    if (canNotify(s) && test(sig.handling, s) && !test(sig.at_init, s)) {
+    if (canNotify(s) && test(sig.handling, s) && !test(sig.atInit, s)) {
         // Back to the disposition before Notify.
         ::sigaction(static_cast<int>(s), &sig.fwd[s], nullptr);
         set(sig.handling, s, false);
@@ -284,7 +284,7 @@ void signalIgnore(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    if (canNotify(s) && !(s == SIGURG && test(sig.at_init, s))) {
+    if (canNotify(s) && !(s == SIGURG && test(sig.atInit, s))) {
         if (!test(sig.handling, s)) ::sigaction(static_cast<int>(s), nullptr, &sig.fwd[s]);
         struct sigaction ign{};
         ign.sa_handler = SIG_IGN;
@@ -329,7 +329,7 @@ uint32_t signalRecv() noexcept {
     }
 }
 
-void signal_wait_until_idle() noexcept {
+void signalWaitUntilIdle() noexcept {
     // A handler may be queuing a signal; then signal_recv may hold some it
     // hasn't delivered. Wait until it waits with nothing queued.
     for (;;) {

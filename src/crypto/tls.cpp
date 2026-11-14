@@ -5,10 +5,10 @@
 // read from the net::Conn are put into the read BIO. OpenSSL calls don't
 // block, so the fiber parks only in the net::Conn's reads and writes.
 //
-// Locks: ssl_mu guards the SSL object and is held only around OpenSSL
-// calls. read_mu and write_mu serialize readers and writers, which may run
+// Locks: sslMu guards the SSL object and is held only around OpenSSL
+// calls. readMu and writeMu serialize readers and writers, which may run
 // concurrently, as Go allows. Output is taken from the write BIO only while
-// holding write_mu, so that records go out in order.
+// holding writeMu, so that records go out in order.
 #include <gopp/crypto/tls.hpp>
 #include <gopp/strings.hpp>
 #include <gopp/sync.hpp>
@@ -62,7 +62,7 @@ std::string opensslError() {
 
 gopp::error tlsError(std::string_view msg) { return errors::New("tls: " + string(msg)); }
 
-std::pair<std::string, gopp::error> read_file(std::string_view path) {
+std::pair<std::string, gopp::error> readFile(std::string_view path) {
     std::ifstream f{std::string(path), std::ios::binary};
     if (!f) return {{}, errors::New("open " + string(path) + ": no such file or directory")};
     std::stringstream ss;
@@ -78,8 +78,8 @@ int tlsVersion(uint16 v) {
     }
 }
 
-bool loadPemChain(SSL_CTX* ctx, std::string_view cert_pem, std::string_view key_pem, std::string& err) {
-    BIO* bio = BIO_new_mem_buf(cert_pem.data(), static_cast<int>(cert_pem.size()));
+bool loadPemChain(SSL_CTX* ctx, std::string_view certPem, std::string_view keyPem, std::string& err) {
+    BIO* bio = BIO_new_mem_buf(certPem.data(), static_cast<int>(certPem.size()));
     X509* leaf = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
     if (!leaf) {
         BIO_free(bio);
@@ -99,7 +99,7 @@ bool loadPemChain(SSL_CTX* ctx, std::string_view cert_pem, std::string_view key_
         err = opensslError();
         return false;
     }
-    BIO* kbio = BIO_new_mem_buf(key_pem.data(), static_cast<int>(key_pem.size()));
+    BIO* kbio = BIO_new_mem_buf(keyPem.data(), static_cast<int>(keyPem.size()));
     EVP_PKEY* key = PEM_read_bio_PrivateKey(kbio, nullptr, nullptr, nullptr);
     BIO_free(kbio);
     if (!key) {
@@ -151,12 +151,12 @@ struct context {
         if (client) SSL_CTX_free(client);
     }
 
-    SSL_CTX* get(const Config& cfg, bool is_client, std::string& err) {
+    SSL_CTX* get(const Config& cfg, bool isClient, std::string& err) {
         std::lock_guard l(mu);
-        SSL_CTX*& ctx = is_client ? client : server;
+        SSL_CTX*& ctx = isClient ? client : server;
         if (ctx) return ctx;
         NextProtos = cfg.NextProtos;
-        SSL_CTX* c = SSL_CTX_new(is_client ? TLS_client_method() : TLS_server_method());
+        SSL_CTX* c = SSL_CTX_new(isClient ? TLS_client_method() : TLS_server_method());
         if (!c) {
             err = opensslError();
             return nullptr;
@@ -171,7 +171,7 @@ struct context {
                 return nullptr;
             }
         }
-        if (is_client) {
+        if (isClient) {
             if (!cfg.InsecureSkipVerify) {
                 SSL_CTX_set_verify(c, SSL_VERIFY_PEER, nullptr);
                 if (cfg.RootCAs) {
@@ -216,20 +216,20 @@ struct context {
 // ---------------------------------------------------------------------------
 // Certificates
 
-std::pair<Certificate, gopp::error> X509KeyPair(std::string_view cert_pem, std::string_view key_pem) {
+std::pair<Certificate, gopp::error> X509KeyPair(std::string_view certPem, std::string_view keyPem) {
     // Check the pair by loading it.
     SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
     std::string err;
-    bool ok = loadPemChain(ctx, cert_pem, key_pem, err);
+    bool ok = loadPemChain(ctx, certPem, keyPem, err);
     SSL_CTX_free(ctx);
     if (!ok) return {{}, tlsError(err)};
-    return {Certificate{string(cert_pem), string(key_pem)}, nullptr};
+    return {Certificate{string(certPem), string(keyPem)}, nullptr};
 }
 
-std::pair<Certificate, gopp::error> LoadX509KeyPair(std::string_view cert_file, std::string_view key_file) {
-    auto [cert, cerr] = read_file(cert_file);
+std::pair<Certificate, gopp::error> LoadX509KeyPair(std::string_view certFile, std::string_view keyFile) {
+    auto [cert, cerr] = readFile(certFile);
     if (cerr) return {{}, cerr};
-    auto [key, kerr] = read_file(key_file);
+    auto [key, kerr] = readFile(keyFile);
     if (kerr) return {{}, kerr};
     return X509KeyPair(cert, key);
 }
@@ -241,17 +241,17 @@ struct Conn::impl {
     SSL* ssl = nullptr;
     BIO* rbio = nullptr;  // network -> OpenSSL
     BIO* wbio = nullptr;  // OpenSSL -> network
-    bool is_client;
-    std::string setup_error;
+    bool isClient;
+    std::string setupError;
 
-    sync::Mutex ssl_mu;
-    sync::Mutex read_mu;
-    sync::Mutex write_mu;
-    sync::Mutex hs_mu;
-    bool handshake_done = false;
-    gopp::error handshake_err;
+    sync::Mutex sslMu;
+    sync::Mutex readMu;
+    sync::Mutex writeMu;
+    sync::Mutex hsMu;
+    bool handshakeDone = false;
+    gopp::error handshakeErr;
     gopp::error readErr;
-    gopp::error write_err;
+    gopp::error writeErr;
     bool closed = false;
     byte inbuf[16 * 1024 + 512];
 
@@ -260,11 +260,11 @@ struct Conn::impl {
     }
 
     // Writes the pending output of the write BIO to the connection.
-    // write_mu must be held.
+    // writeMu must be held.
     gopp::error flush(net::Conn& conn) {
         std::string out;
         {
-            std::lock_guard l(ssl_mu);
+            std::lock_guard l(sslMu);
             char buf[16 * 1024];
             for (;;) {
                 int n = BIO_read(wbio, buf, sizeof(buf));
@@ -273,22 +273,22 @@ struct Conn::impl {
             }
         }
         if (out.empty()) return nullptr;
-        if (write_err) return write_err;
+        if (writeErr) return writeErr;
         auto [n, err] = io::WriteString(conn, out);
-        if (err) write_err = err;
+        if (err) writeErr = err;
         return err;
     }
 
     bool hasOutput() {
-        std::lock_guard l(ssl_mu);
+        std::lock_guard l(sslMu);
         return BIO_ctrl_pending(wbio) > 0;
     }
 
-    // Reads from the connection into the read BIO. read_mu must be held.
+    // Reads from the connection into the read BIO. readMu must be held.
     gopp::error fill(net::Conn& conn) {
         auto [n, err] = conn.Read(inbuf);
         if (n > 0) {
-            std::lock_guard l(ssl_mu);
+            std::lock_guard l(sslMu);
             BIO_write(rbio, inbuf, static_cast<int>(n));
         }
         if (n == 0 && err) return err;
@@ -296,13 +296,13 @@ struct Conn::impl {
     }
 };
 
-Conn::Conn(ptr<net::Conn> conn, const Config& config, bool is_client) : conn_(std::move(conn)), impl_(std::make_unique<impl>()) {
-    impl_->is_client = is_client;
+Conn::Conn(ptr<net::Conn> conn, const Config& config, bool isClient) : conn_(std::move(conn)), impl_(std::make_unique<impl>()) {
+    impl_->isClient = isClient;
     if (!config.ctx_) config.ctx_ = std::make_shared<detail::context>();
     std::string err;
-    SSL_CTX* ctx = config.ctx_->get(config, is_client, err);
+    SSL_CTX* ctx = config.ctx_->get(config, isClient, err);
     if (!ctx) {
-        impl_->setup_error = err;
+        impl_->setupError = err;
         return;
     }
     impl_->ssl = SSL_new(ctx);
@@ -310,7 +310,7 @@ Conn::Conn(ptr<net::Conn> conn, const Config& config, bool is_client) : conn_(st
     impl_->wbio = BIO_new(BIO_s_mem());
     BIO_set_mem_eof_return(impl_->rbio, -1);  // empty means "want read", not EOF
     SSL_set_bio(impl_->ssl, impl_->rbio, impl_->wbio);
-    if (is_client) {
+    if (isClient) {
         SSL_set_connect_state(impl_->ssl);
         // The name to verify: from the config, or the host of the address.
         std::string name(config.ServerName.view());
@@ -322,11 +322,11 @@ Conn::Conn(ptr<net::Conn> conn, const Config& config, bool is_client) : conn_(st
         }
         in6_addr a6;
         in_addr a4;
-        bool is_ip = inet_pton(AF_INET, name.c_str(), &a4) == 1 || inet_pton(AF_INET6, name.c_str(), &a6) == 1;
-        if (!name.empty() && !is_ip) SSL_set_tlsext_host_name(impl_->ssl, name.c_str());
+        bool isIp = inet_pton(AF_INET, name.c_str(), &a4) == 1 || inet_pton(AF_INET6, name.c_str(), &a6) == 1;
+        if (!name.empty() && !isIp) SSL_set_tlsext_host_name(impl_->ssl, name.c_str());
         if (!config.InsecureSkipVerify && !name.empty()) {
             X509_VERIFY_PARAM* param = SSL_get0_param(impl_->ssl);
-            if (is_ip) X509_VERIFY_PARAM_set1_ip_asc(param, name.c_str());
+            if (isIp) X509_VERIFY_PARAM_set1_ip_asc(param, name.c_str());
             else X509_VERIFY_PARAM_set1_host(param, name.c_str(), 0);
         }
     } else {
@@ -337,36 +337,36 @@ Conn::Conn(ptr<net::Conn> conn, const Config& config, bool is_client) : conn_(st
 Conn::~Conn() = default;
 
 gopp::error Conn::Handshake() {
-    std::lock_guard hl(impl_->hs_mu);
-    if (impl_->handshake_done || impl_->handshake_err) return impl_->handshake_err;
+    std::lock_guard hl(impl_->hsMu);
+    if (impl_->handshakeDone || impl_->handshakeErr) return impl_->handshakeErr;
     if (!impl_->ssl) {
-        impl_->handshake_err = tlsError(impl_->setup_error);
-        return impl_->handshake_err;
+        impl_->handshakeErr = tlsError(impl_->setupError);
+        return impl_->handshakeErr;
     }
     for (;;) {
         int r, e;
         long verify = X509_V_OK;
         {
-            std::lock_guard l(impl_->ssl_mu);
+            std::lock_guard l(impl_->sslMu);
             r = SSL_do_handshake(impl_->ssl);
             e = SSL_get_error(impl_->ssl, r);
             if (r != 1) verify = SSL_get_verify_result(impl_->ssl);
         }
         {
-            std::lock_guard wl(impl_->write_mu);
+            std::lock_guard wl(impl_->writeMu);
             if (gopp::error err = impl_->flush(*conn_); err && r == 1) {
-                impl_->handshake_err = err;
+                impl_->handshakeErr = err;
                 return err;
             }
         }
         if (r == 1) {
-            impl_->handshake_done = true;
+            impl_->handshakeDone = true;
             return nullptr;
         }
         if (e == SSL_ERROR_WANT_READ) {
-            std::lock_guard rl(impl_->read_mu);
+            std::lock_guard rl(impl_->readMu);
             if (gopp::error err = impl_->fill(*conn_)) {
-                impl_->handshake_err = err;
+                impl_->handshakeErr = err;
                 return err;
             }
             continue;
@@ -375,27 +375,27 @@ gopp::error Conn::Handshake() {
         if (verify != X509_V_OK) {
             msg = std::string("failed to verify certificate: x509: ") + X509_verify_cert_error_string(verify);
         }
-        impl_->handshake_err = tlsError(msg);
-        return impl_->handshake_err;
+        impl_->handshakeErr = tlsError(msg);
+        return impl_->handshakeErr;
     }
 }
 
 std::pair<isize, gopp::error> Conn::Read(std::span<byte> p) {
     if (gopp::error err = Handshake()) return {0, err};
-    std::lock_guard rl(impl_->read_mu);
+    std::lock_guard rl(impl_->readMu);
     if (impl_->readErr) return {0, impl_->readErr};
     if (p.empty()) return {0, nullptr};
     for (;;) {
         std::size_t got = 0;
         int r, e;
         {
-            std::lock_guard l(impl_->ssl_mu);
+            std::lock_guard l(impl_->sslMu);
             r = SSL_read_ex(impl_->ssl, p.data(), p.size(), &got);
             e = r == 1 ? SSL_ERROR_NONE : SSL_get_error(impl_->ssl, r);
         }
         // Reading may produce output, such as a key update.
         if (impl_->hasOutput()) {
-            std::lock_guard wl(impl_->write_mu);
+            std::lock_guard wl(impl_->writeMu);
             impl_->flush(*conn_);
         }
         if (r == 1) return {static_cast<isize>(got), nullptr};
@@ -419,19 +419,19 @@ std::pair<isize, gopp::error> Conn::Read(std::span<byte> p) {
 
 std::pair<isize, gopp::error> Conn::Write(std::span<const byte> p) {
     if (gopp::error err = Handshake()) return {0, err};
-    std::lock_guard wl(impl_->write_mu);
-    if (impl_->write_err) return {0, impl_->write_err};
+    std::lock_guard wl(impl_->writeMu);
+    if (impl_->writeErr) return {0, impl_->writeErr};
     isize total = 0;
     while (!p.empty()) {
         std::size_t done = 0;
         int r;
         {
-            std::lock_guard l(impl_->ssl_mu);
+            std::lock_guard l(impl_->sslMu);
             r = SSL_write_ex(impl_->ssl, p.data(), p.size(), &done);
         }
         if (r != 1) {
-            impl_->write_err = tlsError(opensslError());
-            return {total, impl_->write_err};
+            impl_->writeErr = tlsError(opensslError());
+            return {total, impl_->writeErr};
         }
         if (gopp::error err = impl_->flush(*conn_)) return {total, err};
         total += static_cast<isize>(done);
@@ -441,10 +441,10 @@ std::pair<isize, gopp::error> Conn::Write(std::span<const byte> p) {
 }
 
 gopp::error Conn::Close() {
-    if (impl_->ssl && impl_->handshake_done && !impl_->closed) {
-        std::lock_guard wl(impl_->write_mu);
+    if (impl_->ssl && impl_->handshakeDone && !impl_->closed) {
+        std::lock_guard wl(impl_->writeMu);
         {
-            std::lock_guard l(impl_->ssl_mu);
+            std::lock_guard l(impl_->sslMu);
             SSL_shutdown(impl_->ssl);
             ERR_clear_error();
         }
@@ -459,8 +459,8 @@ gopp::error Conn::Close() {
 tls::ConnectionState Conn::ConnectionState() const {
     tls::ConnectionState st;
     if (!impl_->ssl) return st;
-    std::lock_guard l(impl_->ssl_mu);
-    st.HandshakeComplete = impl_->handshake_done;
+    std::lock_guard l(impl_->sslMu);
+    st.HandshakeComplete = impl_->handshakeDone;
     if (!st.HandshakeComplete) return st;
     int v = SSL_version(impl_->ssl);
     st.Version = v == TLS1_3_VERSION ? VersionTLS13 : v == TLS1_2_VERSION ? VersionTLS12 : static_cast<uint16>(v);

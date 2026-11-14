@@ -59,7 +59,7 @@ result indexFn(std::span<const Value> a) {
             break;
         }
         case Kind::Map: {
-            const type_ops* kt = item.Type()->key ? item.Type()->key() : nullptr;
+            const typeOps* kt = item.Type()->key ? item.Type()->key() : nullptr;
             if (!index.IsValid()) {
                 return fail("value is nil; should be of type " + std::string(kt ? kt->name : "?"));
             }
@@ -73,7 +73,7 @@ result indexFn(std::span<const Value> a) {
             if (x.IsValid()) {
                 item = x;
             } else {
-                const type_ops* et = item.Type()->elem ? item.Type()->elem() : nullptr;
+                const typeOps* et = item.Type()->elem ? item.Type()->elem() : nullptr;
                 item = et && et->zero ? et->zero() : Value();
             }
             break;
@@ -91,12 +91,12 @@ result sliceFn(std::span<const Value> a) {
     auto [it, isNil] = indirect(item);
     if (isNil) return fail("slice of nil pointer");
     item = it;
-    std::size_t n_indexes = a.size() - 1;
-    if (n_indexes > 3) return fail(std::format("too many slice indexes: {}", n_indexes));
+    std::size_t nIndexes = a.size() - 1;
+    if (nIndexes > 3) return fail(std::format("too many slice indexes: {}", nIndexes));
     std::size_t cap;
     switch (item.Kind()) {
     case Kind::String:
-        if (n_indexes == 3) return fail("cannot 3-index slice a string");
+        if (nIndexes == 3) return fail("cannot 3-index slice a string");
         cap = item.Len();
         break;
     case Kind::Array: case Kind::Slice:
@@ -106,14 +106,14 @@ result sliceFn(std::span<const Value> a) {
         return fail("can't slice item of type " + std::string(item.TypeName()));
     }
     int idx[3] = {0, static_cast<int>(item.Len()), 0};
-    for (std::size_t k = 0; k < n_indexes; k++) {
+    for (std::size_t k = 0; k < nIndexes; k++) {
         auto [x, err] = indexArg(a[k + 1], cap);
         if (err) return {Value(), err};
         idx[k] = x;
     }
     // Given item[i:j], make sure i <= j.
     if (idx[0] > idx[1]) return fail(std::format("invalid slice index: {} > {}", idx[0], idx[1]));
-    if (n_indexes < 3) return ok(sliceOf(item, static_cast<std::size_t>(idx[0]), static_cast<std::size_t>(idx[1])));
+    if (nIndexes < 3) return ok(sliceOf(item, static_cast<std::size_t>(idx[0]), static_cast<std::size_t>(idx[1])));
     // Given item[i:j:k], make sure i <= j <= k.
     if (idx[1] > idx[2]) return fail(std::format("invalid slice index: {} > {}", idx[1], idx[2]));
     return ok(sliceOf(item, static_cast<std::size_t>(idx[0]), static_cast<std::size_t>(idx[1])));
@@ -140,18 +140,18 @@ result callFn(std::span<const Value> a) {
     const Func* f = fn.AsFunc();
     if (!f || !*f) return fail("call of nil");
     std::span<const Value> args = a.subspan(2);
-    int num_in = f->NumIn();
+    int numIn = f->NumIn();
     if (f->IsVariadic()) {
-        if (static_cast<int>(args.size()) < num_in - 1) {
-            return fail(std::format("wrong number of args for {}: got {} want at least {}", name, args.size(), num_in - 1));
+        if (static_cast<int>(args.size()) < numIn - 1) {
+            return fail(std::format("wrong number of args for {}: got {} want at least {}", name, args.size(), numIn - 1));
         }
-    } else if (static_cast<int>(args.size()) != num_in) {
-        return fail(std::format("wrong number of args for {}: got {} want {}", name, args.size(), num_in));
+    } else if (static_cast<int>(args.size()) != numIn) {
+        return fail(std::format("wrong number of args for {}: got {} want {}", name, args.size(), numIn));
     }
     std::vector<Value> argv;
     for (std::size_t i = 0; i < args.size(); i++) {
         Value arg = indirectInterface(args[i]);
-        const type_ops* t = (!f->IsVariadic() || static_cast<int>(i) < num_in - 1) ? f->In(static_cast<int>(i)) : f->In(num_in - 1);
+        const typeOps* t = (!f->IsVariadic() || static_cast<int>(i) < numIn - 1) ? f->In(static_cast<int>(i)) : f->In(numIn - 1);
         // prepareArg
         if (!arg.IsValid()) {
             bool nilable = !t || t->kind == Kind::Pointer || t->kind == Kind::Map || t->kind == Kind::Slice ||
@@ -191,12 +191,12 @@ bool isNilValue(const Value& v) {
     }
 }
 
-const gopp::error err_bad_comparison_type = errors::New("invalid type for comparison");
-const gopp::error err_no_comparison = errors::New("missing argument for comparison");
+const gopp::error errBadComparisonType = errors::New("invalid type for comparison");
+const gopp::error errNoComparison = errors::New("missing argument for comparison");
 
 std::pair<bool, gopp::error> eq(const Value& a1, std::span<const Value> a2) {
     Value arg1 = indirectInterface(a1);
-    if (a2.empty()) return {false, err_no_comparison};
+    if (a2.empty()) return {false, errNoComparison};
     basic k1 = basicKind(arg1);
     for (const Value& a : a2) {
         Value arg = indirectInterface(a);
@@ -248,10 +248,10 @@ std::pair<bool, gopp::error> eq(const Value& a1, std::span<const Value> a2) {
 std::pair<bool, gopp::error> lt(const Value& a1, const Value& a2) {
     Value arg1 = indirectInterface(a1);
     basic k1 = basicKind(arg1);
-    if (k1 == basic::invalid) return {false, err_bad_comparison_type};
+    if (k1 == basic::invalid) return {false, errBadComparisonType};
     Value arg2 = indirectInterface(a2);
     basic k2 = basicKind(arg2);
-    if (k2 == basic::invalid) return {false, err_bad_comparison_type};
+    if (k2 == basic::invalid) return {false, errBadComparisonType};
     bool truth = false;
     if (k1 != k2) {
         // Special case: Can compare integer values regardless of type's
@@ -266,7 +266,7 @@ std::pair<bool, gopp::error> lt(const Value& a1, const Value& a2) {
         }
     } else {
         switch (k1) {
-        case basic::boolean: case basic::complex: return {false, err_bad_comparison_type};
+        case basic::boolean: case basic::complex: return {false, errBadComparisonType};
         case basic::floating: truth = arg1.Float() < arg2.Float(); break;
         case basic::integer: truth = arg1.Int() < arg2.Int(); break;
         case basic::str: truth = arg1.Str().view() < arg2.Str().view(); break;
@@ -290,7 +290,7 @@ result boolResult(std::pair<bool, gopp::error> r) {
 
 // evalArgs formats the arguments of html, js and urlquery: a single
 // string is used as is; anything else is printed like print does.
-std::string eval_args(std::span<const Value> args) {
+std::string evalArgs(std::span<const Value> args) {
     if (args.size() == 1 && args[0].Kind() == Kind::String) return args[0].Str().str();
     // printableValue: pointers print as what they point to, nothing as
     // <no value>.
@@ -315,23 +315,23 @@ const FuncMap& builtins() {
         b["and"] = Func::Raw(2, true, [](std::span<const Value>) -> result { panic("unreachable"); });
         b["call"] = Func::Raw(2, true, callFn);
         b["html"] = Func::Raw(1, true, [](std::span<const Value> a) {
-            return ok(Value::scalarString(stringOps(), HTMLEscapeString(eval_args(a))));
+            return ok(Value::scalarString(stringOps(), HTMLEscapeString(evalArgs(a))));
         });
         b["index"] = Func::Raw(2, true, indexFn);
         b["slice"] = Func::Raw(2, true, sliceFn);
         b["js"] = Func::Raw(1, true, [](std::span<const Value> a) {
-            return ok(Value::scalarString(stringOps(), JSEscapeString(eval_args(a))));
+            return ok(Value::scalarString(stringOps(), JSEscapeString(evalArgs(a))));
         });
         b["len"] = Func::Raw(1, false, lenFn);
         b["not"] = Func::Raw(1, false, notFn);
         b["or"] = Func::Raw(2, true, [](std::span<const Value>) -> result { panic("unreachable"); });
         b["print"] = Func::Raw(1, true, [](std::span<const Value> a) { return ok(Value::scalarString(stringOps(), Sprint(a))); });
-        b["printf"] = Func::Raw(std::vector<ops_fn>{&stringOps, nullptr}, true, [](std::span<const Value> a) {
+        b["printf"] = Func::Raw(std::vector<opsFn>{&stringOps, nullptr}, true, [](std::span<const Value> a) {
             return ok(Value::scalarString(stringOps(), Sprintf(a[0].Str(), a.subspan(1))));
         });
         b["println"] = Func::Raw(1, true, [](std::span<const Value> a) { return ok(Value::scalarString(stringOps(), Sprintln(a))); });
         b["urlquery"] = Func::Raw(1, true, [](std::span<const Value> a) {
-            return ok(Value::scalarString(stringOps(), url::QueryEscape(eval_args(a))));
+            return ok(Value::scalarString(stringOps(), url::QueryEscape(evalArgs(a))));
         });
         // Comparisons.
         b["eq"] = Func::Raw(2, true, [](std::span<const Value> a) { return boolResult(eq(a[0], a.subspan(1))); });
@@ -456,8 +456,8 @@ string JSEscapeString(std::string_view s) {
     return b.str();
 }
 
-string HTMLEscaper(std::span<const Value> args) { return HTMLEscapeString(eval_args(args)); }
-string JSEscaper(std::span<const Value> args) { return JSEscapeString(eval_args(args)); }
-string URLQueryEscaper(std::span<const Value> args) { return url::QueryEscape(eval_args(args)); }
+string HTMLEscaper(std::span<const Value> args) { return HTMLEscapeString(evalArgs(args)); }
+string JSEscaper(std::span<const Value> args) { return JSEscapeString(evalArgs(args)); }
+string URLQueryEscaper(std::span<const Value> args) { return url::QueryEscape(evalArgs(args)); }
 
 }  // namespace gopp::text::tmpl

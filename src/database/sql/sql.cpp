@@ -19,28 +19,28 @@
 
 namespace gopp::sql {
 
-using detail::conn_reuse_strategy;
-using detail::driver_conn;
-using detail::driver_stmt;
-using detail::release_fn;
+using detail::connReuseStrategy;
+using detail::driverConn;
+using detail::driverStmt;
+using detail::releaseFn;
 
 namespace {
 
-sync::RWMutex drivers_mu;
+sync::RWMutex driversMu;
 std::map<std::string, ptr<driver::Driver>, std::less<>>& drivers() {
     static auto* m = new std::map<std::string, ptr<driver::Driver>, std::less<>>();
     return *m;
 }
 
-const error err_db_closed = errors::New("sql: database is closed");
-const error err_rows_closed = errors::New("sql: Rows are closed");
-const error err_no_rows_available = errors::New("sql: no Rows available");
+const error errDbClosed = errors::New("sql: database is closed");
+const error errRowsClosed = errors::New("sql: Rows are closed");
+const error errNoRowsAvailable = errors::New("sql: no Rows available");
 
-constexpr int default_max_idle_conns = 2;
-constexpr int max_bad_conn_retries = 2;
+constexpr int defaultMaxIdleConns = 2;
+constexpr int maxBadConnRetries = 2;
 
 template <typename F>
-void withLock(driver_conn& dc, F&& f) {
+void withLock(driverConn& dc, F&& f) {
     std::lock_guard l(dc);
     f();
 }
@@ -74,20 +74,20 @@ std::pair<ptr<driver::Stmt>, error> ctxDriverPrepare(const ptr<context::Context>
     return {si, err};
 }
 
-std::pair<ptr<driver::Result>, error> ctxDriverExec(const ptr<context::Context>& ctx, driver::ExecerContext* execer_ctx,
+std::pair<ptr<driver::Result>, error> ctxDriverExec(const ptr<context::Context>& ctx, driver::ExecerContext* execerCtx,
                                                       driver::Execer* execer, std::string_view query,
                                                       std::span<const driver::NamedValue> nvdargs) {
-    if (execer_ctx) return execer_ctx->ExecContext(ctx, query, nvdargs);
+    if (execerCtx) return execerCtx->ExecContext(ctx, query, nvdargs);
     auto [dargs, err] = namedValueToValue(nvdargs);
     if (err) return {nullptr, err};
     if (error cerr = ctxDone(ctx)) return {nullptr, cerr};
     return execer->Exec(query, dargs);
 }
 
-std::pair<ptr<driver::Rows>, error> ctxDriverQuery(const ptr<context::Context>& ctx, driver::QueryerContext* queryer_ctx,
+std::pair<ptr<driver::Rows>, error> ctxDriverQuery(const ptr<context::Context>& ctx, driver::QueryerContext* queryerCtx,
                                                      driver::Queryer* queryer, std::string_view query,
                                                      std::span<const driver::NamedValue> nvdargs) {
-    if (queryer_ctx) return queryer_ctx->QueryContext(ctx, query, nvdargs);
+    if (queryerCtx) return queryerCtx->QueryContext(ctx, query, nvdargs);
     auto [dargs, err] = namedValueToValue(nvdargs);
     if (err) return {nullptr, err};
     if (error cerr = ctxDone(ctx)) return {nullptr, cerr};
@@ -138,10 +138,10 @@ std::pair<ptr<driver::Tx>, error> ctxDriverBegin(const ptr<context::Context>& ct
 }
 
 // The Result of a driver, called under its connection's lock.
-struct driver_result final : Result {
-    ptr<driver_conn> dc;
+struct driverResult final : Result {
+    ptr<driverConn> dc;
     ptr<driver::Result> resi;
-    driver_result(ptr<driver_conn> c, ptr<driver::Result> r) : dc(std::move(c)), resi(std::move(r)) {}
+    driverResult(ptr<driverConn> c, ptr<driver::Result> r) : dc(std::move(c)), resi(std::move(r)) {}
     std::pair<int64, error> LastInsertId() override {
         std::lock_guard l(*dc);
         return resi->LastInsertId();
@@ -153,19 +153,19 @@ struct driver_result final : Result {
 };
 
 std::pair<ptr<Result>, error> resultFromStatement(const ptr<context::Context>& ctx, driver::Conn& ci,
-                                                    const ptr<driver_stmt>& ds, std::span<const detail::arg> args) {
+                                                    const ptr<driverStmt>& ds, std::span<const detail::arg> args) {
     std::lock_guard l(*ds);
-    auto [dargs, err] = detail::driver_args_conn_locked(&ci, ds.get(), args);
+    auto [dargs, err] = detail::driverArgsConnLocked(&ci, ds.get(), args);
     if (err) return {nullptr, err};
     auto [resi, rerr] = ctxDriverStmtExec(ctx, *ds->si, dargs);
     if (rerr) return {nullptr, rerr};
-    return {make_ptr<driver_result>(ptr<driver_conn>(ds->dc), resi), nullptr};
+    return {make_ptr<driverResult>(ptr<driverConn>(ds->dc), resi), nullptr};
 }
 
 std::pair<ptr<driver::Rows>, error> rowsiFromStatement(const ptr<context::Context>& ctx, driver::Conn& ci,
-                                                         const ptr<driver_stmt>& ds, std::span<const detail::arg> args) {
+                                                         const ptr<driverStmt>& ds, std::span<const detail::arg> args) {
     std::lock_guard l(*ds);
-    auto [dargs, err] = detail::driver_args_conn_locked(&ci, ds.get(), args);
+    auto [dargs, err] = detail::driverArgsConnLocked(&ci, ds.get(), args);
     if (err) return {nullptr, err};
     return ctxDriverStmtQuery(ctx, *ds->si, dargs);
 }
@@ -176,14 +176,14 @@ std::pair<ptr<driver::Rows>, error> rowsiFromStatement(const ptr<context::Contex
 // Drivers
 
 void Register(std::string_view name, ptr<driver::Driver> d) {
-    std::lock_guard l(drivers_mu);
+    std::lock_guard l(driversMu);
     if (!d) panic("sql: Register driver is nil");
     if (drivers().contains(name)) panic("sql: Register called twice for driver " + std::string(name));
     drivers().emplace(std::string(name), std::move(d));
 }
 
 std::vector<string> Drivers() {
-    std::shared_lock l(drivers_mu);
+    std::shared_lock l(driversMu);
     std::vector<string> names;
     for (auto& [k, v] : drivers()) names.emplace_back(k);
     return names;  // the map is sorted
@@ -198,9 +198,9 @@ const error ErrTxDone = errors::New("sql: transaction has already been committed
 
 namespace detail {
 
-std::function<void(Rows&, error&)> rows_close_hook;
+std::function<void(Rows&, error&)> rowsCloseHook;
 
-void closing_mutex::RLock() {
+void closingMutex::RLock() {
     if (TryRLock()) return;
     std::lock_guard l(mu_);
     for (;;) {
@@ -209,7 +209,7 @@ void closing_mutex::RLock() {
     }
 }
 
-void closing_mutex::RUnlock() {
+void closingMutex::RUnlock() {
     for (;;) {
         int64 x = state_.load();
         if (x < 2) panic("runlock of un-rlocked mutex");
@@ -224,7 +224,7 @@ void closing_mutex::RUnlock() {
     }
 }
 
-void closing_mutex::Lock() {
+void closingMutex::Lock() {
     std::lock_guard l(mu_);
     for (;;) {
         int64 x = state_.load();
@@ -238,7 +238,7 @@ void closing_mutex::Lock() {
     }
 }
 
-void closing_mutex::Unlock() {
+void closingMutex::Unlock() {
     std::lock_guard l(mu_);
     int64 x = -1;
     if (!state_.compare_exchange_strong(x, 0)) panic("unlock of unlocked mutex");
@@ -246,7 +246,7 @@ void closing_mutex::Unlock() {
     write_.Broadcast();
 }
 
-bool closing_mutex::TryRLock() {
+bool closingMutex::TryRLock() {
     for (;;) {
         int64 x = state_.load();
         if (x < 0 || x == 1) return false;
@@ -257,20 +257,20 @@ bool closing_mutex::TryRLock() {
 // ---------------------------------------------------------------------------
 // connRequestSet
 
-conn_request_set::handle conn_request_set::Add(chan<conn_request> c) {
+connRequestSet::handle connRequestSet::Add(chan<connRequest> c) {
     auto idx = std::make_shared<int>(static_cast<int>(s_.size()));
     s_.emplace_back(std::move(c), idx);
     return idx;
 }
 
-bool conn_request_set::Delete(const handle& h) {
+bool connRequestSet::Delete(const handle& h) {
     int idx = *h;
     if (idx < 0) return false;
     deleteIndex(static_cast<std::size_t>(idx));
     return true;
 }
 
-void conn_request_set::deleteIndex(std::size_t idx) {
+void connRequestSet::deleteIndex(std::size_t idx) {
     *s_[idx].second = -1;
     if (idx < s_.size() - 1) {
         *s_.back().second = static_cast<int>(idx);
@@ -279,16 +279,16 @@ void conn_request_set::deleteIndex(std::size_t idx) {
     s_.pop_back();
 }
 
-std::optional<chan<conn_request>> conn_request_set::TakeRandom() {
+std::optional<chan<connRequest>> connRequestSet::TakeRandom() {
     if (s_.empty()) return std::nullopt;
     thread_local std::minstd_rand rng(std::random_device{}());
     std::size_t pick = rng() % s_.size();
-    chan<conn_request> c = s_[pick].first;
+    chan<connRequest> c = s_[pick].first;
     deleteIndex(pick);
     return c;
 }
 
-void conn_request_set::CloseAndRemoveAll() {
+void connRequestSet::CloseAndRemoveAll() {
     for (auto& [c, idx] : s_) {
         *idx = -1;
         c.close();
@@ -299,53 +299,53 @@ void conn_request_set::CloseAndRemoveAll() {
 // ---------------------------------------------------------------------------
 // driverConn, driverStmt
 
-void driver_conn::releaseConn(error err) { db->putConn(ptr<driver_conn>(this), std::move(err), true); }
+void driverConn::releaseConn(error err) { db->putConn(ptr<driverConn>(this), std::move(err), true); }
 
-void driver_conn::removeOpenStmt(driver_stmt* ds) {
+void driverConn::removeOpenStmt(driverStmt* ds) {
     std::lock_guard l(mu);
-    open_stmt.erase(ds);
+    openStmt.erase(ds);
 }
 
-bool driver_conn::expired(time::Duration timeout) const {
+bool driverConn::expired(time::Duration timeout) const {
     if (timeout.ns <= 0) return false;
-    return created_at.Add(timeout).Before(time::Now());
+    return createdAt.Add(timeout).Before(time::Now());
 }
 
-error driver_conn::resetSession(ptr<context::Context> ctx) {
+error driverConn::resetSession(ptr<context::Context> ctx) {
     std::lock_guard l(mu);
-    if (!need_reset) return nullptr;
+    if (!needReset) return nullptr;
     if (auto* cr = dynamic_cast<driver::SessionResetter*>(ci.get())) return cr->ResetSession(std::move(ctx));
     return nullptr;
 }
 
-bool driver_conn::validateConnection(bool needs_reset) {
+bool driverConn::validateConnection(bool needsReset) {
     std::lock_guard l(mu);
-    if (needs_reset) need_reset = true;
+    if (needsReset) needReset = true;
     if (auto* cv = dynamic_cast<driver::Validator*>(ci.get())) return cv->IsValid();
     return true;
 }
 
-std::pair<ptr<driver_stmt>, error> driver_conn::prepareLocked(ptr<context::Context> ctx, bool grabbed,
+std::pair<ptr<driverStmt>, error> driverConn::prepareLocked(ptr<context::Context> ctx, bool grabbed,
                                                                std::string_view query) {
     auto [si, err] = ctxDriverPrepare(ctx, *ci, query);
     if (err) return {nullptr, err};
-    auto ds = make_ptr<driver_stmt>();
+    auto ds = make_ptr<driverStmt>();
     ds->dc = this;
     ds->si = si;
     // Statements of a Tx or Conn close with them, not with the connection.
     if (grabbed) return {ds, nullptr};
-    open_stmt[ds.get()] = ds;
+    openStmt[ds.get()] = ds;
     return {ds, nullptr};
 }
 
-std::function<error()> driver_conn::close_db_locked() {
+std::function<error()> driverConn::closeDbLocked() {
     std::lock_guard l(mu);
     if (closed) return [] { return errors::New("sql: duplicate driverConn close"); };
     closed = true;
-    return db->remove_dep_locked(this, this);
+    return db->removeDepLocked(this, this);
 }
 
-error driver_conn::Close() {
+error driverConn::Close() {
     {
         std::lock_guard l(mu);
         if (closed) return errors::New("sql: duplicate driverConn close");
@@ -354,43 +354,43 @@ error driver_conn::Close() {
     std::function<error()> fn;
     {
         std::lock_guard l(db->mu_);
-        dbmu_closed = true;
-        fn = db->remove_dep_locked(this, this);
+        dbmuClosed = true;
+        fn = db->removeDepLocked(this, this);
     }
     return fn();
 }
 
-error driver_conn::finalClose() {
-    ptr<driver_conn> self(this);
-    std::vector<ptr<driver_stmt>> stmts;
+error driverConn::finalClose() {
+    ptr<driverConn> self(this);
+    std::vector<ptr<driverStmt>> stmts;
     {
         std::lock_guard l(mu);
-        for (auto& [k, ds] : open_stmt) stmts.push_back(ds);
-        open_stmt.clear();
+        for (auto& [k, ds] : openStmt) stmts.push_back(ds);
+        openStmt.clear();
     }
     for (auto& ds : stmts) ds->Close();
     error err;
     {
         std::lock_guard l(mu);
-        final_closed = true;
+        finalClosed = true;
         err = ci->Close();
         ci = nullptr;
     }
     {
         std::lock_guard l(db->mu_);
-        db->num_open_--;
+        db->numOpen_--;
         db->maybeOpenNewConnections();
     }
-    db->num_closed_.fetch_add(1);
+    db->numClosed_.fetch_add(1);
     return err;
 }
 
-error driver_stmt::Close() {
+error driverStmt::Close() {
     std::lock_guard l(*dc);
-    if (closed) return close_err;
+    if (closed) return closeErr;
     closed = true;
-    close_err = si->Close();
-    return close_err;
+    closeErr = si->Close();
+    return closeErr;
 }
 
 }  // namespace detail
@@ -398,27 +398,27 @@ error driver_stmt::Close() {
 // ---------------------------------------------------------------------------
 // DB: dependencies
 
-void DB::addDep(detail::final_closer* x, ptr<object> keep, const void* dep) {
+void DB::addDep(detail::finalCloser* x, ptr<object> keep, const void* dep) {
     std::lock_guard l(mu_);
     addDepLocked(x, std::move(keep), dep);
 }
 
-void DB::addDepLocked(detail::final_closer* x, ptr<object> keep, const void* dep) {
+void DB::addDepLocked(detail::finalCloser* x, ptr<object> keep, const void* dep) {
     auto& e = dep_[x];
     if (!e.keep) e.keep = std::move(keep);
     e.deps.insert(dep);
 }
 
-error DB::remove_dep(detail::final_closer* x, const void* dep) {
+error DB::removeDep(detail::finalCloser* x, const void* dep) {
     std::function<error()> fn;
     {
         std::lock_guard l(mu_);
-        fn = remove_dep_locked(x, dep);
+        fn = removeDepLocked(x, dep);
     }
     return fn();
 }
 
-std::function<error()> DB::remove_dep_locked(detail::final_closer* x, const void* dep) {
+std::function<error()> DB::removeDepLocked(detail::finalCloser* x, const void* dep) {
     auto it = dep_.find(x);
     if (it == dep_.end()) panic("unpaired removeDep: no deps");
     if (it->second.deps.erase(dep) == 0) panic("unpaired removeDep: no such dep");
@@ -434,7 +434,7 @@ std::function<error()> DB::remove_dep_locked(detail::final_closer* x, const void
 namespace {
 
 // A Connector for a driver and a data source name.
-struct dsn_connector final : driver::Connector {
+struct dsnConnector final : driver::Connector {
     string dsn;
     ptr<driver::Driver> drv;
     std::pair<ptr<driver::Conn>, error> Connect(ptr<context::Context>) override { return drv->Open(dsn); }
@@ -450,34 +450,34 @@ DB::~DB() = default;
 ptr<DB> OpenDB(ptr<driver::Connector> c) {
     auto [ctx, cancel] = context::WithCancel(context::Background());
     auto db = make_ptr<DB>(std::move(c));
-    db->opener_ch_ = makeChan<empty>(1);
+    db->openerCh_ = make_chan<empty>(1);
     db->stop_ = cancel;
     go([db, ctx] { db->connectionOpener(ctx); });
     return db;
 }
 
-std::pair<ptr<DB>, error> Open(std::string_view driver_name, std::string_view data_source_name) {
+std::pair<ptr<DB>, error> Open(std::string_view driverName, std::string_view dataSourceName) {
     ptr<driver::Driver> d;
     {
-        std::shared_lock l(drivers_mu);
-        auto it = drivers().find(driver_name);
+        std::shared_lock l(driversMu);
+        auto it = drivers().find(driverName);
         if (it == drivers().end()) {
-            return {nullptr, errors::New("sql: unknown driver " + detail::quote(driver_name) + " (forgotten import?)")};
+            return {nullptr, errors::New("sql: unknown driver " + detail::quote(driverName) + " (forgotten import?)")};
         }
         d = it->second;
     }
     if (auto* dc = dynamic_cast<driver::DriverContext*>(d.get())) {
-        auto [connector, err] = dc->OpenConnector(data_source_name);
+        auto [connector, err] = dc->OpenConnector(dataSourceName);
         if (err) return {nullptr, err};
         return {OpenDB(connector), nullptr};
     }
-    auto c = make_ptr<dsn_connector>();
-    c->dsn = string(data_source_name);
+    auto c = make_ptr<dsnConnector>();
+    c->dsn = string(dataSourceName);
     c->drv = d;
     return {OpenDB(c), nullptr};
 }
 
-error DB::pingDc(ptr<context::Context> ctx, const ptr<driver_conn>& dc, const release_fn& release) {
+error DB::pingDc(ptr<context::Context> ctx, const ptr<driverConn>& dc, const releaseFn& release) {
     error err;
     if (auto* pinger = dynamic_cast<driver::Pinger*>(dc->ci.get())) {
         withLock(*dc, [&] { err = pinger->Ping(ctx); });
@@ -487,8 +487,8 @@ error DB::pingDc(ptr<context::Context> ctx, const ptr<driver_conn>& dc, const re
 }
 
 error DB::PingContext(ptr<context::Context> ctx) {
-    ptr<driver_conn> dc;
-    error err = retry([&](conn_reuse_strategy strategy) {
+    ptr<driverConn> dc;
+    error err = retry([&](connReuseStrategy strategy) {
         auto [c, e] = conn(ctx, strategy);
         dc = c;
         return e;
@@ -504,11 +504,11 @@ error DB::Close() {
     {
         std::lock_guard l(mu_);
         if (closed_) return nullptr;  // idempotent
-        if (cleaner_ch_) cleaner_ch_.close();
-        for (auto& dc : free_conn_) fns.push_back(dc->close_db_locked());
-        free_conn_.clear();
+        if (cleanerCh_) cleanerCh_.close();
+        for (auto& dc : freeConn_) fns.push_back(dc->closeDbLocked());
+        freeConn_.clear();
         closed_ = true;
-        conn_requests_.CloseAndRemoveAll();
+        connRequests_.CloseAndRemoveAll();
     }
     error err;
     for (auto& fn : fns) {
@@ -522,65 +522,65 @@ error DB::Close() {
 }
 
 int DB::maxIdleConnsLocked() const {
-    int n = max_idle_count_;
-    if (n == 0) return default_max_idle_conns;
+    int n = maxIdleCount_;
+    if (n == 0) return defaultMaxIdleConns;
     if (n < 0) return 0;
     return n;
 }
 
 time::Duration DB::shortestIdleTimeLocked() const {
-    if (max_idle_time_.ns <= 0) return max_lifetime_;
-    if (max_lifetime_.ns <= 0) return max_idle_time_;
-    return std::min(max_idle_time_, max_lifetime_);
+    if (maxIdleTime_.ns <= 0) return maxLifetime_;
+    if (maxLifetime_.ns <= 0) return maxIdleTime_;
+    return std::min(maxIdleTime_, maxLifetime_);
 }
 
 void DB::SetMaxIdleConns(int n) {
-    std::vector<ptr<driver_conn>> closing;
+    std::vector<ptr<driverConn>> closing;
     {
         std::lock_guard l(mu_);
-        max_idle_count_ = n > 0 ? n : -1;
+        maxIdleCount_ = n > 0 ? n : -1;
         // Make sure maxIdle doesn't exceed maxOpen.
-        if (max_open_ > 0 && maxIdleConnsLocked() > max_open_) max_idle_count_ = max_open_;
-        int max_idle = maxIdleConnsLocked();
-        if (static_cast<int>(free_conn_.size()) > max_idle) {
-            closing.assign(free_conn_.begin() + max_idle, free_conn_.end());
-            free_conn_.resize(static_cast<std::size_t>(max_idle));
+        if (maxOpen_ > 0 && maxIdleConnsLocked() > maxOpen_) maxIdleCount_ = maxOpen_;
+        int maxIdle = maxIdleConnsLocked();
+        if (static_cast<int>(freeConn_.size()) > maxIdle) {
+            closing.assign(freeConn_.begin() + maxIdle, freeConn_.end());
+            freeConn_.resize(static_cast<std::size_t>(maxIdle));
         }
-        max_idle_closed_ += static_cast<int64>(closing.size());
+        maxIdleClosed_ += static_cast<int64>(closing.size());
     }
     for (auto& c : closing) c->Close();
 }
 
 void DB::SetMaxOpenConns(int n) {
-    bool sync_max_idle;
+    bool syncMaxIdle;
     {
         std::lock_guard l(mu_);
-        max_open_ = n < 0 ? 0 : n;
-        sync_max_idle = max_open_ > 0 && maxIdleConnsLocked() > max_open_;
+        maxOpen_ = n < 0 ? 0 : n;
+        syncMaxIdle = maxOpen_ > 0 && maxIdleConnsLocked() > maxOpen_;
     }
-    if (sync_max_idle) SetMaxIdleConns(n);
+    if (syncMaxIdle) SetMaxIdleConns(n);
 }
 
 void DB::SetConnMaxLifetime(time::Duration d) {
     if (d.ns < 0) d = {};
     std::lock_guard l(mu_);
     // Wake the cleaner to apply a shorter lifetime.
-    if (d.ns > 0 && d < shortestIdleTimeLocked() && cleaner_ch_) cleaner_ch_.trySend(empty{});
-    max_lifetime_ = d;
+    if (d.ns > 0 && d < shortestIdleTimeLocked() && cleanerCh_) cleanerCh_.trySend(empty{});
+    maxLifetime_ = d;
     startCleanerLocked();
 }
 
 void DB::SetConnMaxIdleTime(time::Duration d) {
     if (d.ns < 0) d = {};
     std::lock_guard l(mu_);
-    if (d.ns > 0 && d < shortestIdleTimeLocked() && cleaner_ch_) cleaner_ch_.trySend(empty{});
-    max_idle_time_ = d;
+    if (d.ns > 0 && d < shortestIdleTimeLocked() && cleanerCh_) cleanerCh_.trySend(empty{});
+    maxIdleTime_ = d;
     startCleanerLocked();
 }
 
 void DB::startCleanerLocked() {
-    if ((max_lifetime_.ns > 0 || max_idle_time_.ns > 0) && num_open_ > 0 && !cleaner_ch_) {
-        cleaner_ch_ = makeChan<empty>(1);
+    if ((maxLifetime_.ns > 0 || maxIdleTime_.ns > 0) && numOpen_ > 0 && !cleanerCh_) {
+        cleanerCh_ = make_chan<empty>(1);
         ptr<DB> self(this);
         time::Duration d = shortestIdleTimeLocked();
         go([self, d] { self->connectionCleaner(d); });
@@ -588,28 +588,28 @@ void DB::startCleanerLocked() {
 }
 
 void DB::connectionCleaner(time::Duration d) {
-    const time::Duration min_interval = time::Second;
-    if (d < min_interval) d = min_interval;
+    const time::Duration minInterval = time::Second;
+    if (d < minInterval) d = minInterval;
     ptr<time::Timer> t = time::NewTimer(d);
     chan<empty> cleaner;
     {
         std::lock_guard l(mu_);
-        cleaner = cleaner_ch_;
+        cleaner = cleanerCh_;
     }
     for (;;) {
         select(recv(t->C, [] {}), recv(cleaner, [] {}));  // maxLifetime changed or the db closed
-        std::vector<ptr<driver_conn>> closing;
+        std::vector<ptr<driverConn>> closing;
         {
             std::lock_guard l(mu_);
             d = shortestIdleTimeLocked();
-            if (closed_ || num_open_ == 0 || d.ns <= 0) {
-                cleaner_ch_ = nullptr;
+            if (closed_ || numOpen_ == 0 || d.ns <= 0) {
+                cleanerCh_ = nullptr;
                 return;
             }
             std::tie(d, closing) = connectionCleanerRunLocked(d);
         }
         for (auto& c : closing) c->Close();
-        if (d < min_interval) d = min_interval;
+        if (d < minInterval) d = minInterval;
         if (!t->Stop()) {
             time::Time v;
             t->C.tryRecv(v);
@@ -618,82 +618,82 @@ void DB::connectionCleaner(time::Duration d) {
     }
 }
 
-std::pair<time::Duration, std::vector<ptr<driver_conn>>> DB::connectionCleanerRunLocked(time::Duration d) {
-    int64 idle_closing = 0;
-    std::vector<ptr<driver_conn>> closing;
-    if (max_idle_time_.ns > 0) {
-        // Connections returned before idle_since have been idle too long;
-        // free_conn_ is ordered by returnedAt.
-        time::Time idle_since = time::Now().Add(-max_idle_time_);
-        for (std::size_t i = free_conn_.size(); i-- > 0;) {
-            if (free_conn_[i]->returned_at.Before(idle_since)) {
-                closing.assign(free_conn_.begin(), free_conn_.begin() + static_cast<std::ptrdiff_t>(i + 1));
-                free_conn_.erase(free_conn_.begin(), free_conn_.begin() + static_cast<std::ptrdiff_t>(i + 1));
-                idle_closing = static_cast<int64>(closing.size());
-                max_idle_time_closed_ += idle_closing;
+std::pair<time::Duration, std::vector<ptr<driverConn>>> DB::connectionCleanerRunLocked(time::Duration d) {
+    int64 idleClosing = 0;
+    std::vector<ptr<driverConn>> closing;
+    if (maxIdleTime_.ns > 0) {
+        // Connections returned before idleSince have been idle too long;
+        // freeConn_ is ordered by returnedAt.
+        time::Time idleSince = time::Now().Add(-maxIdleTime_);
+        for (std::size_t i = freeConn_.size(); i-- > 0;) {
+            if (freeConn_[i]->returnedAt.Before(idleSince)) {
+                closing.assign(freeConn_.begin(), freeConn_.begin() + static_cast<std::ptrdiff_t>(i + 1));
+                freeConn_.erase(freeConn_.begin(), freeConn_.begin() + static_cast<std::ptrdiff_t>(i + 1));
+                idleClosing = static_cast<int64>(closing.size());
+                maxIdleTimeClosed_ += idleClosing;
                 break;
             }
         }
-        if (!free_conn_.empty()) {
-            if (time::Duration d2 = free_conn_[0]->returned_at.Sub(idle_since); d2 < d) d = d2;
+        if (!freeConn_.empty()) {
+            if (time::Duration d2 = freeConn_[0]->returnedAt.Sub(idleSince); d2 < d) d = d2;
         }
     }
-    if (max_lifetime_.ns > 0) {
-        time::Time expired_since = time::Now().Add(-max_lifetime_);
-        for (std::size_t i = 0; i < free_conn_.size(); i++) {
-            auto& c = free_conn_[i];
-            if (c->created_at.Before(expired_since)) {
+    if (maxLifetime_.ns > 0) {
+        time::Time expiredSince = time::Now().Add(-maxLifetime_);
+        for (std::size_t i = 0; i < freeConn_.size(); i++) {
+            auto& c = freeConn_[i];
+            if (c->createdAt.Before(expiredSince)) {
                 closing.push_back(c);
-                free_conn_.erase(free_conn_.begin() + static_cast<std::ptrdiff_t>(i));
+                freeConn_.erase(freeConn_.begin() + static_cast<std::ptrdiff_t>(i));
                 i--;
-            } else if (time::Duration d2 = c->created_at.Sub(expired_since); d2 < d) {
+            } else if (time::Duration d2 = c->createdAt.Sub(expiredSince); d2 < d) {
                 d = d2;
             }
         }
-        max_lifetime_closed_ += static_cast<int64>(closing.size()) - idle_closing;
+        maxLifetimeClosed_ += static_cast<int64>(closing.size()) - idleClosing;
     }
     return {d, std::move(closing)};
 }
 
 DBStats DB::Stats() {
-    int64 wait = wait_duration_.load();
+    int64 wait = waitDuration_.load();
     std::lock_guard l(mu_);
     DBStats s;
-    s.MaxOpenConnections = max_open_;
-    s.Idle = static_cast<int>(free_conn_.size());
-    s.OpenConnections = num_open_;
-    s.InUse = num_open_ - static_cast<int>(free_conn_.size());
-    s.WaitCount = wait_count_;
+    s.MaxOpenConnections = maxOpen_;
+    s.Idle = static_cast<int>(freeConn_.size());
+    s.OpenConnections = numOpen_;
+    s.InUse = numOpen_ - static_cast<int>(freeConn_.size());
+    s.WaitCount = waitCount_;
     s.WaitDuration = time::Duration(wait);
-    s.MaxIdleClosed = max_idle_closed_;
-    s.MaxIdleTimeClosed = max_idle_time_closed_;
-    s.MaxLifetimeClosed = max_lifetime_closed_;
+    s.MaxIdleClosed = maxIdleClosed_;
+    s.MaxIdleTimeClosed = maxIdleTimeClosed_;
+    s.MaxLifetimeClosed = maxLifetimeClosed_;
     return s;
 }
 
 // Asks the opener for connections the waiting requests need, within
-// max_open_.
+// maxOpen_.
 void DB::maybeOpenNewConnections() {
-    int num_requests = static_cast<int>(conn_requests_.Len());
-    if (max_open_ > 0) num_requests = std::min(num_requests, max_open_ - num_open_);
-    for (; num_requests > 0; num_requests--) {
-        num_open_++;  // optimistically
+    int numRequests = static_cast<int>(connRequests_.Len());
+    if (maxOpen_ > 0) numRequests = std::min(numRequests, maxOpen_ - numOpen_);
+    for (; numRequests > 0; numRequests--) {
+        numOpen_++;  // optimistically
         if (closed_) return;
-        pending_opens_++;
-        opener_ch_.trySend(empty{});
+        pendingOpens_++;
+        openerCh_.trySend(empty{});
     }
 }
 
 void DB::connectionOpener(ptr<context::Context> ctx) {
     for (;;) {
         bool done = false;
-        select(recv(ctx->Done(), [&] { done = true; }), recv(opener_ch_, [] {}));
+        select(recv(ctx->Done(), [&] { done = true; }), recv(openerCh_, [] {}));
         if (done) return;
         for (;;) {
             {
                 std::lock_guard l(mu_);
-                if (pending_opens_ == 0) break;
-                pending_opens_--;
+                if (pendingOpens_ == 0) break;
+                pendingOpens_--;
             }
             openNewConnection(ctx);
         }
@@ -701,53 +701,53 @@ void DB::connectionOpener(ptr<context::Context> ctx) {
 }
 
 void DB::openNewConnection(ptr<context::Context> ctx) {
-    // num_open_ was incremented for this connection already.
+    // numOpen_ was incremented for this connection already.
     auto [ci, err] = connector_->Connect(ctx);
     std::lock_guard l(mu_);
     if (closed_) {
         if (!err) ci->Close();
-        num_open_--;
+        numOpen_--;
         return;
     }
     if (err) {
-        num_open_--;
+        numOpen_--;
         putConnDbLocked(nullptr, err);
         maybeOpenNewConnections();
         return;
     }
-    auto dc = make_ptr<driver_conn>();
+    auto dc = make_ptr<driverConn>();
     dc->db = this;
-    dc->created_at = dc->returned_at = time::Now();
+    dc->createdAt = dc->returnedAt = time::Now();
     dc->ci = ci;
     if (putConnDbLocked(dc, nullptr)) {
         addDepLocked(dc.get(), dc, dc.get());
     } else {
-        num_open_--;
+        numOpen_--;
         ci->Close();
     }
 }
 
 // Returns a connection: a cached one, a new one, or one released by
-// another fiber while this one waits (max_open_ reached).
-std::pair<ptr<driver_conn>, error> DB::conn(ptr<context::Context> ctx, conn_reuse_strategy strategy) {
+// another fiber while this one waits (maxOpen_ reached).
+std::pair<ptr<driverConn>, error> DB::conn(ptr<context::Context> ctx, connReuseStrategy strategy) {
     mu_.lock();
     if (closed_) {
         mu_.unlock();
-        return {nullptr, err_db_closed};
+        return {nullptr, errDbClosed};
     }
     if (error err = ctxDone(ctx)) {
         mu_.unlock();
         return {nullptr, err};
     }
-    time::Duration lifetime = max_lifetime_;
+    time::Duration lifetime = maxLifetime_;
 
     // Prefer a free connection, the newest.
-    if (strategy == detail::cached_or_new_conn && !free_conn_.empty()) {
-        ptr<driver_conn> c = std::move(free_conn_.back());
-        free_conn_.pop_back();
-        c->in_use = true;
+    if (strategy == detail::cachedOrNewConn && !freeConn_.empty()) {
+        ptr<driverConn> c = std::move(freeConn_.back());
+        freeConn_.pop_back();
+        c->inUse = true;
         if (c->expired(lifetime)) {
-            max_lifetime_closed_++;
+            maxLifetimeClosed_++;
             mu_.unlock();
             c->Close();
             return {nullptr, driver::ErrBadConn};
@@ -762,42 +762,42 @@ std::pair<ptr<driver_conn>, error> DB::conn(ptr<context::Context> ctx, conn_reus
     }
 
     // Out of connections: wait for one to be released.
-    if (max_open_ > 0 && num_open_ >= max_open_) {
-        auto req = makeChan<detail::conn_request>(1);
-        auto del_handle = conn_requests_.Add(req);
-        wait_count_++;
+    if (maxOpen_ > 0 && numOpen_ >= maxOpen_) {
+        auto req = make_chan<detail::connRequest>(1);
+        auto delHandle = connRequests_.Add(req);
+        waitCount_++;
         mu_.unlock();
-        time::Time wait_start = time::Now();
+        time::Time waitStart = time::Now();
 
-        std::optional<std::pair<detail::conn_request, bool>> got;
+        std::optional<std::pair<detail::connRequest, bool>> got;
         error ctxErr;
         select(recv(ctx->Done(), [&] { ctxErr = ctx->Err(); }),
-               recv(req, [&](detail::conn_request r, bool ok) { got.emplace(std::move(r), ok); }));
-        wait_duration_.fetch_add(time::Since(wait_start).ns);
+               recv(req, [&](detail::connRequest r, bool ok) { got.emplace(std::move(r), ok); }));
+        waitDuration_.fetch_add(time::Since(waitStart).ns);
         if (!got) {
             // Remove the request so that no one sends to it; if someone did
             // already, put the connection back.
             bool deleted;
             {
                 std::lock_guard l(mu_);
-                deleted = conn_requests_.Delete(del_handle);
+                deleted = connRequests_.Delete(delHandle);
             }
             if (!deleted) {
-                detail::conn_request r;
+                detail::connRequest r;
                 bool closed = false;
                 if (req.tryRecv(r, &closed) && !closed && r.conn) putConn(r.conn, r.err, false);
             }
             return {nullptr, ctxErr};
         }
         auto& [ret, ok] = *got;
-        if (!ok) return {nullptr, err_db_closed};
+        if (!ok) return {nullptr, errDbClosed};
         // Only check if the connection is expired if the strategy is
-        // cached_or_new_conn; when the strategy is always_new_conn, a bad
+        // cachedOrNewConn; when the strategy is alwaysNewConn, a bad
         // connection may be returned once more.
-        if (strategy == detail::cached_or_new_conn && !ret.err && ret.conn->expired(lifetime)) {
+        if (strategy == detail::cachedOrNewConn && !ret.err && ret.conn->expired(lifetime)) {
             {
                 std::lock_guard l(mu_);
-                max_lifetime_closed_++;
+                maxLifetimeClosed_++;
             }
             ret.conn->Close();
             return {nullptr, driver::ErrBadConn};
@@ -810,57 +810,57 @@ std::pair<ptr<driver_conn>, error> DB::conn(ptr<context::Context> ctx, conn_reus
         return {ret.conn, ret.err};
     }
 
-    num_open_++;  // optimistically
+    numOpen_++;  // optimistically
     mu_.unlock();
     auto [ci, err] = connector_->Connect(ctx);
     if (err) {
         std::lock_guard l(mu_);
-        num_open_--;  // correct for the optimism
+        numOpen_--;  // correct for the optimism
         maybeOpenNewConnections();
         return {nullptr, err};
     }
     std::lock_guard l(mu_);
-    auto dc = make_ptr<driver_conn>();
+    auto dc = make_ptr<driverConn>();
     dc->db = this;
-    dc->created_at = dc->returned_at = time::Now();
+    dc->createdAt = dc->returnedAt = time::Now();
     dc->ci = ci;
-    dc->in_use = true;
+    dc->inUse = true;
     addDepLocked(dc.get(), dc, dc.get());
     return {dc, nullptr};
 }
 
-void DB::noteUnusedDriverStatement(const ptr<driver_conn>& c, const ptr<driver_stmt>& ds) {
+void DB::noteUnusedDriverStatement(const ptr<driverConn>& c, const ptr<driverStmt>& ds) {
     std::lock_guard l(mu_);
-    if (c->in_use) {
-        c->on_put.push_back([ds] { ds->Close(); });
+    if (c->inUse) {
+        c->onPut.push_back([ds] { ds->Close(); });
     } else {
         bool fc;
         {
             std::lock_guard cl(c->mu);
-            fc = c->final_closed;
+            fc = c->finalClosed;
         }
         if (!fc) ds->Close();
     }
 }
 
-void DB::putConn(ptr<driver_conn> dc, error err, bool resetSession) {
+void DB::putConn(ptr<driverConn> dc, error err, bool resetSession) {
     if (!errors::Is(err, driver::ErrBadConn)) {
         if (!dc->validateConnection(resetSession)) err = driver::ErrBadConn;
     }
     mu_.lock();
-    if (!dc->in_use) {
+    if (!dc->inUse) {
         mu_.unlock();
         panic("sql: connection returned that was never out");
     }
-    if (!errors::Is(err, driver::ErrBadConn) && dc->expired(max_lifetime_)) {
-        max_lifetime_closed_++;
+    if (!errors::Is(err, driver::ErrBadConn) && dc->expired(maxLifetime_)) {
+        maxLifetimeClosed_++;
         err = driver::ErrBadConn;
     }
-    dc->in_use = false;
-    dc->returned_at = time::Now();
-    auto on_put = std::move(dc->on_put);
-    dc->on_put.clear();
-    for (auto& fn : on_put) fn();
+    dc->inUse = false;
+    dc->returnedAt = time::Now();
+    auto onPut = std::move(dc->onPut);
+    dc->onPut.clear();
+    for (auto& fn : onPut) fn();
 
     if (errors::Is(err, driver::ErrBadConn)) {
         // Don't reuse bad connections. Since the conn is considered bad
@@ -878,33 +878,33 @@ void DB::putConn(ptr<driver_conn> dc, error err, bool resetSession) {
 
 // Hands dc (or err) to a waiting request, or keeps dc free. False if dc
 // should be closed.
-bool DB::putConnDbLocked(const ptr<driver_conn>& dc, error err) {
+bool DB::putConnDbLocked(const ptr<driverConn>& dc, error err) {
     if (closed_) return false;
-    if (max_open_ > 0 && num_open_ > max_open_) return false;
-    if (auto req = conn_requests_.TakeRandom()) {
-        if (!err) dc->in_use = true;
-        req->send(detail::conn_request{dc, err});
+    if (maxOpen_ > 0 && numOpen_ > maxOpen_) return false;
+    if (auto req = connRequests_.TakeRandom()) {
+        if (!err) dc->inUse = true;
+        req->send(detail::connRequest{dc, err});
         return true;
     }
     if (!err && !closed_) {
-        if (maxIdleConnsLocked() > static_cast<int>(free_conn_.size())) {
-            free_conn_.push_back(dc);
+        if (maxIdleConnsLocked() > static_cast<int>(freeConn_.size())) {
+            freeConn_.push_back(dc);
             startCleanerLocked();
             return true;
         }
-        max_idle_closed_++;
+        maxIdleClosed_++;
     }
     return false;
 }
 
 // Runs fn with cached connections, then with a new one, while it fails
 // with ErrBadConn.
-error DB::retry(const std::function<error(conn_reuse_strategy)>& fn) {
-    for (int i = 0; i < max_bad_conn_retries; i++) {
-        error err = fn(detail::cached_or_new_conn);
+error DB::retry(const std::function<error(connReuseStrategy)>& fn) {
+    for (int i = 0; i < maxBadConnRetries; i++) {
+        error err = fn(detail::cachedOrNewConn);
         if (!err || !errors::Is(err, driver::ErrBadConn)) return err;
     }
-    return fn(detail::always_new_conn);
+    return fn(detail::alwaysNewConn);
 }
 
 // ---------------------------------------------------------------------------
@@ -912,7 +912,7 @@ error DB::retry(const std::function<error(conn_reuse_strategy)>& fn) {
 
 std::pair<ptr<sql::Stmt>, error> DB::PrepareContext(ptr<context::Context> ctx, std::string_view query) {
     ptr<sql::Stmt> stmt;
-    error err = retry([&](conn_reuse_strategy strategy) {
+    error err = retry([&](connReuseStrategy strategy) {
         auto [dc, e] = conn(ctx, strategy);
         if (e) return e;
         auto [s, perr] = prepareDc(ctx, dc, [dc](error e) { dc->releaseConn(std::move(e)); }, nullptr, nullptr, query);
@@ -924,9 +924,9 @@ std::pair<ptr<sql::Stmt>, error> DB::PrepareContext(ptr<context::Context> ctx, s
 
 std::pair<ptr<sql::Stmt>, error> DB::Prepare(std::string_view query) { return PrepareContext(context::Background(), query); }
 
-std::pair<ptr<sql::Stmt>, error> DB::prepareDc(ptr<context::Context> ctx, const ptr<driver_conn>& dc, release_fn release,
-                                                detail::stmt_conn_grabber* cg, ptr<object> cg_keep, std::string_view query) {
-    ptr<driver_stmt> ds;
+std::pair<ptr<sql::Stmt>, error> DB::prepareDc(ptr<context::Context> ctx, const ptr<driverConn>& dc, releaseFn release,
+                                                detail::stmtConnGrabber* cg, ptr<object> cgKeep, std::string_view query) {
+    ptr<driverStmt> ds;
     error err;
     withLock(*dc, [&] { std::tie(ds, err) = dc->prepareLocked(ctx, cg != nullptr, query); });
     release(err);
@@ -937,11 +937,11 @@ std::pair<ptr<sql::Stmt>, error> DB::prepareDc(ptr<context::Context> ctx, const 
     stmt->db_ = ptr<DB>(this);
     stmt->query_ = string(query);
     stmt->cg_ = cg;
-    stmt->cg_keep_ = std::move(cg_keep);
+    stmt->cgKeep_ = std::move(cgKeep);
     stmt->cgds_ = ds;
     if (!cg) {
         stmt->css_.push_back({dc, ds});
-        stmt->last_num_closed_ = num_closed_.load();
+        stmt->lastNumClosed_ = numClosed_.load();
         addDep(stmt.get(), stmt, stmt.get());
     }
     return {stmt, nullptr};
@@ -949,7 +949,7 @@ std::pair<ptr<sql::Stmt>, error> DB::prepareDc(ptr<context::Context> ctx, const 
 
 std::pair<ptr<Result>, error> DB::execArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args) {
     ptr<Result> res;
-    error err = retry([&](conn_reuse_strategy strategy) {
+    error err = retry([&](connReuseStrategy strategy) {
         auto [dc, e] = conn(ctx, strategy);
         if (e) return e;
         auto [r, xerr] = execDc(ctx, dc, [dc](error e) { dc->releaseConn(std::move(e)); }, query, args);
@@ -959,36 +959,36 @@ std::pair<ptr<Result>, error> DB::execArgs(ptr<context::Context> ctx, std::strin
     return {res, err};
 }
 
-std::pair<ptr<Result>, error> DB::execDc(ptr<context::Context> ctx, const ptr<driver_conn>& dc, release_fn release,
+std::pair<ptr<Result>, error> DB::execDc(ptr<context::Context> ctx, const ptr<driverConn>& dc, releaseFn release,
                                           std::string_view query, std::span<const detail::arg> args) {
     ptr<Result> res;
     error err;
     struct releaser {
-        release_fn& release;
+        releaseFn& release;
         error& err;
         ~releaser() { release(err); }
     } r{release, err};
 
-    auto* execer_ctx = dynamic_cast<driver::ExecerContext*>(dc->ci.get());
-    driver::Execer* execer = execer_ctx ? nullptr : dynamic_cast<driver::Execer*>(dc->ci.get());
-    if (execer_ctx || execer) {
+    auto* execerCtx = dynamic_cast<driver::ExecerContext*>(dc->ci.get());
+    driver::Execer* execer = execerCtx ? nullptr : dynamic_cast<driver::Execer*>(dc->ci.get());
+    if (execerCtx || execer) {
         ptr<driver::Result> resi;
         withLock(*dc, [&] {
-            auto [nvdargs, aerr] = detail::driver_args_conn_locked(dc->ci.get(), nullptr, args);
+            auto [nvdargs, aerr] = detail::driverArgsConnLocked(dc->ci.get(), nullptr, args);
             err = aerr;
             if (err) return;
-            std::tie(resi, err) = ctxDriverExec(ctx, execer_ctx, execer, query, nvdargs);
+            std::tie(resi, err) = ctxDriverExec(ctx, execerCtx, execer, query, nvdargs);
         });
         if (err != driver::ErrSkip) {
             if (err) return {nullptr, err};
-            return {make_ptr<driver_result>(dc, resi), nullptr};
+            return {make_ptr<driverResult>(dc, resi), nullptr};
         }
     }
     // No fast path: a prepared statement.
     ptr<driver::Stmt> si;
     withLock(*dc, [&] { std::tie(si, err) = ctxDriverPrepare(ctx, *dc->ci, query); });
     if (err) return {nullptr, err};
-    auto ds = make_ptr<driver_stmt>();
+    auto ds = make_ptr<driverStmt>();
     ds->dc = dc.get();
     ds->si = si;
     std::tie(res, err) = resultFromStatement(ctx, *dc->ci, ds, args);
@@ -999,7 +999,7 @@ std::pair<ptr<Result>, error> DB::execDc(ptr<context::Context> ctx, const ptr<dr
 
 std::pair<ptr<Rows>, error> DB::queryArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args) {
     ptr<Rows> rows;
-    error err = retry([&](conn_reuse_strategy strategy) {
+    error err = retry([&](connReuseStrategy strategy) {
         auto [dc, e] = conn(ctx, strategy);
         if (e) return e;
         auto [r, qerr] = queryDc(ctx, nullptr, dc, [dc](error e) { dc->releaseConn(std::move(e)); }, query, args);
@@ -1011,18 +1011,18 @@ std::pair<ptr<Rows>, error> DB::queryArgs(ptr<context::Context> ctx, std::string
 
 // Runs a query on dc; release is called when the Rows close, or now on an
 // error.
-std::pair<ptr<Rows>, error> DB::queryDc(ptr<context::Context> ctx, ptr<context::Context> txctx, const ptr<driver_conn>& dc,
-                                         release_fn release, std::string_view query, std::span<const detail::arg> args) {
-    auto* queryer_ctx = dynamic_cast<driver::QueryerContext*>(dc->ci.get());
-    driver::Queryer* queryer = queryer_ctx ? nullptr : dynamic_cast<driver::Queryer*>(dc->ci.get());
-    if (queryer_ctx || queryer) {
+std::pair<ptr<Rows>, error> DB::queryDc(ptr<context::Context> ctx, ptr<context::Context> txctx, const ptr<driverConn>& dc,
+                                         releaseFn release, std::string_view query, std::span<const detail::arg> args) {
+    auto* queryerCtx = dynamic_cast<driver::QueryerContext*>(dc->ci.get());
+    driver::Queryer* queryer = queryerCtx ? nullptr : dynamic_cast<driver::Queryer*>(dc->ci.get());
+    if (queryerCtx || queryer) {
         ptr<driver::Rows> rowsi;
         error err;
         withLock(*dc, [&] {
-            auto [nvdargs, aerr] = detail::driver_args_conn_locked(dc->ci.get(), nullptr, args);
+            auto [nvdargs, aerr] = detail::driverArgsConnLocked(dc->ci.get(), nullptr, args);
             err = aerr;
             if (err) return;
-            std::tie(rowsi, err) = ctxDriverQuery(ctx, queryer_ctx, queryer, query, nvdargs);
+            std::tie(rowsi, err) = ctxDriverQuery(ctx, queryerCtx, queryer, query, nvdargs);
         });
         if (err != driver::ErrSkip) {
             if (err) {
@@ -1031,7 +1031,7 @@ std::pair<ptr<Rows>, error> DB::queryDc(ptr<context::Context> ctx, ptr<context::
             }
             ptr<Rows> rows(new Rows());
             rows->dc_ = dc;
-            rows->release_conn_ = std::move(release);
+            rows->releaseConn_ = std::move(release);
             rows->rowsi_ = rowsi;
             rows->initContextClose(ctx, txctx);
             return {rows, nullptr};
@@ -1044,7 +1044,7 @@ std::pair<ptr<Rows>, error> DB::queryDc(ptr<context::Context> ctx, ptr<context::
         release(err);
         return {nullptr, err};
     }
-    auto ds = make_ptr<driver_stmt>();
+    auto ds = make_ptr<driverStmt>();
     ds->dc = dc.get();
     ds->si = si;
     auto [rowsi, rerr] = rowsiFromStatement(ctx, *dc->ci, ds, args);
@@ -1056,9 +1056,9 @@ std::pair<ptr<Rows>, error> DB::queryDc(ptr<context::Context> ctx, ptr<context::
     // The statement closes with the rows.
     ptr<Rows> rows(new Rows());
     rows->dc_ = dc;
-    rows->release_conn_ = std::move(release);
+    rows->releaseConn_ = std::move(release);
     rows->rowsi_ = rowsi;
-    rows->close_stmt_ = ds;
+    rows->closeStmt_ = ds;
     rows->initContextClose(ctx, txctx);
     return {rows, nullptr};
 }
@@ -1070,7 +1070,7 @@ ptr<Row> DB::queryRowArgs(ptr<context::Context> ctx, std::string_view query, std
 
 std::pair<ptr<sql::Tx>, error> DB::BeginTx(ptr<context::Context> ctx, const TxOptions* opts) {
     ptr<sql::Tx> tx;
-    error err = retry([&](conn_reuse_strategy strategy) {
+    error err = retry([&](connReuseStrategy strategy) {
         auto [dc, e] = conn(ctx, strategy);
         if (e) return e;
         auto [t, berr] = beginDc(ctx, dc, [dc](error e) { dc->releaseConn(std::move(e)); }, opts);
@@ -1082,15 +1082,15 @@ std::pair<ptr<sql::Tx>, error> DB::BeginTx(ptr<context::Context> ctx, const TxOp
 
 std::pair<ptr<sql::Tx>, error> DB::Begin() { return BeginTx(context::Background(), nullptr); }
 
-std::pair<ptr<sql::Tx>, error> DB::beginDc(ptr<context::Context> ctx, const ptr<driver_conn>& dc, release_fn release,
+std::pair<ptr<sql::Tx>, error> DB::beginDc(ptr<context::Context> ctx, const ptr<driverConn>& dc, releaseFn release,
                                             const TxOptions* opts) {
     ptr<driver::Tx> txi;
-    bool keep_conn_on_rollback = false;
+    bool keepConnOnRollback = false;
     error err;
     withLock(*dc, [&] {
-        bool has_session_resetter = dynamic_cast<driver::SessionResetter*>(dc->ci.get()) != nullptr;
-        bool has_validator = dynamic_cast<driver::Validator*>(dc->ci.get()) != nullptr;
-        keep_conn_on_rollback = has_session_resetter && has_validator;
+        bool hasSessionResetter = dynamic_cast<driver::SessionResetter*>(dc->ci.get()) != nullptr;
+        bool hasValidator = dynamic_cast<driver::Validator*>(dc->ci.get()) != nullptr;
+        keepConnOnRollback = hasSessionResetter && hasValidator;
         std::tie(txi, err) = ctxDriverBegin(ctx, opts, *dc->ci);
     });
     if (err) {
@@ -1102,10 +1102,10 @@ std::pair<ptr<sql::Tx>, error> DB::beginDc(ptr<context::Context> ctx, const ptr<
     ptr<sql::Tx> tx(new sql::Tx());
     tx->db_ = ptr<DB>(this);
     tx->dc_ = dc;
-    tx->release_conn_ = std::move(release);
+    tx->releaseConn_ = std::move(release);
     tx->txi_ = txi;
     tx->cancel_ = cancel;
-    tx->keep_conn_on_rollback_ = keep_conn_on_rollback;
+    tx->keepConnOnRollback_ = keepConnOnRollback;
     tx->ctx_ = tctx;
     go([tx] { tx->awaitDone(); });
     return {tx, nullptr};
@@ -1114,8 +1114,8 @@ std::pair<ptr<sql::Tx>, error> DB::beginDc(ptr<context::Context> ctx, const ptr<
 ptr<driver::Driver> DB::Driver() { return connector_->Driver(); }
 
 std::pair<ptr<sql::Conn>, error> DB::Conn(ptr<context::Context> ctx) {
-    ptr<driver_conn> dc;
-    error err = retry([&](conn_reuse_strategy strategy) {
+    ptr<driverConn> dc;
+    error err = retry([&](connReuseStrategy strategy) {
         auto [c, e] = conn(ctx, strategy);
         dc = c;
         return e;
@@ -1129,7 +1129,7 @@ std::pair<ptr<sql::Conn>, error> DB::Conn(ptr<context::Context> ctx) {
 
 Conn::~Conn() = default;
 
-std::tuple<ptr<driver_conn>, release_fn, error> Conn::grabConn(ptr<context::Context>) {
+std::tuple<ptr<driverConn>, releaseFn, error> Conn::grabConn(ptr<context::Context>) {
     if (done_.load()) return {nullptr, nullptr, ErrConnDone};
     closemu_.RLock();
     ptr<sql::Conn> self(this);
@@ -1218,11 +1218,11 @@ void Tx::awaitDone() {
     // Discard and close the connection used to ensure the transaction is
     // closed and the resources are released, unless the driver can reset
     // the session.
-    rollback(!keep_conn_on_rollback_);
+    rollback(!keepConnOnRollback_);
 }
 
 void Tx::close(error err) {
-    release_conn_(std::move(err));
+    releaseConn_(std::move(err));
     dc_ = nullptr;
     txi_ = nullptr;
     // The Tx's statements refer to it (to grab its connection); drop them,
@@ -1230,17 +1230,17 @@ void Tx::close(error err) {
     // frees the pair; statements of a done Tx are unusable anyway.
     std::vector<ptr<sql::Stmt>> stmts;
     {
-        std::lock_guard l(stmts_mu_);
+        std::lock_guard l(stmtsMu_);
         stmts.swap(stmts_);
     }
 }
 
-std::tuple<ptr<driver_conn>, release_fn, error> Tx::grabConn(ptr<context::Context> ctx) {
+std::tuple<ptr<driverConn>, releaseFn, error> Tx::grabConn(ptr<context::Context> ctx) {
     if (error err = ctxDone(ctx)) return {nullptr, nullptr, err};
-    // closemu.RLock must come before the check for is_done to prevent the
+    // closemu.RLock must come before the check for isDone to prevent the
     // Tx from closing while a query is executing.
     closemu_.RLock();
-    if (is_done()) {
+    if (isDone()) {
         closemu_.RUnlock();
         return {nullptr, nullptr, ErrTxDone};
     }
@@ -1249,7 +1249,7 @@ std::tuple<ptr<driver_conn>, release_fn, error> Tx::grabConn(ptr<context::Contex
 }
 
 void Tx::closePrepared() {
-    std::lock_guard l(stmts_mu_);
+    std::lock_guard l(stmtsMu_);
     for (auto& s : stmts_) s->Close();
 }
 
@@ -1272,7 +1272,7 @@ error Tx::Commit() {
     return err;
 }
 
-error Tx::rollback(bool discard_conn) {
+error Tx::rollback(bool discardConn) {
     bool expected = false;
     if (!done_.compare_exchange_strong(expected, true)) return ErrTxDone;
     cancel_();
@@ -1281,7 +1281,7 @@ error Tx::rollback(bool discard_conn) {
     error err;
     withLock(*dc_, [&] { err = txi_->Rollback(); });
     if (!errors::Is(err, driver::ErrBadConn)) closePrepared();
-    if (discard_conn) err = driver::ErrBadConn;
+    if (discardConn) err = driver::ErrBadConn;
     close(err);
     return err;
 }
@@ -1293,7 +1293,7 @@ std::pair<ptr<sql::Stmt>, error> Tx::PrepareContext(ptr<context::Context> ctx, s
     if (err) return {nullptr, err};
     auto [stmt, perr] = db_->prepareDc(ctx, dc, release, this, ptr<object>(static_cast<object*>(this)), query);
     if (perr) return {nullptr, perr};
-    std::lock_guard l(stmts_mu_);
+    std::lock_guard l(stmtsMu_);
     stmts_.push_back(stmt);
     return {stmt, nullptr};
 }
@@ -1303,18 +1303,18 @@ std::pair<ptr<sql::Stmt>, error> Tx::Prepare(std::string_view query) { return Pr
 ptr<sql::Stmt> Tx::StmtContext(ptr<context::Context> ctx, const ptr<sql::Stmt>& stmt) {
     auto sticky = [](error err) {
         ptr<sql::Stmt> s(new sql::Stmt());
-        s->sticky_err_ = std::move(err);
+        s->stickyErr_ = std::move(err);
         return s;
     };
     auto [dc, release, err] = grabConn(ctx);
     if (err) return sticky(err);
     struct releaser {
-        release_fn& r;
+        releaseFn& r;
         ~releaser() { r(nullptr); }
     } rel{release};
     if (db_ != stmt->db_) return sticky(errors::New("sql: Tx.Stmt: statement from different database used"));
     ptr<driver::Stmt> si;
-    ptr<sql::Stmt> parent_stmt;
+    ptr<sql::Stmt> parentStmt;
     stmt->mu_.lock();
     if (stmt->closed_ || stmt->cg_) {
         // The statement is closed or belongs to a Tx or Conn: prepare it
@@ -1333,24 +1333,24 @@ ptr<sql::Stmt> Tx::StmtContext(ptr<context::Context> ctx, const ptr<sql::Stmt>& 
         }
         stmt->mu_.unlock();
         if (!si) {
-            ptr<driver_stmt> ds;
+            ptr<driverStmt> ds;
             withLock(*dc, [&] { std::tie(ds, err) = stmt->prepareOnConnLocked(ctx, dc); });
             if (err) return sticky(err);
             si = ds->si;
         }
-        parent_stmt = stmt;
+        parentStmt = stmt;
     }
     ptr<sql::Stmt> txs(new sql::Stmt());
     txs->db_ = db_;
     txs->cg_ = this;
-    txs->cg_keep_ = ptr<object>(static_cast<object*>(this));
-    txs->cgds_ = make_ptr<driver_stmt>();
+    txs->cgKeep_ = ptr<object>(static_cast<object*>(this));
+    txs->cgds_ = make_ptr<driverStmt>();
     txs->cgds_->dc = dc.get();
     txs->cgds_->si = si;
-    txs->parent_stmt_ = parent_stmt;
+    txs->parentStmt_ = parentStmt;
     txs->query_ = stmt->query_;
-    if (parent_stmt) db_->addDep(parent_stmt.get(), parent_stmt, txs.get());
-    std::lock_guard l(stmts_mu_);
+    if (parentStmt) db_->addDep(parentStmt.get(), parentStmt, txs.get());
+    std::lock_guard l(stmtsMu_);
     stmts_.push_back(txs);
     return txs;
 }
@@ -1382,11 +1382,11 @@ Stmt::~Stmt() = default;
 std::pair<ptr<Result>, error> Stmt::execArgs(ptr<context::Context> ctx, std::vector<detail::arg> args) {
     closemu_.RLock();
     struct unlocker {
-        detail::closing_mutex& m;
+        detail::closingMutex& m;
         ~unlocker() { m.RUnlock(); }
     } u{closemu_};
     ptr<Result> res;
-    error err = db_->retry([&](conn_reuse_strategy strategy) {
+    error err = db_->retry([&](connReuseStrategy strategy) {
         auto [dc, release, ds, e] = connStmt(ctx, strategy);
         if (e) return e;
         auto [r, xerr] = resultFromStatement(ctx, *dc->ci, ds, args);
@@ -1401,18 +1401,18 @@ void Stmt::removeClosedStmtLocked() {
     // Clean the connections that closed since the last time, when enough
     // did.
     std::size_t t = std::min<std::size_t>(css_.size() / 2 + 1, 10);
-    uint64 db_closed = db_->num_closed_.load();
-    if (db_closed - last_num_closed_ < t) return;
+    uint64 dbClosed = db_->numClosed_.load();
+    if (dbClosed - lastNumClosed_ < t) return;
     {
         std::lock_guard l(db_->mu_);
-        std::erase_if(css_, [](const detail::connStmt& v) { return v.dc->dbmu_closed; });
+        std::erase_if(css_, [](const detail::connStmt& v) { return v.dc->dbmuClosed; });
     }
-    last_num_closed_ = db_closed;
+    lastNumClosed_ = dbClosed;
 }
 
-std::tuple<ptr<driver_conn>, release_fn, ptr<driver_stmt>, error> Stmt::connStmt(ptr<context::Context> ctx,
-                                                                                   conn_reuse_strategy strategy) {
-    if (sticky_err_) return {nullptr, nullptr, nullptr, sticky_err_};
+std::tuple<ptr<driverConn>, releaseFn, ptr<driverStmt>, error> Stmt::connStmt(ptr<context::Context> ctx,
+                                                                                   connReuseStrategy strategy) {
+    if (stickyErr_) return {nullptr, nullptr, nullptr, stickyErr_};
     mu_.lock();
     if (closed_) {
         mu_.unlock();
@@ -1430,7 +1430,7 @@ std::tuple<ptr<driver_conn>, release_fn, ptr<driver_stmt>, error> Stmt::connStmt
 
     auto [dc, err] = db_->conn(ctx, strategy);
     if (err) return {nullptr, nullptr, nullptr, err};
-    release_fn release = [dc](error e) { dc->releaseConn(std::move(e)); };
+    releaseFn release = [dc](error e) { dc->releaseConn(std::move(e)); };
     mu_.lock();
     for (auto& v : css_) {
         if (v.dc == dc) {
@@ -1440,7 +1440,7 @@ std::tuple<ptr<driver_conn>, release_fn, ptr<driver_stmt>, error> Stmt::connStmt
     }
     mu_.unlock();
     // No statement on this connection yet: prepare one.
-    ptr<driver_stmt> ds;
+    ptr<driverStmt> ds;
     withLock(*dc, [&] { std::tie(ds, err) = prepareOnConnLocked(ctx, dc); });
     if (err) {
         dc->releaseConn(err);
@@ -1449,7 +1449,7 @@ std::tuple<ptr<driver_conn>, release_fn, ptr<driver_stmt>, error> Stmt::connStmt
     return {dc, release, ds, nullptr};
 }
 
-std::pair<ptr<driver_stmt>, error> Stmt::prepareOnConnLocked(ptr<context::Context> ctx, const ptr<driver_conn>& dc) {
+std::pair<ptr<driverStmt>, error> Stmt::prepareOnConnLocked(ptr<context::Context> ctx, const ptr<driverConn>& dc) {
     auto [si, err] = dc->prepareLocked(ctx, cg_ != nullptr, query_);
     if (err) return {nullptr, err};
     std::lock_guard l(mu_);
@@ -1460,11 +1460,11 @@ std::pair<ptr<driver_stmt>, error> Stmt::prepareOnConnLocked(ptr<context::Contex
 std::pair<ptr<Rows>, error> Stmt::queryArgs(ptr<context::Context> ctx, std::vector<detail::arg> args) {
     closemu_.RLock();
     struct unlocker {
-        detail::closing_mutex& m;
+        detail::closingMutex& m;
         ~unlocker() { m.RUnlock(); }
     } u{closemu_};
     ptr<Rows> rows;
-    error err = db_->retry([&](conn_reuse_strategy strategy) {
+    error err = db_->retry([&](connReuseStrategy strategy) {
         auto [dc, release, ds, e] = connStmt(ctx, strategy);
         if (e) return e;
         auto [rowsi, qerr] = rowsiFromStatement(ctx, *dc->ci, ds, args);
@@ -1477,12 +1477,12 @@ std::pair<ptr<Rows>, error> Stmt::queryArgs(ptr<context::Context> ctx, std::vect
             ptr<sql::Stmt> self(this);
             db_->addDep(this, self, r.get());
             const void* rp = r.get();
-            r->release_conn_ = [release, self, rp](error e) {
+            r->releaseConn_ = [release, self, rp](error e) {
                 release(std::move(e));
-                self->db_->remove_dep(self.get(), rp);
+                self->db_->removeDep(self.get(), rp);
             };
             ptr<context::Context> txctx;
-            if (cg_) txctx = cg_->tx_ctx();
+            if (cg_) txctx = cg_->txCtx();
             r->initContextClose(ctx, txctx);
             rows = r;
             return error();
@@ -1501,19 +1501,19 @@ ptr<Row> Stmt::queryRowArgs(ptr<context::Context> ctx, std::vector<detail::arg> 
 
 error Stmt::Close() {
     std::lock_guard l(closemu_);
-    if (sticky_err_) return sticky_err_;
-    ptr<driver_stmt> txds;
+    if (stickyErr_) return stickyErr_;
+    ptr<driverStmt> txds;
     {
         std::lock_guard ml(mu_);
         if (closed_) return nullptr;
         closed_ = true;
         txds = std::move(cgds_);
     }
-    if (!cg_) return db_->remove_dep(this, this);
-    if (parent_stmt_) {
+    if (!cg_) return db_->removeDep(this, this);
+    if (parentStmt_) {
         // A Tx statement of a DB statement: the driver statement belongs
         // to the parent.
-        return db_->remove_dep(parent_stmt_.get(), this);
+        return db_->removeDep(parentStmt_.get(), this);
     }
     return txds->Close();
 }
@@ -1549,13 +1549,13 @@ void Rows::initContextClose(ptr<context::Context> ctx, ptr<context::Context> txc
 // Closes the rows when a context is done, unless they close first
 // (closectx).
 void Rows::awaitDone(ptr<context::Context> ctx, ptr<context::Context> txctx, ptr<context::Context> closectx) {
-    chan<empty> txctx_done = txctx ? txctx->Done() : chan<empty>();
-    auto set_done = [&](error err) {
-        std::lock_guard l(context_done_mu_);
-        context_done_ = std::move(err);
-        has_context_done_.store(true);
+    chan<empty> txctxDone = txctx ? txctx->Done() : chan<empty>();
+    auto setDone = [&](error err) {
+        std::lock_guard l(contextDoneMu_);
+        contextDone_ = std::move(err);
+        hasContextDone_.store(true);
     };
-    select(recv(ctx->Done(), [&] { set_done(ctx->Err()); }), recv(txctx_done, [&] { set_done(txctx->Err()); }),
+    select(recv(ctx->Done(), [&] { setDone(ctx->Err()); }), recv(txctxDone, [&] { setDone(txctx->Err()); }),
            recv(closectx->Done(), [] {}));
     close(ctx->Err());
 }
@@ -1564,18 +1564,18 @@ bool Rows::Next() {
     // If the user's calling Next, they're done with their previous row's
     // Scan results (any RawBytes memory), so we can release the read lock.
     closemuRunlockIfHeldByScan();
-    if (has_context_done_.load()) return false;
-    bool do_close, ok;
+    if (hasContextDone_.load()) return false;
+    bool doClose, ok;
     {
         closemu_.RLock();
         struct unlocker {
-            detail::closing_mutex& m;
+            detail::closingMutex& m;
             ~unlocker() { m.RUnlock(); }
         } u{closemu_};
-        std::tie(do_close, ok) = nextLocked();
+        std::tie(doClose, ok) = nextLocked();
     }
-    if (do_close) Close();
-    if (do_close && !ok) hit_eof_ = true;
+    if (doClose) Close();
+    if (doClose && !ok) hitEof_ = true;
     return ok;
 }
 
@@ -1585,11 +1585,11 @@ std::pair<bool, bool> Rows::nextLocked() {
     // rowsi to prevent a Tx from rolling back the connection at the same
     // time.
     std::lock_guard l(*dc_);
-    if (!next_called_) {
-        num_cols_ = rowsi_->Columns().size();
-        next_called_ = true;
+    if (!nextCalled_) {
+        numCols_ = rowsi_->Columns().size();
+        nextCalled_ = true;
     }
-    if (lastcols_.size() != num_cols_) lastcols_.assign(num_cols_, nullptr);
+    if (lastcols_.size() != numCols_) lastcols_.assign(numCols_, nullptr);
     lasterr_ = rowsi_->Next(lastcols_);
     if (lasterr_) {
         // Close the connection if there is a driver error.
@@ -1606,42 +1606,42 @@ std::pair<bool, bool> Rows::nextLocked() {
 
 bool Rows::NextResultSet() {
     closemuRunlockIfHeldByScan();
-    bool do_close = false;
+    bool doClose = false;
     bool result;
     {
         closemu_.RLock();
         struct unlocker {
-            detail::closing_mutex& m;
+            detail::closingMutex& m;
             ~unlocker() { m.RUnlock(); }
         } u{closemu_};
         if (closed_) return false;
         lastcols_.clear();
-        next_called_ = false;
+        nextCalled_ = false;
         auto* nrs = dynamic_cast<driver::RowsNextResultSet*>(rowsi_.get());
         if (!nrs) {
-            do_close = true;
+            doClose = true;
             result = false;
         } else {
             std::lock_guard l(*dc_);
             lasterr_ = nrs->NextResultSet();
             if (lasterr_) {
-                do_close = true;
+                doClose = true;
                 result = false;
             } else {
                 result = true;
             }
         }
     }
-    if (do_close) Close();
+    if (doClose) Close();
     return result;
 }
 
 error Rows::Err() {
     // Return any context error that might have occurred while iterating
     // over the rows; it takes precedence unless the end was reached.
-    if (!hit_eof_ && has_context_done_.load()) {
-        std::lock_guard l(context_done_mu_);
-        return context_done_;
+    if (!hitEof_ && hasContextDone_.load()) {
+        std::lock_guard l(contextDoneMu_);
+        return contextDone_;
     }
     closemu_.RLock();
     error err = lasterrOrErrLocked(nullptr);
@@ -1658,11 +1658,11 @@ RawBytes Rows::setrawbuf(slice<byte> b) {
 std::pair<std::vector<string>, error> Rows::Columns() {
     closemu_.RLock();
     struct unlocker {
-        detail::closing_mutex& m;
+        detail::closingMutex& m;
         ~unlocker() { m.RUnlock(); }
     } u{closemu_};
-    if (closed_) return {{}, lasterrOrErrLocked(err_rows_closed)};
-    if (!rowsi_) return {{}, lasterrOrErrLocked(err_no_rows_available)};
+    if (closed_) return {{}, lasterrOrErrLocked(errRowsClosed)};
+    if (!rowsi_) return {{}, lasterrOrErrLocked(errNoRowsAvailable)};
     std::lock_guard l(*dc_);
     return {rowsi_->Columns(), nullptr};
 }
@@ -1670,11 +1670,11 @@ std::pair<std::vector<string>, error> Rows::Columns() {
 std::pair<std::vector<ptr<ColumnType>>, error> Rows::ColumnTypes() {
     closemu_.RLock();
     struct unlocker {
-        detail::closing_mutex& m;
+        detail::closingMutex& m;
         ~unlocker() { m.RUnlock(); }
     } u{closemu_};
-    if (closed_) return {{}, lasterrOrErrLocked(err_rows_closed)};
-    if (!rowsi_) return {{}, lasterrOrErrLocked(err_no_rows_available)};
+    if (closed_) return {{}, lasterrOrErrLocked(errRowsClosed)};
+    if (!rowsi_) return {{}, lasterrOrErrLocked(errNoRowsAvailable)};
     std::lock_guard l(*dc_);
     auto names = rowsi_->Columns();
     std::vector<ptr<ColumnType>> list;
@@ -1682,19 +1682,19 @@ std::pair<std::vector<ptr<ColumnType>>, error> Rows::ColumnTypes() {
         int idx = static_cast<int>(i);
         auto ci = make_ptr<ColumnType>();
         ci->name_ = names[i];
-        if (auto* p = dynamic_cast<driver::RowsColumnTypeScanType*>(rowsi_.get())) ci->scan_type_ = p->ColumnTypeScanType(idx);
-        else ci->scan_type_ = string::fromStatic("interface {}");
+        if (auto* p = dynamic_cast<driver::RowsColumnTypeScanType*>(rowsi_.get())) ci->scanType_ = p->ColumnTypeScanType(idx);
+        else ci->scanType_ = string::fromStatic("interface {}");
         if (auto* p = dynamic_cast<driver::RowsColumnTypeDatabaseTypeName*>(rowsi_.get())) {
-            ci->database_type_ = p->ColumnTypeDatabaseTypeName(idx);
+            ci->databaseType_ = p->ColumnTypeDatabaseTypeName(idx);
         }
         if (auto* p = dynamic_cast<driver::RowsColumnTypeLength*>(rowsi_.get())) {
-            std::tie(ci->length_, ci->has_length_) = p->ColumnTypeLength(idx);
+            std::tie(ci->length_, ci->hasLength_) = p->ColumnTypeLength(idx);
         }
         if (auto* p = dynamic_cast<driver::RowsColumnTypeNullable*>(rowsi_.get())) {
-            std::tie(ci->nullable_, ci->has_nullable_) = p->ColumnTypeNullable(idx);
+            std::tie(ci->nullable_, ci->hasNullable_) = p->ColumnTypeNullable(idx);
         }
         if (auto* p = dynamic_cast<driver::RowsColumnTypePrecisionScale*>(rowsi_.get())) {
-            std::tie(ci->precision_, ci->scale_, ci->has_precision_scale_) = p->ColumnTypePrecisionScale(idx);
+            std::tie(ci->precision_, ci->scale_, ci->hasPrecisionScale_) = p->ColumnTypePrecisionScale(idx);
         }
         list.push_back(ci);
     }
@@ -1702,7 +1702,7 @@ std::pair<std::vector<ptr<ColumnType>>, error> Rows::ColumnTypes() {
 }
 
 error Rows::scan(std::span<detail::dest> dest) {
-    if (closemu_scan_hold_) {
+    if (closemuScanHold_) {
         // This should only be possible if the user calls Scan twice in a
         // row without calling Next.
         return errors::New("sql: Scan called without calling Next (closemuScanHold)");
@@ -1710,11 +1710,11 @@ error Rows::scan(std::span<detail::dest> dest) {
     closemu_.RLock();
     raw_ = raw_.Sub(0, 0);
     error err = scanLocked(dest);
-    bool has_raw = std::any_of(dest.begin(), dest.end(), [](const detail::dest& d) { return d.raw_bytes; });
-    if (!err && has_raw) {
+    bool hasRaw = std::any_of(dest.begin(), dest.end(), [](const detail::dest& d) { return d.rawBytes; });
+    if (!err && hasRaw) {
         // RawBytes point into memory the driver owns until the next call;
         // keep the rows from closing until then.
-        closemu_scan_hold_ = true;
+        closemuScanHold_ = true;
     } else {
         closemu_.RUnlock();
     }
@@ -1723,10 +1723,10 @@ error Rows::scan(std::span<detail::dest> dest) {
 
 error Rows::scanLocked(std::span<detail::dest> dest) {
     if (lasterr_ && lasterr_ != io::EOF_) return lasterr_;
-    if (closed_) return lasterrOrErrLocked(err_rows_closed);
-    if (!next_called_) return errors::New("sql: Scan called without calling Next");
-    if (dest.size() != num_cols_) {
-        return errors::New("sql: expected " + strconv::Itoa(static_cast<int64>(num_cols_)) + " destination arguments in Scan, not " +
+    if (closed_) return lasterrOrErrLocked(errRowsClosed);
+    if (!nextCalled_) return errors::New("sql: Scan called without calling Next");
+    if (dest.size() != numCols_) {
+        return errors::New("sql: expected " + strconv::Itoa(static_cast<int64>(numCols_)) + " destination arguments in Scan, not " +
                            strconv::Itoa(static_cast<int64>(dest.size())));
     }
     for (std::size_t i = 0; i < lastcols_.size(); i++) {
@@ -1741,8 +1741,8 @@ error Rows::scanLocked(std::span<detail::dest> dest) {
 }
 
 void Rows::closemuRunlockIfHeldByScan() {
-    if (closemu_scan_hold_) {
-        closemu_scan_hold_ = false;
+    if (closemuScanHold_) {
+        closemuScanHold_ = false;
         closemu_.RUnlock();
     }
 }
@@ -1761,10 +1761,10 @@ error Rows::close(error err) {
     closed_ = true;
     if (!lasterr_) lasterr_ = err;
     withLock(*dc_, [&] { err = rowsi_->Close(); });
-    if (detail::rows_close_hook) detail::rows_close_hook(*this, err);
+    if (detail::rowsCloseHook) detail::rowsCloseHook(*this, err);
     if (cancel_) cancel_();
-    if (close_stmt_) close_stmt_->Close();
-    release_conn_(err);
+    if (closeStmt_) closeStmt_->Close();
+    releaseConn_(err);
     lasterr_ = lasterrOrErrLocked(err);
     return err;
 }
@@ -1779,7 +1779,7 @@ error Row::scan(std::span<detail::dest> dest) {
         ~closer() { r->Close(); }
     } c{rows_};
     for (auto& d : dest) {
-        if (d.raw_bytes) return errors::New("sql: RawBytes isn't allowed on Row.Scan");
+        if (d.rawBytes) return errors::New("sql: RawBytes isn't allowed on Row.Scan");
     }
     if (!rows_->Next()) {
         if (error err = rows_->Err()) return err;

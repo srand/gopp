@@ -109,10 +109,10 @@ error execPragma(::sqlite3* db, const std::string& s) {
 
 }  // namespace
 
-std::pair<ptr<sql::driver::Conn>, error> SQLiteDriver::Open(std::string_view dsn_view) {
+std::pair<ptr<sql::driver::Conn>, error> SQLiteDriver::Open(std::string_view dsnView) {
     if (sqlite3_threadsafe() == 0) return {nullptr, errorf("sqlite library was not compiled for thread-safe operation")};
 
-    std::string dsn(dsn_view);
+    std::string dsn(dsnView);
     const time::Location* loc = nullptr;
     int mutex = SQLITE_OPEN_FULLMUTEX;
     std::string txlock = "BEGIN";
@@ -402,7 +402,7 @@ namespace {
 
 const error errConnClosed = errors::New("sqlite connection is already closed");
 
-std::string trim_space(std::string_view s) {
+std::string trimSpace(std::string_view s) {
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.remove_prefix(1);
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.remove_suffix(1);
     return std::string(s);
@@ -423,7 +423,7 @@ std::pair<ptr<stmt>, error> conn::prepare(std::string_view q) {
         [&] { return sqlite3_prepare_v2(db_, query.c_str(), static_cast<int>(query.size()), &s, &tail); });
     if (rv != SQLITE_OK) return {nullptr, lastError(db_)};
     std::string t;
-    if (tail && *tail != '\0') t = trim_space(std::string_view(tail, query.c_str() + query.size() - tail));
+    if (tail && *tail != '\0') t = trimSpace(std::string_view(tail, query.c_str() + query.size() - tail));
     return {make_ptr<stmt>(ptr<conn>(this), s, std::move(t)), nullptr};
 }
 
@@ -498,22 +498,22 @@ std::pair<ptr<driver::Rows>, error> conn::query(const ptr<context::Context>& ctx
 
 uint64_t conn::newOpId() noexcept {
     std::lock_guard l(mu_);
-    return next_op_++;
+    return nextOp_++;
 }
 
 void conn::beginOp(uint64_t id) noexcept {
     std::lock_guard l(mu_);
-    active_op_ = id;
+    activeOp_ = id;
 }
 
 void conn::endOp() noexcept {
     std::lock_guard l(mu_);
-    active_op_ = 0;
+    activeOp_ = 0;
 }
 
 void conn::interrupt(uint64_t id) noexcept {
     std::lock_guard l(mu_);
-    if (active_op_ == id && db_) sqlite3_interrupt(db_);
+    if (activeOp_ == id && db_) sqlite3_interrupt(db_);
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +522,7 @@ void conn::interrupt(uint64_t id) noexcept {
 canceler::canceler(ptr<conn> c, ptr<context::Context> ctx) : c_(std::move(c)), ctx_(std::move(ctx)) {
     if (!ctx_ || !ctx_->Done()) return;
     id_ = c_->newOpId();
-    done_ = makeChan<bool>();
+    done_ = make_chan<bool>();
     go([c = c_, ctx = ctx_, done = done_, id = id_] {
         select(recv(ctx->Done(), [&] { c->interrupt(id); }), recv(done, [] {}));
     });

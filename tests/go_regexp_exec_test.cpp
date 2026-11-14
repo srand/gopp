@@ -1,4 +1,4 @@
-// Ported from Go 1.27.3's regexp/exec_test.go, with Go's test names:
+// Ported from Go 1.27.3's regexp/execTest.go, with Go's test names:
 // TestRE2Search runs RE2's search tests (testdata/re2-search.txt) in the
 // four modes (full and partial, first and longest match), TestFowler the
 // AT&T POSIX tests (testdata/*.dat), embedded in go_regexp_testdata.hpp.

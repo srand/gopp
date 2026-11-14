@@ -32,10 +32,10 @@ namespace {
 Addr mustIP(std::string_view s) { return MustParseAddr(s); }
 AddrPort mustIPPort(std::string_view s) { return MustParseAddrPort(s); }
 Prefix mustPrefix(std::string_view s) { return MustParsePrefix(s); }
-Addr MkAddr(uint128 u, const netip::detail::addr_detail* z) { return Addr(u, z); }
+Addr MkAddr(uint128 u, const netip::detail::addrDetail* z) { return Addr(u, z); }
 uint128 Mk128(uint64 hi, uint64 lo) { return {hi, lo}; }
-const netip::detail::addr_detail* const Z4 = z4;
-const netip::detail::addr_detail* const Z6noz = z6noz;
+const netip::detail::addrDetail* const Z4 = z4;
+const netip::detail::addrDetail* const Z6noz = z6noz;
 
 std::vector<Addr> mustIPs(std::initializer_list<std::string_view> strs) {
     std::vector<Addr> res;

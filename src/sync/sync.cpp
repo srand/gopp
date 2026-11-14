@@ -7,7 +7,7 @@ namespace gopp::sync {
 
 namespace {
 
-constexpr int64_t starvation_threshold_ns = 1000000;
+constexpr int64_t starvationThresholdNs = 1000000;
 
 bool canSpin(int iter) noexcept { return iter < 4 && runtime::NumCPU() > 1; }
 
@@ -18,15 +18,15 @@ void doSpin() noexcept {
 }  // namespace
 
 void Mutex::lockSlow() noexcept {
-    int64_t wait_start = 0;
-    bool is_starving = false;
+    int64_t waitStart = 0;
+    bool isStarving = false;
     bool awoke = false;
     int iter = 0;
     int32_t old = state_.load(std::memory_order_relaxed);
     for (;;) {
         // Spin while the mutex is locked in normal mode.
         if ((old & (locked | starving)) == locked && canSpin(iter)) {
-            if (!awoke && (old & woken) == 0 && (old >> waiter_shift) != 0 &&
+            if (!awoke && (old & woken) == 0 && (old >> waiterShift) != 0 &&
                 state_.compare_exchange_strong(old, old | woken)) {
                 awoke = true;
             }
@@ -37,25 +37,25 @@ void Mutex::lockSlow() noexcept {
         }
         int32_t nw = old;
         if ((old & starving) == 0) nw |= locked;  // don't take a starving mutex: queue
-        if ((old & (locked | starving)) != 0) nw += 1 << waiter_shift;
-        if (is_starving && (old & locked) != 0) nw |= starving;
+        if ((old & (locked | starving)) != 0) nw += 1 << waiterShift;
+        if (isStarving && (old & locked) != 0) nw |= starving;
         if (awoke) {
             if ((nw & woken) == 0) runtime::fatal("sync: inconsistent mutex state");
             nw &= ~woken;
         }
         if (state_.compare_exchange_strong(old, nw, std::memory_order_acquire)) {
             if ((old & (locked | starving)) == 0) break;  // locked with CAS
-            bool lifo = wait_start != 0;
-            if (wait_start == 0) wait_start = runtime::nanotime();
-            runtime::semacquire(&sema_, lifo, runtime::waitreason::sync_mutex_lock);
-            is_starving = is_starving || runtime::nanotime() - wait_start > starvation_threshold_ns;
+            bool lifo = waitStart != 0;
+            if (waitStart == 0) waitStart = runtime::nanotime();
+            runtime::semacquire(&sema_, lifo, runtime::waitreason::syncMutexLock);
+            isStarving = isStarving || runtime::nanotime() - waitStart > starvationThresholdNs;
             old = state_.load(std::memory_order_relaxed);
             if ((old & starving) != 0) {
                 // Handed off in starvation mode.
-                if ((old & (locked | woken)) != 0 || (old >> waiter_shift) == 0)
+                if ((old & (locked | woken)) != 0 || (old >> waiterShift) == 0)
                     runtime::fatal("sync: inconsistent mutex state");
-                int32_t delta = locked - (1 << waiter_shift);
-                if (!is_starving || (old >> waiter_shift) == 1) delta -= starving;
+                int32_t delta = locked - (1 << waiterShift);
+                if (!isStarving || (old >> waiterShift) == 1) delta -= starving;
                 state_.fetch_add(delta, std::memory_order_acquire);
                 break;
             }
@@ -70,8 +70,8 @@ void Mutex::unlockSlow(int32_t nw) noexcept {
     if ((nw & starving) == 0) {
         int32_t old = nw;
         for (;;) {
-            if ((old >> waiter_shift) == 0 || (old & (locked | woken | starving)) != 0) return;
-            nw = (old - (1 << waiter_shift)) | woken;
+            if ((old >> waiterShift) == 0 || (old & (locked | woken | starving)) != 0) return;
+            nw = (old - (1 << waiterShift)) | woken;
             if (state_.compare_exchange_strong(old, nw)) {
                 runtime::semrelease(&sema_, false);
                 return;
@@ -83,27 +83,27 @@ void Mutex::unlockSlow(int32_t nw) noexcept {
 }
 
 void RWMutex::lock_shared() noexcept {
-    if (reader_count_.fetch_add(1, std::memory_order_acquire) + 1 < 0) runtime::semacquire(&reader_sem_, false, runtime::waitreason::sync_rwmutex_rlock);
+    if (readerCount_.fetch_add(1, std::memory_order_acquire) + 1 < 0) runtime::semacquire(&readerSem_, false, runtime::waitreason::syncRwmutexRlock);
 }
 
 void RWMutex::unlock_shared() noexcept {
-    int32_t r = reader_count_.fetch_sub(1, std::memory_order_release) - 1;
+    int32_t r = readerCount_.fetch_sub(1, std::memory_order_release) - 1;
     if (r < 0) {
-        if (r + 1 == 0 || r + 1 == -max_readers) runtime::fatal("sync: RUnlock of unlocked RWMutex");
-        if (reader_wait_.fetch_sub(1) - 1 == 0) runtime::semrelease(&writer_sem_);
+        if (r + 1 == 0 || r + 1 == -maxReaders) runtime::fatal("sync: RUnlock of unlocked RWMutex");
+        if (readerWait_.fetch_sub(1) - 1 == 0) runtime::semrelease(&writerSem_);
     }
 }
 
 void RWMutex::lock() noexcept {
     w_.lock();
-    int32_t r = reader_count_.fetch_add(-max_readers, std::memory_order_acquire);
-    if (r != 0 && reader_wait_.fetch_add(r) + r != 0) runtime::semacquire(&writer_sem_, false, runtime::waitreason::sync_rwmutex_lock);
+    int32_t r = readerCount_.fetch_add(-maxReaders, std::memory_order_acquire);
+    if (r != 0 && readerWait_.fetch_add(r) + r != 0) runtime::semacquire(&writerSem_, false, runtime::waitreason::syncRwmutexLock);
 }
 
 void RWMutex::unlock() noexcept {
-    int32_t r = reader_count_.fetch_add(max_readers, std::memory_order_release) + max_readers;
-    if (r >= max_readers) runtime::fatal("sync: Unlock of unlocked RWMutex");
-    for (int32_t i = 0; i < r; i++) runtime::semrelease(&reader_sem_);
+    int32_t r = readerCount_.fetch_add(maxReaders, std::memory_order_release) + maxReaders;
+    if (r >= maxReaders) runtime::fatal("sync: Unlock of unlocked RWMutex");
+    for (int32_t i = 0; i < r; i++) runtime::semrelease(&readerSem_);
     w_.unlock();
 }
 
@@ -127,7 +127,7 @@ void WaitGroup::Wait() noexcept {
         int32_t v = static_cast<int32_t>(st >> 32);
         if (v == 0) return;
         if (state_.compare_exchange_weak(st, st + 1, std::memory_order_acq_rel)) {
-            runtime::semacquire(&sema_, false, runtime::waitreason::sync_waitgroup_wait);
+            runtime::semacquire(&sema_, false, runtime::waitreason::syncWaitgroupWait);
             if (state_.load() != 0) panic("sync: WaitGroup is reused before previous Wait has returned");
             return;
         }
@@ -146,7 +146,7 @@ void Cond::Wait() noexcept {
     tail_ = &w;
     m_.unlock();
     L->unlock();
-    runtime::semacquire(&w.sema, false, runtime::waitreason::sync_cond_wait);
+    runtime::semacquire(&w.sema, false, runtime::waitreason::syncCondWait);
     L->lock();
 }
 

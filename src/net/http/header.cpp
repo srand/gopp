@@ -54,17 +54,17 @@ bool hasToken(std::string_view v, std::string_view token) noexcept {
 
 void appendDate(std::string& out) {
     // The formatted date is cached per thread and second.
-    thread_local time_t cached_sec = 0;
+    thread_local time_t cachedSec = 0;
     thread_local char cached[32];
-    thread_local std::size_t cached_len = 0;
+    thread_local std::size_t cachedLen = 0;
     time_t now = ::time(nullptr);
-    if (now != cached_sec) {
+    if (now != cachedSec) {
         string s = time::Time::Unix(now, 0).FormatHTTP();
-        cached_len = std::min(s.size(), sizeof(cached));
-        std::memcpy(cached, s.data(), cached_len);
-        cached_sec = now;
+        cachedLen = std::min(s.size(), sizeof(cached));
+        std::memcpy(cached, s.data(), cachedLen);
+        cachedSec = now;
     }
-    out.append(cached, cached_len);
+    out.append(cached, cachedLen);
 }
 
 }  // namespace internal
@@ -259,7 +259,7 @@ const gopp::error ErrHandlerTimeout = errors::New("http: Handler timeout");
 const gopp::error ErrAbortHandler = errors::New("net/http: abort Handler");
 
 namespace internal {
-const gopp::error err_header_too_large = errors::New("http: request header too large");
+const gopp::error errHeaderTooLarge = errors::New("http: request header too large");
 }
 
 // ---------------------------------------------------------------------------
@@ -267,26 +267,26 @@ const gopp::error err_header_too_large = errors::New("http: request header too l
 
 namespace {
 
-constexpr std::string_view short_day_names[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-constexpr std::string_view long_day_names[] = {"Sunday",   "Monday", "Tuesday", "Wednesday",
+constexpr std::string_view shortDayNames[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+constexpr std::string_view longDayNames[] = {"Sunday",   "Monday", "Tuesday", "Wednesday",
                                                "Thursday", "Friday", "Saturday"};
-constexpr std::string_view short_month_names[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+constexpr std::string_view shortMonthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
 // The elements of a layout: literal text, or a value.
-enum class elem { lit, weekday, long_weekday, zero_day, under_day, month, year, short_year, hour, zero_minute,
-                  zero_second, zone };
+enum class elem { lit, weekday, longWeekday, zeroDay, underDay, month, year, shortYear, hour, zeroMinute,
+                  zeroSecond, zone };
 
-struct layout_elem {
+struct layoutElem {
     elem kind;
     std::string_view text = {};  // for lit
 };
 
-struct date_parser {
+struct dateParser {
     std::string_view value;
     int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0;
     int64 nsec = 0;
-    int zone_offset = 0;  // seconds east of UTC
+    int zoneOffset = 0;  // seconds east of UTC
 
     static std::string_view cutspace(std::string_view s) {
         while (!s.empty() && s[0] == ' ') s.remove_prefix(1);
@@ -359,7 +359,7 @@ struct date_parser {
         if (value.starts_with("GMT")) {
             int hours = 0;
             std::size_t n = signedOffset(value.substr(3), hours);
-            zone_offset = hours * 3600;
+            zoneOffset = hours * 3600;
             value.remove_prefix(3 + n);
             return true;
         }
@@ -367,7 +367,7 @@ struct date_parser {
             int hours = 0;
             std::size_t n = signedOffset(value, hours);
             if (n == 0) return false;
-            zone_offset = hours * 3600;
+            zoneOffset = hours * 3600;
             value.remove_prefix(n);
             return true;
         }
@@ -385,26 +385,26 @@ struct date_parser {
         return true;
     }
 
-    bool parse(std::span<const layout_elem> layout) {
-        for (const layout_elem& e : layout) {
+    bool parse(std::span<const layoutElem> layout) {
+        for (const layoutElem& e : layout) {
             switch (e.kind) {
             case elem::lit:
                 if (!skip(e.text)) return false;
                 break;
             case elem::weekday:
                 // The day of the week is checked for syntax, not used.
-                if (lookup(short_day_names) < 0) return false;
+                if (lookup(shortDayNames) < 0) return false;
                 break;
-            case elem::long_weekday:
-                if (lookup(long_day_names) < 0) return false;
+            case elem::longWeekday:
+                if (lookup(longDayNames) < 0) return false;
                 break;
-            case elem::zero_day:
-            case elem::under_day:
-                if (e.kind == elem::under_day && !value.empty() && value[0] == ' ') value.remove_prefix(1);
-                if (!getnum(day, e.kind == elem::zero_day)) return false;
+            case elem::zeroDay:
+            case elem::underDay:
+                if (e.kind == elem::underDay && !value.empty() && value[0] == ' ') value.remove_prefix(1);
+                if (!getnum(day, e.kind == elem::zeroDay)) return false;
                 break;
             case elem::month: {
-                int m = lookup(short_month_names);
+                int m = lookup(shortMonthNames);
                 if (m < 0) return false;
                 month = m + 1;
                 break;
@@ -417,7 +417,7 @@ struct date_parser {
                 year = (value[0] - '0') * 1000 + (value[1] - '0') * 100 + (value[2] - '0') * 10 + (value[3] - '0');
                 value.remove_prefix(4);
                 break;
-            case elem::short_year:
+            case elem::shortYear:
                 if (!isdigit(value, 0) || !isdigit(value, 1)) return false;
                 year = (value[0] - '0') * 10 + (value[1] - '0');
                 year += year >= 69 ? 1900 : 2000;
@@ -426,10 +426,10 @@ struct date_parser {
             case elem::hour:
                 if (!getnum(hour, false) || hour > 23) return false;
                 break;
-            case elem::zero_minute:
+            case elem::zeroMinute:
                 if (!getnum(min, true) || min > 59) return false;
                 break;
-            case elem::zero_second:
+            case elem::zeroSecond:
                 if (!getnum(sec, true) || sec > 59) return false;
                 // A fractional second the layout doesn't have is accepted.
                 if (value.size() >= 2 && (value[0] == '.' || value[0] == ',') && isdigit(value, 1)) {
@@ -452,9 +452,9 @@ struct date_parser {
         }
         if (!value.empty()) return false;  // extra text
         // Validate the day of the month.
-        static constexpr int days_before[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        static constexpr int daysBefore[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
         bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-        int dim = days_before[month - 1] + (month == 2 && leap ? 1 : 0);
+        int dim = daysBefore[month - 1] + (month == 2 && leap ? 1 : 0);
         return day >= 1 && day <= dim;
     }
 
@@ -469,25 +469,25 @@ struct date_parser {
     }
 
     time::Time result() const {
-        int64 secs = daysFromCivil(year, month, day) * 86400 + hour * 3600 + min * 60 + sec - zone_offset;
+        int64 secs = daysFromCivil(year, month, day) * 86400 + hour * 3600 + min * 60 + sec - zoneOffset;
         return time::Time::Unix(secs, nsec);
     }
 };
 
 // TimeFormat, time.RFC850 and time.ANSIC.
-constexpr layout_elem time_format_layout[] = {
-    {elem::weekday}, {elem::lit, ", "}, {elem::zero_day}, {elem::lit, " "}, {elem::month}, {elem::lit, " "},
-    {elem::year}, {elem::lit, " "}, {elem::hour}, {elem::lit, ":"}, {elem::zero_minute}, {elem::lit, ":"},
-    {elem::zero_second}, {elem::lit, " GMT"},
+constexpr layoutElem timeFormatLayout[] = {
+    {elem::weekday}, {elem::lit, ", "}, {elem::zeroDay}, {elem::lit, " "}, {elem::month}, {elem::lit, " "},
+    {elem::year}, {elem::lit, " "}, {elem::hour}, {elem::lit, ":"}, {elem::zeroMinute}, {elem::lit, ":"},
+    {elem::zeroSecond}, {elem::lit, " GMT"},
 };
-constexpr layout_elem rfc850_layout[] = {
-    {elem::long_weekday}, {elem::lit, ", "}, {elem::zero_day}, {elem::lit, "-"}, {elem::month}, {elem::lit, "-"},
-    {elem::short_year}, {elem::lit, " "}, {elem::hour}, {elem::lit, ":"}, {elem::zero_minute}, {elem::lit, ":"},
-    {elem::zero_second}, {elem::lit, " "}, {elem::zone},
+constexpr layoutElem rfc850Layout[] = {
+    {elem::longWeekday}, {elem::lit, ", "}, {elem::zeroDay}, {elem::lit, "-"}, {elem::month}, {elem::lit, "-"},
+    {elem::shortYear}, {elem::lit, " "}, {elem::hour}, {elem::lit, ":"}, {elem::zeroMinute}, {elem::lit, ":"},
+    {elem::zeroSecond}, {elem::lit, " "}, {elem::zone},
 };
-constexpr layout_elem ansic_layout[] = {
-    {elem::weekday}, {elem::lit, " "}, {elem::month}, {elem::lit, " "}, {elem::under_day}, {elem::lit, " "},
-    {elem::hour}, {elem::lit, ":"}, {elem::zero_minute}, {elem::lit, ":"}, {elem::zero_second}, {elem::lit, " "},
+constexpr layoutElem ansicLayout[] = {
+    {elem::weekday}, {elem::lit, " "}, {elem::month}, {elem::lit, " "}, {elem::underDay}, {elem::lit, " "},
+    {elem::hour}, {elem::lit, ":"}, {elem::zeroMinute}, {elem::lit, ":"}, {elem::zeroSecond}, {elem::lit, " "},
     {elem::year},
 };
 
@@ -495,15 +495,15 @@ constexpr layout_elem ansic_layout[] = {
 
 std::pair<time::Time, gopp::error> ParseTime(std::string_view text) {
     struct {
-        std::span<const layout_elem> elems;
+        std::span<const layoutElem> elems;
         std::string_view name;
     } layouts[] = {
-        {time_format_layout, TimeFormat},
-        {rfc850_layout, "Monday, 02-Jan-06 15:04:05 MST"},
-        {ansic_layout, "Mon Jan _2 15:04:05 2006"},
+        {timeFormatLayout, TimeFormat},
+        {rfc850Layout, "Monday, 02-Jan-06 15:04:05 MST"},
+        {ansicLayout, "Mon Jan _2 15:04:05 2006"},
     };
     for (const auto& l : layouts) {
-        date_parser p{.value = text};
+        dateParser p{.value = text};
         if (p.parse(l.elems)) return {p.result(), nullptr};
     }
     return {{}, fmt::Errorf("parsing time {} as {}: cannot parse", strconv::Quote(text),

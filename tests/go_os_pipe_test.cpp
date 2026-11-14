@@ -78,7 +78,7 @@ TEST(GoOs, EPIPE) {
 TEST(GoOs, StdPipe) {
     if (const char* helper = std::getenv("GO_TEST_STD_PIPE_HELPER")) {
         if (std::getenv("GO_TEST_STD_PIPE_HELPER_SIGNAL")) {
-            auto c = makeChan<os::Signal>(1);
+            auto c = make_chan<os::Signal>(1);
             os::signal::Notify(c, syscall::SIGPIPE_);
         }
         switch (std::atoi(helper)) {
@@ -125,7 +125,7 @@ TEST(GoOs, StdPipe) {
     ASSERT_FALSE(eerr) << eerr;
     int ws = runChild(testFullName(), {"GO_TEST_STD_PIPE_HELPER=1"}, -1, wfd, static_cast<int>(ew->Fd()), -1);
     ew->Close();
-    std::string output = read_all(*er);
+    std::string output = readAll(*er);
     er->Close();
     EXPECT_TRUE(WIFSIGNALED(ws) && WTERMSIG(ws) == SIGPIPE) << "unexpected exit status " << ws << " for write to closed stdout";
     // The child's test framework writes to stdout, which is the closed
@@ -216,11 +216,11 @@ namespace {
 
 // Test that we don't let a blocking read prevent a close.
 void testCloseWithBlockingRead(const ptr<File>& r, const ptr<File>& w) {
-    auto entering_read = makeChan<empty>();
-    auto done = makeChan<empty>();
+    auto enteringRead = make_chan<empty>();
+    auto done = make_chan<empty>();
     go([&] {
         byte buf[1];
-        entering_read.close();
+        enteringRead.close();
         auto [_, err] = r->Read(buf);
         EXPECT_TRUE(err) << "I/O on closed pipe unexpectedly succeeded";
         if (auto* pe = dynamic_cast<const fs::PathError*>(err.get())) err = pe->Err;
@@ -231,7 +231,7 @@ void testCloseWithBlockingRead(const ptr<File>& r, const ptr<File>& w) {
     // Give the goroutine a chance to enter the Read or Write call. This is
     // sloppy but the test will pass even if we close before the
     // read/write.
-    entering_read.recv();
+    enteringRead.recv();
     time::Sleep(20 * time::Millisecond);
 
     EXPECT_FALSE(r->Close());
@@ -264,24 +264,24 @@ TEST(GoOs, CloseWithBlockingReadByFd) {
 TEST(GoOs, PipeEOF) {
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err) << err;
-    time::Duration park_delay = 10 * time::Millisecond;
-    auto writer_done = makeChan<empty>();
-    auto write = makeChan<int>(1);
+    time::Duration parkDelay = 10 * time::Millisecond;
+    auto writerDone = make_chan<empty>();
+    auto write = make_chan<int>(1);
     go([&] {
         for (;;) {
             auto [i, ok] = write.recv2();
             if (!ok) break;
-            time::Sleep(park_delay);
+            time::Sleep(parkDelay);
             auto [_, werr] = fmt::Print(*w, "line {}\n", i);
             if (werr) {
                 ADD_FAILURE() << "error writing to fifo: " << werr;
-                writer_done.close();
+                writerDone.close();
                 return;
             }
         }
-        time::Sleep(park_delay);
+        time::Sleep(parkDelay);
         EXPECT_FALSE(w->Close()) << "error closing writer";
-        writer_done.close();
+        writerDone.close();
     });
 
     bufio::Reader rbuf(r);
@@ -295,7 +295,7 @@ TEST(GoOs, PipeEOF) {
     auto [line, rerr] = rbuf.ReadString('\n');
     EXPECT_TRUE(rerr == io::EOF_ && line.empty()) << "ReadBytes: " << line << ", " << rerr << "; want \"\", io.EOF";
     EXPECT_FALSE(r->Close()) << "error closing reader";
-    writer_done.recv();
+    writerDone.recv();
 }
 
 // Issue 24481.
@@ -320,7 +320,7 @@ TEST(GoOs, FdReadRace) {
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err) << err;
     constexpr int count = 10;
-    auto c = makeChan<bool>(1);
+    auto c = make_chan<bool>(1);
     sync::WaitGroup wg;
     wg.Add(1);
     go([&] {
@@ -366,15 +366,15 @@ void newFileTest(bool blocking) {
     ptr<File> file = os::NewFile(static_cast<uintptr>(p[0]), "notapipe");
     ASSERT_TRUE(file) << "failed to convert fd to file!";
 
-    time::Duration time_to_write = 100 * time::Millisecond;
-    time::Duration time_to_deadline = time::Millisecond;
-    if (!blocking) time_to_write = time::Second;
+    time::Duration timeToWrite = 100 * time::Millisecond;
+    time::Duration timeToDeadline = time::Millisecond;
+    if (!blocking) timeToWrite = time::Second;
     int wfd = p[1];
-    auto timer = time::AfterFunc(time_to_write, [wfd] { (void)::write(wfd, "a", 1); });
+    auto timer = time::AfterFunc(timeToWrite, [wfd] { (void)::write(wfd, "a", 1); });
 
     // Try to read with deadline (but don't block forever).
     byte buf[1];
-    file->SetReadDeadline(time::Now().Add(time_to_deadline));
+    file->SetReadDeadline(time::Now().Add(timeToDeadline));
     auto [_, err] = file->Read(buf);
     if (!blocking) {
         // We want it to fail with a timeout.
@@ -395,6 +395,6 @@ TEST(GoOs, NewFileBlock) { newFileTest(true); }
 TEST(GoOs, NewFileNonBlock) { newFileTest(false); }
 
 TEST(GoOs, NewFileInvalid) {
-    const uintptr neg_one = ~uintptr(0);
-    EXPECT_FALSE(os::NewFile(neg_one, "invalid")) << "NewFile(-1) got a File, want nil";
+    const uintptr negOne = ~uintptr(0);
+    EXPECT_FALSE(os::NewFile(negOne, "invalid")) << "NewFile(-1) got a File, want nil";
 }

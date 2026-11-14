@@ -28,7 +28,7 @@ string FormatUint(uint64 i, int base) {
     return string(buf, static_cast<std::size_t>(r.ptr - buf));
 }
 
-std::pair<int64, error> ParseInt(std::string_view s, int base, int bit_size) {
+std::pair<int64, error> ParseInt(std::string_view s, int base, int bitSize) {
     if (s.empty()) return {0, make_ptr<NumError>("ParseInt", string(s), ErrSyntax)};
     std::string_view t = s;
     if (t[0] == '+') t.remove_prefix(1);  // from_chars rejects '+'
@@ -46,21 +46,21 @@ std::pair<int64, error> ParseInt(std::string_view s, int base, int bit_size) {
     auto r = std::from_chars(t.data(), t.data() + t.size(), v, base);
     if (r.ec == std::errc::result_out_of_range) return {v < 0 ? INT64_MIN : INT64_MAX, make_ptr<NumError>("ParseInt", string(s), ErrRange)};
     if (r.ec != std::errc() || r.ptr != t.data() + t.size()) return {0, make_ptr<NumError>("ParseInt", string(s), ErrSyntax)};
-    if (bit_size < 64) {
-        int64 lim = int64(1) << (bit_size - 1);
+    if (bitSize < 64) {
+        int64 lim = int64(1) << (bitSize - 1);
         if (v >= lim) return {lim - 1, make_ptr<NumError>("ParseInt", string(s), ErrRange)};
         if (v < -lim) return {-lim, make_ptr<NumError>("ParseInt", string(s), ErrRange)};
     }
     return {v, nullptr};
 }
 
-std::pair<uint64, error> ParseUint(std::string_view s, int base, int bit_size) {
+std::pair<uint64, error> ParseUint(std::string_view s, int base, int bitSize) {
     if (s.empty() || s[0] == '-' || s[0] == '+') return {0, make_ptr<NumError>("ParseUint", string(s), ErrSyntax)};
     uint64 v = 0;
     auto r = std::from_chars(s.data(), s.data() + s.size(), v, base == 0 ? 10 : base);
     if (r.ec == std::errc::result_out_of_range) return {UINT64_MAX, make_ptr<NumError>("ParseUint", string(s), ErrRange)};
     if (r.ec != std::errc() || r.ptr != s.data() + s.size()) return {0, make_ptr<NumError>("ParseUint", string(s), ErrSyntax)};
-    if (bit_size < 64 && v >= (uint64(1) << bit_size)) return {(uint64(1) << bit_size) - 1, make_ptr<NumError>("ParseUint", string(s), ErrRange)};
+    if (bitSize < 64 && v >= (uint64(1) << bitSize)) return {(uint64(1) << bitSize) - 1, make_ptr<NumError>("ParseUint", string(s), ErrRange)};
     return {v, nullptr};
 }
 
@@ -120,8 +120,8 @@ void writeStdout(std::string_view s) {
 namespace {
 
 // Go's fmt.wrapError and wrapErrors.
-struct wrap_error final : errorInterface {
-    wrap_error(string m, std::vector<gopp::error> e) : msg(std::move(m)), errs(std::move(e)) {}
+struct wrapError final : errorInterface {
+    wrapError(string m, std::vector<gopp::error> e) : msg(std::move(m)), errs(std::move(e)) {}
     string Error() const override { return msg; }
     const errorInterface* Unwrap() const noexcept override { return errs.size() == 1 ? errs[0].get() : nullptr; }
     std::span<const gopp::error> UnwrapList() const noexcept override {
@@ -134,10 +134,10 @@ struct wrap_error final : errorInterface {
 
 }  // namespace
 
-error wrap_errors(string msg, std::vector<gopp::error> wrapped) {
+error wrapErrors(string msg, std::vector<gopp::error> wrapped) {
     // Go: a nil %w operand isn't wrapped.
     std::erase_if(wrapped, [](const gopp::error& e) { return !e; });
-    return make_ptr<wrap_error>(std::move(msg), std::move(wrapped));
+    return make_ptr<wrapError>(std::move(msg), std::move(wrapped));
 }
 
 }  // namespace gopp::fmt::detail

@@ -22,7 +22,7 @@ namespace {
 
 using ints = slice<isize>;
 using floats = slice<double>;
-using strs_t = slice<string>;
+using strsT = slice<string>;
 
 const double nan_ = std::numeric_limits<double>::quiet_NaN();
 const double inf = std::numeric_limits<double>::infinity();
@@ -30,7 +30,7 @@ const double inf = std::numeric_limits<double>::infinity();
 ints emptyInts() { return ints::make(0); }
 
 std::mt19937_64 rng(2);
-isize rand_intn(isize n) { return std::uniform_int_distribution<isize>(0, n - 1)(rng); }
+isize randIntn(isize n) { return std::uniform_int_distribution<isize>(0, n - 1)(rng); }
 
 template <typename T>
 bool equal(const T& v1, const T& v2) {
@@ -94,8 +94,8 @@ TEST(GoSlices, EqualFunc) {
     EXPECT_FALSE(slices::EqualFunc(s1, s1, offByOne));
     EXPECT_TRUE(slices::EqualFunc(s1, s2, offByOne));
 
-    strs_t s3{"a", "b", "c"};
-    strs_t s4{"A", "B", "C"};
+    strsT s3{"a", "b", "c"};
+    strsT s4{"A", "B", "C"};
     EXPECT_TRUE(slices::EqualFunc(s3, s4, [](const string& a, const string& b) { return strings::EqualFold(a, b); }));
 
     auto cmpIntString = [](isize v1, const string& v2) { return cmpIntStringStr(v1) == v2.view(); };
@@ -176,8 +176,8 @@ TEST(GoSlices, CompareFunc) {
     ints s2{2, 3, 4};
     EXPECT_EQ(slices::CompareFunc(s1, s2, equalToCmp(offByOne)), 0);
 
-    strs_t s3{"a", "b", "c"};
-    strs_t s4{"A", "B", "C"};
+    strsT s3{"a", "b", "c"};
+    strsT s4{"A", "B", "C"};
     EXPECT_EQ(slices::CompareFunc(s3, s4, cmp::Compare<string>), 1);
 
     auto compareLower = [](const string& v1, const string& v2) {
@@ -224,7 +224,7 @@ TEST(GoSlices, IndexFunc) {
     for (auto& test : indexTests()) {
         EXPECT_EQ(slices::IndexFunc(test.s, equalToIndex(equal<isize>, test.v)), test.want);
     }
-    strs_t s1{"hi", "HI"};
+    strsT s1{"hi", "HI"};
     EXPECT_EQ(slices::IndexFunc(s1, equalToIndex(equal<string>, string("HI"))), 1);
     EXPECT_EQ(slices::IndexFunc(s1, equalToIndex(equalFold, string("HI"))), 0);
 }
@@ -237,7 +237,7 @@ TEST(GoSlices, ContainsFunc) {
     for (auto& test : indexTests()) {
         EXPECT_EQ(slices::ContainsFunc(test.s, equalToIndex(equal<isize>, test.v)), test.want != -1);
     }
-    strs_t s1{"hi", "HI"};
+    strsT s1{"hi", "HI"};
     EXPECT_TRUE(slices::ContainsFunc(s1, equalToIndex(equal<string>, string("HI"))));
     EXPECT_FALSE(slices::ContainsFunc(s1, equalToIndex(equal<string>, string("hI"))));
     EXPECT_TRUE(slices::ContainsFunc(s1, equalToIndex(equalFold, string("hI"))));
@@ -432,9 +432,9 @@ TEST(GoSlices, CompactFunc) {
         auto copy = slices::Clone(test.s);
         EXPECT_TRUE(slices::Equal(slices::CompactFunc(copy, equal<isize>), test.want)) << test.name;
     }
-    strs_t s1{"a", "a", "A", "B", "b"};
+    strsT s1{"a", "a", "A", "B", "b"};
     auto copy = slices::Clone(s1);
-    EXPECT_TRUE(slices::Equal(slices::CompactFunc(copy, equalFold), strs_t{"a", "B"}));
+    EXPECT_TRUE(slices::Equal(slices::CompactFunc(copy, equalFold), strsT{"a", "B"}));
 }
 
 TEST(GoSlices, CompactClearTail) {
@@ -505,15 +505,15 @@ TEST(GoSlices, Reverse) {
     slices::Reverse(odd);
     EXPECT_TRUE(slices::Equal(odd, ints{2, 9, 5, 1, 4, 1, 3}));
 
-    strs_t words{"one", "two", "three"};
+    strsT words{"one", "two", "three"};
     slices::Reverse(words);
-    EXPECT_TRUE(slices::Equal(words, strs_t{"three", "two", "one"}));
+    EXPECT_TRUE(slices::Equal(words, strsT{"three", "two", "one"}));
 
-    strs_t singleton{"one"};
+    strsT singleton{"one"};
     slices::Reverse(singleton);
-    EXPECT_TRUE(slices::Equal(singleton, strs_t{"one"}));
+    EXPECT_TRUE(slices::Equal(singleton, strsT{"one"}));
 
-    slices::Reverse(strs_t());
+    slices::Reverse(strsT());
 }
 
 namespace {
@@ -798,7 +798,7 @@ floats sortFloat64s() {
     return {74.3, 59.0, inf, 238.2, -784.0, 2.3, -inf, 9845.768, -959.7485, 905, 7.8, 7.8,
             74.3, 59.0, inf, 238.2, -784.0, 2.3};
 }
-strs_t sortStrs() { return {"", "Hello", "foo", "bar", "foo", "f00", "%*&^*&^&", "***"}; }
+strsT sortStrs() { return {"", "Hello", "foo", "bar", "foo", "f00", "%*&^*&^&", "***"}; }
 
 struct intPair {
     isize a, b;
@@ -857,7 +857,7 @@ TEST(GoSlices, SortStringSlice) {
 
 TEST(GoSlices, SortLarge_Random) {
     auto data = ints::make(1000000);
-    for (auto& v : data) v = rand_intn(100);
+    for (auto& v : data) v = randIntn(100);
     ASSERT_FALSE(slices::IsSorted(data)) << "terrible rand.rand";
     slices::Sort(data);
     EXPECT_TRUE(slices::IsSorted(data)) << "sort didn't sort - 1M ints";
@@ -868,7 +868,7 @@ TEST(GoSlices, Stability) {
     auto data = intPairs::make(n);
 
     // random distribution
-    for (auto& p : data) p.a = rand_intn(m);
+    for (auto& p : data) p.a = randIntn(m);
     ASSERT_FALSE(slices::IsSortedFunc(data, intPairCmp)) << "terrible rand.rand";
     initB(data);
     slices::SortStableFunc(data, intPairCmp);
@@ -950,23 +950,23 @@ TEST(GoSlicesDeathTest, MinMaxPanics) {
 }
 
 TEST(GoSlices, BinarySearch) {
-    strs_t str1{"foo"};
-    strs_t str2{"ab", "ca"};
-    strs_t str3{"mo", "qo", "vo"};
-    strs_t str4{"ab", "ad", "ca", "xy"};
+    strsT str1{"foo"};
+    strsT str2{"ab", "ca"};
+    strsT str3{"mo", "qo", "vo"};
+    strsT str4{"ab", "ad", "ca", "xy"};
     // slice with repeating elements
-    strs_t strRepeats{"ba", "ca", "da", "da", "da", "ka", "ma", "ma", "ta"};
+    strsT strRepeats{"ba", "ca", "da", "da", "da", "ka", "ma", "ma", "ta"};
     // slice with all element equal
-    strs_t strSame{"xx", "xx", "xx"};
+    strsT strSame{"xx", "xx", "xx"};
 
     struct {
-        strs_t data;
+        strsT data;
         string target;
         isize wantPos;
         bool wantFound;
     } tests[] = {
-        {strs_t::make(0), "foo", 0, false},
-        {strs_t::make(0), "", 0, false},
+        {strsT::make(0), "foo", 0, false},
+        {strsT::make(0), "", 0, false},
 
         {str1, "foo", 0, true},
         {str1, "bar", 0, false},
@@ -1126,7 +1126,7 @@ namespace {
 auto testSeq() { return std::views::iota(isize(0), isize(10)) | std::views::stride(2); }
 const ints testSeqResult{0, 2, 4, 6, 8};
 
-std::vector<strs_t> iterTests() { return {{}, {"a"}, {"a", "b"}, {"b", "a"}, sortStrs()}; }
+std::vector<strsT> iterTests() { return {{}, {"a"}, {"a", "b"}, {"b", "a"}, sortStrs()}; }
 }  // namespace
 
 TEST(GoSlices, AppendSeq) {
@@ -1166,7 +1166,7 @@ TEST(GoSlices, SortedFunc) {
 TEST(GoSlices, SortedStableFunc) {
     isize n = 1000, m = 100;
     auto data = intPairs::make(n);
-    for (auto& p : data) p.a = rand_intn(m);
+    for (auto& p : data) p.a = randIntn(m);
     initB(data);
 
     auto s = slices::SortedStableFunc(slices::Values(data), intPairCmp);

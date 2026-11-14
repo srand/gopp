@@ -25,7 +25,7 @@ namespace {
 
 const error errWriteAtInAppendMode = errors::New("os: invalid use of WriteAt on file opened with O_APPEND");
 
-using detail::syscall_mode;
+using detail::syscallMode;
 
 bool setNonblock(int fd, bool nonblocking) {
     int fl = ::fcntl(fd, F_GETFL);
@@ -39,15 +39,15 @@ File& stdFile(int fd, const char* name) {
     int fl = ::fcntl(fd, F_GETFL);
     if (fl < 0) fl = 0;
     auto impl = std::make_unique<detail::fileImpl>(fd, string(name));
-    impl->stdout_or_err = fd == 1 || fd == 2;
-    impl->append_mode = fl & O_APPEND;
+    impl->stdoutOrErr = fd == 1 || fd == 2;
+    impl->appendMode = fl & O_APPEND;
     struct stat st;
     impl->pfd.setRegular(::fstat(fd, &st) == 0 && (S_ISREG(st.st_mode) || S_ISBLK(st.st_mode)));
     if (fl & O_NONBLOCK) {
         // Go makes a non-blocking descriptor pollable; the poller can't be
         // used before main, so it's registered on first use.
         impl->nonblock.store(true, std::memory_order_relaxed);
-        impl->lazy_poll.store(true, std::memory_order_relaxed);
+        impl->lazyPoll.store(true, std::memory_order_relaxed);
     }
     File* f = new File(std::move(impl));
     f->addRef();
@@ -62,37 +62,37 @@ File& Stderr = stdFile(2, "/dev/stderr");
 
 namespace detail {
 
-ptr<File> new_file(int fd, string name, file_kind kind, bool non_blocking, bool append_mode) {
+ptr<File> newFile(int fd, string name, fileKind kind, bool nonBlocking, bool appendMode) {
     auto impl = std::make_unique<fileImpl>(fd, std::move(name));
-    impl->stdout_or_err = fd == 1 || fd == 2;
-    impl->append_mode = append_mode;
-    bool pollable = kind == file_kind::open_file || kind == file_kind::pipe || non_blocking;
+    impl->stdoutOrErr = fd == 1 || fd == 2;
+    impl->appendMode = appendMode;
+    bool pollable = kind == fileKind::openFile || kind == fileKind::pipe || nonBlocking;
     // epoll refuses regular files and directories; Go lets it fail on
     // Linux, but asking first saves two fcntls and an epoll_ctl.
     struct stat st;
-    bool have_st = kind != file_kind::pipe && ::fstat(fd, &st) == 0;
-    if (have_st && (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode)) && kind == file_kind::open_file && !non_blocking) {
+    bool haveSt = kind != fileKind::pipe && ::fstat(fd, &st) == 0;
+    if (haveSt && (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode)) && kind == fileKind::openFile && !nonBlocking) {
         pollable = false;
     }
-    impl->pfd.setRegular(have_st && (S_ISREG(st.st_mode) || S_ISBLK(st.st_mode)));
-    bool clear_nonblock = false;
+    impl->pfd.setRegular(haveSt && (S_ISREG(st.st_mode) || S_ISBLK(st.st_mode)));
+    bool clearNonblock = false;
     if (pollable) {
-        if (non_blocking) {
+        if (nonBlocking) {
             impl->nonblock.store(true, std::memory_order_relaxed);
         } else if (setNonblock(fd, true)) {
             impl->nonblock.store(true, std::memory_order_relaxed);
-            clear_nonblock = true;
+            clearNonblock = true;
         } else {
             pollable = false;
         }
     }
-    if (impl->pfd.Init(pollable) && clear_nonblock) {
+    if (impl->pfd.Init(pollable) && clearNonblock) {
         if (setNonblock(fd, false)) impl->nonblock.store(false, std::memory_order_relaxed);
     }
     return make_ptr<File>(std::move(impl));
 }
 
-mode_t syscall_mode(FileMode m) {
+mode_t syscallMode(FileMode m) {
     mode_t o = static_cast<mode_t>(uint32(m.Perm()));
     if (m & ModeSetuid) o |= S_ISUID;
     if (m & ModeSetgid) o |= S_ISGID;
@@ -100,7 +100,7 @@ mode_t syscall_mode(FileMode m) {
     return o;
 }
 
-void chtimes_utimes(time::Time atime, time::Time mtime, timespec ts[2]) {
+void chtimesUtimes(time::Time atime, time::Time mtime, timespec ts[2]) {
     auto set = [](timespec& t, const time::Time& tm) {
         if (tm.IsZero()) {
             t.tv_sec = 0;
@@ -119,7 +119,7 @@ void chtimes_utimes(time::Time atime, time::Time mtime, timespec ts[2]) {
     set(ts[1], mtime);
 }
 
-std::string join_path(std::string_view dir, std::string_view name) {
+std::string joinPath(std::string_view dir, std::string_view name) {
     std::string s(dir);
     if (s.empty() || !IsPathSeparator(s.back())) s += PathSeparator;
     s += name;
@@ -137,7 +137,7 @@ const string& File::Name() const noexcept { return f_->name; }
 error File::wrapErr(std::string_view op, error err) const {
     if (!err || err == io::EOF_) return err;
     if (err == poll::ErrFileClosing) err = ErrClosed;
-    return detail::path_error(op, f_->name.view(), std::move(err));
+    return detail::pathError(op, f_->name.view(), std::move(err));
 }
 
 std::pair<isize, error> File::Read(std::span<byte> p) {
@@ -147,7 +147,7 @@ std::pair<isize, error> File::Read(std::span<byte> p) {
 }
 
 std::pair<isize, error> File::ReadAt(std::span<byte> p, int64 off) {
-    if (off < 0) return {0, detail::path_error("readat", f_->name.view(), errors::New("negative offset"))};
+    if (off < 0) return {0, detail::pathError("readat", f_->name.view(), errors::New("negative offset"))};
     f_->ready();
     isize n = 0;
     while (!p.empty()) {
@@ -168,7 +168,7 @@ std::pair<isize, error> File::Write(std::span<const byte> p) {
     if (static_cast<std::size_t>(n) != p.size()) err = io::ErrShortWrite;
     // Go's epipecheck: a broken standard output or error kills the program
     // with SIGPIPE, as it would a C program.
-    if (f_->stdout_or_err && detail::errnoOf(e) == EPIPE) runtime::sigpipe();
+    if (f_->stdoutOrErr && detail::errnoOf(e) == EPIPE) runtime::sigpipe();
     if (e) err = wrapErr("write", std::move(e));
     return {n, err};
 }
@@ -176,8 +176,8 @@ std::pair<isize, error> File::Write(std::span<const byte> p) {
 std::pair<isize, error> File::WriteString(std::string_view s) { return Write(as_bytes(s)); }
 
 std::pair<isize, error> File::WriteAt(std::span<const byte> p, int64 off) {
-    if (f_->append_mode) return {0, errWriteAtInAppendMode};
-    if (off < 0) return {0, detail::path_error("writeat", f_->name.view(), errors::New("negative offset"))};
+    if (f_->appendMode) return {0, errWriteAtInAppendMode};
+    if (off < 0) return {0, detail::pathError("writeat", f_->name.view(), errors::New("negative offset"))};
     f_->ready();
     isize n = 0;
     while (!p.empty()) {
@@ -193,7 +193,7 @@ std::pair<isize, error> File::WriteAt(std::span<const byte> p, int64 off) {
 std::pair<int64, error> File::Seek(int64 offset, int whence) {
     {
         // Seeking restarts reading the directory.
-        std::lock_guard l(f_->dir_mu);
+        std::lock_guard l(f_->dirMu);
         f_->dir.reset();
     }
     auto [r, e] = f_->pfd.Seek(offset, whence);
@@ -203,19 +203,19 @@ std::pair<int64, error> File::Seek(int64 offset, int whence) {
 
 error File::Close() {
     {
-        std::lock_guard l(f_->dir_mu);
+        std::lock_guard l(f_->dirMu);
         f_->dir.reset();
     }
     if (error e = f_->pfd.Close()) {
         if (e == poll::ErrFileClosing) e = ErrClosed;
-        return detail::path_error("close", f_->name.view(), std::move(e));
+        return detail::pathError("close", f_->name.view(), std::move(e));
     }
     return nullptr;
 }
 
 error File::Sync() { return wrapErr("sync", f_->pfd.Fsync()); }
 error File::Truncate(int64 size) { return wrapErr("truncate", f_->pfd.Ftruncate(size)); }
-error File::Chmod(FileMode mode) { return wrapErr("chmod", f_->pfd.Fchmod(syscall_mode(mode))); }
+error File::Chmod(FileMode mode) { return wrapErr("chmod", f_->pfd.Fchmod(syscallMode(mode))); }
 error File::Chown(int uid, int gid) { return wrapErr("chown", f_->pfd.Fchown(uid, gid)); }
 error File::Chdir() { return wrapErr("chdir", f_->pfd.Fchdir()); }
 
@@ -252,7 +252,7 @@ ptr<File> NewFile(uintptr fd, string name) {
     if (fdi < 0) return nullptr;
     int fl = ::fcntl(fdi, F_GETFL);
     if (fl < 0) fl = 0;
-    return detail::new_file(fdi, std::move(name), detail::file_kind::new_file, fl & O_NONBLOCK, fl & O_APPEND);
+    return detail::newFile(fdi, std::move(name), detail::fileKind::newFile, fl & O_NONBLOCK, fl & O_APPEND);
 }
 
 std::pair<ptr<File>, error> Open(std::string_view name) { return OpenFile(name, O_RDONLY_, 0); }
@@ -263,34 +263,34 @@ std::pair<ptr<File>, error> Create(std::string_view name) {
 
 std::pair<ptr<File>, error> OpenFile(std::string_view name, int flag, FileMode perm) {
     std::string p;
-    if (!detail::cpath(name, p)) return {nullptr, detail::path_error("open", name, detail::errnoError(EINVAL))};
+    if (!detail::cpath(name, p)) return {nullptr, detail::pathError("open", name, detail::errnoError(EINVAL))};
     int e;
-    int fd = detail::openAt(AT_FDCWD, p.c_str(), flag | O_CLOEXEC, syscall_mode(perm), &e);
-    if (e) return {nullptr, detail::path_error("open", name, detail::errnoError(e))};
-    return {detail::new_file(fd, string(name), detail::file_kind::open_file, flag & O_NONBLOCK, flag & O_APPEND), nullptr};
+    int fd = detail::openAt(AT_FDCWD, p.c_str(), flag | O_CLOEXEC, syscallMode(perm), &e);
+    if (e) return {nullptr, detail::pathError("open", name, detail::errnoError(e))};
+    return {detail::newFile(fd, string(name), detail::fileKind::openFile, flag & O_NONBLOCK, flag & O_APPEND), nullptr};
 }
 
 std::pair<slice<byte>, error> ReadFile(std::string_view name) {
     auto [f, err] = Open(name);
     if (err) return {slice<byte>(), err};
-    int64 stat_size = 0;
-    if (auto [fi, e] = f->Stat(); !e) stat_size = fi->Size();
-    auto r = detail::read_file_contents(stat_size, [&](std::span<byte> p) { return f->Read(p); });
+    int64 statSize = 0;
+    if (auto [fi, e] = f->Stat(); !e) statSize = fi->Size();
+    auto r = detail::readFileContents(statSize, [&](std::span<byte> p) { return f->Read(p); });
     f->Close();
     return r;
 }
 
 namespace detail {
 
-std::pair<slice<byte>, error> read_file_contents(int64 stat_size,
+std::pair<slice<byte>, error> readFileContents(int64 statSize,
                                                  const std::function<std::pair<isize, error>(std::span<byte>)>& read) {
     // Room for the whole file and a byte for the read at its end, at least
     // 512 bytes: /proc's files claim size 0 but don't work if read in small
     // pieces.
-    constexpr std::size_t min_buf = 512;
-    bool zero_size = stat_size == 0;
-    std::size_t size = static_cast<std::size_t>(stat_size) + 1;
-    if (size < min_buf) size = min_buf;
+    constexpr std::size_t minBuf = 512;
+    bool zeroSize = statSize == 0;
+    std::size_t size = static_cast<std::size_t>(statSize) + 1;
+    if (size < minBuf) size = minBuf;
     slice<byte> data = slice<byte>::make(0, size);
     for (;;) {
         auto [n, e] = read(std::span<byte>(data.data() + data.len(), data.cap() - data.len()));
@@ -301,9 +301,9 @@ std::pair<slice<byte>, error> read_file_contents(int64 stat_size,
         }
         // Out of capacity, or a /proc-like zero-sized file: grow, so that
         // reads of zero-sized files always get a buffer of at least 512.
-        std::size_t cap_remain = data.cap() - data.len();
-        if (cap_remain == 0 || (zero_size && cap_remain < min_buf)) {
-            slice<byte> grown = slice<byte>::make(data.len(), data.cap() + std::max(data.cap(), min_buf));
+        std::size_t capRemain = data.cap() - data.len();
+        if (capRemain == 0 || (zeroSize && capRemain < minBuf)) {
+            slice<byte> grown = slice<byte>::make(data.len(), data.cap() + std::max(data.cap(), minBuf));
             std::copy(data.begin(), data.end(), grown.begin());
             data = std::move(grown);
         }
@@ -330,8 +330,8 @@ namespace {
 template <typename F>
 error pathCall(std::string_view op, std::string_view name, F&& f) {
     std::string p;
-    if (!detail::cpath(name, p)) return detail::path_error(op, name, detail::errnoError(EINVAL));
-    if (int e = detail::sys([&] { return f(p.c_str()); })) return detail::path_error(op, name, detail::errnoError(e));
+    if (!detail::cpath(name, p)) return detail::pathError(op, name, detail::errnoError(EINVAL));
+    if (int e = detail::sys([&] { return f(p.c_str()); })) return detail::pathError(op, name, detail::errnoError(e));
     return nullptr;
 }
 
@@ -356,12 +356,12 @@ error linkCall(std::string_view op, std::string_view oldname, std::string_view n
 
 error Mkdir(std::string_view name, FileMode perm) {
     std::string p;
-    if (!detail::cpath(name, p)) return detail::path_error("mkdir", name, detail::errnoError(EINVAL));
-    mode_t mode = syscall_mode(perm);
+    if (!detail::cpath(name, p)) return detail::pathError("mkdir", name, detail::errnoError(EINVAL));
+    mode_t mode = syscallMode(perm);
     int e = detail::sysIo(
         IORING_OP_MKDIRAT, [&](io_uring_sqe* sqe) { io_uring_prep_mkdirat(sqe, AT_FDCWD, p.c_str(), mode); },
         [&] { return ::mkdir(p.c_str(), mode); });
-    if (e) return detail::path_error("mkdir", name, detail::errnoError(e));
+    if (e) return detail::pathError("mkdir", name, detail::errnoError(e));
     return nullptr;
 }
 
@@ -372,7 +372,7 @@ error Chdir(std::string_view dir) {
 error Remove(std::string_view name) {
     // unlink, then rmdir: which one fits is unknown, and asking would race.
     std::string p;
-    if (!detail::cpath(name, p)) return detail::path_error("remove", name, detail::errnoError(EINVAL));
+    if (!detail::cpath(name, p)) return detail::pathError("remove", name, detail::errnoError(EINVAL));
     int e = detail::unlinkAt(AT_FDCWD, p.c_str(), 0);
     if (e == 0) return nullptr;
     int e1 = detail::unlinkAt(AT_FDCWD, p.c_str(), AT_REMOVEDIR);
@@ -380,7 +380,7 @@ error Remove(std::string_view name) {
     // Both failed: report rmdir's error unless it's ENOTDIR, which means
     // unlink's is the one that matters.
     if (e1 != ENOTDIR) e = e1;
-    return detail::path_error("remove", name, detail::errnoError(e));
+    return detail::pathError("remove", name, detail::errnoError(e));
 }
 
 error Rename(std::string_view oldpath, std::string_view newpath) {
@@ -407,7 +407,7 @@ error Truncate(std::string_view name, int64 size) {
 }
 
 error Chmod(std::string_view name, FileMode mode) {
-    return pathCall("chmod", name, [&](const char* p) { return ::chmod(p, syscall_mode(mode)); });
+    return pathCall("chmod", name, [&](const char* p) { return ::chmod(p, syscallMode(mode)); });
 }
 
 error Chown(std::string_view name, int uid, int gid) {
@@ -424,7 +424,7 @@ error Lchown(std::string_view name, int uid, int gid) {
 
 error Chtimes(std::string_view name, time::Time atime, time::Time mtime) {
     timespec ts[2];
-    detail::chtimes_utimes(atime, mtime, ts);
+    detail::chtimesUtimes(atime, mtime, ts);
     return pathCall("chtimes", name, [&](const char* p) { return ::utimensat(AT_FDCWD, p, ts, 0); });
 }
 
@@ -444,12 +444,12 @@ error Symlink(std::string_view oldname, std::string_view newname) {
 
 std::pair<string, error> Readlink(std::string_view name) {
     std::string p;
-    if (!detail::cpath(name, p)) return {{}, detail::path_error("readlink", name, detail::errnoError(EINVAL))};
+    if (!detail::cpath(name, p)) return {{}, detail::pathError("readlink", name, detail::errnoError(EINVAL))};
     for (std::size_t len = 128;; len *= 2) {
         std::string b(len, '\0');
         ssize_t n = 0;
         int e = detail::sys([&] { return n = ::readlink(p.c_str(), b.data(), len); });
-        if (e) return {{}, detail::path_error("readlink", name, detail::errnoError(e))};
+        if (e) return {{}, detail::pathError("readlink", name, detail::errnoError(e))};
         if (static_cast<std::size_t>(n) < len) return {string(b.data(), static_cast<std::size_t>(n)), nullptr};
     }
 }
@@ -463,8 +463,8 @@ string TempDir() {
 std::tuple<ptr<File>, ptr<File>, error> Pipe() {
     int p[2];
     if (::pipe2(p, O_CLOEXEC) < 0) return {nullptr, nullptr, NewSyscallError("pipe2", detail::errnoError(errno))};
-    return {detail::new_file(p[0], string::fromStatic("|0"), detail::file_kind::pipe, false),
-            detail::new_file(p[1], string::fromStatic("|1"), detail::file_kind::pipe, false), nullptr};
+    return {detail::newFile(p[0], string::fromStatic("|0"), detail::fileKind::pipe, false),
+            detail::newFile(p[1], string::fromStatic("|1"), detail::fileKind::pipe, false), nullptr};
 }
 
 int Getpagesize() noexcept { return static_cast<int>(::sysconf(_SC_PAGESIZE)); }

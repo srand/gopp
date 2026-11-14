@@ -180,16 +180,16 @@ int main(int argc, char** argv) {
     auto mux = http::NewServeMux();
     s.Routes(*mux);
     http::Server srv{.Addr = addr, .Handler = mux};
-    auto served = makeChan<error>(1);
+    auto served = make_chan<error>(1);
     go([&srv, served] { served.send(srv.ListenAndServe()); });
     fmt::Println("todo: listening on {}, database {}", addr, dbfile);
 
     auto [ctx, stop] = signal::NotifyContext(context::Background(), os::Interrupt, syscall::SIGTERM_);
-    error serve_err;
-    select(recv(served, [&](error e) { serve_err = e; }), recv(ctx->Done(), [] {}));
+    error serveErr;
+    select(recv(served, [&](error e) { serveErr = e; }), recv(ctx->Done(), [] {}));
     stop();
-    if (serve_err) {
-        fmt::Println(os::Stderr, "todo: {}", serve_err);
+    if (serveErr) {
+        fmt::Println(os::Stderr, "todo: {}", serveErr);
         return 1;
     }
     auto [sctx, cancel] = context::WithTimeout(context::Background(), 5 * time::Second);

@@ -44,7 +44,7 @@ isize IndexFunc(std::string_view s, std::function_ref<bool(rune)> f) { return te
 isize LastIndexFunc(std::string_view s, std::function_ref<bool(rune)> f) { return text::lastIndexFunc(s, f); }
 isize Count(std::string_view s, std::string_view substr) noexcept { return text::count(s, substr); }
 int Compare(std::string_view a, std::string_view b) noexcept { return text::compare(a, b); }
-bool EqualFold(std::string_view s, std::string_view t) noexcept { return text::equal_fold(s, t); }
+bool EqualFold(std::string_view s, std::string_view t) noexcept { return text::equalFold(s, t); }
 
 std::tuple<string, string, bool> Cut(const string& s, std::string_view sep) {
     auto r = text::cut(s, sep);
@@ -66,7 +66,7 @@ std::pair<string, bool> CutSuffix(const string& s, std::string_view suffix) {
     return {s.slice(0, s.size() - suffix.size()), true};
 }
 
-string TrimSpace(const string& s) { return sub(s, text::trim_space(s)); }
+string TrimSpace(const string& s) { return sub(s, text::trimSpace(s)); }
 string Trim(const string& s, std::string_view cutset) { return sub(s, text::trim(s, cutset)); }
 string TrimLeft(const string& s, std::string_view cutset) { return sub(s, text::trimLeft(s, cutset)); }
 string TrimRight(const string& s, std::string_view cutset) { return sub(s, text::trimRight(s, cutset)); }
@@ -114,7 +114,7 @@ std::generator<string> Lines(string s) {
 
 namespace {
 
-std::generator<string> splitSeq(string s, string sep, std::size_t sep_save) {
+std::generator<string> splitSeq(string s, string sep, std::size_t sepSave) {
     if (sep.empty()) {
         while (!s.empty()) {
             auto [_, size] = utf8::DecodeRuneInString(s);
@@ -126,7 +126,7 @@ std::generator<string> splitSeq(string s, string sep, std::size_t sep_save) {
     for (;;) {
         auto i = s.find(sep);
         if (i == string::npos) break;
-        co_yield s.slice(0, i + sep_save);
+        co_yield s.slice(0, i + sepSave);
         s = s.slice(i + sep.size());
     }
     co_yield s;

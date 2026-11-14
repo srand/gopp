@@ -14,7 +14,7 @@ using namespace gopp;
 namespace {
 
 tls::Config serverConfig(std::vector<string> protos = {}) {
-    auto [cert, err] = tls::X509KeyPair(testcert::localhost_cert, testcert::localhost_key);
+    auto [cert, err] = tls::X509KeyPair(testcert::localhostCert, testcert::localhostKey);
     EXPECT_FALSE(err) << err;
     tls::Config cfg;
     cfg.Certificates = {cert};
@@ -25,7 +25,7 @@ tls::Config serverConfig(std::vector<string> protos = {}) {
 tls::Config clientConfig(std::vector<string> protos = {}) {
     tls::Config cfg;
     cfg.RootCAs = x509::NewCertPool();
-    EXPECT_TRUE(cfg.RootCAs->AppendCertsFromPEM(testcert::localhost_cert));
+    EXPECT_TRUE(cfg.RootCAs->AppendCertsFromPEM(testcert::localhostCert));
     cfg.NextProtos = std::move(protos);
     return cfg;
 }
@@ -51,9 +51,9 @@ string echoServer(const tls::Config& cfg, ptr<net::Listener>& out) {
 }  // namespace
 
 TEST(Tls, KeyPair) {
-    auto [cert, err] = tls::X509KeyPair(testcert::localhost_cert, testcert::localhost_key);
+    auto [cert, err] = tls::X509KeyPair(testcert::localhostCert, testcert::localhostKey);
     EXPECT_FALSE(err) << err;
-    auto [bad, berr] = tls::X509KeyPair("not pem", testcert::localhost_key);
+    auto [bad, berr] = tls::X509KeyPair("not pem", testcert::localhostKey);
     EXPECT_TRUE(berr);
     auto [nf, nerr] = tls::LoadX509KeyPair("/nonexistent/cert.pem", "/nonexistent/key.pem");
     EXPECT_TRUE(nerr);
@@ -86,7 +86,7 @@ TEST(Tls, LargeTransferAndConcurrentReadWrite) {
     ASSERT_FALSE(err) << err;
     std::string data(1 << 20, '\0');
     for (std::size_t i = 0; i < data.size(); i++) data[i] = static_cast<char>(i * 7);
-    auto written = makeChan<error>(1);
+    auto written = make_chan<error>(1);
     go([c, &data, written] { written.send(io::WriteString(*c, data).second); });
     std::string got(data.size(), '\0');
     auto [n, rerr] = io::ReadFull(*c, std::span<byte>(reinterpret_cast<byte*>(got.data()), got.size()));

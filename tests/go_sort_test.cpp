@@ -28,16 +28,16 @@ const std::array<double, 14> float64s{74.3, 59.0, inf, 238.2, -784.0, 2.3, nan_,
 std::array<string, 8> stringsData() { return {"", "Hello", "foo", "bar", "foo", "f00", "%*&^*&^&", "***"}; }
 
 std::mt19937_64 rng(1);
-isize rand_intn(isize n) { return std::uniform_int_distribution<isize>(0, n - 1)(rng); }
+isize randIntn(isize n) { return std::uniform_int_distribution<isize>(0, n - 1)(rng); }
 
 // export_test.go
 void Heapsort(sort::Interface& data) {
-    sort::detail::interface_data d{data};
+    sort::detail::interfaceData d{data};
     slices::detail::heapSort(d, 0, data.Len());
 }
 void ReverseRange(sort::Interface&& data, isize a, isize b) {
-    sort::detail::interface_data d{data};
-    slices::detail::reverse_range(d, a, b);
+    sort::detail::interfaceData d{data};
+    slices::detail::reverseRange(d, a, b);
 }
 
 }  // namespace
@@ -99,7 +99,7 @@ TEST(GoSort, Slice) {
 TEST(GoSort, SortLarge_Random) {
     std::size_t n = 1000000;
     std::vector<isize> data(n);
-    for (auto& v : data) v = rand_intn(100);
+    for (auto& v : data) v = randIntn(100);
     ASSERT_FALSE(sort::IntsAreSorted(data)) << "terrible rand.rand";
     sort::Ints(data);
     EXPECT_TRUE(sort::IntsAreSorted(data)) << "sort didn't sort - 1M ints";
@@ -192,7 +192,7 @@ isize lg(isize n) {
     return i;
 }
 
-void testBentleyMcIlroy(const std::function<void(sort::Interface&)>& sort_fn, const std::function<isize(isize)>& maxswap) {
+void testBentleyMcIlroy(const std::function<void(sort::Interface&)>& sortFn, const std::function<isize(isize)>& maxswap) {
     const isize sizes[] = {100, 1023, 1024, 1025};
     const char* dists[] = {"sawtooth", "rand", "stagger", "plateau", "shuffle"};
     const char* modes[] = {"copy", "reverse", "reverse1", "reverse2", "sort", "dither"};
@@ -205,11 +205,11 @@ void testBentleyMcIlroy(const std::function<void(sort::Interface&)>& sort_fn, co
                 for (isize i = 0; i < n; i++) {
                     switch (dist) {
                         case Sawtooth: data[i] = i % m; break;
-                        case Rand: data[i] = rand_intn(m); break;
+                        case Rand: data[i] = randIntn(m); break;
                         case Stagger: data[i] = (i * m + i) % n; break;
                         case Plateau: data[i] = std::min(i, m); break;
                         case Shuffle:
-                            if (rand_intn(m) != 0) {
+                            if (randIntn(m) != 0) {
                                 j += 2;
                                 data[i] = j;
                             } else {
@@ -248,7 +248,7 @@ void testBentleyMcIlroy(const std::function<void(sort::Interface&)>& sort_fn, co
                     d.desc = std::format("n={} m={} dist={} mode={}", n, m, dists[dist], modes[mode]);
                     d.data = mdata;
                     d.maxswap = maxswap(n);
-                    sort_fn(d);
+                    sortFn(d);
                     ASSERT_FALSE(d.failed);
                     ASSERT_TRUE(sort::IntsAreSorted(mdata)) << d.desc << ": ints not sorted";
                 }
@@ -364,7 +364,7 @@ TEST(GoSort, Stability) {
     intPairs data(n);
 
     // random distribution
-    for (auto& p : data.d) p.a = rand_intn(m);
+    for (auto& p : data.d) p.a = randIntn(m);
     ASSERT_FALSE(sort::IsSorted(data)) << "terrible rand.rand";
     data.initB();
     sort::Stable(data);

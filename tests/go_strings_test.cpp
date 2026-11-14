@@ -21,7 +21,7 @@ using namespace std::literals;
 namespace {
 
 int len(const std::string& s) { return int(s.size()); }
-constexpr isize max_int = std::numeric_limits<isize>::max();
+constexpr isize maxInt = std::numeric_limits<isize>::max();
 
 std::vector<std::string> strs(const slice<string>& s) {
     std::vector<std::string> out;
@@ -336,7 +336,7 @@ const std::vector<SplitTest> splittests = {
     {faces, "~"s, -1, {faces}},
     {"1 2 3 4"s, " "s, 3, {"1"s, "2"s, "3 4"s}},
     {"1 2"s, " "s, 3, {"1"s, "2"s}},
-    {""s, "T"s, max_int / 4, {""s}},
+    {""s, "T"s, maxInt / 4, {""s}},
     {"\xff-\xff"s, ""s, -1, {"\xff"s, "-"s, "\xff"s}},
     {"\xff-\xff"s, "-"s, -1, {"\xff"s, "\xff"s}},
 };
@@ -1000,7 +1000,7 @@ TEST(GoStrings, Repeat) {
 TEST(GoStrings, RepeatCatchesOverflow) {
     // Repeat panics, which go++ can't recover from: death tests.
     EXPECT_DEATH((void)strings::Repeat("--", -2147483647), "strings: negative Repeat count");
-    (void)strings::Repeat("", max_int);
+    (void)strings::Repeat("", maxInt);
     EXPECT_DEATH((void)strings::Repeat("-", -1), "negative");
     EXPECT_DEATH((void)strings::Repeat(std::string(255, '\0'), isize(~std::size_t(0) / 255 + 1)), "overflow");
 }

@@ -25,14 +25,14 @@ int main(int argc, char** argv) {
     fmt::Println("TCP echo listening on {}", listener->Addr());
 
     for (;;) {
-        auto [conn, accept_err] = listener->Accept();
-        if (accept_err) {
-            fmt::Println(os::Stderr, "tcp-echo: {}", accept_err);
+        auto [conn, acceptErr] = listener->Accept();
+        if (acceptErr) {
+            fmt::Println(os::Stderr, "tcp-echo: {}", acceptErr);
             return 1;
         }
         go([conn] {
-            auto [n, copy_err] = io::Copy(*conn, *conn);
-            fmt::Println("{}: echoed {} bytes{}", conn->RemoteAddr(), n, copy_err ? fmt::Sprint(" ({})", copy_err) : string());
+            auto [n, copyErr] = io::Copy(*conn, *conn);
+            fmt::Println("{}: echoed {} bytes{}", conn->RemoteAddr(), n, copyErr ? fmt::Sprint(" ({})", copyErr) : string());
             conn->Close();
         });
     }

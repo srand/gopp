@@ -9,19 +9,19 @@ namespace gopp::hmac {
 namespace {
 
 // Go's HMAC, without the marshaling of hash states.
-class hmac_hash final : public hash::Hash {
+class hmacHash final : public hash::Hash {
 public:
-    hmac_hash(ptr<hash::Hash> outer, ptr<hash::Hash> inner, std::span<const byte> key)
+    hmacHash(ptr<hash::Hash> outer, ptr<hash::Hash> inner, std::span<const byte> key)
         : outer_(std::move(outer)), inner_(std::move(inner)) {
         auto blocksize = static_cast<std::size_t>(inner_->BlockSize());
         ipad_.assign(blocksize, 0);
         opad_.assign(blocksize, 0);
-        slice<byte> long_key;
+        slice<byte> longKey;
         if (key.size() > blocksize) {
             // If key is too big, hash it.
             outer_->Write(key);
-            long_key = outer_->Sum(slice<byte>());
-            key = long_key;
+            longKey = outer_->Sum(slice<byte>());
+            key = longKey;
         }
         std::copy(key.begin(), key.end(), ipad_.begin());
         std::copy(key.begin(), key.end(), opad_.begin());
@@ -33,12 +33,12 @@ public:
     std::pair<isize, error> Write(std::span<const byte> p) override { return inner_->Write(p); }
 
     slice<byte> Sum(slice<byte> in) const override {
-        std::size_t orig_len = in.len();
+        std::size_t origLen = in.len();
         in = inner_->Sum(std::move(in));
         outer_->Reset();
         outer_->Write(opad_);
-        outer_->Write(std::span<const byte>(in.data() + orig_len, in.len() - orig_len));
-        return outer_->Sum(in.Sub(0, orig_len));
+        outer_->Write(std::span<const byte>(in.data() + origLen, in.len() - origLen));
+        return outer_->Sum(in.Sub(0, origLen));
     }
 
     void Reset() override {
@@ -60,7 +60,7 @@ ptr<hash::Hash> New(std::function<ptr<hash::Hash>()> h, std::span<const byte> ke
     auto outer = h();
     auto inner = h();
     if (outer == inner) panic("crypto/hmac: hash generation function does not produce unique values");
-    return make_ptr<hmac_hash>(std::move(outer), std::move(inner), key);
+    return make_ptr<hmacHash>(std::move(outer), std::move(inner), key);
 }
 
 bool Equal(std::span<const byte> mac1, std::span<const byte> mac2) noexcept {

@@ -16,14 +16,14 @@ ptr<N> cloneBase(const Node& from) {
     return n;
 }
 
-std::string_view left(const Node& n) { return n.tr ? n.tr->left_delim.view() : std::string_view("{{"); }
-std::string_view right(const Node& n) { return n.tr ? n.tr->right_delim.view() : std::string_view("}}"); }
+std::string_view left(const Node& n) { return n.tr ? n.tr->leftDelim.view() : std::string_view("{{"); }
+std::string_view right(const Node& n) { return n.tr ? n.tr->rightDelim.view() : std::string_view("}}"); }
 
 }  // namespace
 
 string Node::String() const {
     std::string sb;
-    write_to(sb);
+    writeTo(sb);
     return string(sb);
 }
 
@@ -37,15 +37,15 @@ ptr<ListNode> ListNode::CopyList() const {
 
 ptr<Node> ListNode::Copy() const { return CopyList(); }
 
-void ListNode::write_to(std::string& sb) const {
-    for (auto& n : Nodes) n->write_to(sb);
+void ListNode::writeTo(std::string& sb) const {
+    for (auto& n : Nodes) n->writeTo(sb);
 }
 
 // TextNode: Go prints it with textFormat, "%s" (tests use "%q").
 
-bool text_format_q = false;
+bool textFormatQ = false;
 
-string TextNode::String() const { return text_format_q ? string(detail::quote(Text)) : Text; }
+string TextNode::String() const { return textFormatQ ? string(detail::quote(Text)) : Text; }
 
 ptr<Node> TextNode::Copy() const {
     auto n = cloneBase<TextNode>(*this);
@@ -53,7 +53,7 @@ ptr<Node> TextNode::Copy() const {
     return n;
 }
 
-void TextNode::write_to(std::string& sb) const { sb += String().view(); }
+void TextNode::writeTo(std::string& sb) const { sb += String().view(); }
 
 // CommentNode
 
@@ -63,7 +63,7 @@ ptr<Node> CommentNode::Copy() const {
     return n;
 }
 
-void CommentNode::write_to(std::string& sb) const {
+void CommentNode::writeTo(std::string& sb) const {
     sb += left(*this);
     sb += Text.view();
     sb += right(*this);
@@ -82,17 +82,17 @@ ptr<PipeNode> PipeNode::CopyPipe() const {
 
 ptr<Node> PipeNode::Copy() const { return CopyPipe(); }
 
-void PipeNode::write_to(std::string& sb) const {
+void PipeNode::writeTo(std::string& sb) const {
     if (!Decl.empty()) {
         for (std::size_t i = 0; i < Decl.size(); i++) {
             if (i > 0) sb += ", ";
-            Decl[i]->write_to(sb);
+            Decl[i]->writeTo(sb);
         }
         sb += IsAssign ? " = " : " := ";
     }
     for (std::size_t i = 0; i < Cmds.size(); i++) {
         if (i > 0) sb += " | ";
-        Cmds[i]->write_to(sb);
+        Cmds[i]->writeTo(sb);
     }
 }
 
@@ -105,9 +105,9 @@ ptr<Node> ActionNode::Copy() const {
     return n;
 }
 
-void ActionNode::write_to(std::string& sb) const {
+void ActionNode::writeTo(std::string& sb) const {
     sb += left(*this);
-    Pipe->write_to(sb);
+    Pipe->writeTo(sb);
     sb += right(*this);
 }
 
@@ -119,16 +119,16 @@ ptr<Node> CommandNode::Copy() const {
     return n;
 }
 
-void CommandNode::write_to(std::string& sb) const {
+void CommandNode::writeTo(std::string& sb) const {
     for (std::size_t i = 0; i < Args.size(); i++) {
         if (i > 0) sb.push_back(' ');
         if (Args[i]->Type() == NodePipe) {
             sb.push_back('(');
-            Args[i]->write_to(sb);
+            Args[i]->writeTo(sb);
             sb.push_back(')');
             continue;
         }
-        Args[i]->write_to(sb);
+        Args[i]->writeTo(sb);
     }
 }
 
@@ -147,7 +147,7 @@ ptr<Node> IdentifierNode::Copy() const {
     return n;
 }
 
-void IdentifierNode::write_to(std::string& sb) const { sb += Ident.view(); }
+void IdentifierNode::writeTo(std::string& sb) const { sb += Ident.view(); }
 
 // VariableNode
 
@@ -157,7 +157,7 @@ ptr<Node> VariableNode::Copy() const {
     return n;
 }
 
-void VariableNode::write_to(std::string& sb) const {
+void VariableNode::writeTo(std::string& sb) const {
     for (std::size_t i = 0; i < Ident.size(); i++) {
         if (i > 0) sb.push_back('.');
         sb += Ident[i].view();
@@ -167,10 +167,10 @@ void VariableNode::write_to(std::string& sb) const {
 // DotNode, NilNode
 
 ptr<Node> DotNode::Copy() const { return cloneBase<DotNode>(*this); }
-void DotNode::write_to(std::string& sb) const { sb.push_back('.'); }
+void DotNode::writeTo(std::string& sb) const { sb.push_back('.'); }
 
 ptr<Node> NilNode::Copy() const { return cloneBase<NilNode>(*this); }
-void NilNode::write_to(std::string& sb) const { sb += "nil"; }
+void NilNode::writeTo(std::string& sb) const { sb += "nil"; }
 
 // FieldNode
 
@@ -180,7 +180,7 @@ ptr<Node> FieldNode::Copy() const {
     return n;
 }
 
-void FieldNode::write_to(std::string& sb) const {
+void FieldNode::writeTo(std::string& sb) const {
     for (auto& id : Ident) {
         sb.push_back('.');
         sb += id.view();
@@ -203,13 +203,13 @@ ptr<parse::Node> ChainNode::Copy() const {
     return n;
 }
 
-void ChainNode::write_to(std::string& sb) const {
+void ChainNode::writeTo(std::string& sb) const {
     if (Node->Type() == NodePipe) {
         sb.push_back('(');
-        Node->write_to(sb);
+        Node->writeTo(sb);
         sb.push_back(')');
     } else {
-        Node->write_to(sb);
+        Node->writeTo(sb);
     }
     for (auto& f : Field) {
         sb.push_back('.');
@@ -225,7 +225,7 @@ ptr<Node> BoolNode::Copy() const {
     return n;
 }
 
-void BoolNode::write_to(std::string& sb) const { sb += True ? "true" : "false"; }
+void BoolNode::writeTo(std::string& sb) const { sb += True ? "true" : "false"; }
 
 // NumberNode
 
@@ -244,7 +244,7 @@ void NumberNode::simplifyComplex() {
     }
 }
 
-void NumberNode::write_to(std::string& sb) const { sb += Text.view(); }
+void NumberNode::writeTo(std::string& sb) const { sb += Text.view(); }
 
 // StringNode
 
@@ -255,7 +255,7 @@ ptr<Node> StringNode::Copy() const {
     return n;
 }
 
-void StringNode::write_to(std::string& sb) const { sb += Quoted.view(); }
+void StringNode::writeTo(std::string& sb) const { sb += Quoted.view(); }
 
 // EndNode: {{end}} and {{else}}
 
@@ -265,7 +265,7 @@ ptr<Node> EndNode::Copy() const {
     return n;
 }
 
-void EndNode::write_to(std::string& sb) const {
+void EndNode::writeTo(std::string& sb) const {
     sb += left(*this);
     sb += NodeType == nodeElse ? "else" : "end";
     sb += right(*this);
@@ -288,7 +288,7 @@ ptr<Node> BranchNode::Copy() const {
     return n;
 }
 
-void BranchNode::write_to(std::string& sb) const {
+void BranchNode::writeTo(std::string& sb) const {
     std::string_view name;
     switch (NodeType) {
     case NodeIf: name = "if"; break;
@@ -299,14 +299,14 @@ void BranchNode::write_to(std::string& sb) const {
     sb += left(*this);
     sb += name;
     sb.push_back(' ');
-    Pipe->write_to(sb);
+    Pipe->writeTo(sb);
     sb += right(*this);
-    List->write_to(sb);
+    List->writeTo(sb);
     if (ElseList) {
         sb += left(*this);
         sb += "else";
         sb += right(*this);
-        ElseList->write_to(sb);
+        ElseList->writeTo(sb);
     }
     sb += left(*this);
     sb += "end";
@@ -321,7 +321,7 @@ ptr<Node> BreakNode::Copy() const {
     return n;
 }
 
-void BreakNode::write_to(std::string& sb) const {
+void BreakNode::writeTo(std::string& sb) const {
     sb += left(*this);
     sb += "break";
     sb += right(*this);
@@ -333,7 +333,7 @@ ptr<Node> ContinueNode::Copy() const {
     return n;
 }
 
-void ContinueNode::write_to(std::string& sb) const {
+void ContinueNode::writeTo(std::string& sb) const {
     sb += left(*this);
     sb += "continue";
     sb += right(*this);
@@ -349,13 +349,13 @@ ptr<Node> TemplateNode::Copy() const {
     return n;
 }
 
-void TemplateNode::write_to(std::string& sb) const {
+void TemplateNode::writeTo(std::string& sb) const {
     sb += left(*this);
     sb += "template ";
     sb += detail::quote(Name);
     if (Pipe) {
         sb.push_back(' ');
-        Pipe->write_to(sb);
+        Pipe->writeTo(sb);
     }
     sb += right(*this);
 }

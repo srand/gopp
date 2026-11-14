@@ -41,7 +41,7 @@ namespace gopp::os::exec {
 namespace detail {
 // Implements Error() for an error type named Error, which can't declare it.
 template <typename E>
-struct named_error : errorInterface {
+struct namedError : errorInterface {
     string Error() const override { return static_cast<const E&>(*this).message(); }
 };
 }  // namespace detail
@@ -49,7 +49,7 @@ struct named_error : errorInterface {
 // exec.Error: LookPath couldn't find or run an executable. C++ reserves
 // the name Error for its constructors: call Error() through gopp::error,
 // or message().
-struct Error : detail::named_error<Error> {
+struct Error : detail::namedError<Error> {
     Error(string name, gopp::error err) : Name(std::move(name)), Err(std::move(err)) {}
     string Name;
     gopp::error Err;
@@ -160,7 +160,7 @@ public:
 
 private:
     friend ptr<Cmd> CommandContext(ptr<context::Context> ctx, std::string_view name, std::span<const string> args);
-    struct ctx_result {
+    struct ctxResult {
         gopp::error err;
         ptr<time::Timer> timer;
     };
@@ -170,16 +170,16 @@ private:
     std::pair<ptr<os::File>, gopp::error> writerDescriptor(const ptr<io::Writer>& w);
     std::pair<slice<string>, gopp::error> environ() const;
     slice<string> argv() const;
-    void watch_ctx(chan<ctx_result> resultc);
-    gopp::error await_goroutines(ptr<time::Timer> timer);
+    void watchCtx(chan<ctxResult> resultc);
+    gopp::error awaitGoroutines(ptr<time::Timer> timer);
 
     ptr<context::Context> ctx_;
-    std::vector<ptr<os::File>> child_io_files_;
-    std::vector<ptr<os::File>> parent_io_pipes_;
+    std::vector<ptr<os::File>> childIoFiles_;
+    std::vector<ptr<os::File>> parentIoPipes_;
     std::vector<std::function<gopp::error()>> goroutine_;
-    chan<gopp::error> goroutine_err_;
-    chan<ctx_result> ctx_result_;
-    std::atomic<bool> start_called_{false};
+    chan<gopp::error> goroutineErr_;
+    chan<ctxResult> ctxResult_;
+    std::atomic<bool> startCalled_{false};
 };
 
 // exec.Command: a Cmd that runs name with the arguments. A name without a

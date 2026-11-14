@@ -8,15 +8,15 @@ using namespace os_test;
 
 namespace {
 
-std::string checkErrorPredicate(const char* pred_name, bool (*pred)(const error&) noexcept, const error& err,
+std::string checkErrorPredicate(const char* predName, bool (*pred)(const error&) noexcept, const error& err,
                                   const error& target) {
-    if (!pred(err)) return std::string(pred_name) + " does not work as expected for " + str(err.Error());
+    if (!pred(err)) return std::string(predName) + " does not work as expected for " + str(err.Error());
     if (!errors::Is(err, target)) return "errors.Is(" + str(err.Error()) + ", " + str(target.Error()) + ") = false, want true";
     return "";
 }
 
 std::string testErrNotExist(const std::string& name) {
-    auto [original_wd, werr] = os::Getwd();
+    auto [originalWd, werr] = os::Getwd();
     if (werr) return "Getwd: " + str(werr.Error());
     auto [f, err] = os::Open(name);
     if (!err) {
@@ -27,7 +27,7 @@ std::string testErrNotExist(const std::string& name) {
 
     error cerr = os::Chdir(name);
     if (!cerr) {
-        if (error e = os::Chdir(original_wd.view())) {
+        if (error e = os::Chdir(originalWd.view())) {
             return "Chdir should have failed, failed to restore original working directory: " + str(e.Error());
         }
         return "Chdir should have failed, restored original working directory";
@@ -60,27 +60,27 @@ TEST(GoOs, ErrIsNotExist) {
 }
 
 TEST(GoOs, IsExist) {
-    struct is_exist_test {
+    struct isExistTest {
         error err;
         bool is;
         bool isnot;
     };
-    auto path_err = [](error e) { return error(make_ptr<fs::PathError>(string(), string(), e)); };
-    auto link_err = [](error e) { return error(make_ptr<os::LinkError>(string(), string(), string(), e)); };
-    auto syscall_err = [](error e) { return error(make_ptr<os::SyscallError>(string(), e)); };
-    is_exist_test tests[] = {
-        {path_err(fs::ErrInvalid), false, false},
-        {path_err(fs::ErrPermission), false, false},
-        {path_err(fs::ErrExist), true, false},
-        {path_err(fs::ErrNotExist), false, true},
-        {path_err(fs::ErrClosed), false, false},
-        {link_err(fs::ErrInvalid), false, false},
-        {link_err(fs::ErrPermission), false, false},
-        {link_err(fs::ErrExist), true, false},
-        {link_err(fs::ErrNotExist), false, true},
-        {link_err(fs::ErrClosed), false, false},
-        {syscall_err(fs::ErrNotExist), false, true},
-        {syscall_err(fs::ErrExist), true, false},
+    auto pathErr = [](error e) { return error(make_ptr<fs::PathError>(string(), string(), e)); };
+    auto linkErr = [](error e) { return error(make_ptr<os::LinkError>(string(), string(), string(), e)); };
+    auto syscallErr = [](error e) { return error(make_ptr<os::SyscallError>(string(), e)); };
+    isExistTest tests[] = {
+        {pathErr(fs::ErrInvalid), false, false},
+        {pathErr(fs::ErrPermission), false, false},
+        {pathErr(fs::ErrExist), true, false},
+        {pathErr(fs::ErrNotExist), false, true},
+        {pathErr(fs::ErrClosed), false, false},
+        {linkErr(fs::ErrInvalid), false, false},
+        {linkErr(fs::ErrPermission), false, false},
+        {linkErr(fs::ErrExist), true, false},
+        {linkErr(fs::ErrNotExist), false, true},
+        {linkErr(fs::ErrClosed), false, false},
+        {syscallErr(fs::ErrNotExist), false, true},
+        {syscallErr(fs::ErrExist), true, false},
         {nullptr, false, false},
     };
     for (auto& tt : tests) {
@@ -92,7 +92,7 @@ TEST(GoOs, IsExist) {
 }
 
 TEST(GoOs, IsPermission) {
-    struct is_permission_test {
+    struct isPermissionTest {
         error err;
         bool want;
     } tests[] = {
@@ -134,8 +134,8 @@ TEST(GoOs, PathErrorUnwrap) {
 
 namespace {
 
-struct my_error_is final : errorInterface {
-    explicit my_error_is(error e) : e(std::move(e)) {}
+struct myErrorIs final : errorInterface {
+    explicit myErrorIs(error e) : e(std::move(e)) {}
     error e;
     string Error() const override { return e.Error(); }
     bool Is(const errorInterface* target) const noexcept override { return target == e.get(); }
@@ -144,7 +144,7 @@ struct my_error_is final : errorInterface {
 }  // namespace
 
 TEST(GoOs, ErrorIsMethods) {
-    EXPECT_FALSE(os::IsPermission(make_ptr<my_error_is>(fs::ErrPermission)))
+    EXPECT_FALSE(os::IsPermission(make_ptr<myErrorIs>(fs::ErrPermission)))
         << "os.IsPermission(err) = true when err.Is(fs.ErrPermission), wanted false";
 }
 
@@ -152,7 +152,7 @@ TEST(GoOs, ErrorIsMethods) {
 
 namespace {
 
-void check_uid_gid(std::string_view path, int uid, int gid) {
+void checkUidGid(std::string_view path, int uid, int gid) {
     auto [dir, err] = os::Lstat(path);
     ASSERT_FALSE(err) << "Lstat " << path << " (looking for uid/gid " << uid << "/" << gid << "): " << err;
     auto* sys = static_cast<const struct stat*>(dir->Sys());
@@ -183,15 +183,15 @@ TEST(GoOs, Chown) {
     ASSERT_FALSE(os::Chown(f->Name().view(), -1, gid));
     auto* sys = static_cast<const struct stat*>(dir->Sys());
     int uid = static_cast<int>(sys->st_uid);
-    check_uid_gid(f->Name().view(), uid, gid);
+    checkUidGid(f->Name().view(), uid, gid);
 
     // Then try all the auxiliary groups.
     for (int g : getgroups()) {
         ASSERT_FALSE(os::Chown(f->Name().view(), -1, g)) << "chown -1 " << g;
-        check_uid_gid(f->Name().view(), uid, g);
+        checkUidGid(f->Name().view(), uid, g);
         // change back to gid to test fd.Chown
         ASSERT_FALSE(f->Chown(-1, gid)) << "fchown -1 " << gid;
-        check_uid_gid(f->Name().view(), uid, gid);
+        checkUidGid(f->Name().view(), uid, gid);
     }
 }
 
@@ -203,12 +203,12 @@ TEST(GoOs, FileChown) {
     ASSERT_FALSE(f->Chown(-1, gid));
     auto* sys = static_cast<const struct stat*>(dir->Sys());
     int uid = static_cast<int>(sys->st_uid);
-    check_uid_gid(f->Name().view(), uid, gid);
+    checkUidGid(f->Name().view(), uid, gid);
     for (int g : getgroups()) {
         ASSERT_FALSE(f->Chown(-1, g)) << "fchown -1 " << g;
-        check_uid_gid(f->Name().view(), uid, g);
+        checkUidGid(f->Name().view(), uid, g);
         ASSERT_FALSE(f->Chown(-1, gid)) << "fchown -1 " << gid;
-        check_uid_gid(f->Name().view(), uid, gid);
+        checkUidGid(f->Name().view(), uid, gid);
     }
 }
 
@@ -226,12 +226,12 @@ TEST(GoOs, Lchown) {
     }
     auto* sys = static_cast<const struct stat*>(dir->Sys());
     int uid = static_cast<int>(sys->st_uid);
-    check_uid_gid(linkname, uid, gid);
+    checkUidGid(linkname, uid, gid);
     for (int g : getgroups()) {
         EXPECT_FALSE(os::Lchown(linkname, -1, g)) << "lchown -1 " << g;
-        check_uid_gid(linkname, uid, g);
+        checkUidGid(linkname, uid, g);
         // Check that link target's gid is unchanged.
-        check_uid_gid(f->Name().view(), uid, static_cast<int>(sys->st_gid));
+        checkUidGid(f->Name().view(), uid, static_cast<int>(sys->st_gid));
         EXPECT_FALSE(os::Lchown(linkname, -1, gid));
     }
     os::Remove(linkname);

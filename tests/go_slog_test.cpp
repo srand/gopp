@@ -593,10 +593,10 @@ TEST(GoSlog, DefaultHandle) {
     auto ctx = context::Background();
     std::vector<Attr> preAttrs = {slog::Int("pre", 0)};
     std::vector<Attr> attrs = {slog::Int("a", 1), slog::String("b", "two")};
-    using with_fn = std::function<ptr<slog::Handler>(ptr<slog::Handler>)>;
+    using withFn = std::function<ptr<slog::Handler>(ptr<slog::Handler>)>;
     struct {
         std::string name;
-        with_fn with;
+        withFn with;
         std::vector<Attr> attrs;
         std::string want;
     } tests[] = {
@@ -675,24 +675,24 @@ TEST(GoSlog, JSONAndTextHandlers) {
 
     std::vector<Attr> attrs = {slog::String("a", "one"), slog::Int("b", 2), slog::Any("", nullptr)};
     std::vector<Attr> preAttrs = {slog::Int("pre", 3), slog::String("x", "y")};
-    using replace_fn = std::function<Attr(std::span<const string>, Attr)>;
-    using with_fn = std::function<ptr<slog::Handler>(ptr<slog::Handler>)>;
+    using replaceFn = std::function<Attr(std::span<const string>, Attr)>;
+    using withFn = std::function<ptr<slog::Handler>(ptr<slog::Handler>)>;
     auto concat = [](std::vector<Attr> a, std::initializer_list<Attr> b) {
         a.insert(a.end(), b.begin(), b.end());
         return a;
     };
     auto withAttrs = [](std::initializer_list<Attr> as) { return std::vector<Attr>(as); };
 
-    struct test_case {
+    struct testCase {
         std::string name;
-        replace_fn replace;
+        replaceFn replace;
         bool addSource = false;
-        with_fn with;
+        withFn with;
         std::vector<Attr> attrs;
         std::string wantText;
         std::string wantJSON;
     };
-    std::vector<test_case> tests = {
+    std::vector<testCase> tests = {
         {"basic", nullptr, false, nullptr, attrs, "time=2000-01-02T03:04:05.000Z level=INFO msg=message a=one b=2",
          R"({"time":"2000-01-02T03:04:05Z","level":"INFO","msg":"message","a":"one","b":2})"},
         {"empty key", nullptr, false, nullptr, concat(attrs, {slog::Any("", "v")}),
@@ -904,7 +904,7 @@ TEST(GoSlog, HandlerEnabled) {
     };
     int i = 0;
     for (const auto& test : tests) {
-        slog::detail::common_handler h;
+        slog::detail::commonHandler h;
         h.opts.Level = test.leveler;
         EXPECT_EQ(h.enabled(slog::LevelInfo), test.want) << i++;
     }
@@ -1074,17 +1074,17 @@ TEST(GoSlog, NeedsQuoting) {
         {"", true},         {"ab", false},  {"a=b", true}, {R"("ab")", true}, {"\a\b", true},
         {"a\tb", true},     {"µåπ", false}, {"a b", true}, {"badutf8\xF6", true},
     };
-    for (const auto& test : tests) EXPECT_EQ(slog::detail::needs_quoting(test.in), test.want) << quote(test.in);
+    for (const auto& test : tests) EXPECT_EQ(slog::detail::needsQuoting(test.in), test.want) << quote(test.in);
 }
 
 // ---------------------------------------------------------------------------
 // json_handler_test.go
 
 std::string jsonValueString(const Value& v) {
-    slog::detail::common_handler h;
+    slog::detail::commonHandler h;
     h.json = true;
     std::string buf;
-    slog::detail::handle_state s(&h, &buf, "");
+    slog::detail::handleState s(&h, &buf, "");
     if (error err = s.appendJsonValue(v)) s.appendError(err);
     return buf;
 }
@@ -1092,7 +1092,7 @@ std::string jsonValueString(const Value& v) {
 template <typename T>
 std::string marshalJSON(const T& x) {
     json::detail::encoder e;
-    e.escape_html = false;
+    e.escapeHtml = false;
     json::detail::encode(e, x);
     EXPECT_FALSE(e.err) << e.err;
     return e.out;
@@ -1399,10 +1399,10 @@ TEST(GoSlog, LogLoggerLevelForDefaultHandler) {
     log::SetOutput(logBuf);
     log::SetFlags(0);
 
-    using log_fn = void (*)(slog::message);
+    using logFunc = void (*)(slog::message);
     struct {
         slog::Level logLevel;
-        log_fn logFn;
+        logFunc logFn;
         std::string want;
     } tests[] = {
         {slog::LevelDebug, [](slog::message m) { slog::Debug(m); }, "DEBUG a"},
@@ -1476,9 +1476,9 @@ TEST(GoSlog, Context) {
     restoreDefaults restore;
     slog::SetDefault(l);
 
-    using log_fn = std::function<void(const ptr<context::Context>&, slog::message)>;
+    using logFunc = std::function<void(const ptr<context::Context>&, slog::message)>;
     struct {
-        log_fn f;
+        logFunc f;
         slog::Level wantLevel;
     } tests[] = {
         {[&](const ptr<context::Context>& c, slog::message m) { l->DebugContext(c, m); }, slog::LevelDebug},

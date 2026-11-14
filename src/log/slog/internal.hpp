@@ -17,37 +17,37 @@ namespace gopp::slog::detail {
 // The text and JSON handlers' state: options, the attributes and groups of
 // WithAttrs and WithGroup, and the Writer. Immutable once made: WithAttrs
 // and WithGroup make new ones, which share the Writer's mutex.
-struct common_handler : std::enable_shared_from_this<common_handler> {
+struct commonHandler : std::enable_shared_from_this<commonHandler> {
     bool json = false;  // JSON, or else text
     HandlerOptions opts;
-    std::string preformatted_attrs;  // the attributes of WithAttrs, formatted
-    // For text, the prefix of the groups opened in preformatted_attrs
+    std::string preformattedAttrs;  // the attributes of WithAttrs, formatted
+    // For text, the prefix of the groups opened in preformattedAttrs
     // ("a.b."); not used for JSON.
-    std::string group_prefix;
+    std::string groupPrefix;
     std::vector<string> groups;  // all the groups of WithGroup
-    std::size_t n_open_groups = 0;  // how many of them preformatted_attrs opened
+    std::size_t nOpenGroups = 0;  // how many of them preformattedAttrs opened
     std::shared_ptr<sync::Mutex> mu;
     ptr<io::Writer> w;
 
     bool enabled(Level l) const;
-    std::shared_ptr<const common_handler> with_attrs(std::span<const Attr> as) const;
-    std::shared_ptr<const common_handler> withGroup(std::string_view name) const;
+    std::shared_ptr<const commonHandler> withAttrs(std::span<const Attr> as) const;
+    std::shared_ptr<const commonHandler> withGroup(std::string_view name) const;
     error handle(const Record& r) const;
     std::string_view attrSep() const noexcept { return json ? "," : " "; }
 
-    std::shared_ptr<common_handler> clone() const;
+    std::shared_ptr<commonHandler> clone() const;
 };
 
 // The state of formatting one record, or the attributes of WithAttrs.
-struct handle_state {
-    handle_state(const common_handler* h, std::string* buf, std::string_view sep);
+struct handleState {
+    handleState(const commonHandler* h, std::string* buf, std::string_view sep);
 
     void appendNonBuiltins(const Record& r);
     void openGroups();
     void openGroup(const string& name);
     void closeGroup(const string& name);
     bool appendAttrs(std::span<const Attr> as);
-    bool append_attr(Attr a);
+    bool appendAttr(Attr a);
     void appendError(const error& err);
     void appendKey(std::string_view key);
     void appendTwoStrings(std::string_view x, std::string_view y);
@@ -55,15 +55,15 @@ struct handle_state {
     void appendValue(const Value& v);
     void appendTime(const time::Time& t);
 
-    error append_text_value(const Value& v);
+    error appendTextValue(const Value& v);
     error appendJsonValue(const Value& v);
 
-    const common_handler* h;
+    const commonHandler* h;
     std::string* buf;
     std::string_view sep;  // the separator to write before the next key
     std::string prefix;    // for text: the key prefix of the open groups
     // The groups that are open, for ReplaceAttr; only kept if it's set.
-    bool track_groups = false;
+    bool trackGroups = false;
     std::vector<string> groups;
 };
 
@@ -72,7 +72,7 @@ struct handle_state {
 ptr<Handler> newDefaultHandler(std::function<error(const std::source_location&, std::string_view)> output);
 
 // Go's needsQuoting: whether the text handler quotes s.
-bool needs_quoting(std::string_view s);
+bool needsQuoting(std::string_view s);
 
 // Go's appendRFC3339Millis: RFC 3339 with exactly three fractional digits.
 void appendRfc3339Millis(std::string& b, time::Time t);

@@ -14,25 +14,25 @@ namespace gopp::runtime {
 
 namespace {
 
-// States of poll_desc::rg and ::wg, besides a parked G*.
-constexpr uintptr_t pd_nil = 0;
-constexpr uintptr_t pd_ready = 1;
-constexpr uintptr_t pd_wait = 2;
+// States of pollDesc::rg and ::wg, besides a parked G*.
+constexpr uintptr_t pdNil = 0;
+constexpr uintptr_t pdReady = 1;
+constexpr uintptr_t pdWait = 2;
 
 }  // namespace
 
-struct poll_desc {
-    poll_desc* link = nullptr;  // in the free list
-    lock_t lock;                // protects the fields below the atomics
+struct pollDesc {
+    pollDesc* link = nullptr;  // in the free list
+    lockT lock;                // protects the fields below the atomics
     int fd = -1;
 
-    std::atomic<uintptr_t> rg{pd_nil};
-    std::atomic<uintptr_t> wg{pd_nil};
+    std::atomic<uintptr_t> rg{pdNil};
+    std::atomic<uintptr_t> wg{pdNil};
 
     // Read without the lock by poll_wait.
     std::atomic<bool> closing{false};
-    std::atomic<bool> rd_expired{false};
-    std::atomic<bool> wd_expired{false};
+    std::atomic<bool> rdExpired{false};
+    std::atomic<bool> wdExpired{false};
 
     int64_t rd = 0;  // read deadline, -1 if expired
     int64_t wd = 0;
@@ -46,85 +46,85 @@ namespace {
 
 int epfd = -1;
 int wakefd = -1;
-std::atomic<uint32_t> wake_sig{0};
+std::atomic<uint32_t> wakeSig{0};
 std::atomic<int32_t> waiters{0};
 
 // pollDescs are never freed: epoll may still report a closed one.
-lock_t cache_lock;
-poll_desc* cache_first = nullptr;
+lockT cacheLock;
+pollDesc* cacheFirst = nullptr;
 
-poll_desc* allocPd() noexcept {
-    cache_lock.lock();
-    poll_desc* pd = cache_first;
-    if (pd) cache_first = pd->link;
-    cache_lock.unlock();
-    if (!pd) pd = new poll_desc();
+pollDesc* allocPd() noexcept {
+    cacheLock.lock();
+    pollDesc* pd = cacheFirst;
+    if (pd) cacheFirst = pd->link;
+    cacheLock.unlock();
+    if (!pd) pd = new pollDesc();
     return pd;
 }
 
-void freePd(poll_desc* pd) noexcept {
-    cache_lock.lock();
-    pd->link = cache_first;
-    cache_first = pd;
-    cache_lock.unlock();
+void freePd(pollDesc* pd) noexcept {
+    cacheLock.lock();
+    pd->link = cacheFirst;
+    cacheFirst = pd;
+    cacheLock.unlock();
 }
 
-int checkerr(poll_desc* pd, int mode) noexcept {
-    if (pd->closing.load(std::memory_order_acquire)) return poll_err_closing;
-    if ((mode == 'r' && pd->rd_expired.load(std::memory_order_acquire)) ||
-        (mode == 'w' && pd->wd_expired.load(std::memory_order_acquire)))
-        return poll_err_timeout;
-    return poll_no_error;
+int checkerr(pollDesc* pd, int mode) noexcept {
+    if (pd->closing.load(std::memory_order_acquire)) return pollErrClosing;
+    if ((mode == 'r' && pd->rdExpired.load(std::memory_order_acquire)) ||
+        (mode == 'w' && pd->wdExpired.load(std::memory_order_acquire)))
+        return pollErrTimeout;
+    return pollNoError;
 }
 
 bool blockcommit(G* gp, void* arg) noexcept {
     auto* gpp = static_cast<std::atomic<uintptr_t>*>(arg);
-    uintptr_t expected = pd_wait;
+    uintptr_t expected = pdWait;
     bool ok = gpp->compare_exchange_strong(expected, reinterpret_cast<uintptr_t>(gp), std::memory_order_acq_rel);
     if (ok) {
         waiters.fetch_add(1, std::memory_order_relaxed);
         // A fiber's M goes on to poll when idle; a thread has no M.
-        if (gp->is_thread) ensurePoller();
+        if (gp->isThread) ensurePoller();
     }
     return ok;
 }
 
 // Returns true if I/O is ready, false on timeout or close.
-bool netpollblock(poll_desc* pd, int mode, bool waitio) noexcept {
+bool netpollblock(pollDesc* pd, int mode, bool waitio) noexcept {
     std::atomic<uintptr_t>* gpp = mode == 'w' ? &pd->wg : &pd->rg;
     for (;;) {
-        uintptr_t v = pd_ready;
-        if (gpp->compare_exchange_strong(v, pd_nil, std::memory_order_acq_rel)) return true;
-        v = pd_nil;
-        if (gpp->compare_exchange_strong(v, pd_wait, std::memory_order_acq_rel)) break;
-        if (v != pd_ready && v != pd_nil) fatal("netpollblock: double wait");
+        uintptr_t v = pdReady;
+        if (gpp->compare_exchange_strong(v, pdNil, std::memory_order_acq_rel)) return true;
+        v = pdNil;
+        if (gpp->compare_exchange_strong(v, pdWait, std::memory_order_acq_rel)) break;
+        if (v != pdReady && v != pdNil) fatal("netpollblock: double wait");
     }
-    // Recheck errors after setting pd_wait: a deadline or close may have
+    // Recheck errors after setting pdWait: a deadline or close may have
     // come in between and must not be missed.
-    if (waitio || checkerr(pd, mode) == poll_no_error) park(blockcommit, gpp, waitreason::io_wait);
-    uintptr_t old = gpp->exchange(pd_nil, std::memory_order_acq_rel);
-    if (old > pd_wait) fatal("netpollblock: corrupted state");
-    return old == pd_ready;
+    if (waitio || checkerr(pd, mode) == pollNoError) park(blockcommit, gpp, waitreason::ioWait);
+    uintptr_t old = gpp->exchange(pdNil, std::memory_order_acq_rel);
+    if (old > pdWait) fatal("netpollblock: corrupted state");
+    return old == pdReady;
 }
 
 // Returns the G parked on pd for mode, if any, and records readiness when
 // ioready is set.
-G* netpollunblock(poll_desc* pd, int mode, bool ioready) noexcept {
+G* netpollunblock(pollDesc* pd, int mode, bool ioready) noexcept {
     std::atomic<uintptr_t>* gpp = mode == 'w' ? &pd->wg : &pd->rg;
     for (;;) {
         uintptr_t old = gpp->load(std::memory_order_acquire);
-        if (old == pd_ready) return nullptr;
-        if (old == pd_nil && !ioready) return nullptr;
-        uintptr_t nv = ioready ? pd_ready : pd_nil;
+        if (old == pdReady) return nullptr;
+        if (old == pdNil && !ioready) return nullptr;
+        uintptr_t nv = ioready ? pdReady : pdNil;
         if (gpp->compare_exchange_weak(old, nv, std::memory_order_acq_rel)) {
-            if (old == pd_wait || old == pd_nil) return nullptr;
+            if (old == pdWait || old == pdNil) return nullptr;
             waiters.fetch_sub(1, std::memory_order_relaxed);
             return reinterpret_cast<G*>(old);
         }
     }
 }
 
-void deadlineFired(poll_desc* pd, uint64_t seq, bool read) noexcept {
+void deadlineFired(pollDesc* pd, uint64_t seq, bool read) noexcept {
     pd->lock.lock();
     if (read) {
         if (seq != pd->rseq || pd->rd <= 0) {
@@ -132,14 +132,14 @@ void deadlineFired(poll_desc* pd, uint64_t seq, bool read) noexcept {
             return;
         }
         pd->rd = -1;
-        pd->rd_expired.store(true, std::memory_order_release);
+        pd->rdExpired.store(true, std::memory_order_release);
     } else {
         if (seq != pd->wseq || pd->wd <= 0) {
             pd->lock.unlock();
             return;
         }
         pd->wd = -1;
-        pd->wd_expired.store(true, std::memory_order_release);
+        pd->wdExpired.store(true, std::memory_order_release);
     }
     G* gp = netpollunblock(pd, read ? 'r' : 'w', false);
     pd->lock.unlock();
@@ -176,7 +176,7 @@ void netpollWaiterAdd(int32_t delta) noexcept { waiters.fetch_add(delta, std::me
 
 void netpollBreak() noexcept {
     uint32_t z = 0;
-    if (!wake_sig.compare_exchange_strong(z, 1)) return;
+    if (!wakeSig.compare_exchange_strong(z, 1)) return;
     uint64_t one = 1;
     for (;;) {
         ssize_t n = write(wakefd, &one, sizeof(one));
@@ -212,7 +212,7 @@ glist netpoll(int64_t delay) noexcept {
                 uint64_t buf;
                 ssize_t r = read(wakefd, &buf, sizeof(buf));
                 (void)r;
-                wake_sig.store(0);
+                wakeSig.store(0);
             }
             continue;
         }
@@ -220,7 +220,7 @@ glist netpoll(int64_t delay) noexcept {
             uringReap(reinterpret_cast<void*>(tag & ~uintptr_t(1)), list);
             continue;
         }
-        auto* pd = static_cast<poll_desc*>(ev.data.ptr);
+        auto* pd = static_cast<pollDesc*>(ev.data.ptr);
         bool r = ev.events & (EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR);
         bool w = ev.events & (EPOLLOUT | EPOLLHUP | EPOLLERR);
         G* rg = r ? netpollunblock(pd, 'r', true) : nullptr;
@@ -228,23 +228,23 @@ glist netpoll(int64_t delay) noexcept {
         for (G* gp : {rg, wg}) {
             if (!gp) continue;
             // Threads that aren't Ms wait on a semaphore, not a run queue.
-            if (gp->is_thread) ready(gp);
+            if (gp->isThread) ready(gp);
             else list.push_back(gp);
         }
     }
     return list;
 }
 
-poll_desc* pollOpen(int fd, int* err) noexcept {
+pollDesc* pollOpen(int fd, int* err) noexcept {
     ensureInit();
-    poll_desc* pd = allocPd();
+    pollDesc* pd = allocPd();
     pd->lock.lock();
     pd->fd = fd;
     pd->closing.store(false);
-    pd->rd_expired.store(false);
-    pd->wd_expired.store(false);
-    pd->rg.store(pd_nil);
-    pd->wg.store(pd_nil);
+    pd->rdExpired.store(false);
+    pd->wdExpired.store(false);
+    pd->rg.store(pdNil);
+    pd->wg.store(pdNil);
     pd->rd = pd->wd = 0;
     pd->rseq++;
     pd->wseq++;
@@ -262,35 +262,35 @@ poll_desc* pollOpen(int fd, int* err) noexcept {
     return pd;
 }
 
-void pollClose(poll_desc* pd) noexcept {
+void pollClose(pollDesc* pd) noexcept {
     if (!pd->closing.load()) fatal("poll_close: close without unblock");
     uintptr_t wg = pd->wg.load(), rg = pd->rg.load();
-    if ((wg != pd_nil && wg != pd_ready) || (rg != pd_nil && rg != pd_ready)) fatal("poll_close: blocked read or write");
+    if ((wg != pdNil && wg != pdReady) || (rg != pdNil && rg != pdReady)) fatal("poll_close: blocked read or write");
     epoll_event ev{};
     epoll_ctl(epfd, EPOLL_CTL_DEL, pd->fd, &ev);
     freePd(pd);
 }
 
-int pollReset(poll_desc* pd, int mode) noexcept {
+int pollReset(pollDesc* pd, int mode) noexcept {
     int err = checkerr(pd, mode);
-    if (err != poll_no_error) return err;
-    if (mode == 'r') pd->rg.store(pd_nil);
-    else if (mode == 'w') pd->wg.store(pd_nil);
-    return poll_no_error;
+    if (err != pollNoError) return err;
+    if (mode == 'r') pd->rg.store(pdNil);
+    else if (mode == 'w') pd->wg.store(pdNil);
+    return pollNoError;
 }
 
-int pollWait(poll_desc* pd, int mode) noexcept {
+int pollWait(pollDesc* pd, int mode) noexcept {
     int err = checkerr(pd, mode);
-    if (err != poll_no_error) return err;
+    if (err != pollNoError) return err;
     while (!netpollblock(pd, mode, false)) {
         err = checkerr(pd, mode);
-        if (err != poll_no_error) return err;
+        if (err != pollNoError) return err;
         // A timeout that was reset, or a spurious wakeup: wait again.
     }
-    return poll_no_error;
+    return pollNoError;
 }
 
-void pollSetDeadline(poll_desc* pd, int64_t d, int mode) noexcept {
+void pollSetDeadline(pollDesc* pd, int64_t d, int mode) noexcept {
     pd->lock.lock();
     if (pd->closing.load()) {
         pd->lock.unlock();
@@ -303,21 +303,21 @@ void pollSetDeadline(poll_desc* pd, int64_t d, int mode) noexcept {
             t.period = 0;
             t.arg = pd;
             t.seq = seq;
-            t.f = read ? +[](void* arg, uint64_t s) { deadlineFired(static_cast<poll_desc*>(arg), s, true); }
-                       : +[](void* arg, uint64_t s) { deadlineFired(static_cast<poll_desc*>(arg), s, false); };
+            t.f = read ? +[](void* arg, uint64_t s) { deadlineFired(static_cast<pollDesc*>(arg), s, true); }
+                       : +[](void* arg, uint64_t s) { deadlineFired(static_cast<pollDesc*>(arg), s, false); };
             addTimer(&t);
         }
     };
     if (mode == 'r' || mode == 'r' + 'w') {
         pd->rd = d;
         pd->rseq++;
-        pd->rd_expired.store(d < 0, std::memory_order_release);
+        pd->rdExpired.store(d < 0, std::memory_order_release);
         arm(pd->rt, pd->rseq, d, true);
     }
     if (mode == 'w' || mode == 'r' + 'w') {
         pd->wd = d;
         pd->wseq++;
-        pd->wd_expired.store(d < 0, std::memory_order_release);
+        pd->wdExpired.store(d < 0, std::memory_order_release);
         arm(pd->wt, pd->wseq, d, false);
     }
     G* rg = pd->rd < 0 ? netpollunblock(pd, 'r', false) : nullptr;
@@ -327,7 +327,7 @@ void pollSetDeadline(poll_desc* pd, int64_t d, int mode) noexcept {
     if (wg) ready(wg);
 }
 
-void pollUnblock(poll_desc* pd) noexcept {
+void pollUnblock(pollDesc* pd) noexcept {
     pd->lock.lock();
     if (pd->closing.load()) fatal("poll_unblock: already closing");
     pd->closing.store(true, std::memory_order_release);

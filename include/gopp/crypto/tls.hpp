@@ -55,9 +55,9 @@ struct Certificate {
 };
 
 // tls.LoadX509KeyPair: reads and checks a PEM certificate and key.
-std::pair<Certificate, error> LoadX509KeyPair(std::string_view cert_file, std::string_view key_file);
+std::pair<Certificate, error> LoadX509KeyPair(std::string_view certFile, std::string_view keyFile);
 // tls.X509KeyPair
-std::pair<Certificate, error> X509KeyPair(std::string_view cert_pem, std::string_view key_pem);
+std::pair<Certificate, error> X509KeyPair(std::string_view certPem, std::string_view keyPem);
 
 namespace detail {
 struct context;  // compiled OpenSSL contexts of a Config
@@ -94,7 +94,7 @@ struct ConnectionState {
 // tls.Conn
 class Conn final : public net::Conn {
 public:
-    Conn(ptr<net::Conn> conn, const Config& config, bool is_client);
+    Conn(ptr<net::Conn> conn, const Config& config, bool isClient);
     ~Conn() override;
 
     // Runs the handshake if it hasn't run; read and write run it too.

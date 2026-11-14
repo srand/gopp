@@ -63,7 +63,7 @@ private:
 };
 
 // Interface's Less and Swap for the algorithms.
-struct interface_data {
+struct interfaceData {
     Interface& data;
     bool less(isize i, isize j) { return data.Less(i, j); }
     void swap(isize i, isize j) { data.Swap(i, j); }
@@ -71,10 +71,10 @@ struct interface_data {
 
 // sort's lessSwap: Slice's less on indexes, swapping elements.
 template <typename T, typename F>
-struct less_swap {
+struct lessSwap {
     T* p;
-    F& less_fn;
-    bool less(isize i, isize j) { return less_fn(i, j); }
+    F& lessFn;
+    bool less(isize i, isize j) { return lessFn(i, j); }
     void swap(isize i, isize j) {
         using std::swap;
         swap(p[i], p[j]);
@@ -91,7 +91,7 @@ inline detail::reverse Reverse(Interface&& data) noexcept { return detail::rever
 template <slices::detail::contiguous S, typename F>
 void Slice(S&& x, F less) {
     auto s = slices::detail::spanOf(x);
-    detail::less_swap<slices::detail::elem_t<S>, F> data{s.data(), less};
+    detail::lessSwap<slices::detail::elemT<S>, F> data{s.data(), less};
     auto n = static_cast<isize>(s.size());
     slices::detail::pdqsort(data, 0, n, slices::detail::bitsLen(n));
 }
@@ -100,7 +100,7 @@ void Slice(S&& x, F less) {
 template <slices::detail::contiguous S, typename F>
 void SliceStable(S&& x, F less) {
     auto s = slices::detail::spanOf(x);
-    detail::less_swap<slices::detail::elem_t<S>, F> data{s.data(), less};
+    detail::lessSwap<slices::detail::elemT<S>, F> data{s.data(), less};
     slices::detail::stable(data, static_cast<isize>(s.size()));
 }
 

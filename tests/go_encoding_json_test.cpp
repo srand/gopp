@@ -1,5 +1,5 @@
 // Tests ported from Go 1.27.3: encoding/json/scanner_test.Go,
-// encode_test.Go, stream_test.Go and decode_test.Go. Tests of features
+// encode_test.Go, streamTest.Go and decode_test.Go. Tests of features
 // that go++ doesn't have (embedded structs, Number, TextMarshaler, Token,
 // omitzero, interface values) aren't ported.
 //
@@ -244,8 +244,8 @@ TEST(GoEncodingJson, RoundtripStringTag) {
 
 namespace {
 
-struct cycle_node final : object {
-    ptr<cycle_node> next;
+struct cycleNode final : object {
+    ptr<cycleNode> next;
 };
 
 }  // namespace
@@ -257,7 +257,7 @@ TEST(GoEncodingJson, UnsupportedValues) {
         EXPECT_TRUE(errors::As<json::UnsupportedValueError>(err)) << err;
     }
     // pointerCycle
-    auto n = make_ptr<cycle_node>();
+    auto n = make_ptr<cycleNode>();
     n->next = n;
     auto [b, err] = json::Marshal(n);
     n->next = nullptr;  // break the cycle to free it
@@ -302,7 +302,7 @@ TEST(GoEncodingJson, EncodeString) {
 
 TEST(GoEncodingJson, MarshalFloat) {
     // Issue 13783
-    const char* bad_res[] = {
+    const char* badRes[] = {
         "p",                       // no binary exponential notation
         "^\\+",                    // no leading + sign
         "^-?0[^.]",                // no unnecessary leading zeros
@@ -323,7 +323,7 @@ TEST(GoEncodingJson, MarshalFloat) {
         "[1-9][0-9.]{9}[1-9]",  // too many significant digits in decimal
     };
     std::vector<std::regex> bad;
-    for (auto* re : bad_res) bad.emplace_back(re);
+    for (auto* re : badRes) bad.emplace_back(re);
 
     int nfail = 0;
     auto test = [&](double f, int bits) {
@@ -352,7 +352,7 @@ TEST(GoEncodingJson, MarshalFloat) {
         std::size_t n = bits == 64 ? bad.size() - 2 : bad.size();
         for (std::size_t i = 0; i < n; i++) {
             if (std::regex_search(out, bad[i])) {
-                ADD_FAILURE() << "Marshal(" << f << ") = " << out << "; must not match /" << bad_res[i] << "/";
+                ADD_FAILURE() << "Marshal(" << f << ") = " << out << "; must not match /" << badRes[i] << "/";
                 nfail++;
                 return;
             }
@@ -400,31 +400,31 @@ TEST(GoEncodingJson, MarshalRawMessageValue) {
     struct S1 {
         json::RawMessage M;
     };
-    json::RawMessage raw_nil{};
-    json::RawMessage raw_empty{slice<byte>::make(0)};
-    json::RawMessage raw_text{toBytes("\"foo\"")};
+    json::RawMessage rawNil{};
+    json::RawMessage rawEmpty{slice<byte>::make(0)};
+    json::RawMessage rawText{toBytes("\"foo\"")};
 
     // Test with nil RawMessage.
-    EXPECT_EQ(marshalStr(raw_nil), "null");
-    EXPECT_EQ(marshalStr(std::vector<json::RawMessage>{raw_nil}), "[null]");
-    EXPECT_EQ(marshalStr(S1{raw_nil}), R"({"M":null})");
-    EXPECT_EQ(marshalStr(std::map<string, json::RawMessage>{{"M", raw_nil}}), R"({"M":null})");
-    EXPECT_EQ(marshalStr(T1{raw_nil}), "{}");
-    EXPECT_EQ(marshalStr(T2{std::make_shared<json::RawMessage>(raw_nil)}), R"({"M":null})");
+    EXPECT_EQ(marshalStr(rawNil), "null");
+    EXPECT_EQ(marshalStr(std::vector<json::RawMessage>{rawNil}), "[null]");
+    EXPECT_EQ(marshalStr(S1{rawNil}), R"({"M":null})");
+    EXPECT_EQ(marshalStr(std::map<string, json::RawMessage>{{"M", rawNil}}), R"({"M":null})");
+    EXPECT_EQ(marshalStr(T1{rawNil}), "{}");
+    EXPECT_EQ(marshalStr(T2{std::make_shared<json::RawMessage>(rawNil)}), R"({"M":null})");
 
     // Test with empty, but non-nil, RawMessage.
-    EXPECT_TRUE(json::Marshal(raw_empty).second);
-    EXPECT_TRUE(json::Marshal(std::vector<json::RawMessage>{raw_empty}).second);
-    EXPECT_TRUE(json::Marshal(S1{raw_empty}).second);
-    EXPECT_EQ(marshalStr(T1{raw_empty}), "{}");
-    EXPECT_TRUE(json::Marshal(T2{std::make_shared<json::RawMessage>(raw_empty)}).second);
+    EXPECT_TRUE(json::Marshal(rawEmpty).second);
+    EXPECT_TRUE(json::Marshal(std::vector<json::RawMessage>{rawEmpty}).second);
+    EXPECT_TRUE(json::Marshal(S1{rawEmpty}).second);
+    EXPECT_EQ(marshalStr(T1{rawEmpty}), "{}");
+    EXPECT_TRUE(json::Marshal(T2{std::make_shared<json::RawMessage>(rawEmpty)}).second);
 
     // Test with RawMessage with some text.
-    EXPECT_EQ(marshalStr(raw_text), "\"foo\"");
-    EXPECT_EQ(marshalStr(std::vector<json::RawMessage>{raw_text}), "[\"foo\"]");
-    EXPECT_EQ(marshalStr(S1{raw_text}), R"({"M":"foo"})");
-    EXPECT_EQ(marshalStr(T1{raw_text}), R"({"M":"foo"})");
-    EXPECT_EQ(marshalStr(T2{std::make_shared<json::RawMessage>(raw_text)}), R"({"M":"foo"})");
+    EXPECT_EQ(marshalStr(rawText), "\"foo\"");
+    EXPECT_EQ(marshalStr(std::vector<json::RawMessage>{rawText}), "[\"foo\"]");
+    EXPECT_EQ(marshalStr(S1{rawText}), R"({"M":"foo"})");
+    EXPECT_EQ(marshalStr(T1{rawText}), R"({"M":"foo"})");
+    EXPECT_EQ(marshalStr(T2{std::make_shared<json::RawMessage>(rawText)}), R"({"M":"foo"})");
 }
 
 TEST(GoEncodingJson, MarshalUncommonFieldNames) {
@@ -435,45 +435,45 @@ TEST(GoEncodingJson, MarshalUncommonFieldNames) {
 }
 
 TEST(GoEncodingJson, MarshalerError) {
-    const char* err_text = "json: test error";
+    const char* errText = "json: test error";
     json::MarshalerError e1;
     e1.type = "string";
-    e1.Err = errors::New(err_text);
+    e1.Err = errors::New(errText);
     EXPECT_EQ(e1.Error(), "json: error calling MarshalJSON for type string: json: test error");
     json::MarshalerError e2;
     e2.type = "string";
-    e2.Err = errors::New(err_text);
-    e2.source_func = "TestMarshalerError";
+    e2.Err = errors::New(errText);
+    e2.sourceFunc = "TestMarshalerError";
     EXPECT_EQ(e2.Error(), "json: error calling TestMarshalerError for type string: json: test error");
 }
 
 // ---------------------------------------------------------------------------
-// stream_test.Go
+// streamTest.Go
 
 namespace {
 
 // streamTest; "K" is U+212A KELVIN SIGN, which sorts after "ß".
-std::vector<json::Value> stream_test() {
+std::vector<json::Value> streamTest() {
     json::Value::object m;
     m[string("\xe2\x84\xaa")] = "Kelvin";
     m[string("\xc3\x9f")] = "long s";
     return {0.1, "hello", nullptr, true, false, json::Value::array{"a", "b", "c"}, m, 3.14};
 }
 
-const std::string stream_encoded =
+const std::string streamEncoded =
     "0.1\n\"hello\"\nnull\ntrue\nfalse\n[\"a\",\"b\",\"c\"]\n{\"\xc3\x9f\":\"long s\",\"\xe2\x84\xaa\":\"Kelvin\"}\n3.14\n";
 
 }  // namespace
 
 TEST(GoEncodingJson, Encoder) {
-    auto values = stream_test();
+    auto values = streamTest();
     for (std::size_t i = 0; i <= values.size(); i++) {
         strings::Builder buf;
         auto enc = json::NewEncoder(buf);
         enc.SetIndent(">", ".");
         enc.SetIndent("", "");
         for (std::size_t j = 0; j < i; j++) ASSERT_FALSE(enc.Encode(values[j])) << i << "." << j;
-        EXPECT_EQ(buf.view(), nlines(stream_encoded, static_cast<int>(i))) << "encoding " << i << " items";
+        EXPECT_EQ(buf.view(), nlines(streamEncoded, static_cast<int>(i))) << "encoding " << i << " items";
     }
 }
 
@@ -484,7 +484,7 @@ TEST(GoEncodingJson, EncoderIndent) {
     strings::Builder buf;
     auto enc = json::NewEncoder(buf);
     enc.SetIndent(">", ".");
-    for (auto& v : stream_test()) enc.Encode(v);
+    for (auto& v : streamTest()) enc.Encode(v);
     EXPECT_EQ(buf.view(), want);
 }
 
@@ -506,22 +506,22 @@ TEST(GoEncodingJson, EncoderSetEscapeHTML) {
     struct {
         [[=json::tag("<>&#! ")]] int Valid;
         [[=json::tag("\\")]] int Invalid;
-    } tag_struct{};
+    } tagStruct{};
     struct {
         strMarshaler NonPtr;
         std::shared_ptr<strMarshaler> Ptr;
-    } marshaler_struct{{"\"<str>\""}, std::make_shared<strMarshaler>(strMarshaler{"\"<str>\""})};
+    } marshalerStruct{{"\"<str>\""}, std::make_shared<strMarshaler>(strMarshaler{"\"<str>\""})};
     struct {
         [[=json::tag("bar,string")]] string Bar;
-    } string_option{"<html>foobar</html>"};
+    } stringOption{"<html>foobar</html>"};
 
-    auto check = [](const auto& v, std::string_view name, std::string_view want_escape, std::string_view want) {
+    auto check = [](const auto& v, std::string_view name, std::string_view wantEscape, std::string_view want) {
         strings::Builder buf;
         auto enc = json::NewEncoder(buf);
         ASSERT_FALSE(enc.Encode(v)) << name;
         std::string got(buf.view());
         while (!got.empty() && got.back() == '\n') got.pop_back();
-        EXPECT_EQ(got, want_escape) << name;
+        EXPECT_EQ(got, wantEscape) << name;
         buf.reset();
         enc.SetEscapeHTML(false);
         ASSERT_FALSE(enc.Encode(v)) << name;
@@ -531,18 +531,18 @@ TEST(GoEncodingJson, EncoderSetEscapeHTML) {
     };
     check(C{}, "c", "\"\\u003c\\u0026\\u003e\"", "\"<&>\"");
     check(std::string("<&>"), "\"<&>\"", "\"\\u003c\\u0026\\u003e\"", "\"<&>\"");
-    check(tag_struct, "tagStruct", "{\"\\u003c\\u003e\\u0026#! \":0,\"Invalid\":0}", "{\"<>&#! \":0,\"Invalid\":0}");
-    check(marshaler_struct, "\"<str>\"", "{\"NonPtr\":\"\\u003cstr\\u003e\",\"Ptr\":\"\\u003cstr\\u003e\"}",
+    check(tagStruct, "tagStruct", "{\"\\u003c\\u003e\\u0026#! \":0,\"Invalid\":0}", "{\"<>&#! \":0,\"Invalid\":0}");
+    check(marshalerStruct, "\"<str>\"", "{\"NonPtr\":\"\\u003cstr\\u003e\",\"Ptr\":\"\\u003cstr\\u003e\"}",
           "{\"NonPtr\":\"<str>\",\"Ptr\":\"<str>\"}");
-    check(string_option, "stringOption", "{\"bar\":\"\\\"\\\\u003chtml\\\\u003efoobar\\\\u003c/html\\\\u003e\\\"\"}",
+    check(stringOption, "stringOption", "{\"bar\":\"\\\"\\\\u003chtml\\\\u003efoobar\\\\u003c/html\\\\u003e\\\"\"}",
           "{\"bar\":\"\\\"<html>foobar</html>\\\"\"}");
 }
 
 TEST(GoEncodingJson, Decoder) {
-    auto values = stream_test();
+    auto values = streamTest();
     for (std::size_t i = 0; i <= values.size(); i++) {
         std::string buf;
-        for (char c : nlines(stream_encoded, static_cast<int>(i))) {
+        for (char c : nlines(streamEncoded, static_cast<int>(i))) {
             if (c != '\n') buf.push_back(c);
         }
         io::StringReader r{string(buf)};
@@ -701,7 +701,7 @@ TEST(GoEncodingJson, UnmarshalMaxDepth) {
     auto repeat = [](std::string_view s, int n) { return strings::Repeat(s, static_cast<std::size_t>(n)).str(); };
     struct {
         std::string name, data;
-        bool err_max_depth;
+        bool errMaxDepth;
     } tests[] = {
         {"ArrayUnderMaxNestingDepth", R"({"a":)" + repeat("[", 10000 - 1) + repeat("]", 10000 - 1) + "}", false},
         {"ArrayOverMaxNestingDepth", R"({"a":)" + repeat("[", 10000) + repeat("]", 10000) + "}", true},
@@ -710,15 +710,15 @@ TEST(GoEncodingJson, UnmarshalMaxDepth) {
         {"ObjectOverMaxNestingDepth", R"({"a":)" + repeat(R"({"a":)", 10000) + "0" + repeat("}", 10000) + "}", true},
         {"ObjectOverStackDepth", R"({"a":)" + repeat(R"({"a":)", 3000000) + "0" + repeat("}", 3000000) + "}", true},
     };
-    struct typed_named {
+    struct typedNamed {
         [[=json::tag("a")]] json::Value A;
     };
-    struct typed_missing {
+    struct typedMissing {
         [[=json::tag("b")]] json::Value B;
     };
     for (auto& tt : tests) {
         auto check = [&](error err, std::string_view target) {
-            if (!tt.err_max_depth) {
+            if (!tt.errMaxDepth) {
                 EXPECT_FALSE(err) << tt.name << ": " << target << ": " << err;
             } else {
                 EXPECT_TRUE(err && strings::Contains(err.Error(), "exceeded max depth")) << tt.name << ": " << target << ": " << err;
@@ -726,9 +726,9 @@ TEST(GoEncodingJson, UnmarshalMaxDepth) {
         };
         json::Value unstructured;
         check(json::Unmarshal(tt.data, &unstructured), "unstructured");
-        typed_named named{};
+        typedNamed named{};
         check(json::Unmarshal(tt.data, &named), "typed named field");
-        typed_missing missing{};
+        typedMissing missing{};
         check(json::Unmarshal(tt.data, &missing), "typed missing field");
         unmarshaler custom;
         check(json::Unmarshal(tt.data, &custom), "custom unmarshaler");

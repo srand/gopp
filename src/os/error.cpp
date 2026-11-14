@@ -7,14 +7,14 @@ namespace gopp::os {
 
 namespace {
 
-struct timeout_error final : errorInterface {
+struct timeoutError final : errorInterface {
     string Error() const override { return string::fromStatic("i/o timeout"); }
     bool Timeout() const noexcept override { return true; }
 };
 
 // Go's underlyingError: the error of a PathError, LinkError or
 // SyscallError, or err.
-const errorInterface* underlying_error(const error& err) noexcept {
+const errorInterface* underlyingError(const error& err) noexcept {
     const errorInterface* e = err.get();
     if (auto* pe = dynamic_cast<const PathError*>(e)) return pe->Err.get();
     if (auto* le = dynamic_cast<const LinkError*>(e)) return le->Err.get();
@@ -23,16 +23,16 @@ const errorInterface* underlying_error(const error& err) noexcept {
 }
 
 bool underlyingErrorIs(const error& err, const error& target) noexcept {
-    const errorInterface* e = underlying_error(err);
+    const errorInterface* e = underlyingError(err);
     if (e == target.get()) return true;
-    auto* errno_err = dynamic_cast<const syscall::Errno*>(e);
-    return errno_err && errno_err->Is(target.get());
+    auto* errnoErr = dynamic_cast<const syscall::Errno*>(e);
+    return errnoErr && errnoErr->Is(target.get());
 }
 
 }  // namespace
 
 const error ErrNoDeadline = errors::New("file type does not support deadline");
-const error ErrDeadlineExceeded = error(make_ptr<timeout_error>());
+const error ErrDeadlineExceeded = error(make_ptr<timeoutError>());
 
 string LinkError::Error() const {
     std::string s(Op.view());
@@ -62,7 +62,7 @@ bool IsNotExist(const gopp::error& err) noexcept { return underlyingErrorIs(err,
 bool IsPermission(const gopp::error& err) noexcept { return underlyingErrorIs(err, ErrPermission); }
 
 bool IsTimeout(const gopp::error& err) noexcept {
-    const errorInterface* e = underlying_error(err);
+    const errorInterface* e = underlyingError(err);
     return e && e->Timeout();
 }
 

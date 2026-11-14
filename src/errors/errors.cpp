@@ -104,7 +104,7 @@ const errorInterface* find(const errorInterface* e, bool (*match)(const errorInt
 namespace {
 
 // Go's joinError.
-struct join_error final : errorInterface {
+struct joinError final : errorInterface {
     std::vector<error> errs;
     string Error() const override {
         std::string s;
@@ -117,15 +117,15 @@ struct join_error final : errorInterface {
     std::span<const error> UnwrapList() const noexcept override { return errs; }
 };
 
-struct error_string final : errorInterface {
-    explicit error_string(string s) : s(std::move(s)) {}
+struct errorString final : errorInterface {
+    explicit errorString(string s) : s(std::move(s)) {}
     string Error() const override { return s; }
     string s;
 };
 
 }  // namespace
 
-error New(string text) { return error(make_ptr<error_string>(std::move(text))); }
+error New(string text) { return error(make_ptr<errorString>(std::move(text))); }
 
 bool Is(const error& err, const error& target) noexcept {
     if (!err || !target) return err == target;
@@ -140,7 +140,7 @@ bool Is(const error& err, const error& target) noexcept {
 }
 
 error Join(std::span<const error> errs) {
-    auto e = make_ptr<join_error>();
+    auto e = make_ptr<joinError>();
     for (const error& err : errs) {
         if (err) e->errs.push_back(err);
     }

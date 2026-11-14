@@ -15,23 +15,23 @@ using namespace detail;
 
 namespace {
 
-struct exec_panic {
+struct execPanic {
     gopp::error err;
 };
-struct write_panic {
+struct writePanic {
     gopp::error err;
 };
-struct walk_break {};
+struct walkBreak {};
 
 // An error message wrapping its cause, as Go's %w does.
-struct wrap_error final : errorInterface {
+struct wrapError final : errorInterface {
     string msg;
     gopp::error cause;
-    wrap_error(string m, gopp::error c) : msg(std::move(m)), cause(std::move(c)) {}
+    wrapError(string m, gopp::error c) : msg(std::move(m)), cause(std::move(c)) {}
     string Error() const override { return msg; }
     const errorInterface* Unwrap() const noexcept override { return cause.get(); }
 };
-struct walk_continue {};
+struct walkContinue {};
 
 struct variable {
     string name;
@@ -40,31 +40,31 @@ struct variable {
 
 // What a call needs to know of a function or method.
 struct callee {
-    std::function<const type_ops*(int)> in;
-    int num_in = 0;
+    std::function<const typeOps*(int)> in;
+    int numIn = 0;
     bool variadic = false;
     std::function<std::pair<Value, gopp::error>(std::span<const Value>)> call;
 };
 
 callee ofFunc(const Func& f) {
     callee c;
-    c.num_in = f.NumIn();
+    c.numIn = f.NumIn();
     c.variadic = f.IsVariadic();
     c.in = [&f](int i) { return f.In(i); };
     c.call = [&f](std::span<const Value> a) { return f.Call(a); };
     return c;
 }
 
-callee ofMethod(const method_info& m, const Value& recv) {
+callee ofMethod(const methodInfo& m, const Value& recv) {
     callee c;
-    c.num_in = static_cast<int>(m.in.size());
+    c.numIn = static_cast<int>(m.in.size());
     c.variadic = m.variadic;
     c.in = [&m](int i) { return m.in[static_cast<std::size_t>(i)] ? m.in[static_cast<std::size_t>(i)]() : nullptr; };
     c.call = [&m, recv](std::span<const Value> a) { return m.call(recv.ptr(), recv.owner(), a); };
     return c;
 }
 
-bool canBeNil(const type_ops* t) {
+bool canBeNil(const typeOps* t) {
     if (!t) return true;
     switch (t->kind) {
     case Kind::Func: case Kind::Interface: case Kind::Map: case Kind::Pointer: case Kind::Slice:
@@ -78,7 +78,7 @@ bool intLike(Kind k) { return k == Kind::Int || k == Kind::Uint; }
 
 // Whether a value of type v may go where t is expected. go++ lets the
 // scalar kinds of different sizes convert (Go wouldn't).
-bool assignable(const type_ops* v, const type_ops* t) {
+bool assignable(const typeOps* v, const typeOps* t) {
     if (!t || v == t) return true;
     if (v->name == t->name && v->kind == t->kind) return true;
     switch (t->kind) {
@@ -161,8 +161,8 @@ public:
             out.push_back(text[i]);
             if (text[i] == '%' && i + 1 < text.size() && text[i + 1] == '%') i++;
         }
-        gopp::error err = cause ? gopp::error(make_ptr<wrap_error>(string(out), cause)) : errors::New(string(out));
-        throw exec_panic{make_ptr<ExecError>(tmpl_->Name(), err)};
+        gopp::error err = cause ? gopp::error(make_ptr<wrapError>(string(out), cause)) : errors::New(string(out));
+        throw execPanic{make_ptr<ExecError>(tmpl_->Name(), err)};
     }
 
     // -------------------------------------------------------------------
@@ -179,38 +179,38 @@ public:
     Value evalPipeline(const Value& dot, const parse::PipeNode* pipe);
     void notAFunction(const std::vector<ptr<parse::Node>>& args, const std::optional<Value>& final);
     Value evalCommand(const Value& dot, const parse::CommandNode* cmd, const std::optional<Value>& final);
-    Value ideal_constant(const parse::NumberNode* c);
+    Value idealConstant(const parse::NumberNode* c);
     Value evalFieldNode(const Value& dot, const parse::FieldNode* f, const std::vector<ptr<parse::Node>>* args,
                           const std::optional<Value>& final);
-    Value eval_chain_node(const Value& dot, const parse::ChainNode* c, const std::vector<ptr<parse::Node>>* args,
+    Value evalChainNode(const Value& dot, const parse::ChainNode* c, const std::vector<ptr<parse::Node>>* args,
                           const std::optional<Value>& final);
     Value evalVariableNode(const Value& dot, const parse::VariableNode* v, const std::vector<ptr<parse::Node>>* args,
                              const std::optional<Value>& final);
-    Value eval_field_chain(const Value& dot, Value receiver, const parse::Node* node, std::span<const string> ident,
+    Value evalFieldChain(const Value& dot, Value receiver, const parse::Node* node, std::span<const string> ident,
                            const std::vector<ptr<parse::Node>>* args, const std::optional<Value>& final);
     Value evalFunction(const Value& dot, const parse::IdentifierNode* node, const parse::Node* cmd,
                         const std::vector<ptr<parse::Node>>* args, const std::optional<Value>& final);
-    Value eval_field(const Value& dot, const string& field_name, const parse::Node* node,
+    Value evalField(const Value& dot, const string& fieldName, const parse::Node* node,
                      const std::vector<ptr<parse::Node>>* args, const std::optional<Value>& final, Value receiver);
-    Value eval_call(const Value& dot, const callee& fun, bool is_builtin, const parse::Node* node, std::string_view name,
+    Value evalCall(const Value& dot, const callee& fun, bool isBuiltin, const parse::Node* node, std::string_view name,
                     const std::vector<ptr<parse::Node>>* args, const std::optional<Value>& final);
-    Value validate_type(const Value& value, const type_ops* typ);
-    Value evalArg(const Value& dot, const type_ops* typ, const parse::Node* n);
-    Value eval_empty_interface(const Value& dot, const parse::Node* n);
-    void print_value(const parse::Node* n, const Value& v);
+    Value validateType(const Value& value, const typeOps* typ);
+    Value evalArg(const Value& dot, const typeOps* typ, const parse::Node* n);
+    Value evalEmptyInterface(const Value& dot, const parse::Node* n);
+    void printValue(const parse::Node* n, const Value& v);
 };
 
 void state::walkAction(const Value& dot, const parse::ActionNode* n) {
     // Don't pop variables: they persist until the end of the control
     // structure.
     Value val = evalPipeline(dot, n->Pipe.get());
-    if (n->Pipe->Decl.empty()) print_value(n, val);
+    if (n->Pipe->Decl.empty()) printValue(n, val);
 }
 
 void state::walkText(const parse::TextNode* n) {
     const string& text = n->Text;
     if (auto [k, err] = wr_->Write(std::span<const byte>(reinterpret_cast<const byte*>(text.data()), text.size())); err) {
-        throw write_panic{err};
+        throw writePanic{err};
     }
 }
 
@@ -220,9 +220,9 @@ void state::walk(const Value& dot, const parse::Node* node) {
     at(node);
     switch (node->Type()) {
     case parse::NodeAction: walkAction(dot, static_cast<const parse::ActionNode*>(node)); break;
-    case parse::NodeBreak: throw walk_break{};
+    case parse::NodeBreak: throw walkBreak{};
     case parse::NodeComment: break;
-    case parse::NodeContinue: throw walk_continue{};
+    case parse::NodeContinue: throw walkContinue{};
     case parse::NodeIf: walkIfOrWith(parse::NodeIf, dot, static_cast<const parse::BranchNode*>(node)); break;
     case parse::NodeList:
         for (auto& n : static_cast<const parse::ListNode*>(node)->Nodes) walk(dot, n.get());
@@ -265,7 +265,7 @@ void state::walkRange(const Value& dot, const parse::BranchNode* r) {
     // mark top of stack before any variables in the body are pushed.
     std::size_t m = mark();
     const auto& decl = r->Pipe->Decl;
-    auto one_iteration = [&](const Value& index, const Value& elem) {
+    auto oneIteration = [&](const Value& index, const Value& elem) {
         if (!decl.empty()) {
             if (r->Pipe->IsAssign) {
                 // With two variables, index comes first; with one, element.
@@ -288,7 +288,7 @@ void state::walkRange(const Value& dot, const parse::BranchNode* r) {
         } p{*this, m};
         try {
             walk(elem, r->List.get());
-        } catch (walk_continue&) {
+        } catch (walkContinue&) {
         }
     };
     try {
@@ -302,12 +302,12 @@ void state::walkRange(const Value& dot, const parse::BranchNode* r) {
             if (val.Kind() == Kind::Int) {
                 for (int64 i = 0; i < val.Int(); i++) {
                     run = true;
-                    one_iteration(Value(), Value::scalarInt(val.Type(), i));
+                    oneIteration(Value(), Value::scalarInt(val.Type(), i));
                 }
             } else {
                 for (uint64 i = 0; i < val.Uint(); i++) {
                     run = true;
-                    one_iteration(Value(), Value::scalarUint(val.Type(), i));
+                    oneIteration(Value(), Value::scalarUint(val.Type(), i));
                 }
             }
             if (run) return;
@@ -317,13 +317,13 @@ void state::walkRange(const Value& dot, const parse::BranchNode* r) {
         case Kind::Slice: {
             if (val.Len() == 0) break;
             for (std::size_t i = 0; i < val.Len(); i++) {
-                one_iteration(Value::scalarInt(intOps(), static_cast<int64>(i)), val.Index(i));
+                oneIteration(Value::scalarInt(intOps(), static_cast<int64>(i)), val.Index(i));
             }
             return;
         }
         case Kind::Map: {
             if (val.Len() == 0) break;
-            for (auto& [k, v] : val.MapEntries()) one_iteration(k, v);
+            for (auto& [k, v] : val.MapEntries()) oneIteration(k, v);
             return;
         }
         case Kind::Invalid:
@@ -331,7 +331,7 @@ void state::walkRange(const Value& dot, const parse::BranchNode* r) {
         default:
             errorf("range can't iterate over " + fmtV(val));
         }
-    } catch (walk_break&) {
+    } catch (walkBreak&) {
         return;
     }
     if (r->ElseList) walk(dot, r->ElseList.get());
@@ -341,7 +341,7 @@ void state::walkTemplate(const Value& dot, const parse::TemplateNode* t) {
     at(t);
     ptr<Template> tmpl = tmpl_->Lookup(t->Name);
     if (!tmpl) errorf("template " + detail::quote(t->Name) + " not defined");
-    if (depth_ >= max_exec_depth) errorf(std::format("exceeded maximum template depth ({})", max_exec_depth));
+    if (depth_ >= maxExecDepth) errorf(std::format("exceeded maximum template depth ({})", maxExecDepth));
     // Variables declared by the pipeline persist.
     Value d = evalPipeline(dot, t->Pipe.get());
     state ns(tmpl.get(), wr_);
@@ -377,36 +377,36 @@ void state::notAFunction(const std::vector<ptr<parse::Node>>& args, const std::o
 }
 
 Value state::evalCommand(const Value& dot, const parse::CommandNode* cmd, const std::optional<Value>& final) {
-    const parse::Node* first_word = cmd->Args[0].get();
-    switch (first_word->Type()) {
+    const parse::Node* firstWord = cmd->Args[0].get();
+    switch (firstWord->Type()) {
     case parse::NodeField:
-        return evalFieldNode(dot, static_cast<const parse::FieldNode*>(first_word), &cmd->Args, final);
+        return evalFieldNode(dot, static_cast<const parse::FieldNode*>(firstWord), &cmd->Args, final);
     case parse::NodeChain:
-        return eval_chain_node(dot, static_cast<const parse::ChainNode*>(first_word), &cmd->Args, final);
+        return evalChainNode(dot, static_cast<const parse::ChainNode*>(firstWord), &cmd->Args, final);
     case parse::NodeIdentifier:
         // Must be a function.
-        return evalFunction(dot, static_cast<const parse::IdentifierNode*>(first_word), cmd, &cmd->Args, final);
+        return evalFunction(dot, static_cast<const parse::IdentifierNode*>(firstWord), cmd, &cmd->Args, final);
     case parse::NodePipe:
         // Parenthesized pipeline. The arguments are all inside the pipeline;
         // final must be absent.
         notAFunction(cmd->Args, final);
-        return evalPipeline(dot, static_cast<const parse::PipeNode*>(first_word));
+        return evalPipeline(dot, static_cast<const parse::PipeNode*>(firstWord));
     case parse::NodeVariable:
-        return evalVariableNode(dot, static_cast<const parse::VariableNode*>(first_word), &cmd->Args, final);
+        return evalVariableNode(dot, static_cast<const parse::VariableNode*>(firstWord), &cmd->Args, final);
     default:
         break;
     }
-    at(first_word);
+    at(firstWord);
     notAFunction(cmd->Args, final);
-    switch (first_word->Type()) {
-    case parse::NodeBool: return Value::scalar(boolOps(), static_cast<const parse::BoolNode*>(first_word)->True);
+    switch (firstWord->Type()) {
+    case parse::NodeBool: return Value::scalar(boolOps(), static_cast<const parse::BoolNode*>(firstWord)->True);
     case parse::NodeDot: return dot;
     case parse::NodeNil: errorf("nil is not a command");
-    case parse::NodeNumber: return ideal_constant(static_cast<const parse::NumberNode*>(first_word));
-    case parse::NodeString: return Value::scalarString(stringOps(), static_cast<const parse::StringNode*>(first_word)->Text);
+    case parse::NodeNumber: return idealConstant(static_cast<const parse::NumberNode*>(firstWord));
+    case parse::NodeString: return Value::scalarString(stringOps(), static_cast<const parse::StringNode*>(firstWord)->Text);
     default: break;
     }
-    errorf("can't evaluate command " + detail::quote(first_word->String()));
+    errorf("can't evaluate command " + detail::quote(firstWord->String()));
 }
 
 // idealConstant is called to return the value of a number in a context
@@ -414,7 +414,7 @@ Value state::evalCommand(const Value& dot, const parse::CommandNode* cmd, const 
 // tells us its type, and we use Go rules to resolve. Note there is no
 // such thing as a uint ideal constant in this situation - the value must
 // be of int type.
-Value state::ideal_constant(const parse::NumberNode* c) {
+Value state::idealConstant(const parse::NumberNode* c) {
     at(c);
     if (c->IsComplex) return Value::scalarFloat(complexOps(), c->Complex128.real(), c->Complex128.imag());
     if (c->IsFloat && !isHexInt(c->Text) && !isRuneInt(c->Text) && c->Text.view().find_first_of(".eEpP") != std::string_view::npos) {
@@ -428,10 +428,10 @@ Value state::ideal_constant(const parse::NumberNode* c) {
 Value state::evalFieldNode(const Value& dot, const parse::FieldNode* field, const std::vector<ptr<parse::Node>>* args,
                              const std::optional<Value>& final) {
     at(field);
-    return eval_field_chain(dot, dot, field, field->Ident, args, final);
+    return evalFieldChain(dot, dot, field, field->Ident, args, final);
 }
 
-Value state::eval_chain_node(const Value& dot, const parse::ChainNode* chain, const std::vector<ptr<parse::Node>>* args,
+Value state::evalChainNode(const Value& dot, const parse::ChainNode* chain, const std::vector<ptr<parse::Node>>* args,
                              const std::optional<Value>& final) {
     at(chain);
     if (chain->Field.empty()) errorf("internal error: no fields in evalChainNode");
@@ -439,7 +439,7 @@ Value state::eval_chain_node(const Value& dot, const parse::ChainNode* chain, co
     // (pipe).Field1.Field2 has pipe as .Node, fields as .Field. Eval the
     // pipeline, then the fields.
     Value pipe = evalArg(dot, nullptr, chain->Node.get());
-    return eval_field_chain(dot, pipe, chain, chain->Field, args, final);
+    return evalFieldChain(dot, pipe, chain, chain->Field, args, final);
 }
 
 Value state::evalVariableNode(const Value& dot, const parse::VariableNode* variable,
@@ -453,18 +453,18 @@ Value state::evalVariableNode(const Value& dot, const parse::VariableNode* varia
         else if (final) errorf("can't give argument to non-function " + variable->String().str());
         return value;
     }
-    return eval_field_chain(dot, value, variable, std::span(variable->Ident).subspan(1), args, final);
+    return evalFieldChain(dot, value, variable, std::span(variable->Ident).subspan(1), args, final);
 }
 
 // evalFieldChain evaluates .X.Y.Z possibly followed by arguments. dot is
 // the environment in which to evaluate arguments, while receiver is the
 // value being walked along the chain.
-Value state::eval_field_chain(const Value& dot, Value receiver, const parse::Node* node, std::span<const string> ident,
+Value state::evalFieldChain(const Value& dot, Value receiver, const parse::Node* node, std::span<const string> ident,
                               const std::vector<ptr<parse::Node>>* args, const std::optional<Value>& final) {
     std::size_t n = ident.size();
-    for (std::size_t i = 0; i + 1 < n; i++) receiver = eval_field(dot, ident[i], node, nullptr, std::nullopt, receiver);
+    for (std::size_t i = 0; i + 1 < n; i++) receiver = evalField(dot, ident[i], node, nullptr, std::nullopt, receiver);
     // Now if it's a method, it gets the arguments.
-    return eval_field(dot, ident[n - 1], node, args, final, receiver);
+    return evalField(dot, ident[n - 1], node, args, final, receiver);
 }
 
 Value state::evalFunction(const Value& dot, const parse::IdentifierNode* node, const parse::Node* cmd,
@@ -472,73 +472,73 @@ Value state::evalFunction(const Value& dot, const parse::IdentifierNode* node, c
     at(node);
     std::string_view name = node->Ident;
     const Func* function = nullptr;
-    bool is_builtin = false;
-    if (common* c = template_access::of(*tmpl_)) {
-        c->mu_funcs.RLock();
-        auto it = c->exec_funcs.find(name);
-        if (it != c->exec_funcs.end()) function = &it->second;
-        c->mu_funcs.RUnlock();
+    bool isBuiltin = false;
+    if (common* c = templateAccess::of(*tmpl_)) {
+        c->muFuncs.RLock();
+        auto it = c->execFuncs.find(name);
+        if (it != c->execFuncs.end()) function = &it->second;
+        c->muFuncs.RUnlock();
     }
     if (!function) {
         auto it = builtins().find(name);
         if (it != builtins().end()) {
             function = &it->second;
-            is_builtin = true;
+            isBuiltin = true;
         }
     }
     if (!function) errorf(detail::quote(name) + " is not a defined function");
-    return eval_call(dot, ofFunc(*function), is_builtin, cmd, name, args, final);
+    return evalCall(dot, ofFunc(*function), isBuiltin, cmd, name, args, final);
 }
 
 // evalField evaluates an expression like (.Field) or (.Field arg1 arg2).
 // The 'final' argument represents the return value from the preceding
 // value of the pipeline, if any.
-Value state::eval_field(const Value& dot, const string& field_name, const parse::Node* node,
+Value state::evalField(const Value& dot, const string& fieldName, const parse::Node* node,
                         const std::vector<ptr<parse::Node>>* args, const std::optional<Value>& final, Value receiver) {
     if (!receiver.IsValid()) {
-        if (template_access::of(*tmpl_)->missing_key == map_error) errorf("nil data; no entry for key " + detail::quote(field_name));
+        if (templateAccess::of(*tmpl_)->missingKey == mapError) errorf("nil data; no entry for key " + detail::quote(fieldName));
         return Value();
     }
     std::string typ(receiver.TypeName());
     auto [recv, isNil] = indirect(receiver);
     if (recv.Kind() == Kind::Interface && isNil) {
         // Calling a method on a nil interface can't work.
-        errorf("nil pointer evaluating " + typ + "." + field_name.str());
+        errorf("nil pointer evaluating " + typ + "." + fieldName.str());
     }
     // Unless it's an interface, need to get to a value of type *T to
     // guarantee we see all methods of both T and *T.
-    const method_info* method = nullptr;
-    Value method_recv = recv;
-    if (!isNil) method = recv.MethodByName(field_name);
+    const methodInfo* method = nullptr;
+    Value methodRecv = recv;
+    if (!isNil) method = recv.MethodByName(fieldName);
     if (!method && receiver.IsValid() && receiver.Type() != recv.Type()) {
-        method = receiver.MethodByName(field_name);
-        method_recv = receiver;
+        method = receiver.MethodByName(fieldName);
+        methodRecv = receiver;
     }
-    if (method) return eval_call(dot, ofMethod(*method, method_recv), false, node, field_name, args, final);
-    bool has_args = (args && args->size() > 1) || final;
+    if (method) return evalCall(dot, ofMethod(*method, methodRecv), false, node, fieldName, args, final);
+    bool hasArgs = (args && args->size() > 1) || final;
     // It's not a method; must be a field of a struct or an element of a map.
     switch (recv.Kind()) {
     case Kind::Struct:
-        if (auto field = recv.FieldByName(field_name)) {
-            if (has_args) errorf(field_name.str() + " has arguments but cannot be invoked as function");
+        if (auto field = recv.FieldByName(fieldName)) {
+            if (hasArgs) errorf(fieldName.str() + " has arguments but cannot be invoked as function");
             return *field;
         }
         break;
     case Kind::Map: {
         // If it's a map, attempt to use the field name as a key.
-        const type_ops* key = recv.Type()->key ? recv.Type()->key() : nullptr;
+        const typeOps* key = recv.Type()->key ? recv.Type()->key() : nullptr;
         if (key && key->kind == Kind::String) {
-            if (has_args) errorf(field_name.str() + " is not a method but has arguments");
-            Value result = recv.MapIndex(Value::scalarString(stringOps(), field_name));
+            if (hasArgs) errorf(fieldName.str() + " is not a method but has arguments");
+            Value result = recv.MapIndex(Value::scalarString(stringOps(), fieldName));
             if (!result.IsValid()) {
-                switch (template_access::of(*tmpl_)->missing_key) {
-                case map_invalid: break;  // just use the invalid value
-                case map_zero_value: {
-                    const type_ops* e = recv.Type()->elem ? recv.Type()->elem() : nullptr;
+                switch (templateAccess::of(*tmpl_)->missingKey) {
+                case mapInvalid: break;  // just use the invalid value
+                case mapZeroValue: {
+                    const typeOps* e = recv.Type()->elem ? recv.Type()->elem() : nullptr;
                     if (e && e->zero) result = e->zero();
                     break;
                 }
-                case map_error: errorf("map has no entry for key " + detail::quote(field_name));
+                case mapError: errorf("map has no entry for key " + detail::quote(fieldName));
                 }
             }
             return result;
@@ -546,43 +546,43 @@ Value state::eval_field(const Value& dot, const string& field_name, const parse:
         break;
     }
     case Kind::Pointer: {
-        const type_ops* etyp = recv.Type()->elem ? recv.Type()->elem() : nullptr;
+        const typeOps* etyp = recv.Type()->elem ? recv.Type()->elem() : nullptr;
         if (etyp && etyp->kind == Kind::Struct) {
             bool found = false;
-            for (auto& f : etyp->fields) found |= f.name == field_name.view();
+            for (auto& f : etyp->fields) found |= f.name == fieldName.view();
             if (!found) break;
         }
-        if (isNil) errorf("nil pointer evaluating " + typ + "." + field_name.str());
+        if (isNil) errorf("nil pointer evaluating " + typ + "." + fieldName.str());
         break;
     }
     default:
         break;
     }
-    errorf("can't evaluate field " + field_name.str() + " in type " + typ);
+    errorf("can't evaluate field " + fieldName.str() + " in type " + typ);
 }
 
 // evalCall executes a function or method call. If it's a method, fun
 // already has the receiver bound, so it looks just like a function call.
 // The arg list, if non-nil, includes (in the manner of the shell), arg[0]
 // as the function itself.
-Value state::eval_call(const Value& dot, const callee& fun, bool is_builtin, const parse::Node* node, std::string_view name,
-                       const std::vector<ptr<parse::Node>>* args_in, const std::optional<Value>& final) {
+Value state::evalCall(const Value& dot, const callee& fun, bool isBuiltin, const parse::Node* node, std::string_view name,
+                       const std::vector<ptr<parse::Node>>* argsIn, const std::optional<Value>& final) {
     std::span<const ptr<parse::Node>> args;
-    if (args_in) args = std::span(*args_in).subspan(1);  // zeroth arg is function name/node; not passed to function
-    int num_in = static_cast<int>(args.size());
-    if (final) num_in++;
-    int num_fixed = static_cast<int>(args.size());
+    if (argsIn) args = std::span(*argsIn).subspan(1);  // zeroth arg is function name/node; not passed to function
+    int numIn = static_cast<int>(args.size());
+    if (final) numIn++;
+    int numFixed = static_cast<int>(args.size());
     if (fun.variadic) {
-        num_fixed = fun.num_in - 1;  // last arg is the variadic one
-        if (num_in < num_fixed) {
-            errorf(std::format("wrong number of args for {}: want at least {} got {}", name, fun.num_in - 1, args.size()));
+        numFixed = fun.numIn - 1;  // last arg is the variadic one
+        if (numIn < numFixed) {
+            errorf(std::format("wrong number of args for {}: want at least {} got {}", name, fun.numIn - 1, args.size()));
         }
-    } else if (num_in != fun.num_in) {
-        errorf(std::format("wrong number of args for {}: want {} got {}", name, fun.num_in, num_in));
+    } else if (numIn != fun.numIn) {
+        errorf(std::format("wrong number of args for {}: want {} got {}", name, fun.numIn, numIn));
     }
 
     // Special case for builtin and/or, which short-circuit.
-    if (is_builtin && (name == "and" || name == "or")) {
+    if (isBuiltin && (name == "and" || name == "or")) {
         Value v;
         for (auto& arg : args) {
             v = evalArg(dot, nullptr, arg.get());
@@ -593,37 +593,37 @@ Value state::eval_call(const Value& dot, const callee& fun, bool is_builtin, con
     }
 
     // Build the arg list.
-    std::vector<Value> argv(static_cast<std::size_t>(num_in));
+    std::vector<Value> argv(static_cast<std::size_t>(numIn));
     // Args must be evaluated. Fixed args first.
     int i = 0;
-    for (; i < num_fixed && i < static_cast<int>(args.size()); i++) {
+    for (; i < numFixed && i < static_cast<int>(args.size()); i++) {
         argv[static_cast<std::size_t>(i)] = evalArg(dot, fun.in(i), args[static_cast<std::size_t>(i)].get());
     }
     // Now the ... args.
     if (fun.variadic) {
-        const type_ops* arg_type = fun.in(fun.num_in - 1);  // the element type
+        const typeOps* argType = fun.in(fun.numIn - 1);  // the element type
         for (; i < static_cast<int>(args.size()); i++) {
-            argv[static_cast<std::size_t>(i)] = evalArg(dot, arg_type, args[static_cast<std::size_t>(i)].get());
+            argv[static_cast<std::size_t>(i)] = evalArg(dot, argType, args[static_cast<std::size_t>(i)].get());
         }
     }
     // Add final value if necessary.
     if (final) {
-        const type_ops* t = fun.in(fun.num_in - 1);
-        if (fun.variadic && num_in - 1 < num_fixed) t = fun.in(num_in - 1);
-        argv[static_cast<std::size_t>(i)] = validate_type(*final, t);
+        const typeOps* t = fun.in(fun.numIn - 1);
+        if (fun.variadic && numIn - 1 < numFixed) t = fun.in(numIn - 1);
+        argv[static_cast<std::size_t>(i)] = validateType(*final, t);
     }
 
     // Special case for the "call" builtin: pass the name of the callee
     // along for error messages.
-    if (is_builtin && name == "call") {
-        string callee_name = args.empty() ? (final ? string(fmtV(*final)) : string()) : args[0]->String();
-        argv.insert(argv.begin(), Value::scalarString(stringOps(), callee_name));
+    if (isBuiltin && name == "call") {
+        string calleeName = args.empty() ? (final ? string(fmtV(*final)) : string()) : args[0]->String();
+        argv.insert(argv.begin(), Value::scalarString(stringOps(), calleeName));
     }
 
     std::pair<Value, gopp::error> r;
     try {
         r = fun.call(argv);
-    } catch (exec_panic&) {
+    } catch (execPanic&) {
         throw;
     } catch (const std::exception& e) {
         r = {Value(), errors::New(string(e.what()))};
@@ -637,7 +637,7 @@ Value state::eval_call(const Value& dot, const callee& fun, bool is_builtin, con
 
 // validateType guarantees that the value is valid and assignable to the
 // type.
-Value state::validate_type(const Value& value, const type_ops* typ) {
+Value state::validateType(const Value& value, const typeOps* typ) {
     if (!value.IsValid()) {
         if (!typ) return Value();  // an untyped nil interface{}; accept as a proper nil value
         if (canBeNil(typ)) return Value();
@@ -663,27 +663,27 @@ Value state::validate_type(const Value& value, const type_ops* typ) {
     return value;
 }
 
-Value state::evalArg(const Value& dot, const type_ops* typ, const parse::Node* n) {
+Value state::evalArg(const Value& dot, const typeOps* typ, const parse::Node* n) {
     at(n);
     switch (n->Type()) {
-    case parse::NodeDot: return validate_type(dot, typ);
+    case parse::NodeDot: return validateType(dot, typ);
     case parse::NodeNil:
         if (canBeNil(typ)) return Value();
         errorf("cannot assign nil to " + std::string(typ->name));
     case parse::NodeField: {
         std::vector<ptr<parse::Node>> self{ptr<parse::Node>(const_cast<parse::Node*>(n))};
-        return validate_type(evalFieldNode(dot, static_cast<const parse::FieldNode*>(n), &self, std::nullopt), typ);
+        return validateType(evalFieldNode(dot, static_cast<const parse::FieldNode*>(n), &self, std::nullopt), typ);
     }
     case parse::NodeVariable:
-        return validate_type(evalVariableNode(dot, static_cast<const parse::VariableNode*>(n), nullptr, std::nullopt), typ);
-    case parse::NodePipe: return validate_type(evalPipeline(dot, static_cast<const parse::PipeNode*>(n)), typ);
+        return validateType(evalVariableNode(dot, static_cast<const parse::VariableNode*>(n), nullptr, std::nullopt), typ);
+    case parse::NodePipe: return validateType(evalPipeline(dot, static_cast<const parse::PipeNode*>(n)), typ);
     case parse::NodeIdentifier:
-        return validate_type(evalFunction(dot, static_cast<const parse::IdentifierNode*>(n), n, nullptr, std::nullopt), typ);
+        return validateType(evalFunction(dot, static_cast<const parse::IdentifierNode*>(n), n, nullptr, std::nullopt), typ);
     case parse::NodeChain:
-        return validate_type(eval_chain_node(dot, static_cast<const parse::ChainNode*>(n), nullptr, std::nullopt), typ);
+        return validateType(evalChainNode(dot, static_cast<const parse::ChainNode*>(n), nullptr, std::nullopt), typ);
     default: break;
     }
-    if (!typ || typ->kind == Kind::Interface) return eval_empty_interface(dot, n);
+    if (!typ || typ->kind == Kind::Interface) return evalEmptyInterface(dot, n);
     switch (typ->kind) {
     case Kind::Bool:
         if (n->Type() == parse::NodeBool) return Value::scalar(typ, static_cast<const parse::BoolNode*>(n)->True);
@@ -716,7 +716,7 @@ Value state::evalArg(const Value& dot, const type_ops* typ, const parse::Node* n
     errorf("can't handle " + n->String().str() + " for arg of type " + std::string(typ->name));
 }
 
-Value state::eval_empty_interface(const Value& dot, const parse::Node* n) {
+Value state::evalEmptyInterface(const Value& dot, const parse::Node* n) {
     at(n);
     switch (n->Type()) {
     case parse::NodeBool: return Value::scalar(boolOps(), static_cast<const parse::BoolNode*>(n)->True);
@@ -725,7 +725,7 @@ Value state::eval_empty_interface(const Value& dot, const parse::Node* n) {
     case parse::NodeIdentifier:
         return evalFunction(dot, static_cast<const parse::IdentifierNode*>(n), n, nullptr, std::nullopt);
     case parse::NodeNil: errorf("evalEmptyInterface: nil (can't happen)");
-    case parse::NodeNumber: return ideal_constant(static_cast<const parse::NumberNode*>(n));
+    case parse::NodeNumber: return idealConstant(static_cast<const parse::NumberNode*>(n));
     case parse::NodeString: return Value::scalarString(stringOps(), static_cast<const parse::StringNode*>(n)->Text);
     case parse::NodeVariable:
         return evalVariableNode(dot, static_cast<const parse::VariableNode*>(n), nullptr, std::nullopt);
@@ -737,7 +737,7 @@ Value state::eval_empty_interface(const Value& dot, const parse::Node* n) {
 
 // printValue writes the textual representation of the value to the
 // output of the template.
-void state::print_value(const parse::Node* n, const Value& v0) {
+void state::printValue(const parse::Node* n, const Value& v0) {
     at(n);
     Value v = v0;
     if (v.Kind() == Kind::Pointer) v = indirect(v).first;  // fmt.Fprint handles nil
@@ -751,7 +751,7 @@ void state::print_value(const parse::Node* n, const Value& v0) {
         Value a[] = {v};
         out = Sprint(a).str();
     }
-    if (auto [k, err] = io::WriteString(*wr_, out); err) throw write_panic{err};
+    if (auto [k, err] = io::WriteString(*wr_, out); err) throw writePanic{err};
 }
 
 }  // namespace
@@ -797,9 +797,9 @@ gopp::error Template::Execute(io::Writer& w, const Value& data) {
     try {
         if (!Tree || !Tree->Root) s.errorf(detail::quote(Name()) + " is an incomplete or empty template");
         s.walk(data, Tree->Root.get());
-    } catch (exec_panic& e) {
+    } catch (execPanic& e) {
         return e.err;
-    } catch (write_panic& e) {
+    } catch (writePanic& e) {
         return e.err;  // strip the wrapper
     }
     return nullptr;

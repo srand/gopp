@@ -40,13 +40,13 @@ int main() {
     };
     auto base = tmpl::New("report");
     base->Funcs(funcs);
-    auto [t, parse_err] = base->Parse(R"(# {{.Title | upper}}
+    auto [t, parseErr] = base->Parse(R"(# {{.Title | upper}}
 {{range .Projects}}
 ## {{.Name}} — {{.Owner}}
 {{range .Tasks}}- {{if .Done}}[x]{{else}}[ ]{{end}} {{.Title}}
 {{end}}{{end}})");
-    if (parse_err) {
-        fmt::Println(os::Stderr, "template: {}", parse_err);
+    if (parseErr) {
+        fmt::Println(os::Stderr, "template: {}", parseErr);
         return 1;
     }
     if (auto err = t->Execute(os::Stdout, report)) {

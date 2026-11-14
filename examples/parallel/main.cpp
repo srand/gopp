@@ -36,19 +36,19 @@ namespace exec = os::exec;
 namespace signal = os::signal;
 
 // Standard output, shared by the jobs: one line at a time.
-sync::Mutex stdout_mu;
+sync::Mutex stdoutMu;
 
 void printLine(std::string_view line) {
-    std::lock_guard lock(stdout_mu);
+    std::lock_guard lock(stdoutMu);
     io::WriteString(os::Stdout, line);
 }
 
 // A Writer that prints whole lines with a prefix. The command's standard
 // output and error both go to it, through pipes that exec copies from on
 // fibers of its own.
-class prefix_writer final : public io::Writer {
+class prefixWriter final : public io::Writer {
 public:
-    explicit prefix_writer(std::string prefix) : prefix_(std::move(prefix)) {}
+    explicit prefixWriter(std::string prefix) : prefix_(std::move(prefix)) {}
 
     std::pair<isize, error> Write(std::span<const byte> p) override {
         buf_.append(reinterpret_cast<const char*>(p.data()), p.size());
@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
     // Ctrl-C cancels ctx, and with it every command.
     auto [ctx, stop] = signal::NotifyContext(context::Background(), os::Interrupt, syscall::SIGTERM_);
 
-    auto queue = makeChan<job>(todo.size());
+    auto queue = make_chan<job>(todo.size());
     for (job& j : todo) queue.send(std::move(j));
     queue.close();
 
@@ -107,28 +107,28 @@ int main(int argc, char** argv) {
         workers.Go([&] {
             for (const job& j : queue) {
                 if (ctx->Err()) break;
-                auto job_ctx = ctx;
+                auto jobCtx = ctx;
                 context::CancelFunc cancel = [] {};
-                if (timeout.ns > 0) std::tie(job_ctx, cancel) = context::WithTimeout(ctx, timeout);
+                if (timeout.ns > 0) std::tie(jobCtx, cancel) = context::WithTimeout(ctx, timeout);
 
-                auto out = make_ptr<prefix_writer>(fmt::Sprint("[{}] ", j.n).str());
-                auto cmd = exec::CommandContext(job_ctx, "sh", "-c", j.command);
+                auto out = make_ptr<prefixWriter>(fmt::Sprint("[{}] ", j.n).str());
+                auto cmd = exec::CommandContext(jobCtx, "sh", "-c", j.command);
                 cmd->Stdout = out;
                 cmd->Stderr = out;
                 // A killed shell may leave children holding the pipes:
                 // don't wait for them for long.
                 cmd->WaitDelay = time::Second;
-                time::Time job_start = time::Now();
-                error run_err = cmd->Run();
+                time::Time jobStart = time::Now();
+                error runErr = cmd->Run();
                 out->Flush();
                 cancel();
 
-                if (run_err) {
+                if (runErr) {
                     failed++;
-                    string why = run_err.Error();
-                    if (job_ctx->Err() == context::DeadlineExceeded) why = string::fromStatic("timed out");
-                    else if (auto* exit = errors::As<exec::ExitError>(run_err)) why = exit->String();
-                    printLine(fmt::Sprint("[{}] {} ({})\n", j.n, why, time::Since(job_start)).view());
+                    string why = runErr.Error();
+                    if (jobCtx->Err() == context::DeadlineExceeded) why = string::fromStatic("timed out");
+                    else if (auto* exit = errors::As<exec::ExitError>(runErr)) why = exit->String();
+                    printLine(fmt::Sprint("[{}] {} ({})\n", j.n, why, time::Since(jobStart)).view());
                 }
             }
         });

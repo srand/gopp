@@ -1,4 +1,4 @@
-// Ported from Go 1.27.3's text/template exec_test.go and multi_test.go,
+// Ported from Go 1.27.3's text/template execTest.go and multi_test.go,
 // with Go's test names and tables (execTests is generated from the Go
 // source). Go's test data is a struct T with fields and methods; here it
 // is a C++ struct, reflected. Left out, since go++'s data model doesn't
@@ -7,7 +7,7 @@
 // nil receivers (a nil *V printing "nilV"), slice capacity, fmt.Stringer
 // values from other packages, and functions returning nothing or three
 // values; and %T output naming Go packages. The left-out execTests entries
-// are listed in skipped_exec_tests below.
+// are listed in skippedExecTests below.
 #include <gopp/errors.hpp>
 #include <gopp/strings.hpp>
 #include <gopp/text/template.hpp>
@@ -119,13 +119,13 @@ struct T {
     const ::U* GetU() const { return U; }
 };
 
-const int pi_val = 23;
-const std::string ps_val = "a string";
-const std::vector<int> psi_val = {21, 22, 23};
-const ::U u_val{"v"};
-const ::V v1_val{7777};
-const ::W w1_val{999};
-const std::array<int, 3> pai_val = {3, 4, 5};
+const int piVal = 23;
+const std::string psVal = "a string";
+const std::vector<int> psiVal = {21, 22, 23};
+const ::U uVal{"v"};
+const ::V v1Val{7777};
+const ::W w1Val{999};
+const std::array<int, 3> paiVal = {3, 4, 5};
 
 const T* makeTval() {
     static T t = [] {
@@ -135,14 +135,14 @@ const T* makeTval() {
         t.U16 = 16;
         t.X = "x";
         t.S = "xyz";
-        t.U = &u_val;
+        t.U = &uVal;
         t.V0 = ::V{6666};
-        t.V1 = &v1_val;  // leave V2 as nil
+        t.V1 = &v1Val;  // leave V2 as nil
         t.W0 = ::W{888};
-        t.W1 = &w1_val;  // leave W2 as nil
+        t.W1 = &w1Val;  // leave W2 as nil
         t.SI = {3, 4, 5};
         t.AI = {3, 4, 5};
-        t.PAI = &pai_val;
+        t.PAI = &paiVal;
         t.SB = {true, false};
         t.MSI = {{"one", 1}, {"two", 2}, {"three", 3}};
         t.MSIone = {{"one", 1}};
@@ -159,9 +159,9 @@ const T* makeTval() {
         t.Empty3 = Value::Of(std::vector<int>{7, 8});
         t.Empty4 = Value::Of(std::make_shared<::U>(::U{"UinEmpty"}));
         t.Err = errors::New("erroozle");
-        t.PI = &pi_val;
-        t.PS = &ps_val;
-        t.PSI = &psi_val;
+        t.PI = &piVal;
+        t.PS = &psVal;
+        t.PSI = &psiVal;
         t.BinaryFunc = [](std::string a, std::string b) { return std::format("[{}={}]", a, b); };
         t.VariadicFunc = [](Variadic<std::string> s) {
             std::string out = "<";
@@ -238,12 +238,12 @@ std::string rangeTestData() {
 }
 
 // Go's anonymous struct{ a int; b string }.
-struct dot_struct {
+struct dotStruct {
     int a;
     std::string b;
 };
 
-struct exec_test {
+struct execTest {
     std::string name;
     std::string input;
     std::string output;
@@ -275,7 +275,7 @@ FuncMap testFuncs() {
     };
 }
 
-void testExecute(const std::vector<exec_test>& tests, tmpl::Template* tpl) {
+void testExecute(const std::vector<execTest>& tests, tmpl::Template* tpl) {
     FuncMap funcs = testFuncs();
     for (auto& test : tests) {
         ptr<tmpl::Template> t = tpl ? tpl->New(string(test.name)) : tmpl::New(string(test.name));
@@ -299,8 +299,8 @@ void testExecute(const std::vector<exec_test>& tests, tmpl::Template* tpl) {
 }
 
 // clang-format off
-// Generated from Go 1.27.3 text/template exec_test.go.
-const std::vector<exec_test> execTests = {
+// Generated from Go 1.27.3 text/template execTest.go.
+const std::vector<execTest> execTests = {
     {"empty", "", "", Value(), true},
     {"text", "some text", "some text", Value(), true},
     {"nil action", "{{nil}}", "", Value(), false},
@@ -326,7 +326,7 @@ const std::vector<exec_test> execTests = {
     {"dot string", "<{{.}}>", "<hello>", D("hello"), true},
     {"dot slice", "<{{.}}>", "<[-1 -2 -3]>", D(std::vector<int>{-1, -2, -3}), true},
     {"dot map", "<{{.}}>", "<map[two:22]>", D(std::map<std::string, int>{{"two", 22}}), true},
-    {"dot struct", "<{{.}}>", "<{7 seven}>", D(dot_struct{7, "seven"}), true},
+    {"dot struct", "<{{.}}>", "<{7 seven}>", D(dotStruct{7, "seven"}), true},
     {"$ int", "{{$}}", "123", D(123), true},
     {"$.I", "{{$.I}}", "17", D(tVal), true},
     {"$.U.V", "{{$.U.V}}", "v", D(tVal), true},
@@ -621,7 +621,7 @@ const std::vector<exec_test> execTests = {
 };
 
 // Go execTests that use features go++ leaves out (see the top).
-[[maybe_unused]] const char* const skipped_exec_tests[] = {
+[[maybe_unused]] const char* const skippedExecTests[] = {
     ".unexported",
     "map .one interface",
     "(*V)(nil).String()",
@@ -663,7 +663,7 @@ const std::vector<exec_test> execTests = {
     "bug17e",
 };
 
-struct cmp_struct {
+struct cmpStruct {
     unsigned Uthree = 3, Ufour = 4;
     int NegOne = -1, Three = 3;
     std::shared_ptr<int> Ptr = std::make_shared<int>(0);
@@ -673,13 +673,13 @@ struct cmp_struct {
     ::V V1, V2;
 };
 
-struct cmp_test {
+struct cmpTest {
     std::string expr;
     std::string truth;
     bool ok;
 };
 
-const std::vector<cmp_test> cmpTests = {
+const std::vector<cmpTest> cmpTests = {
     {"eq true true", "true", true},
     {"eq true false", "false", true},
     {"eq 1+2i 1+2i", "true", true},
@@ -755,11 +755,11 @@ line 3
 
 const gopp::error alwaysError = errors::New("always be failing");
 
-struct error_writer final : io::Writer {
+struct errorWriter final : io::Writer {
     std::pair<isize, gopp::error> Write(std::span<const byte>) override { return {0, alwaysError}; }
 };
 
-struct custom_error final : errorInterface {
+struct customError final : errorInterface {
     string Error() const override { return string::fromStatic("heyo !"); }
 };
 
@@ -767,7 +767,7 @@ int funcNameTestFunc() { return 0; }
 
 // multi_test.go
 
-struct multi_parse_test {
+struct multiParseTest {
     std::string name;
     std::string input;
     bool ok;
@@ -775,8 +775,8 @@ struct multi_parse_test {
     std::vector<std::string> results;
 };
 
-const std::vector<exec_test>& multiExecTests() {
-    static const std::vector<exec_test> tests = {
+const std::vector<execTest>& multiExecTests() {
+    static const std::vector<execTest> tests = {
         {"empty", "", "", Value(), true},
         {"text", "some text", "some text", Value(), true},
         {"invoke x", R"({{template "x" .SI}})", "TEXT", D(tVal), true},
@@ -807,8 +807,8 @@ const std::string multiText2 = R"(
 // Go's testdata, written to a temporary directory.
 std::string testdata() {
     static std::string dir = [] {
-        char tmpl_dir[] = "/tmp/gopp_template_testXXXXXX";
-        std::string d = ::mkdtemp(tmpl_dir);
+        char tmplDir[] = "/tmp/gopp_template_testXXXXXX";
+        std::string d = ::mkdtemp(tmplDir);
         auto write = [&](const char* name, std::string_view text) {
             std::FILE* f = std::fopen((d + "/" + name).c_str(), "w");
             std::fwrite(text.data(), 1, text.size(), f);
@@ -823,7 +823,7 @@ std::string testdata() {
     return dir;
 }
 
-const std::vector<exec_test> templateFileExecTests = {
+const std::vector<execTest> templateFileExecTests = {
     {"test", R"({{template "tmpl1.tmpl"}}{{template "tmpl2.tmpl"}})", "template1\n\ny\ntemplate2\n\nx\n", D(0), true},
 };
 
@@ -839,26 +839,26 @@ TEST(TextTemplate, Execute) { testExecute(execTests, nullptr); }
 
 TEST(TextTemplate, Delims) {
     const std::string hello = "Hello, world";
-    struct value_t {
+    struct valueT {
         std::string Str;
     } value{hello};
-    const char* delim_pairs[] = {"", "", "{{", "}}", "<<", ">>", "|", "|", "(日)", "(本)"};
-    for (std::size_t i = 0; i < std::size(delim_pairs); i += 2) {
-        std::string left = delim_pairs[i], right = delim_pairs[i + 1];
-        std::string true_left = left.empty() ? "{{" : left, true_right = right.empty() ? "}}" : right;
-        std::string action = true_left + ".Str" + true_right;
+    const char* delimPairs[] = {"", "", "{{", "}}", "<<", ">>", "|", "|", "(日)", "(本)"};
+    for (std::size_t i = 0; i < std::size(delimPairs); i += 2) {
+        std::string left = delimPairs[i], right = delimPairs[i + 1];
+        std::string trueLeft = left.empty() ? "{{" : left, trueRight = right.empty() ? "}}" : right;
+        std::string action = trueLeft + ".Str" + trueRight;
         // A comment, which is not preserved in the parse tree.
-        std::string comment = true_left + "/*comment*/" + true_right;
+        std::string comment = trueLeft + "/*comment*/" + trueRight;
         // An action containing a string that looks like the left delimiter.
-        std::string str_action = true_left + "\"" + true_left + "\"" + true_right;
-        std::string text = action + comment + str_action;
+        std::string strAction = trueLeft + "\"" + trueLeft + "\"" + trueRight;
+        std::string text = action + comment + strAction;
         auto [t, err] = tmpl::New("delims")->Delims(left, right)->Parse(text);
         ASSERT_FALSE(err) << "delim " << left << " text " << text << " parse err " << err;
         // The parse tree's String form roundtrips, modulo the comment.
-        EXPECT_EQ(t->Tree->Root->String(), action + str_action);
+        EXPECT_EQ(t->Tree->Root->String(), action + strAction);
         strings::Builder b;
         ASSERT_FALSE(t->Execute(b, value));
-        EXPECT_EQ(b.view(), hello + true_left);
+        EXPECT_EQ(b.view(), hello + trueLeft);
     }
 }
 
@@ -888,12 +888,12 @@ TEST(TextTemplate, ExecError) {
 TEST(TextTemplate, ExecError_CustomError) {
     auto t = tmpl::Must(tmpl::New("top")
                             ->Funcs({{"err", []() -> std::pair<std::string, gopp::error> {
-                                         return {"", make_ptr<custom_error>()};
+                                         return {"", make_ptr<customError>()};
                                      }}})
                             ->Parse("{{ err }}"));
     strings::Builder b;
     gopp::error err = t->Execute(b, nullptr);
-    EXPECT_TRUE(errors::As<custom_error>(err)) << "expected custom error; got " << err;
+    EXPECT_TRUE(errors::As<customError>(err)) << "expected custom error; got " << err;
 }
 
 TEST(TextTemplate, JSEscaping) {
@@ -966,7 +966,7 @@ TEST(TextTemplate, FinalForPrintf) {
 }
 
 TEST(TextTemplate, Comparison) {
-    cmp_struct data;
+    cmpStruct data;
     for (auto& test : cmpTests) {
         std::string text = "{{if " + test.expr + "}}true{{else}}false{{end}}";
         auto [t, err] = tmpl::New("empty")->Parse(text);
@@ -1022,7 +1022,7 @@ TEST(TextTemplate, ExecuteGivesExecError) {
     // First, a non-execution error shouldn't be an ExecError.
     auto [t, err] = tmpl::New("X")->Parse("hello");
     ASSERT_FALSE(err) << err;
-    error_writer ew;
+    errorWriter ew;
     gopp::error xerr = t->Execute(ew, D(0));
     ASSERT_TRUE(xerr);
     EXPECT_EQ(xerr.Error(), "always be failing");
@@ -1052,7 +1052,7 @@ TEST(TextTemplate, BadFuncNames) {
 }
 
 TEST(TextTemplate, IsTrue) {
-    const int* nil_ptr = nullptr;
+    const int* nilPtr = nullptr;
     struct {
         Value v;
         bool want;
@@ -1074,7 +1074,7 @@ TEST(TextTemplate, IsTrue) {
         {D(std::map<std::string, int>{{"a", 1}, {"b", 2}}), true},
         {D(std::map<std::string, int>{}), false},
         {D(std::make_shared<int>(0)), true},
-        {D(nil_ptr), false},
+        {D(nilPtr), false},
     };
     for (auto& tc : tests) EXPECT_EQ(tmpl::IsTrue(tc.v).first, tc.want) << tc.v.TypeName();
 }
@@ -1098,9 +1098,9 @@ TEST(TextTemplate, Block) {
 
 TEST(TextTemplate, EvalFieldErrors) {
     // go++'s type names have no package: *T for Go's *template.T.
-    const T* nil_t = nullptr;
-    const std::map<std::string, std::string>* nil_map = nullptr;
-    std::map<std::string, std::string> empty_map;
+    const T* nilT = nullptr;
+    const std::map<std::string, std::string>* nilMap = nullptr;
+    std::map<std::string, std::string> emptyMap;
     struct {
         std::string name, src;
         Value value;
@@ -1108,12 +1108,12 @@ TEST(TextTemplate, EvalFieldErrors) {
     } tests[] = {
         // An invalid field on a nil pointer is a field error, not a
         // distracting nil pointer error (https://golang.org/issue/15125).
-        {"MissingFieldOnNil", "{{.MissingField}}", D(nil_t), "can't evaluate field MissingField in type *T"},
+        {"MissingFieldOnNil", "{{.MissingField}}", D(nilT), "can't evaluate field MissingField in type *T"},
         {"MissingFieldOnNonNil", "{{.MissingField}}", D(std::make_shared<T>()), "can't evaluate field MissingField in type *T"},
-        {"ExistingFieldOnNil", "{{.X}}", D(nil_t), "nil pointer evaluating *T.X"},
-        {"MissingKeyOnNilMap", "{{.MissingKey}}", D(nil_map), "nil pointer evaluating *map[string]string.MissingKey"},
-        {"MissingKeyOnNilMapPtr", "{{.MissingKey}}", D(nil_map), "nil pointer evaluating *map[string]string.MissingKey"},
-        {"MissingKeyOnMapPtrToNil", "{{.MissingKey}}", D(&empty_map), "<nil>"},
+        {"ExistingFieldOnNil", "{{.X}}", D(nilT), "nil pointer evaluating *T.X"},
+        {"MissingKeyOnNilMap", "{{.MissingKey}}", D(nilMap), "nil pointer evaluating *map[string]string.MissingKey"},
+        {"MissingKeyOnNilMapPtr", "{{.MissingKey}}", D(nilMap), "nil pointer evaluating *map[string]string.MissingKey"},
+        {"MissingKeyOnMapPtrToNil", "{{.MissingKey}}", D(&emptyMap), "<nil>"},
     };
     for (auto& tc : tests) {
         auto t = tmpl::Must(tmpl::New("tmpl")->Parse(tc.src));
@@ -1203,15 +1203,15 @@ TEST(TextTemplate, InterfaceValues) {
 // panics. Left out: methods on nil receivers, and nil interfaces.
 TEST(TextTemplate, ExecutePanicDuringCall) {
     FuncMap funcs = {{"doPanic", []() -> std::string { throw std::runtime_error("custom panic string"); }}};
-    const T* nil_t = nullptr;
+    const T* nilT = nullptr;
     struct {
         std::string name, input;
         Value data;
-        std::string want_err;
+        std::string wantErr;
     } tests[] = {
-        {"direct func call panics", "{{doPanic}}", D(nil_t),
+        {"direct func call panics", "{{doPanic}}", D(nilT),
          R"(template: t:1:2: executing "t" at <doPanic>: error calling doPanic: custom panic string)"},
-        {"indirect func call panics", "{{call doPanic}}", D(nil_t),
+        {"indirect func call panics", "{{call doPanic}}", D(nilT),
          R"(template: t:1:7: executing "t" at <doPanic>: error calling doPanic: custom panic string)"},
         {"func field call panics", "{{call .PanicFunc}}", D(tVal),
          R"(template: t:1:2: executing "t" at <call .PanicFunc>: error calling call: test panic)"},
@@ -1222,7 +1222,7 @@ TEST(TextTemplate, ExecutePanicDuringCall) {
         strings::Builder b;
         gopp::error xerr = t->Execute(b, tc.data);
         ASSERT_TRUE(xerr) << tc.name << ": expected error; got none";
-        EXPECT_TRUE(strings::Contains(xerr.Error(), tc.want_err)) << tc.name << ": got " << xerr;
+        EXPECT_TRUE(strings::Contains(xerr.Error(), tc.wantErr)) << tc.name << ": got " << xerr;
     }
 }
 
@@ -1232,7 +1232,7 @@ TEST(TextTemplate, FunctionCheckDuringCall) {
     struct {
         std::string name, input;
         Value data;
-        std::string want_err;
+        std::string wantErr;
     } tests[] = {
         {"call nothing", "{{call}}", D(tVal), "wrong number of args for call: want at least 1 got 0"},
         {"call non-function", "{{call .True}}", D(tVal), "error calling call: non-function .True of type bool"},
@@ -1248,7 +1248,7 @@ TEST(TextTemplate, FunctionCheckDuringCall) {
         strings::Builder b;
         gopp::error xerr = t->Execute(b, tc.data);
         ASSERT_TRUE(xerr) << tc.name << ": expected error; got none";
-        EXPECT_TRUE(strings::Contains(xerr.Error(), tc.want_err)) << tc.name << ": got " << xerr;
+        EXPECT_TRUE(strings::Contains(xerr.Error(), tc.wantErr)) << tc.name << ": got " << xerr;
     }
 }
 
@@ -1295,7 +1295,7 @@ TEST(TextTemplate, Issue39807) {
 // multi_test.go
 
 TEST(TextTemplate, MultiParse) {
-    std::vector<multi_parse_test> tests = {
+    std::vector<multiParseTest> tests = {
         {"empty", "", true, {}, {}},
         {"one", R"({{define "foo"}} FOO {{end}})", true, {"foo"}, {" FOO "}},
         {"two", R"({{define "foo"}} FOO {{end}}{{define "bar"}} BAR {{end}})", true, {"foo", "bar"}, {" FOO ", " BAR "}},
@@ -1389,11 +1389,11 @@ TEST(TextTemplate, Clone) {
     EXPECT_EQ(b.view(), "bclone");
     b.reset();
     std::map<std::string, Value> empty;
-    gopp::error root_err = root->ExecuteTemplate(b, "e", empty);
-    gopp::error clone_err = clone->ExecuteTemplate(b, "e", empty);
-    ASSERT_TRUE(clone_err) << "expected error from missing key in cloned template";
-    ASSERT_TRUE(root_err);
-    EXPECT_EQ(clone_err.Error(), root_err.Error());
+    gopp::error rootErr = root->ExecuteTemplate(b, "e", empty);
+    gopp::error cloneErr = clone->ExecuteTemplate(b, "e", empty);
+    ASSERT_TRUE(cloneErr) << "expected error from missing key in cloned template";
+    ASSERT_TRUE(rootErr);
+    EXPECT_EQ(cloneErr.Error(), rootErr.Error());
 }
 
 TEST(TextTemplate, AddParseTree) {
@@ -1452,12 +1452,12 @@ TEST(TextTemplate, New) {
     auto t2 = t1->New(string::fromStatic("test"));
     EXPECT_TRUE(t1->Tree) << "defined template got nil Tree";
     EXPECT_FALSE(t2->Tree) << "undefined template got non-nil Tree";
-    bool contains_t1 = false;
+    bool containsT1 = false;
     for (auto& t : t1->Templates()) {
         EXPECT_NE(t, t2) << "Templates included undefined template";
-        if (t == t1) contains_t1 = true;
+        if (t == t1) containsT1 = true;
     }
-    EXPECT_TRUE(contains_t1) << "Templates didn't include defined template";
+    EXPECT_TRUE(containsT1) << "Templates didn't include defined template";
 }
 
 TEST(TextTemplate, Parse) {

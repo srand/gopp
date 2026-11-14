@@ -26,15 +26,15 @@ namespace gopp {
 namespace detail {
 
 // Shared buffer of a string: a header followed by the bytes.
-struct string_buf {
+struct stringBuf {
     std::atomic<unsigned> refs;
     std::size_t cap;
 
     char* data() noexcept { return reinterpret_cast<char*>(this + 1); }
 
-    static string_buf* alloc(std::size_t n) {
-        void* mem = ::operator new(sizeof(string_buf) + n);
-        auto* b = new (mem) string_buf{{1}, n};
+    static stringBuf* alloc(std::size_t n) {
+        void* mem = ::operator new(sizeof(stringBuf) + n);
+        auto* b = new (mem) stringBuf{{1}, n};
         return b;
     }
 
@@ -42,7 +42,7 @@ struct string_buf {
 
     void release() noexcept {
         if (refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            this->~string_buf();
+            this->~stringBuf();
             ::operator delete(this);
         }
     }
@@ -107,7 +107,7 @@ public:
     template <typename F>
     static string build(size_type n, F&& f) {
         if (n == 0) return {};
-        auto* b = detail::string_buf::alloc(n);
+        auto* b = detail::stringBuf::alloc(n);
         f(b->data());
         string r;
         r.buf_ = b;
@@ -179,7 +179,7 @@ private:
         return build(s.size(), [&](char* p) { std::memcpy(p, s.data(), s.size()); });
     }
 
-    detail::string_buf* buf_ = nullptr;
+    detail::stringBuf* buf_ = nullptr;
     const char* p_ = nullptr;
     size_type n_ = 0;
 };

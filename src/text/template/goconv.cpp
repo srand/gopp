@@ -15,8 +15,8 @@ namespace gopp::text::tmpl::detail {
 
 namespace {
 
-const gopp::error err_syntax = errors::New("invalid syntax");
-const gopp::error err_range = errors::New("value out of range");
+const gopp::error errSyntax = errors::New("invalid syntax");
+const gopp::error errRange = errors::New("value out of range");
 
 gopp::error numError(std::string_view fn, std::string_view s, const gopp::error& e) {
     return errors::New("strconv." + string(fn) + ": parsing " + string(quote(s)) + ": " + e.Error());
@@ -73,43 +73,43 @@ bool stripUnderscores(std::string_view s, std::string& out) {
 // UTF-8
 
 std::pair<rune, int> decodeRune(std::string_view s, std::size_t i) noexcept {
-    if (i >= s.size()) return {rune_error, 0};
+    if (i >= s.size()) return {runeError, 0};
     auto b = [&](std::size_t k) { return static_cast<unsigned char>(s[i + k]); };
     unsigned char c = b(0);
     if (c < 0x80) return {c, 1};
     std::size_t n = s.size() - i;
     if (c >= 0xC2 && c <= 0xDF) {
-        if (n < 2 || (b(1) & 0xC0) != 0x80) return {rune_error, 1};
+        if (n < 2 || (b(1) & 0xC0) != 0x80) return {runeError, 1};
         return {static_cast<rune>((c & 0x1F) << 6 | (b(1) & 0x3F)), 2};
     }
     if (c >= 0xE0 && c <= 0xEF) {
-        if (n < 3 || (b(1) & 0xC0) != 0x80 || (b(2) & 0xC0) != 0x80) return {rune_error, 1};
+        if (n < 3 || (b(1) & 0xC0) != 0x80 || (b(2) & 0xC0) != 0x80) return {runeError, 1};
         rune r = (c & 0x0F) << 12 | (b(1) & 0x3F) << 6 | (b(2) & 0x3F);
-        if (r < 0x800 || (r >= 0xD800 && r <= 0xDFFF)) return {rune_error, 1};
+        if (r < 0x800 || (r >= 0xD800 && r <= 0xDFFF)) return {runeError, 1};
         return {r, 3};
     }
     if (c >= 0xF0 && c <= 0xF4) {
-        if (n < 4 || (b(1) & 0xC0) != 0x80 || (b(2) & 0xC0) != 0x80 || (b(3) & 0xC0) != 0x80) return {rune_error, 1};
+        if (n < 4 || (b(1) & 0xC0) != 0x80 || (b(2) & 0xC0) != 0x80 || (b(3) & 0xC0) != 0x80) return {runeError, 1};
         rune r = (c & 0x07) << 18 | (b(1) & 0x3F) << 12 | (b(2) & 0x3F) << 6 | (b(3) & 0x3F);
-        if (r < 0x10000 || r > max_rune) return {rune_error, 1};
+        if (r < 0x10000 || r > maxRune) return {runeError, 1};
         return {r, 4};
     }
-    return {rune_error, 1};
+    return {runeError, 1};
 }
 
 std::pair<rune, int> decodeLastRune(std::string_view s, std::size_t end) noexcept {
-    if (end == 0) return {rune_error, 0};
+    if (end == 0) return {runeError, 0};
     std::size_t start = end - 1;
     if (static_cast<unsigned char>(s[start]) < 0x80) return {static_cast<unsigned char>(s[start]), 1};
     std::size_t lim = end >= 4 ? end - 4 : 0;
     while (start > lim && (static_cast<unsigned char>(s[start]) & 0xC0) == 0x80) start--;
     auto [r, w] = decodeRune(s.substr(0, end), start);
-    if (start + static_cast<std::size_t>(w) != end) return {rune_error, 1};
+    if (start + static_cast<std::size_t>(w) != end) return {runeError, 1};
     return {r, w};
 }
 
 void appendRune(std::string& out, rune r) {
-    if (r < 0 || r > max_rune || (r >= 0xD800 && r <= 0xDFFF)) r = rune_error;
+    if (r < 0 || r > maxRune || (r >= 0xD800 && r <= 0xDFFF)) r = runeError;
     if (r < 0x80) {
         out.push_back(static_cast<char>(r));
     } else if (r < 0x800) {
@@ -130,7 +130,7 @@ void appendRune(std::string& out, rune r) {
 bool validUtf8(std::string_view s) noexcept {
     for (std::size_t i = 0; i < s.size();) {
         auto [r, w] = decodeRune(s, i);
-        if (r == rune_error && w == 1) return false;
+        if (r == runeError && w == 1) return false;
         i += static_cast<std::size_t>(w);
     }
     return true;
@@ -148,10 +148,10 @@ std::size_t runeCount(std::string_view s) noexcept {
 bool isLetter(rune r) noexcept {
     if (r < 0x80) return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z');
     if (r < 0x100) return r == 0xAA || r == 0xB5 || r == 0xBA || (r >= 0xC0 && r != 0xD7 && r != 0xF7);
-    return !is_space(r) && r != rune_error && !(r >= 0x2000 && r <= 0x206F);
+    return !isSpace(r) && r != runeError && !(r >= 0x2000 && r <= 0x206F);
 }
 
-bool is_digit(rune r) noexcept {
+bool isDigit(rune r) noexcept {
     if (r < 0x80) return r >= '0' && r <= '9';
     // Other scripts' decimal digits (Unicode Nd), the common blocks.
     static const rune starts[] = {0x660, 0x6F0, 0x7C0, 0x966, 0x9E6, 0xA66, 0xAE6, 0xB66, 0xBE6, 0xC66,
@@ -162,7 +162,7 @@ bool is_digit(rune r) noexcept {
     return false;
 }
 
-bool is_space(rune r) noexcept {
+bool isSpace(rune r) noexcept {
     switch (r) {
     case '\t': case '\n': case '\v': case '\f': case '\r': case ' ': case 0x85: case 0xA0:
     case 0x1680: case 0x2028: case 0x2029: case 0x202F: case 0x205F: case 0x3000:
@@ -176,10 +176,10 @@ bool isPrint(rune r) noexcept {
     if (r == 0xAD) return false;  // soft hyphen
     if (r == ' ') return true;
     if (r >= 0xD800 && r <= 0xDFFF) return false;
-    if (r > max_rune) return false;
+    if (r > maxRune) return false;
     if (r == 0xFEFF || r == 0xFFFE || r == 0xFFFF) return false;
     if ((r >= 0x2000 && r <= 0x200F) || (r >= 0x2028 && r <= 0x202E) || (r >= 0x2060 && r <= 0x206F)) return false;
-    if (is_space(r)) return false;
+    if (isSpace(r)) return false;
     if (r >= 0xE000 && r <= 0xF8FF) return false;  // private use
     return true;
 }
@@ -189,13 +189,13 @@ bool isPrint(rune r) noexcept {
 
 namespace {
 
-void appendEscapedRune(std::string& out, rune r, char q, bool ascii_only) {
+void appendEscapedRune(std::string& out, rune r, char q, bool asciiOnly) {
     if (r == q || r == '\\') {
         out.push_back('\\');
         out.push_back(static_cast<char>(r));
         return;
     }
-    if (ascii_only) {
+    if (asciiOnly) {
         if (r < 0x80 && isPrint(r)) {
             out.push_back(static_cast<char>(r));
             return;
@@ -226,44 +226,44 @@ void appendEscapedRune(std::string& out, rune r, char q, bool ascii_only) {
 
 }  // namespace
 
-std::string quote(std::string_view s, bool ascii_only) {
+std::string quote(std::string_view s, bool asciiOnly) {
     std::string out;
     out.reserve(s.size() + 2);
     out.push_back('"');
     for (std::size_t i = 0; i < s.size();) {
         auto [r, w] = decodeRune(s, i);
-        if (w == 1 && r == rune_error) {
+        if (w == 1 && r == runeError) {
             char buf[8];
             std::snprintf(buf, sizeof(buf), "\\x%02x", static_cast<unsigned char>(s[i]));
             out += buf;
             i++;
             continue;
         }
-        appendEscapedRune(out, r, '"', ascii_only);
+        appendEscapedRune(out, r, '"', asciiOnly);
         i += static_cast<std::size_t>(w);
     }
     out.push_back('"');
     return out;
 }
 
-std::string quoteRune(rune r, bool ascii_only) {
-    if (r < 0 || r > max_rune || (r >= 0xD800 && r <= 0xDFFF)) r = rune_error;
+std::string quoteRune(rune r, bool asciiOnly) {
+    if (r < 0 || r > maxRune || (r >= 0xD800 && r <= 0xDFFF)) r = runeError;
     std::string out = "'";
-    appendEscapedRune(out, r, '\'', ascii_only);
+    appendEscapedRune(out, r, '\'', asciiOnly);
     out.push_back('\'');
     return out;
 }
 
 std::tuple<rune, bool, std::string_view, gopp::error> unquoteChar(std::string_view s, char q) {
-    if (s.empty()) return {0, false, s, err_syntax};
+    if (s.empty()) return {0, false, s, errSyntax};
     unsigned char c = static_cast<unsigned char>(s[0]);
-    if (c == static_cast<unsigned char>(q) && (q == '\'' || q == '"')) return {0, false, s, err_syntax};
+    if (c == static_cast<unsigned char>(q) && (q == '\'' || q == '"')) return {0, false, s, errSyntax};
     if (c >= 0x80) {
         auto [r, w] = decodeRune(s);
         return {r, true, s.substr(static_cast<std::size_t>(w)), nullptr};
     }
     if (c != '\\') return {c, false, s.substr(1), nullptr};
-    if (s.size() <= 1) return {0, false, s, err_syntax};
+    if (s.size() <= 1) return {0, false, s, errSyntax};
     char e = s[1];
     s = s.substr(2);
     rune value = 0;
@@ -277,56 +277,56 @@ std::tuple<rune, bool, std::string_view, gopp::error> unquoteChar(std::string_vi
     case 'v': value = '\v'; break;
     case 'x': case 'u': case 'U': {
         int n = e == 'x' ? 2 : e == 'u' ? 4 : 8;
-        if (static_cast<int>(s.size()) < n) return {0, false, s, err_syntax};
+        if (static_cast<int>(s.size()) < n) return {0, false, s, errSyntax};
         uint32 v = 0;
         for (int j = 0; j < n; j++) {
             int x = hexVal(s[static_cast<std::size_t>(j)]);
-            if (x < 0) return {0, false, s, err_syntax};
+            if (x < 0) return {0, false, s, errSyntax};
             v = v << 4 | static_cast<uint32>(x);
         }
         s = s.substr(static_cast<std::size_t>(n));
         if (e == 'x') return {static_cast<rune>(v), false, s, nullptr};
-        if (v > static_cast<uint32>(max_rune) || (v >= 0xD800 && v <= 0xDFFF)) return {0, false, s, err_syntax};
+        if (v > static_cast<uint32>(maxRune) || (v >= 0xD800 && v <= 0xDFFF)) return {0, false, s, errSyntax};
         return {static_cast<rune>(v), true, s, nullptr};
     }
     case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': {
         int v = e - '0';
-        if (s.size() < 2) return {0, false, s, err_syntax};
+        if (s.size() < 2) return {0, false, s, errSyntax};
         for (int j = 0; j < 2; j++) {
             int x = s[static_cast<std::size_t>(j)] - '0';
-            if (x < 0 || x > 7) return {0, false, s, err_syntax};
+            if (x < 0 || x > 7) return {0, false, s, errSyntax};
             v = (v << 3) | x;
         }
         s = s.substr(2);
-        if (v > 255) return {0, false, s, err_syntax};
+        if (v > 255) return {0, false, s, errSyntax};
         return {v, false, s, nullptr};
     }
     case '\\': value = '\\'; break;
     case '\'': case '"':
-        if (e != q) return {0, false, s, err_syntax};
+        if (e != q) return {0, false, s, errSyntax};
         value = e;
         break;
     default:
-        return {0, false, s, err_syntax};
+        return {0, false, s, errSyntax};
     }
     return {value, false, s, nullptr};
 }
 
 std::pair<std::string, gopp::error> unquote(std::string_view s) {
-    if (s.size() < 2) return {{}, err_syntax};
+    if (s.size() < 2) return {{}, errSyntax};
     char q = s[0];
-    if (q != s.back()) return {{}, err_syntax};
+    if (q != s.back()) return {{}, errSyntax};
     std::string_view in = s.substr(1, s.size() - 2);
     if (q == '`') {
-        if (in.find('`') != in.npos) return {{}, err_syntax};
+        if (in.find('`') != in.npos) return {{}, errSyntax};
         std::string out;
         for (char c : in) {
             if (c != '\r') out.push_back(c);  // raw strings drop carriage returns
         }
         return {out, nullptr};
     }
-    if (q != '"' && q != '\'') return {{}, err_syntax};
-    if (in.find('\n') != in.npos) return {{}, err_syntax};
+    if (q != '"' && q != '\'') return {{}, errSyntax};
+    if (in.find('\n') != in.npos) return {{}, errSyntax};
     std::string out;
     std::size_t runes = 0;
     while (!in.empty()) {
@@ -336,22 +336,22 @@ std::pair<std::string, gopp::error> unquote(std::string_view s) {
         if (r < 0x80 && !multibyte) out.push_back(static_cast<char>(r));
         else appendRune(out, r);
         runes++;
-        if (q == '\'' && !in.empty()) return {{}, err_syntax};
+        if (q == '\'' && !in.empty()) return {{}, errSyntax};
     }
-    if (q == '\'' && runes != 1) return {{}, err_syntax};
+    if (q == '\'' && runes != 1) return {{}, errSyntax};
     return {out, nullptr};
 }
 
 // ---------------------------------------------------------------------------
 // Numbers
 
-std::pair<uint64, gopp::error> parse_uint(std::string_view s0, int base, int bit_size) {
-    if (s0.empty()) return {0, numError("ParseUint", s0, err_syntax)};
+std::pair<uint64, gopp::error> parseUint(std::string_view s0, int base, int bitSize) {
+    if (s0.empty()) return {0, numError("ParseUint", s0, errSyntax)};
     std::string_view s = s0;
     std::string clean;
     if (base == 0) {
         // Underscores are allowed only with base 0, between digits.
-        if (!stripUnderscores(s0, clean)) return {0, numError("ParseUint", s0, err_syntax)};
+        if (!stripUnderscores(s0, clean)) return {0, numError("ParseUint", s0, errSyntax)};
         s = clean;
         base = 10;
         if (s[0] == '0') {
@@ -373,39 +373,39 @@ std::pair<uint64, gopp::error> parse_uint(std::string_view s0, int base, int bit
             }
         }
     }
-    if (s.empty() || s[0] == '-' || s[0] == '+') return {0, numError("ParseUint", s0, err_syntax)};
+    if (s.empty() || s[0] == '-' || s[0] == '+') return {0, numError("ParseUint", s0, errSyntax)};
     uint64 v = 0;
     auto r = std::from_chars(s.data(), s.data() + s.size(), v, base);
-    if (r.ptr != s.data() + s.size()) return {0, numError("ParseUint", s0, err_syntax)};
-    if (r.ec == std::errc::result_out_of_range) return {~uint64(0), numError("ParseUint", s0, err_range)};
-    if (r.ec != std::errc()) return {0, numError("ParseUint", s0, err_syntax)};
-    if (bit_size < 64 && v >= (uint64(1) << bit_size)) return {(uint64(1) << bit_size) - 1, numError("ParseUint", s0, err_range)};
+    if (r.ptr != s.data() + s.size()) return {0, numError("ParseUint", s0, errSyntax)};
+    if (r.ec == std::errc::result_out_of_range) return {~uint64(0), numError("ParseUint", s0, errRange)};
+    if (r.ec != std::errc()) return {0, numError("ParseUint", s0, errSyntax)};
+    if (bitSize < 64 && v >= (uint64(1) << bitSize)) return {(uint64(1) << bitSize) - 1, numError("ParseUint", s0, errRange)};
     return {v, nullptr};
 }
 
-std::pair<int64, gopp::error> parseInt(std::string_view s0, int base, int bit_size) {
+std::pair<int64, gopp::error> parseInt(std::string_view s0, int base, int bitSize) {
     std::string_view s = s0;
-    if (s.empty()) return {0, numError("ParseInt", s0, err_syntax)};
+    if (s.empty()) return {0, numError("ParseInt", s0, errSyntax)};
     bool neg = false;
     if (s[0] == '+' || s[0] == '-') {
         neg = s[0] == '-';
         s = s.substr(1);
     }
-    auto [un, err] = parse_uint(s, base, bit_size);
+    auto [un, err] = parseUint(s, base, bitSize);
     if (err) {
-        if (err.Error().view().find("out of range") == std::string_view::npos) return {0, numError("ParseInt", s0, err_syntax)};
-        return {neg ? std::numeric_limits<int64>::min() : std::numeric_limits<int64>::max(), numError("ParseInt", s0, err_range)};
+        if (err.Error().view().find("out of range") == std::string_view::npos) return {0, numError("ParseInt", s0, errSyntax)};
+        return {neg ? std::numeric_limits<int64>::min() : std::numeric_limits<int64>::max(), numError("ParseInt", s0, errRange)};
     }
-    uint64 cutoff = uint64(1) << (bit_size - 1);
-    if (!neg && un >= cutoff) return {static_cast<int64>(cutoff - 1), numError("ParseInt", s0, err_range)};
-    if (neg && un > cutoff) return {-static_cast<int64>(cutoff), numError("ParseInt", s0, err_range)};
+    uint64 cutoff = uint64(1) << (bitSize - 1);
+    if (!neg && un >= cutoff) return {static_cast<int64>(cutoff - 1), numError("ParseInt", s0, errRange)};
+    if (neg && un > cutoff) return {-static_cast<int64>(cutoff), numError("ParseInt", s0, errRange)};
     int64 n = neg ? static_cast<int64>(0 - un) : static_cast<int64>(un);
     return {n, nullptr};
 }
 
 std::pair<double, gopp::error> parseFloat(std::string_view s0) {
     std::string_view s = s0;
-    if (s.empty()) return {0, numError("ParseFloat", s0, err_syntax)};
+    if (s.empty()) return {0, numError("ParseFloat", s0, errSyntax)};
     std::string lower;
     for (char c : s) lower.push_back(static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c));
     std::string_view l = lower;
@@ -418,38 +418,38 @@ std::pair<double, gopp::error> parseFloat(std::string_view s0) {
     if (l == "nan") return {std::nan(""), nullptr};
     std::string clean;
     if (s.find('_') != s.npos) {
-        if (!stripUnderscores(s, clean)) return {0, numError("ParseFloat", s0, err_syntax)};
+        if (!stripUnderscores(s, clean)) return {0, numError("ParseFloat", s0, errSyntax)};
         s = clean;
     }
     std::string_view t = s;
     if (t[0] == '+' || t[0] == '-') t = t.substr(1);
-    if (t.empty()) return {0, numError("ParseFloat", s0, err_syntax)};
+    if (t.empty()) return {0, numError("ParseFloat", s0, errSyntax)};
     double v = 0;
     std::from_chars_result r;
     if (t.size() > 2 && t[0] == '0' && (t[1] | 0x20) == 'x') {
         // Hex floats need a p exponent in Go.
         std::string_view h = t.substr(2);
-        if (h.find_first_of("pP") == h.npos) return {0, numError("ParseFloat", s0, err_syntax)};
+        if (h.find_first_of("pP") == h.npos) return {0, numError("ParseFloat", s0, errSyntax)};
         r = std::from_chars(h.data(), h.data() + h.size(), v, std::chars_format::hex);
-        if (r.ptr != h.data() + h.size()) return {0, numError("ParseFloat", s0, err_syntax)};
+        if (r.ptr != h.data() + h.size()) return {0, numError("ParseFloat", s0, errSyntax)};
     } else {
         // Go accepts only decimal digits, '.', and an e exponent.
         for (char c : t) {
             if (!((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')) {
-                return {0, numError("ParseFloat", s0, err_syntax)};
+                return {0, numError("ParseFloat", s0, errSyntax)};
             }
         }
         r = std::from_chars(t.data(), t.data() + t.size(), v, std::chars_format::general);
-        if (r.ptr != t.data() + t.size() && r.ec == std::errc()) return {0, numError("ParseFloat", s0, err_syntax)};
+        if (r.ptr != t.data() + t.size() && r.ec == std::errc()) return {0, numError("ParseFloat", s0, errSyntax)};
     }
     if (r.ec == std::errc::result_out_of_range) {
         // Overflow gives ±Inf, underflow 0, as Go.
         bool big = t.find_first_of("eEpP") != t.npos && t.find("-", t.find_first_of("eEpP")) == t.npos;
         double inf = big ? HUGE_VAL : 0;
-        if (big) return {neg ? -inf : inf, numError("ParseFloat", s0, err_range)};
+        if (big) return {neg ? -inf : inf, numError("ParseFloat", s0, errRange)};
         return {neg ? -0.0 : 0.0, nullptr};
     }
-    if (r.ec != std::errc()) return {0, numError("ParseFloat", s0, err_syntax)};
+    if (r.ec != std::errc()) return {0, numError("ParseFloat", s0, errSyntax)};
     return {neg ? -v : v, nullptr};
 }
 

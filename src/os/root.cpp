@@ -58,7 +58,7 @@ namespace {
 
 using detail::errnoError;
 using detail::errnoOf;
-using detail::path_error;
+using detail::pathError;
 
 constexpr int rootMaxSymlinks = 8;
 
@@ -111,7 +111,7 @@ error checkSymlink(int parent, const std::string& name, error origError) {
 }
 
 std::pair<ptr<FileInfo>, error> lstatatWithName(int parent, std::string_view origName, const std::string& name) {
-    auto fs = make_ptr<detail::file_stat>();
+    auto fs = make_ptr<detail::fileStat>();
     if (int e = detail::sys([&] { return ::fstatat(parent, name.c_str(), &fs->sys, AT_SYMLINK_NOFOLLOW); })) {
         return {nullptr, errnoError(e)};
     }
@@ -150,7 +150,7 @@ error chmodat(int parent, const std::string& name, FileMode mode) {
         // fchmodat with AT_SYMLINK_NOFOLLOW (Go's unix.Fchmodat), through
         // fchmodat2 where the kernel has it.
         return errnoOr(detail::sys([&] {
-            return ::fchmodat(parent, name.c_str(), detail::syscall_mode(mode), AT_SYMLINK_NOFOLLOW);
+            return ::fchmodat(parent, name.c_str(), detail::syscallMode(mode), AT_SYMLINK_NOFOLLOW);
         }));
     });
 }
@@ -168,13 +168,13 @@ error lchownat(int parent, const std::string& name, int uid, int gid) {
 error chtimesat(int parent, const std::string& name, time::Time atime, time::Time mtime) {
     return afterResolvingSymlink(parent, name, [&] {
         timespec ts[2];
-        detail::chtimes_utimes(atime, mtime, ts);
+        detail::chtimesUtimes(atime, mtime, ts);
         return errnoOr(detail::sys([&] { return ::utimensat(parent, name.c_str(), ts, AT_SYMLINK_NOFOLLOW); }));
     });
 }
 
 error mkdirat(int fd, const std::string& name, FileMode perm) {
-    return errnoOr(detail::sys([&] { return ::mkdirat(fd, name.c_str(), detail::syscall_mode(perm)); }));
+    return errnoOr(detail::sys([&] { return ::mkdirat(fd, name.c_str(), detail::syscallMode(perm)); }));
 }
 
 error removeat(int fd, const std::string& name) {
@@ -426,19 +426,19 @@ std::pair<T, error> doInRoot(detail::rootImpl& root, std::string_view name, unsi
             // so far.
             std::string path = parts[0];
             for (std::size_t k = 1; k <= i && k < parts.size(); k++) path += PathSeparator + parts[k];
-            return {T{}, path_error(e->Op.view(), path, e->Err)};
+            return {T{}, pathError(e->Op.view(), path, e->Err)};
         }
         return {T{}, err};
     }
 }
 
 ptr<Root> newRoot(int fd, string name, error* err) {
-    detail::file_stat fs;
+    detail::fileStat fs;
     int e = detail::sys([&] { return ::fstat(fd, &fs.sys); });
     detail::fillFileStat(fs, name.view());
     if (e == 0 && !fs.IsDir()) {
         ::close(fd);
-        *err = path_error("open", name.view(), errors::New("not a directory"));
+        *err = pathError("open", name.view(), errors::New("not a directory"));
         return nullptr;
     }
     *err = nullptr;
@@ -451,14 +451,14 @@ public:
     explicit rootFS(ptr<Root> r) : r_(std::move(r)) {}
 
     std::pair<ptr<fs::File>, error> Open(std::string_view name) override {
-        if (!fs::ValidPath(name)) return {nullptr, path_error("open", name, ErrInvalid)};
+        if (!fs::ValidPath(name)) return {nullptr, pathError("open", name, ErrInvalid)};
         auto [f, err] = r_->Open(name);
         if (err) return {nullptr, err};
         return {f, nullptr};
     }
 
     std::pair<std::vector<ptr<DirEntry>>, error> ReadDir(std::string_view name) override {
-        if (!fs::ValidPath(name)) return {{}, path_error("readdir", name, ErrInvalid)};
+        if (!fs::ValidPath(name)) return {{}, pathError("readdir", name, ErrInvalid)};
         auto [f, err] = r_->Open(name);
         if (err) return {{}, err};
         auto [dirs, rerr] = f->ReadDir(-1);
@@ -470,22 +470,22 @@ public:
     }
 
     std::pair<slice<byte>, error> ReadFile(std::string_view name) override {
-        if (!fs::ValidPath(name)) return {{}, path_error("readfile", name, ErrInvalid)};
+        if (!fs::ValidPath(name)) return {{}, pathError("readfile", name, ErrInvalid)};
         return r_->ReadFile(name);
     }
 
     std::pair<string, error> ReadLink(std::string_view name) override {
-        if (!fs::ValidPath(name)) return {{}, path_error("readlink", name, ErrInvalid)};
+        if (!fs::ValidPath(name)) return {{}, pathError("readlink", name, ErrInvalid)};
         return r_->Readlink(name);
     }
 
     std::pair<ptr<FileInfo>, error> Stat(std::string_view name) override {
-        if (!fs::ValidPath(name)) return {nullptr, path_error("stat", name, ErrInvalid)};
+        if (!fs::ValidPath(name)) return {nullptr, pathError("stat", name, ErrInvalid)};
         return r_->Stat(name);
     }
 
     std::pair<ptr<FileInfo>, error> Lstat(std::string_view name) override {
-        if (!fs::ValidPath(name)) return {nullptr, path_error("lstat", name, ErrInvalid)};
+        if (!fs::ValidPath(name)) return {nullptr, pathError("lstat", name, ErrInvalid)};
         return r_->Lstat(name);
     }
 
@@ -494,7 +494,7 @@ private:
 };
 
 error unsupportedMode(std::string_view op, std::string_view name) {
-    return path_error(op, name, errors::New("unsupported file mode"));
+    return pathError(op, name, errors::New("unsupported file mode"));
 }
 
 }  // namespace
@@ -509,10 +509,10 @@ error Root::Close() { return r_->close(); }
 
 std::pair<ptr<Root>, error> OpenRoot(std::string_view name) {
     std::string p;
-    if (!detail::cpath(name, p)) return {nullptr, path_error("open", name, errnoError(EINVAL))};
+    if (!detail::cpath(name, p)) return {nullptr, pathError("open", name, errnoError(EINVAL))};
     int e;
     int fd = openat(AT_FDCWD, p, O_RDONLY | O_CLOEXEC, 0, &e);
-    if (e) return {nullptr, path_error("open", name, errnoError(e))};
+    if (e) return {nullptr, pathError("open", name, errnoError(e))};
     error err;
     auto r = newRoot(fd, string(name), &err);
     return {r, err};
@@ -547,10 +547,10 @@ std::pair<ptr<File>, error> Root::OpenFile(std::string_view name, int flag, File
         if (isCreateExcl && e == ELOOP) err = errnoError(EEXIST);
         return {-1, err};
     });
-    if (err) return {nullptr, path_error("openat", name, err)};
-    ptr<File> f = detail::new_file(fd, string(detail::join_path(r_->name.view(), name)), detail::file_kind::open_file,
+    if (err) return {nullptr, pathError("openat", name, err)};
+    ptr<File> f = detail::newFile(fd, string(detail::joinPath(r_->name.view(), name)), detail::fileKind::openFile,
                                    flag & O_NONBLOCK, flag & O_APPEND_);
-    detail::fileImpl::of(*f).in_root = true;
+    detail::fileImpl::of(*f).inRoot = true;
     return {f, nullptr};
 }
 
@@ -563,9 +563,9 @@ std::pair<ptr<Root>, error> Root::OpenRoot(std::string_view name) {
         if (isNoFollowErr(e)) err = checkSymlink(parent, n, err);
         return {-1, err};
     });
-    if (err) return {nullptr, path_error("openat", name, err)};
+    if (err) return {nullptr, pathError("openat", name, err)};
     error nerr;
-    auto r = newRoot(fd, string(detail::join_path(r_->name.view(), name)), &nerr);
+    auto r = newRoot(fd, string(detail::joinPath(r_->name.view(), name)), &nerr);
     return {r, nerr};
 }
 
@@ -573,7 +573,7 @@ error Root::Chmod(std::string_view name, FileMode mode) {
     auto [_, err] = doInRoot<int>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
         return std::pair<int, error>{0, chmodat(parent, n, mode)};
     });
-    if (err) return path_error("chmodat", name, err);
+    if (err) return pathError("chmodat", name, err);
     return nullptr;
 }
 
@@ -581,7 +581,7 @@ error Root::Chown(std::string_view name, int uid, int gid) {
     auto [_, err] = doInRoot<int>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
         return std::pair<int, error>{0, chownat(parent, n, uid, gid)};
     });
-    if (err) return path_error("chownat", name, err);
+    if (err) return pathError("chownat", name, err);
     return nullptr;
 }
 
@@ -589,7 +589,7 @@ error Root::Lchown(std::string_view name, int uid, int gid) {
     auto [_, err] = doInRoot<int>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
         return std::pair<int, error>{0, lchownat(parent, n, uid, gid)};
     });
-    if (err) return path_error("lchownat", name, err);
+    if (err) return pathError("lchownat", name, err);
     return nullptr;
 }
 
@@ -597,7 +597,7 @@ error Root::Chtimes(std::string_view name, time::Time atime, time::Time mtime) {
     auto [_, err] = doInRoot<int>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
         return std::pair<int, error>{0, chtimesat(parent, n, atime, mtime)};
     });
-    if (err) return path_error("chtimesat", name, err);
+    if (err) return pathError("chtimesat", name, err);
     return nullptr;
 }
 
@@ -608,7 +608,7 @@ error Root::Mkdir(std::string_view name, FileMode perm) {
     auto [_, err] = doInRoot<int>(*r_, name, flags, nullptr, [&](int parent, const std::string& n, bool) {
         return std::pair<int, error>{0, mkdirat(parent, n, perm)};
     });
-    if (err) return path_error("mkdirat", name, err);
+    if (err) return pathError("mkdirat", name, err);
     return nullptr;
 }
 
@@ -620,9 +620,9 @@ error Root::MkdirAll(std::string_view fullname, FileMode perm) {
         for (int attempt = 0; attempt < 2; attempt++) {
             auto [fd, err] = rootOpenDir(parent, name);
             if (!err || asSymlink(err)) return {fd, err};
-            if (attempt > 0 || !IsNotExist(err)) return {-1, path_error("openat", "", err)};
+            if (attempt > 0 || !IsNotExist(err)) return {-1, pathError("openat", "", err)};
             if (error merr = mkdirat(parent, name, perm); merr && errnoOf(merr) != EEXIST) {
-                return {-1, path_error("mkdirat", "", merr)};
+                return {-1, pathError("mkdirat", "", merr)};
             }
         }
         panic("unreachable");
@@ -650,11 +650,11 @@ error Root::MkdirAll(std::string_view fullname, FileMode perm) {
             }
         }
         if (!err || asSymlink(err)) return {0, err};
-        return {0, path_error("mkdirat", "", err)};
+        return {0, pathError("mkdirat", "", err)};
     };
     unsigned flags = doInRootCreatingDirectory | doInRootNoHandleTerminalSlash;
     auto [_, err] = doInRoot<int>(*r_, fullname, flags, openDirFunc, openLastComponentFunc);
-    if (err && !dynamic_cast<const PathError*>(err.get())) err = path_error("mkdirat", fullname, err);
+    if (err && !dynamic_cast<const PathError*>(err.get())) err = pathError("mkdirat", fullname, err);
     return err;
 }
 
@@ -662,7 +662,7 @@ std::pair<string, error> Root::Readlink(std::string_view name) {
     auto [target, err] = doInRoot<std::string>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
         return readlinkat(parent, n);
     });
-    if (err) return {{}, path_error("readlinkat", name, err)};
+    if (err) return {{}, pathError("readlinkat", name, err)};
     return {string(target), nullptr};
 }
 
@@ -670,7 +670,7 @@ error Root::Remove(std::string_view name) {
     auto [_, err] = doInRoot<int>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
         return std::pair<int, error>{0, removeat(parent, n)};
     });
-    if (err) return path_error("removeat", name, err);
+    if (err) return pathError("removeat", name, err);
     return nullptr;
 }
 
@@ -681,13 +681,13 @@ error Root::RemoveAll(std::string_view name) {
     if (endsWithDot(name)) {
         // Consistency with os.RemoveAll: Return EINVAL when trying to
         // remove .
-        return path_error("RemoveAll", name, errnoError(EINVAL));
+        return pathError("RemoveAll", name, errnoError(EINVAL));
     }
     auto [_, err] = doInRoot<int>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
-        return std::pair<int, error>{0, detail::remove_all_from(parent, n)};
+        return std::pair<int, error>{0, detail::removeAllFrom(parent, n)};
     });
     if (IsNotExist(err)) return nullptr;
-    if (err) return path_error("RemoveAll", name, underlyingError(err));
+    if (err) return pathError("RemoveAll", name, underlyingError(err));
     return nullptr;
 }
 
@@ -701,7 +701,7 @@ std::pair<ptr<FileInfo>, error> Root::Stat(std::string_view name) {
                                                  }
                                                  return {fi, nullptr};
                                              });
-    if (err) return {nullptr, path_error("statat", name, err)};
+    if (err) return {nullptr, pathError("statat", name, err)};
     return {fi, nullptr};
 }
 
@@ -709,7 +709,7 @@ std::pair<ptr<FileInfo>, error> Root::Lstat(std::string_view name) {
     auto [fi, err] = doInRoot<ptr<FileInfo>>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
         return lstatatWithName(parent, name, n);
     });
-    if (err) return {nullptr, path_error("statat", name, err)};
+    if (err) return {nullptr, pathError("statat", name, err)};
     return {fi, nullptr};
 }
 
@@ -768,7 +768,7 @@ std::pair<slice<byte>, error> Root::ReadFile(std::string_view name) {
     if (err) return {{}, err};
     int64 statSize = 0;
     if (auto [fi, e] = f->Stat(); !e) statSize = fi->Size();
-    auto r = detail::read_file_contents(statSize, [&](std::span<byte> p) { return f->Read(p); });
+    auto r = detail::readFileContents(statSize, [&](std::span<byte> p) { return f->Read(p); });
     f->Close();
     return r;
 }

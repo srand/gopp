@@ -41,31 +41,31 @@ isize lastIndexAny(sv s, sv chars) noexcept;
 isize indexFunc(sv s, pred f, bool truth = true);
 isize lastIndexFunc(sv s, pred f, bool truth = true);
 isize count(sv s, sv sep) noexcept;
-bool equal_fold(sv s, sv t) noexcept;
+bool equalFold(sv s, sv t) noexcept;
 int compare(sv a, sv b) noexcept;
 
 // Trimming.
 sv trim(sv s, sv cutset) noexcept;
 sv trimLeft(sv s, sv cutset) noexcept;
 sv trimRight(sv s, sv cutset) noexcept;
-sv trim_space(sv s) noexcept;
+sv trimSpace(sv s) noexcept;
 sv trimFunc(sv s, pred f);
 sv trimLeftFunc(sv s, pred f);
 sv trimRightFunc(sv s, pred f);
 
 // Cut and CutLast: the text before and after sep, and whether it was
 // found; s, nil and false if not.
-struct cut_result {
+struct cutResult {
     sv before, after;
     bool found;
 };
-cut_result cut(sv s, sv sep) noexcept;
-cut_result cutLast(sv s, sv sep) noexcept;
+cutResult cut(sv s, sv sep) noexcept;
+cutResult cutLast(sv s, sv sep) noexcept;
 
 // Splitting. Each part ends where the next part's separator starts, plus
-// sep_save bytes of it (SplitAfter). n < 0 means all parts; the caller
+// sepSave bytes of it (SplitAfter). n < 0 means all parts; the caller
 // handles n == 0, where Go returns nil.
-std::vector<sv> genSplit(sv s, sv sep, std::size_t sep_save, isize n);
+std::vector<sv> genSplit(sv s, sv sep, std::size_t sepSave, isize n);
 std::vector<sv> fields(sv s);
 std::vector<sv> fieldsFunc(sv s, pred f);
 

@@ -10,7 +10,7 @@ namespace gopp::flag {
 
 const gopp::error ErrHelp = errors::New("flag: help requested");
 
-void FlagSet::define(flag_def f) {
+void FlagSet::define(flagDef f) {
     for (auto& g : flags_) {
         if (g.name == f.name) panic(fmt::Sprint("{} flag redefined: {}", name_, f.name).view());
     }
@@ -90,15 +90,15 @@ gopp::error FlagSet::Parse(std::span<const gopp::string> arguments) {
         std::string_view name = s.substr(static_cast<std::size_t>(dashes));
         if (name.empty() || name[0] == '-' || name[0] == '=') return fail(fmt::Sprint("bad flag syntax: {}", s));
 
-        bool has_value = false;
+        bool hasValue = false;
         std::string_view value;
         if (auto eq = name.find('='); eq != name.npos) {
             value = name.substr(eq + 1);
             name = name.substr(0, eq);
-            has_value = true;
+            hasValue = true;
         }
 
-        flag_def* f = nullptr;
+        flagDef* f = nullptr;
         for (auto& g : flags_) {
             if (g.name == name) f = &g;
         }
@@ -110,12 +110,12 @@ gopp::error FlagSet::Parse(std::span<const gopp::string> arguments) {
             return fail(fmt::Sprint("flag provided but not defined: -{}", name));
         }
         if (f->IsBool) {
-            if (gopp::error err = f->set(has_value ? value : "true")) {
+            if (gopp::error err = f->set(hasValue ? value : "true")) {
                 return fail(fmt::Sprint("invalid boolean value {} for -{}: {}", strconv::Quote(value), name, err));
             }
             continue;
         }
-        if (!has_value) {
+        if (!hasValue) {
             if (i + 1 >= arguments.size()) return fail(fmt::Sprint("flag needs an argument: -{}", name));
             value = arguments[++i];
         }
@@ -130,7 +130,7 @@ gopp::error FlagSet::Parse(std::span<const gopp::string> arguments) {
 void FlagSet::PrintDefaults() const {
     if (name_.empty()) fmt::Println(os::Stderr, "Usage:");
     else fmt::Println(os::Stderr, "Usage of {}:", name_);
-    std::vector<const flag_def*> sorted;
+    std::vector<const flagDef*> sorted;
     for (auto& f : flags_) sorted.push_back(&f);
     std::sort(sorted.begin(), sorted.end(), [](auto* a, auto* b) { return a->name < b->name; });
     for (auto* f : sorted) {

@@ -20,7 +20,7 @@ struct sudog {
     sudog* next = nullptr;
     sudog* prev = nullptr;
     void* elem = nullptr;  // value to send, or storage to receive into
-    bool is_select = false;
+    bool isSelect = false;
     bool success = false;  // whether communication happened (false: closed)
     sudog* waitlink = nullptr;  // G's list of sudogs in a select
     gopp::detail::hchan* c = nullptr;
@@ -31,7 +31,7 @@ struct sudog {
 namespace gopp::detail {
 
 using runtime::G;
-using runtime::lock_t;
+using runtime::lockT;
 using runtime::sudog;
 
 namespace {
@@ -57,9 +57,9 @@ struct waitq {
             else last = nullptr;
             s->next = s->prev = nullptr;
             // A select may have been won by another case already.
-            if (s->is_select) {
+            if (s->isSelect) {
                 uint32_t z = 0;
-                if (!s->g->select_done.compare_exchange_strong(z, 1)) continue;
+                if (!s->g->selectDone.compare_exchange_strong(z, 1)) continue;
             }
             return s;
         }
@@ -90,7 +90,7 @@ struct waitq {
 
 struct hchan {
     std::atomic<unsigned> refs{1};
-    const elem_ops* ops;
+    const elemOps* ops;
     std::atomic<std::size_t> qcount{0};
     std::size_t dataqsiz;
     unsigned char* buf = nullptr;
@@ -99,7 +99,7 @@ struct hchan {
     waitq recvq;
     waitq sendq;
     std::atomic<uint32_t> closed{0};
-    lock_t lock;
+    lockT lock;
 
     void* slot(std::size_t i) noexcept { return buf + i * stride(); }
     std::size_t stride() const noexcept { return (ops->size + ops->align - 1) / ops->align * ops->align; }
@@ -117,7 +117,7 @@ struct hchan {
 namespace {
 
 bool chanparkcommit(G*, void* arg) noexcept {
-    static_cast<lock_t*>(arg)->unlock();
+    static_cast<lockT*>(arg)->unlock();
     return true;
 }
 
@@ -130,7 +130,7 @@ bool chanparkcommit(G*, void* arg) noexcept {
 template <typename Unlock>
 void sendTo(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
     if (sg->elem) {
-        c->ops->move_construct(sg->elem, ep);
+        c->ops->moveConstruct(sg->elem, ep);
         sg->elem = nullptr;
     }
     G* gp = sg->g;
@@ -144,14 +144,14 @@ void sendTo(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
 template <typename Unlock>
 void recvFrom(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
     if (c->dataqsiz == 0) {
-        if (ep) c->ops->move_construct(ep, sg->elem);
+        if (ep) c->ops->moveConstruct(ep, sg->elem);
     } else {
         // The queue is full: take its head and put the sender's value at
         // its tail, which is the same slot.
         void* qp = c->slot(c->recvx);
-        if (ep) c->ops->move_construct(ep, qp);
+        if (ep) c->ops->moveConstruct(ep, qp);
         c->ops->destroy(qp);
-        c->ops->move_construct(qp, sg->elem);
+        c->ops->moveConstruct(qp, sg->elem);
         c->recvx++;
         if (c->recvx == c->dataqsiz) c->recvx = 0;
         c->sendx = c->recvx;
@@ -166,7 +166,7 @@ void recvFrom(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
 
 }  // namespace
 
-hchan* chanMake(const elem_ops* ops, std::size_t size) {
+hchan* chanMake(const elemOps* ops, std::size_t size) {
     auto* c = new hchan();
     c->ops = ops;
     c->dataqsiz = size;
@@ -192,7 +192,7 @@ void chanRelease(hchan* c) noexcept {
 bool chanSend(hchan* c, void* ep, bool block) {
     if (!c) {
         if (!block) return false;
-        blockForever(runtime::waitreason::chan_send_nil);
+        blockForever(runtime::waitreason::chanSendNil);
     }
     // Fast path: a full open channel fails a non-blocking send.
     if (!block && c->closed.load(std::memory_order_acquire) == 0 && c->full()) return false;
@@ -207,7 +207,7 @@ bool chanSend(hchan* c, void* ep, bool block) {
         return true;
     }
     if (c->qcount.load(std::memory_order_relaxed) < c->dataqsiz) {
-        c->ops->move_construct(c->slot(c->sendx), ep);
+        c->ops->moveConstruct(c->slot(c->sendx), ep);
         if (++c->sendx == c->dataqsiz) c->sendx = 0;
         c->qcount.fetch_add(1, std::memory_order_relaxed);
         c->lock.unlock();
@@ -235,10 +235,10 @@ bool chanSend(hchan* c, void* ep, bool block) {
     return true;
 }
 
-recv_result chanRecv(hchan* c, void* ep, bool block) {
+recvResult chanRecv(hchan* c, void* ep, bool block) {
     if (!c) {
         if (!block) return {false, false};
-        blockForever(runtime::waitreason::chan_receive_nil);
+        blockForever(runtime::waitreason::chanReceiveNil);
     }
     // Fast path: an empty channel fails a non-blocking receive.
     if (!block && c->empty()) {
@@ -258,7 +258,7 @@ recv_result chanRecv(hchan* c, void* ep, bool block) {
     }
     if (c->qcount.load(std::memory_order_relaxed) > 0) {
         void* qp = c->slot(c->recvx);
-        c->ops->move_construct(ep, qp);
+        c->ops->moveConstruct(ep, qp);
         c->ops->destroy(qp);
         if (++c->recvx == c->dataqsiz) c->recvx = 0;
         c->qcount.fetch_sub(1, std::memory_order_relaxed);
@@ -278,7 +278,7 @@ recv_result chanRecv(hchan* c, void* ep, bool block) {
     gp->waiting = &mysg;
     gp->param = nullptr;
     c->recvq.enqueue(&mysg);
-    runtime::park(chanparkcommit, &c->lock, runtime::waitreason::chan_receive);
+    runtime::park(chanparkcommit, &c->lock, runtime::waitreason::chanReceive);
 
     gp = runtime::getg();
     gp->waiting = nullptr;
@@ -340,21 +340,21 @@ void selunlock(scase* cases, const uint16_t* lockorder, int n) noexcept {
     }
 }
 
-struct selpark_arg {
+struct selparkArg {
     scase* cases;
     const uint16_t* lockorder;
     int n;
 };
 
 bool selparkcommit(G*, void* arg) noexcept {
-    auto* a = static_cast<selpark_arg*>(arg);
+    auto* a = static_cast<selparkArg*>(arg);
     selunlock(a->cases, a->lockorder, a->n);
     return true;
 }
 
 }  // namespace
 
-select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
+selectResult selectgo(scase* cases, int nsends, int nrecvs, bool block) {
     int ncases = nsends + nrecvs;
     uint16_t pollorder[64 + 1];
     uint16_t lockorder[64 + 1];
@@ -371,7 +371,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
     }
     if (norder == 0) {
         if (!block) return {-1, false};
-        blockForever(runtime::waitreason::select_no_cases);
+        blockForever(runtime::waitreason::selectNoCases);
     }
 
     // Lock order: by channel address, to avoid deadlock between selects.
@@ -386,7 +386,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
     scase* cas = nullptr;
     sudog* sg = nullptr;
     hchan* c = nullptr;
-    bool recv_ok = false;
+    bool recvOk = false;
 
     // Pass 1: look for something that can proceed now.
     for (int k = 0; k < norder; k++) {
@@ -400,7 +400,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
             }
             if (c->qcount.load(std::memory_order_relaxed) > 0) {
                 void* qp = c->slot(c->recvx);
-                c->ops->move_construct(cas->elem, qp);
+                c->ops->moveConstruct(cas->elem, qp);
                 c->ops->destroy(qp);
                 if (++c->recvx == c->dataqsiz) c->recvx = 0;
                 c->qcount.fetch_sub(1, std::memory_order_relaxed);
@@ -421,7 +421,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
                 return {casi, false};
             }
             if (c->qcount.load(std::memory_order_relaxed) < c->dataqsiz) {
-                c->ops->move_construct(c->slot(c->sendx), cas->elem);
+                c->ops->moveConstruct(c->slot(c->sendx), cas->elem);
                 if (++c->sendx == c->dataqsiz) c->sendx = 0;
                 c->qcount.fetch_add(1, std::memory_order_relaxed);
                 selunlock(cases, lockorder, norder);
@@ -439,14 +439,14 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
     G* gp = runtime::getg();
     sudog sgs[64];
     gp->waiting = nullptr;
-    gp->select_done.store(0);
+    gp->selectDone.store(0);
     sudog** nextp = &gp->waiting;
     for (int k = 0; k < norder; k++) {
         int ci = lockorder[k];
         sudog* s = &sgs[k];
         *s = sudog{};
         s->g = gp;
-        s->is_select = true;
+        s->isSelect = true;
         s->elem = cases[ci].elem;
         s->c = cases[ci].c;
         *nextp = s;
@@ -456,47 +456,47 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
     }
 
     gp->param = nullptr;
-    selpark_arg arg{cases, lockorder, norder};
+    selparkArg arg{cases, lockorder, norder};
     runtime::park(selparkcommit, &arg, runtime::waitreason::select);
 
     gp = runtime::getg();
     sellock(cases, lockorder, norder);
-    gp->select_done.store(0);
+    gp->selectDone.store(0);
     sg = static_cast<sudog*>(gp->param);
     gp->param = nullptr;
 
     // Pass 3: dequeue from the channels that didn't win.
     casi = -1;
     cas = nullptr;
-    bool case_success = false;
+    bool caseSuccess = false;
     sudog* sglist = gp->waiting;
     gp->waiting = nullptr;
     for (int k = 0; k < norder; k++) {
         int ci = lockorder[k];
-        scase* k_cas = &cases[ci];
+        scase* kCas = &cases[ci];
         if (sg == sglist) {
             casi = ci;
-            cas = k_cas;
-            case_success = sglist->success;
+            cas = kCas;
+            caseSuccess = sglist->success;
         } else if (ci < nsends) {
-            k_cas->c->sendq.remove(sglist);
+            kCas->c->sendq.remove(sglist);
         } else {
-            k_cas->c->recvq.remove(sglist);
+            kCas->c->recvq.remove(sglist);
         }
         sglist = sglist->waitlink;
     }
     if (!cas) runtime::fatal("selectgo: bad wakeup");
 
     if (casi < nsends) {
-        if (!case_success) {
+        if (!caseSuccess) {
             selunlock(cases, lockorder, norder);
             panic("send on closed channel");
         }
     } else {
-        recv_ok = case_success;
+        recvOk = caseSuccess;
     }
     selunlock(cases, lockorder, norder);
-    return {casi, recv_ok};
+    return {casi, recvOk};
 }
 
 }  // namespace gopp::detail

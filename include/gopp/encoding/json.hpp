@@ -71,10 +71,10 @@ struct UnmarshalTypeError : errorInterface {
     string value;   // "string", "number 1.5", "array", ...
     string type;    // the C++ type
     int64 offset = 0;
-    string struct_name;
+    string structName;
     string field;
-    UnmarshalTypeError(string value, string type, int64 offset, string struct_name, string field)
-        : value(std::move(value)), type(std::move(type)), offset(offset), struct_name(std::move(struct_name)),
+    UnmarshalTypeError(string value, string type, int64 offset, string structName, string field)
+        : value(std::move(value)), type(std::move(type)), offset(offset), structName(std::move(structName)),
           field(std::move(field)) {}
     string Error() const override;
 };
@@ -96,9 +96,9 @@ struct InvalidUnmarshalError : errorInterface {
 struct MarshalerError : errorInterface {
     string type;
     gopp::error Err;
-    string source_func;  // "MarshalJSON" if empty
+    string sourceFunc;  // "MarshalJSON" if empty
     string Error() const override {
-        return "json: error calling " + (source_func.empty() ? string::fromStatic("MarshalJSON") : source_func) +
+        return "json: error calling " + (sourceFunc.empty() ? string::fromStatic("MarshalJSON") : sourceFunc) +
                " for type " + type + ": " + Err.Error();
     }
     const errorInterface* Unwrap() const noexcept override { return Err.get(); }
@@ -209,12 +209,12 @@ namespace detail {
 class encoder {
 public:
     std::string out;
-    bool escape_html = true;
+    bool escapeHtml = true;
     gopp::error err;
     // Pointer cycles are looked for once pointers nest this deep, as in Go.
-    static constexpr int start_detecting_cycles_after = 1000;
-    int ptr_level = 0;
-    std::vector<const void*> ptr_seen;
+    static constexpr int startDetectingCyclesAfter = 1000;
+    int ptrLevel = 0;
+    std::vector<const void*> ptrSeen;
 
     void WriteString(std::string_view s);
     void writeFloat(double f, int bits);
@@ -241,9 +241,9 @@ class decoder {
 public:
     explicit decoder(std::string_view data) : data_(data) {}
 
-    bool disallow_unknown = false;
+    bool disallowUnknown = false;
     gopp::error err;
-    std::string_view struct_name;
+    std::string_view structName;
     std::string field;
 
     // The first byte of the next value, after whitespace.
@@ -285,9 +285,9 @@ private:
 gopp::error validate(std::string_view data);
 // For streams: the length of the first value in s (after whitespace), 0 if
 // s ends before the value does, or a SyntaxError.
-std::pair<std::size_t, gopp::error> valueLength(std::string_view s, bool at_eof);
+std::pair<std::size_t, gopp::error> valueLength(std::string_view s, bool atEof);
 void indent(std::string& dst, std::string_view src, std::string_view prefix, std::string_view indent);
-void append_compact(std::string& dst, std::string_view src, bool escape_html);
+void appendCompact(std::string& dst, std::string_view src, bool escapeHtml);
 
 template <typename T>
 consteval std::string_view typeName() {
@@ -298,36 +298,36 @@ consteval std::string_view typeName() {
 // Type categories
 
 template <typename T>
-struct is_slice : std::false_type {};
+struct isSlice : std::false_type {};
 template <typename T>
-struct is_slice<gopp::slice<T>> : std::true_type {};
+struct isSlice<gopp::slice<T>> : std::true_type {};
 template <typename T>
-struct is_vector : std::false_type {};
+struct isVector : std::false_type {};
 template <typename T, typename A>
-struct is_vector<std::vector<T, A>> : std::true_type {};
+struct isVector<std::vector<T, A>> : std::true_type {};
 template <typename T>
-struct is_std_array : std::false_type {};
+struct isStdArray : std::false_type {};
 template <typename T, std::size_t N>
-struct is_std_array<std::array<T, N>> : std::true_type {};
+struct isStdArray<std::array<T, N>> : std::true_type {};
 template <typename T>
-struct is_map : std::false_type {};
+struct isMap : std::false_type {};
 template <typename K, typename V, typename C, typename A>
-struct is_map<std::map<K, V, C, A>> : std::true_type {};
+struct isMap<std::map<K, V, C, A>> : std::true_type {};
 template <typename K, typename V, typename H, typename E, typename A>
-struct is_map<std::unordered_map<K, V, H, E, A>> : std::true_type {};
+struct isMap<std::unordered_map<K, V, H, E, A>> : std::true_type {};
 template <typename T>
-struct is_optional : std::false_type {};
+struct isOptional : std::false_type {};
 template <typename T>
-struct is_optional<std::optional<T>> : std::true_type {};
+struct isOptional<std::optional<T>> : std::true_type {};
 // Pointers: gopp::ptr, std::shared_ptr and std::unique_ptr, like Go's *T.
 template <typename T>
-struct is_ptr : std::false_type {};
+struct isPtr : std::false_type {};
 template <typename T>
-struct is_ptr<gopp::ptr<T>> : std::true_type {};
+struct isPtr<gopp::ptr<T>> : std::true_type {};
 template <typename T>
-struct is_ptr<std::shared_ptr<T>> : std::true_type {};
+struct isPtr<std::shared_ptr<T>> : std::true_type {};
 template <typename T, typename D>
-struct is_ptr<std::unique_ptr<T, D>> : std::true_type {};
+struct isPtr<std::unique_ptr<T, D>> : std::true_type {};
 
 template <typename P>
 void allocate(P& p) {
@@ -339,11 +339,11 @@ void allocate(P& p) {
 
 // A pointer or optional holding a number, for the ",string" option.
 template <typename T>
-concept number_pointer = (is_optional<T>::value || is_ptr<T>::value) &&
+concept numberPointer = (isOptional<T>::value || isPtr<T>::value) &&
                          std::is_arithmetic_v<std::remove_cvref_t<decltype(*std::declval<T&>())>>;
 
 template <typename T>
-concept string_like = std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
+concept stringLike = std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
 
 template <typename T>
 concept marshaler = requires(const T& t) {
@@ -357,7 +357,7 @@ concept unmarshaler = requires(T& t, std::span<const byte> d) {
 // ---------------------------------------------------------------------------
 // Struct fields by reflection
 
-struct field_spec {
+struct fieldSpec {
     std::string_view name;
     bool skip = false;
     bool omitempty = false;
@@ -383,8 +383,8 @@ consteval bool validTagName(std::string_view s) {
     return true;
 }
 
-consteval field_spec parseTag(std::string_view member, std::string_view spec) {
-    field_spec f{member};
+consteval fieldSpec parseTag(std::string_view member, std::string_view spec) {
+    fieldSpec f{member};
     std::size_t comma = spec.find(',');
     std::string_view name = spec.substr(0, comma);
     if (name == "-" && comma == std::string_view::npos) {
@@ -403,13 +403,13 @@ consteval field_spec parseTag(std::string_view member, std::string_view spec) {
 }
 
 template <std::meta::info M>
-consteval field_spec specOf() {
+consteval fieldSpec specOf() {
     std::string_view member = std::define_static_string(std::meta::identifier_of(M));
     for (std::meta::info a : std::meta::annotations_of_with_type(M, ^^json::tag)) {
         json::tag t = std::meta::extract<json::tag>(a);
         return parseTag(member, std::string_view(t.spec));
     }
-    return field_spec{member};
+    return fieldSpec{member};
 }
 
 // "name": with the quotes and escapes, for writing keys. Tag names can't
@@ -436,11 +436,11 @@ template <typename T>
 bool isEmptyValue(const T& v) {
     if constexpr (std::is_same_v<T, bool>) return !v;
     else if constexpr (std::is_arithmetic_v<T> || std::is_enum_v<T>) return v == T{};
-    else if constexpr (string_like<T>) return v.empty();
-    else if constexpr (is_slice<T>::value || is_vector<T>::value || is_map<T>::value) return v.empty();
-    else if constexpr (is_std_array<T>::value) return std::tuple_size_v<T> == 0;
-    else if constexpr (is_optional<T>::value) return !v.has_value();
-    else if constexpr (is_ptr<T>::value) return !v;
+    else if constexpr (stringLike<T>) return v.empty();
+    else if constexpr (isSlice<T>::value || isVector<T>::value || isMap<T>::value) return v.empty();
+    else if constexpr (isStdArray<T>::value) return std::tuple_size_v<T> == 0;
+    else if constexpr (isOptional<T>::value) return !v.has_value();
+    else if constexpr (isPtr<T>::value) return !v;
     else if constexpr (std::is_same_v<T, Value>) return v.IsNull();
     else if constexpr (std::is_same_v<T, time::Duration>) return v.ns == 0;
     else if constexpr (std::is_same_v<T, RawMessage>) return v.data.empty();  // a []byte in Go
@@ -452,7 +452,7 @@ void encode(encoder& e, const T& v);
 
 template <typename K>
 std::string mapKey(const K& k) {
-    if constexpr (string_like<K>) return std::string(std::string_view(k));
+    if constexpr (stringLike<K>) return std::string(std::string_view(k));
     else if constexpr (std::is_integral_v<K>) return std::to_string(k);
     else static_assert(sizeof(K) == 0, "json: map keys must be strings or integers");
 }
@@ -462,20 +462,20 @@ void encodeStruct(encoder& e, const T& v) {
     e.out.push_back('{');
     bool first = true;
     template for (constexpr std::meta::info m : fieldsOf<T>()) {
-        constexpr field_spec f = specOf<m>();
+        constexpr fieldSpec f = specOf<m>();
         if constexpr (!f.skip) {
             const auto& fv = v.[:m:];
             if (!f.omitempty || !isEmptyValue(fv)) {
                 if (!first) e.out.push_back(',');
                 first = false;
-                e.out.append(e.escape_html ? quotedKey<m, true>() : quotedKey<m, false>());
+                e.out.append(e.escapeHtml ? quotedKey<m, true>() : quotedKey<m, false>());
                 if constexpr (f.AsString) {
                     using F = std::remove_cvref_t<decltype(fv)>;
                     if constexpr (std::is_arithmetic_v<F>) {
                         e.out.push_back('"');
                         encode(e, fv);
                         e.out.push_back('"');
-                    } else if constexpr (number_pointer<F>) {
+                    } else if constexpr (numberPointer<F>) {
                         // A pointer to a number: quoted, or null.
                         if (!fv) {
                             e.out.append("null");
@@ -484,9 +484,9 @@ void encodeStruct(encoder& e, const T& v) {
                             encode(e, *fv);
                             e.out.push_back('"');
                         }
-                    } else if constexpr (string_like<F>) {
+                    } else if constexpr (stringLike<F>) {
                         encoder inner;
-                        inner.escape_html = e.escape_html;
+                        inner.escapeHtml = e.escapeHtml;
                         inner.WriteString(fv);
                         e.WriteString(inner.out);
                     } else {
@@ -515,7 +515,7 @@ void encode(encoder& e, const T& v) {
         else e.writeUint(static_cast<uint64>(v));
     } else if constexpr (std::is_enum_v<U>) {
         encode(e, static_cast<std::underlying_type_t<U>>(v));
-    } else if constexpr (string_like<U>) {
+    } else if constexpr (stringLike<U>) {
         e.WriteString(std::string_view(v));
     } else if constexpr (std::is_same_v<U, const char*> || std::is_same_v<U, char*>) {
         e.WriteString(v ? std::string_view(v) : std::string_view());
@@ -528,8 +528,8 @@ void encode(encoder& e, const T& v) {
         e.writeInt(v.ns);
     } else if constexpr (std::is_same_v<U, std::nullptr_t>) {
         e.out.append("null");
-    } else if constexpr (is_slice<U>::value || is_vector<U>::value || is_std_array<U>::value) {
-        if constexpr (is_slice<U>::value) {
+    } else if constexpr (isSlice<U>::value || isVector<U>::value || isStdArray<U>::value) {
+        if constexpr (isSlice<U>::value) {
             if (v.isNil()) {
                 e.out.append("null");
                 return;
@@ -543,7 +543,7 @@ void encode(encoder& e, const T& v) {
             encode(e, x);
         }
         e.out.push_back(']');
-    } else if constexpr (is_map<U>::value) {
+    } else if constexpr (isMap<U>::value) {
         // Sorted by key, as Go sorts map keys.
         std::vector<std::pair<std::string, const typename U::mapped_type*>> kv;
         kv.reserve(v.size());
@@ -559,28 +559,28 @@ void encode(encoder& e, const T& v) {
             encode(e, *x);
         }
         e.out.push_back('}');
-    } else if constexpr (is_optional<U>::value) {
+    } else if constexpr (isOptional<U>::value) {
         if (!v) e.out.append("null");
         else encode(e, *v);
-    } else if constexpr (is_ptr<U>::value) {
+    } else if constexpr (isPtr<U>::value) {
         if (!v) {
             e.out.append("null");
             return;
         }
         // Past a nesting depth, remember the pointers to find cycles.
         const void* p = v.get();
-        bool tracked = ++e.ptr_level > encoder::start_detecting_cycles_after;
+        bool tracked = ++e.ptrLevel > encoder::startDetectingCyclesAfter;
         if (tracked) {
-            if (std::find(e.ptr_seen.begin(), e.ptr_seen.end(), p) != e.ptr_seen.end()) {
+            if (std::find(e.ptrSeen.begin(), e.ptrSeen.end(), p) != e.ptrSeen.end()) {
                 e.cycleError(typeName<U>());
-                e.ptr_level--;
+                e.ptrLevel--;
                 return;
             }
-            e.ptr_seen.push_back(p);
+            e.ptrSeen.push_back(p);
         }
         if (!e.err) encode(e, *v);
-        if (tracked) e.ptr_seen.pop_back();
-        e.ptr_level--;
+        if (tracked) e.ptrSeen.pop_back();
+        e.ptrLevel--;
     } else if constexpr (std::is_class_v<U>) {
         encodeStruct(e, v);
     } else {
@@ -668,28 +668,28 @@ void decodeStruct(decoder& d, T& v) {
     }
     d.beginObject();
     std::string key;
-    auto saved_struct = d.struct_name;
+    auto savedStruct = d.structName;
     while (d.nextKey(key)) {
         bool found = false;
         // An exact match wins; otherwise a case-insensitive one, as in Go.
         for (int pass = 0; pass < 2 && !found; pass++) {
             template for (constexpr std::meta::info m : fieldsOf<T>()) {
-                constexpr field_spec f = specOf<m>();
+                constexpr fieldSpec f = specOf<m>();
                 if constexpr (!f.skip) {
                     if (!found && (pass == 0 ? key == f.name : EqualFold(key, f.name))) {
                         found = true;
-                        d.struct_name = typeName<T>();
-                        std::string saved_field = d.field;
+                        d.structName = typeName<T>();
+                        std::string savedField = d.field;
                         d.field = d.field.empty() ? std::string(f.name) : d.field + "." + std::string(f.name);
                         using F = std::remove_cvref_t<decltype(v.[:m:])>;
-                        if constexpr (f.AsString && (std::is_arithmetic_v<F> || string_like<F>)) {
+                        if constexpr (f.AsString && (std::is_arithmetic_v<F> || stringLike<F>)) {
                             decodeQuoted(d, v.[:m:]);
-                        } else if constexpr (f.AsString && number_pointer<F>) {
+                        } else if constexpr (f.AsString && numberPointer<F>) {
                             auto& p = v.[:m:];
                             if (d.consumeNull()) {
                                 p.reset();
                             } else {
-                                if constexpr (is_optional<F>::value) {
+                                if constexpr (isOptional<F>::value) {
                                     if (!p) p.emplace();
                                 } else {
                                     if (!p) allocate(p);
@@ -699,14 +699,14 @@ void decodeStruct(decoder& d, T& v) {
                         } else {
                             decode(d, v.[:m:]);
                         }
-                        d.field = std::move(saved_field);
-                        d.struct_name = saved_struct;
+                        d.field = std::move(savedField);
+                        d.structName = savedStruct;
                     }
                 }
             }
         }
         if (!found) {
-            if (d.disallow_unknown) d.fail(errors::New("json: unknown field \"" + string(key) + "\""));
+            if (d.disallowUnknown) d.fail(errors::New("json: unknown field \"" + string(key) + "\""));
             d.skip();
         }
     }
@@ -720,14 +720,14 @@ void decode(decoder& d, T& v) {
         if (gopp::error err = v.UnmarshalJSON(as_bytes(raw))) d.fail(err);
     } else if constexpr (std::is_same_v<U, Value>) {
         d.readValue(v);
-    } else if constexpr (is_optional<U>::value) {
+    } else if constexpr (isOptional<U>::value) {
         if (d.consumeNull()) {
             v.reset();
             return;
         }
         if (!v) v.emplace();
         decode(d, *v);
-    } else if constexpr (is_ptr<U>::value) {
+    } else if constexpr (isPtr<U>::value) {
         if (d.consumeNull()) {
             v.reset();
             return;
@@ -765,7 +765,7 @@ void decode(decoder& d, T& v) {
             return;
         }
         if (d.peek() != '"' || !d.readBase64(v)) d.mismatch("[]byte");
-    } else if constexpr (is_slice<U>::value || is_vector<U>::value) {
+    } else if constexpr (isSlice<U>::value || isVector<U>::value) {
         if (d.consumeNull()) {
             v = U();
             return;
@@ -775,7 +775,7 @@ void decode(decoder& d, T& v) {
             return;
         }
         d.beginArray();
-        if constexpr (is_vector<U>::value) {
+        if constexpr (isVector<U>::value) {
             v.clear();
             while (d.nextElement()) decode(d, v.emplace_back());
         } else {
@@ -787,7 +787,7 @@ void decode(decoder& d, T& v) {
             }
             v = std::move(out);
         }
-    } else if constexpr (is_std_array<U>::value) {
+    } else if constexpr (isStdArray<U>::value) {
         if (d.consumeNull()) return;
         if (d.peek() != '[') {
             d.mismatch(typeName<U>());
@@ -800,7 +800,7 @@ void decode(decoder& d, T& v) {
             else d.skip();
         }
         for (; i < v.size(); i++) v[i] = typename U::value_type{};
-    } else if constexpr (is_map<U>::value) {
+    } else if constexpr (isMap<U>::value) {
         if (d.consumeNull()) {
             v.clear();
             return;
@@ -899,7 +899,7 @@ public:
     template <typename T>
     error Encode(const T& v) {
         detail::encoder e;
-        e.escape_html = escape_html_;
+        e.escapeHtml = escapeHtml_;
         detail::encode(e, v);
         if (e.err) return e.err;
         if (!prefix_.empty() || !indent_.empty()) {
@@ -917,12 +917,12 @@ public:
     }
     // Whether to escape <, > and & in strings (the default), so that JSON
     // can be embedded in HTML.
-    void SetEscapeHTML(bool on) noexcept { escape_html_ = on; }
+    void SetEscapeHTML(bool on) noexcept { escapeHtml_ = on; }
 
 private:
     io::Writer* w_;
     std::string prefix_, indent_;
-    bool escape_html_ = true;
+    bool escapeHtml_ = true;
 };
 
 inline Encoder NewEncoder(io::Writer& w) { return Encoder(w); }
@@ -944,7 +944,7 @@ public:
         auto [value, err] = readValue();
         if (err) return err;
         detail::decoder d(value);
-        d.disallow_unknown = disallow_unknown_;
+        d.disallowUnknown = disallowUnknown_;
         detail::decode(d, *v);
         return d.err;
     }
@@ -952,7 +952,7 @@ public:
     // Whether another value follows in the stream.
     bool More();
     // Makes unknown object keys an error when decoding into structs.
-    void DisallowUnknownFields() noexcept { disallow_unknown_ = true; }
+    void DisallowUnknownFields() noexcept { disallowUnknown_ = true; }
     // Bytes consumed so far.
     int64 InputOffset() const noexcept { return offset_ + static_cast<int64>(scanp_); }
 
@@ -965,7 +965,7 @@ private:
     std::size_t scanp_ = 0;
     int64 offset_ = 0;
     error err_;
-    bool disallow_unknown_ = false;
+    bool disallowUnknown_ = false;
 };
 
 inline Decoder NewDecoder(io::Reader& r) { return Decoder(r); }

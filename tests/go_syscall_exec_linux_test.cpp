@@ -20,7 +20,7 @@
 #include <fstream>
 
 using namespace os_test;
-using go_helper::helper_command;
+using go_helper::helperCommand;
 
 namespace {
 
@@ -82,7 +82,7 @@ bool syscallIsNotSupported(const error& err) {
     os::Exit(code);
 }
 
-const bool helpers_registered = [] {
+const bool helpersRegistered = [] {
     // TestUnshareMountNameSpace's child: mount proc on its argument.
     go_helper::registerHelper("mountproc", [](const std::vector<std::string>& args) {
         if (error err = syscall::Mount("none", args.at(0), "proc", 0, "")) {
@@ -277,7 +277,7 @@ TEST(GoSyscall, GroupCleanupUserNamespace) {
 TEST(GoSyscall, UnshareMountNameSpace) {
     TempDir td;
     std::string d = td.path();
-    auto cmd = helper_command("mountproc", {d});
+    auto cmd = helperCommand("mountproc", {d});
     syscall::SysProcAttr sys;
     sys.Unshareflags = syscall::CLONE_NEWNS_;
     cmd->SysProcAttr = sys;
@@ -374,7 +374,7 @@ TEST(GoSyscall, UnshareMountNameSpaceChroot) {
         if (!os::Stat(d).second) syscall::Unmount(d, syscall::MNT_FORCE);
     };
 
-    auto cmd = helper_command("mountproc", {"/"});
+    auto cmd = helperCommand("mountproc", {"/"});
     cmd->Path = string(x);
     // The working directory would be outside the chroot, which googletest
     // can't start in: the chroot's root (chdir comes after chroot).
@@ -410,7 +410,7 @@ TEST(GoSyscall, UnshareMountNameSpaceChroot) {
 TEST(GoSyscall, UnshareUidGidMapping) {
     if (os::Getuid() == 0) GTEST_SKIP() << "test exercises unprivileged user namespace, fails with privileges";
 
-    auto cmd = helper_command("chroottmp");
+    auto cmd = helperCommand("chroottmp");
     syscall::SysProcAttr sys;
     sys.Unshareflags = syscall::CLONE_NEWNS_ | syscall::CLONE_NEWUSER_;
     sys.GidMappingsEnableSetgroups = false;
@@ -489,7 +489,7 @@ TEST(GoSyscall, UseCgroupFD) {
     if (HasFatalFailure()) return;
     if (!c.skip.empty()) GTEST_SKIP() << c.skip;
 
-    auto cmd = helper_command("selfcgroup");
+    auto cmd = helperCommand("selfcgroup");
     syscall::SysProcAttr sys;
     sys.UseCgroupFD = true;
     sys.CgroupFD = c.fd;
@@ -509,7 +509,7 @@ TEST(GoSyscall, UseCgroupFD) {
 }
 
 TEST(GoSyscall, CloneTimeNamespace) {
-    auto cmd = helper_command("timens");
+    auto cmd = helperCommand("timens");
     syscall::SysProcAttr sys;
     sys.Cloneflags = syscall::CLONE_NEWTIME_;
     cmd->SysProcAttr = sys;
@@ -534,7 +534,7 @@ namespace {
 // be skipped).
 error testPidFD(bool userns, std::string& skip) {
     int pidfd = -1;
-    auto cmd = helper_command("waitsignal");
+    auto cmd = helperCommand("waitsignal");
     syscall::SysProcAttr sys;
     sys.PidFD = &pidfd;
     if (userns) sys.Cloneflags = syscall::CLONE_NEWUSER_;
@@ -594,9 +594,9 @@ TEST(GoSyscall, PidFDWithUserNS) {
 }
 
 TEST(GoSyscall, PidFDClone3) {
-    syscall::detail::force_clone3 = true;
+    syscall::detail::forceClone3 = true;
     struct reset {
-        ~reset() { syscall::detail::force_clone3 = false; }
+        ~reset() { syscall::detail::forceClone3 = false; }
     } r;
     std::string skip;
     if (error err = testPidFD(false, skip)) {
@@ -650,7 +650,7 @@ void testAmbientCaps(bool userns) {
     ASSERT_FALSE(f->Chmod(0755));
     ASSERT_FALSE(f->Close());
 
-    auto cmd = helper_command("ambientcaps");
+    auto cmd = helperCommand("ambientcaps");
     cmd->Path = string(fname);
     cmd->Stdout = ptr<File>(&os::Stdout);
     cmd->Stderr = ptr<File>(&os::Stderr);

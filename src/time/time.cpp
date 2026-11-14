@@ -26,7 +26,7 @@ string Duration::String() const {
     bool neg = ns < 0;
     if (neg) u = -u;
 
-    auto fmt_frac = [&](uint64 v, int prec) {
+    auto fmtFrac = [&](uint64 v, int prec) {
         bool print = false;
         for (int i = 0; i < prec; i++) {
             int digit = static_cast<int>(v % 10);
@@ -37,7 +37,7 @@ string Duration::String() const {
         if (print) buf[--w] = '.';
         return v;
     };
-    auto fmt_int = [&](uint64 v) {
+    auto fmtInt = [&](uint64 v) {
         if (v == 0) {
             buf[--w] = '0';
             return;
@@ -63,20 +63,20 @@ string Duration::String() const {
             prec = 6;
             buf[--w] = 'm';
         }
-        u = fmt_frac(u, prec);
-        fmt_int(u);
+        u = fmtFrac(u, prec);
+        fmtInt(u);
     } else {
         buf[--w] = 's';
-        u = fmt_frac(u, 9);
-        fmt_int(u % 60);
+        u = fmtFrac(u, 9);
+        fmtInt(u % 60);
         u /= 60;
         if (u > 0) {
             buf[--w] = 'm';
-            fmt_int(u % 60);
+            fmtInt(u % 60);
             u /= 60;
             if (u > 0) {
                 buf[--w] = 'h';
-                fmt_int(u);
+                fmtInt(u);
             }
         }
     }
@@ -87,7 +87,7 @@ string Duration::String() const {
 namespace {
 
 // Consumes leading digits; false on overflow (after Go's leadingInt).
-bool leading_int(std::string_view& s, uint64& x) {
+bool leadingInt(std::string_view& s, uint64& x) {
     x = 0;
     std::size_t i = 0;
     for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; i++) {
@@ -100,7 +100,7 @@ bool leading_int(std::string_view& s, uint64& x) {
 }
 
 // Consumes leading digits as a fraction x / scale (after Go's leadingFraction).
-void leading_fraction(std::string_view& s, uint64& x, double& scale) {
+void leadingFraction(std::string_view& s, uint64& x, double& scale) {
     x = 0;
     scale = 1;
     bool overflow = false;
@@ -142,13 +142,13 @@ std::pair<Duration, error> ParseDuration(std::string_view s) {
         double scale = 1;
         if (!(s[0] == '.' || (s[0] >= '0' && s[0] <= '9'))) return invalid("invalid duration");
         std::size_t pl = s.size();
-        if (!leading_int(s, v)) return invalid("invalid duration");
+        if (!leadingInt(s, v)) return invalid("invalid duration");
         bool pre = pl != s.size();
         bool post = false;
         if (!s.empty() && s[0] == '.') {
             s.remove_prefix(1);
             pl = s.size();
-            leading_fraction(s, f, scale);
+            leadingFraction(s, f, scale);
             post = pl != s.size();
         }
         if (!pre && !post) return invalid("invalid duration");
@@ -216,7 +216,7 @@ void Sleep(Duration d) {
 // only drops its reference.
 
 struct Timer::impl {
-    runtime::lock_t mu;
+    runtime::lockT mu;
     runtime::timer t;
     object* owner = nullptr;
     chan<Time> c;  // for NewTimer and NewTicker
@@ -294,7 +294,7 @@ bool Timer::Reset(Duration d) noexcept { return impl_->reset(d.ns); }
 
 ptr<Timer> NewTimer(Duration d) {
     ptr<Timer> t(new Timer());
-    t->C = makeChan<Time>(1);
+    t->C = make_chan<Time>(1);
     t->impl_->c = t->C;
     t->impl_->mu.lock();
     t->impl_->arm(d.ns);
@@ -330,7 +330,7 @@ void Ticker::Reset(Duration d) noexcept {
 ptr<Ticker> NewTicker(Duration d) {
     if (d.ns <= 0) panic("non-positive interval for NewTicker");
     ptr<Ticker> t(new Ticker());
-    t->C = makeChan<Time>(1);
+    t->C = make_chan<Time>(1);
     t->impl_->c = t->C;
     t->impl_->period = d.ns;
     t->impl_->mu.lock();

@@ -17,10 +17,10 @@
 
 using namespace gopp;
 
-enum class event_kind { join, message, leave };
+enum class eventKind { join, message, leave };
 
 struct Event {
-    event_kind kind;
+    eventKind kind;
     int id;
     string name;
     string text;
@@ -39,34 +39,34 @@ int main(int argc, char** argv) {
     }
     fmt::Println("Chat room listening on {}", listener->Addr());
 
-    auto events = makeChan<Event>();
-    std::atomic<int> next_id{0};
+    auto events = make_chan<Event>();
+    std::atomic<int> nextId{0};
 
-    go([listener, events, &next_id] {
+    go([listener, events, &nextId] {
         for (;;) {
-            auto [conn, accept_err] = listener->Accept();
-            if (accept_err) {
-                fmt::Println(os::Stderr, "tcp-chat: {}", accept_err);
+            auto [conn, acceptErr] = listener->Accept();
+            if (acceptErr) {
+                fmt::Println(os::Stderr, "tcp-chat: {}", acceptErr);
                 return;
             }
-            int id = next_id.fetch_add(1);
+            int id = nextId.fetch_add(1);
             go([conn, events, id] {
                 fmt::Print(*conn, "Name: ");
                 bufio::Reader reader(conn);
-                auto [raw_name, name_err] = reader.ReadString('\n');
-                if (name_err) return;
-                string name = strings::TrimSpace(raw_name);
+                auto [rawName, nameErr] = reader.ReadString('\n');
+                if (nameErr) return;
+                string name = strings::TrimSpace(rawName);
                 if (name.empty()) name = fmt::Sprint("gopher{}", id + 1);
 
-                events.send(Event{event_kind::join, id, name, {}, conn});
+                events.send(Event{eventKind::join, id, name, {}, conn});
                 for (;;) {
-                    auto [raw_line, readErr] = reader.ReadString('\n');
+                    auto [rawLine, readErr] = reader.ReadString('\n');
                     if (readErr) break;
-                    string line = strings::TrimSpace(raw_line);
+                    string line = strings::TrimSpace(rawLine);
                     if (line == "/quit") break;
-                    if (!line.empty()) events.send(Event{event_kind::message, id, name, line, {}});
+                    if (!line.empty()) events.send(Event{eventKind::message, id, name, line, {}});
                 }
-                events.send(Event{event_kind::leave, id, name, {}, {}});
+                events.send(Event{eventKind::leave, id, name, {}, {}});
             });
         }
     });
@@ -77,8 +77,8 @@ int main(int argc, char** argv) {
     };
     std::map<int, ClientState> clients;
     for (Event event : events) {
-        if (event.kind == event_kind::join) {
-            auto outgoing = makeChan<string>(64);
+        if (event.kind == eventKind::join) {
+            auto outgoing = make_chan<string>(64);
             auto conn = event.conn;
             go([conn, outgoing] {
                 for (const string& line : outgoing) {
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
                 (void)id;
                 client.outgoing.send(line);
             }
-        } else if (event.kind == event_kind::message) {
+        } else if (event.kind == eventKind::message) {
             string line = fmt::Sprint("{}: {}\n", event.name, event.text);
             for (auto& [id, client] : clients) {
                 (void)id;

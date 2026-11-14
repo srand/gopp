@@ -51,22 +51,22 @@ bool addrEqual(const ptr<A>& a, const ptr<A>& b) {
 }
 
 // The error tables' errors, compared as reflect.DeepEqual would.
-struct want_err {
-    enum { none, unknown_network, addr_error } kind = none;
+struct wantErr {
+    enum { none, unknownNetwork, addrError } kind = none;
     std::string a, b;
 };
 
-want_err UnknownNetworkError(std::string net) { return {want_err::unknown_network, std::move(net), {}}; }
-want_err AddrError(std::string err, std::string addr) { return {want_err::addr_error, std::move(err), std::move(addr)}; }
+wantErr UnknownNetworkError(std::string net) { return {wantErr::unknownNetwork, std::move(net), {}}; }
+wantErr AddrError(std::string err, std::string addr) { return {wantErr::addrError, std::move(err), std::move(addr)}; }
 
-bool errEqual(const error& err, const want_err& w) {
+bool errEqual(const error& err, const wantErr& w) {
     switch (w.kind) {
-    case want_err::none: return !err;
-    case want_err::unknown_network: {
+    case wantErr::none: return !err;
+    case wantErr::unknownNetwork: {
         auto* e = errors::As<net::UnknownNetworkError>(err);
         return e && str(e->Net) == w.a;
     }
-    case want_err::addr_error: {
+    case wantErr::addrError: {
         auto* e = errors::As<net::AddrError>(err);
         return e && str(e->Err) == w.a && str(e->Addr) == w.b;
     }
@@ -487,9 +487,9 @@ TEST(GoNet, IPAddrFamily) {
 }
 
 TEST(GoNet, IPAddrScope) {
-    using scope_fn = bool (IP::*)() const;
+    using scopeFn = bool (IP::*)() const;
     struct {
-        scope_fn scope;
+        scopeFn scope;
         const char* name;
         IP in;
         bool ok;
@@ -575,10 +575,10 @@ TEST(GoNet, IPAddrScope) {
 namespace {
 
 template <typename A>
-struct resolve_test {
+struct resolveTest {
     std::string network, litAddrOrName;
     ptr<A> addr;
-    want_err err;
+    wantErr err;
 };
 
 template <typename A>
@@ -587,7 +587,7 @@ ptr<A> mk(IP ip, int port, std::string zone = {}) {
 }
 
 template <typename A>
-std::vector<resolve_test<A>> resolveTests(const std::string& p, const std::string& svc, int svcport) {
+std::vector<resolveTest<A>> resolveTests(const std::string& p, const std::string& svc, int svcport) {
     auto n = [&](const char* suffix) { return p + suffix; };
     return {
         {n(""), "127.0.0.1:0", mk<A>(net::IPv4(127, 0, 0, 1), 0), {}},
@@ -620,7 +620,7 @@ std::vector<resolve_test<A>> resolveTests(const std::string& p, const std::strin
 }
 
 template <typename A, typename Resolve>
-void testResolve(const std::vector<resolve_test<A>>& tests, Resolve resolve) {
+void testResolve(const std::vector<resolveTest<A>>& tests, Resolve resolve) {
     for (auto& tt : tests) {
         auto [addr, err] = resolve(tt.network, tt.litAddrOrName);
         if (!addrEqual(addr, tt.addr) || !errEqual(err, tt.err)) {

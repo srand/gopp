@@ -241,22 +241,22 @@ std::pair<std::vector<std::string>, error> goLookupPTR(Resolver* r, const ptr<co
 
 // internal/singleflight's Group, for lookupIPAddr's results.
 namespace detail {
-struct lookup_result {
+struct lookupResult {
     std::vector<IPAddr> val;
     error err;
     bool shared = false;
 };
-struct lookup_group : std::enable_shared_from_this<lookup_group> {
+struct lookupGroup : std::enable_shared_from_this<lookupGroup> {
     struct call {
         std::vector<IPAddr> val;
         error err;
         int dups = 0;
-        std::vector<chan<lookup_result>> chans;
+        std::vector<chan<lookupResult>> chans;
     };
     sync::Mutex mu;
     std::map<std::string, std::shared_ptr<call>> m;
 
-    chan<lookup_result> DoChan(const std::string& key, std::function<std::pair<std::vector<IPAddr>, error>()> fn);
+    chan<lookupResult> DoChan(const std::string& key, std::function<std::pair<std::vector<IPAddr>, error>()> fn);
     bool ForgetUnshared(const std::string& key);
 };
 }  // namespace detail

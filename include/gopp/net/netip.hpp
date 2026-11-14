@@ -52,7 +52,7 @@ uint128 mask6(int n) noexcept;
 namespace detail {
 // What Go's unique.Handle[addrDetail] points at: an address's family and
 // zone, interned, so that Addrs compare by pointer.
-struct addr_detail {
+struct addrDetail {
     bool isV6;
     string zoneV6;
 };
@@ -129,9 +129,9 @@ public:
     friend bool operator==(const Addr&, const Addr&) noexcept = default;
 
     // Internals, for the package and its tests.
-    constexpr Addr(uint128 addr, const detail::addr_detail* z) noexcept : addr_(addr), z_(z) {}
+    constexpr Addr(uint128 addr, const detail::addrDetail* z) noexcept : addr_(addr), z_(z) {}
     uint128 addrBits() const noexcept { return addr_; }
-    const detail::addr_detail* z() const noexcept { return z_; }
+    const detail::addrDetail* z() const noexcept { return z_; }
     uint8 v4(uint8 i) const noexcept { return uint8(addr_.lo >> ((3 - i) * 8)); }
     uint8 v6(uint8 i) const noexcept { return uint8((i < 8 ? addr_.hi : addr_.lo) >> ((7 - i % 8) * 8)); }
     uint16 v6u16(uint8 i) const noexcept { return uint16((i < 4 ? addr_.hi : addr_.lo) >> ((3 - i % 4) * 16)); }
@@ -146,14 +146,14 @@ public:
 private:
     friend class netip::Prefix;
     uint128 addr_;
-    const detail::addr_detail* z_ = nullptr;
+    const detail::addrDetail* z_ = nullptr;
 };
 
 // The interned details: z0 is nullptr.
-extern const detail::addr_detail* const z4;
-extern const detail::addr_detail* const z6noz;
+extern const detail::addrDetail* const z4;
+extern const detail::addrDetail* const z6noz;
 // unique.Make(addrDetail{isV6, zone}).
-const detail::addr_detail* MakeAddrDetail(bool isV6, std::string_view zone);
+const detail::addrDetail* MakeAddrDetail(bool isV6, std::string_view zone);
 
 Addr IPv6LinkLocalAllNodes() noexcept;
 Addr IPv6LinkLocalAllRouters() noexcept;

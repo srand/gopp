@@ -53,13 +53,13 @@ error addrSockaddr(const Addr* a, int family, sockaddr_storage* sa, socklen_t* l
     *len = 0;
     if (!a) return nullptr;
     if (auto* u = dynamic_cast<const UnixAddr*>(a)) return unixSockaddr(u->Name.view(), sa, len);
-    ip_port ip = ipPortOf(a);
+    ipPort ip = ipPortOf(a);
     if (!ip.ok) return make_ptr<AddrError>(string::fromStatic("unexpected address type"), a->String());
-    return ip_to_sockaddr(family, ip.ip, ip.port, ip.zone.view(), sa, len);
+    return ipToSockaddr(family, ip.ip, ip.port, ip.zone.view(), sa, len);
 }
 
 netfd* netfdOf(const object* c) {
-    if (auto* cb = dynamic_cast<const conn_base*>(c)) return cb->internalFd().get();
+    if (auto* cb = dynamic_cast<const connBase*>(c)) return cb->internalFd().get();
     return nullptr;
 }
 
@@ -74,7 +74,7 @@ string OpError::Error() const {
     return s + ": " + Err.Error();
 }
 
-gopp::error op_error(std::string_view op, const string& network, ptr<Addr> source, ptr<Addr> addr, gopp::error err) {
+gopp::error opError(std::string_view op, const string& network, ptr<Addr> source, ptr<Addr> addr, gopp::error err) {
     if (!err || err == io::EOF_) return err;
     auto e = make_ptr<OpError>();
     e->Op = string(op);
@@ -88,52 +88,52 @@ gopp::error op_error(std::string_view op, const string& network, ptr<Addr> sourc
 // ---------------------------------------------------------------------------
 // Connections
 
-conn_base::conn_base(ptr<netfd> fd) : fd_(std::move(fd)) {}
+connBase::connBase(ptr<netfd> fd) : fd_(std::move(fd)) {}
 
-conn_base::~conn_base() { fd_->Close(); }
+connBase::~connBase() { fd_->Close(); }
 
-std::pair<isize, error> conn_base::Read(std::span<byte> p) {
+std::pair<isize, error> connBase::Read(std::span<byte> p) {
     auto [n, err] = fd_->Read(p);
-    return {n, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    return {n, opError("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
 }
 
-std::pair<isize, error> conn_base::Write(std::span<const byte> p) {
+std::pair<isize, error> connBase::Write(std::span<const byte> p) {
     auto [n, err] = fd_->Write(p);
-    return {n, op_error("write", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    return {n, opError("write", fd_->network(), fd_->laddr, fd_->raddr, err)};
 }
 
-error conn_base::Close() { return op_error("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->Close()); }
+error connBase::Close() { return opError("close", fd_->network(), fd_->laddr, fd_->raddr, fd_->Close()); }
 
-ptr<net::Addr> conn_base::LocalAddr() const { return fd_->laddr; }
-ptr<net::Addr> conn_base::RemoteAddr() const { return fd_->raddr; }
+ptr<net::Addr> connBase::LocalAddr() const { return fd_->laddr; }
+ptr<net::Addr> connBase::RemoteAddr() const { return fd_->raddr; }
 
-error conn_base::SetDeadline(time::Time t) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'r' + 'w'));
+error connBase::SetDeadline(time::Time t) {
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'r' + 'w'));
 }
-error conn_base::SetReadDeadline(time::Time t) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'r'));
+error connBase::SetReadDeadline(time::Time t) {
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'r'));
 }
-error conn_base::SetWriteDeadline(time::Time t) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'w'));
-}
-
-error conn_base::SetReadBuffer(int bytes) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptInt(SOL_SOCKET, SO_RCVBUF, bytes));
-}
-error conn_base::SetWriteBuffer(int bytes) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptInt(SOL_SOCKET, SO_SNDBUF, bytes));
+error connBase::SetWriteDeadline(time::Time t) {
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->SetDeadline(t, 'w'));
 }
 
-std::pair<ptr<syscall::RawConn>, error> conn_base::SyscallConn() { return {newRawConn(fd_), nullptr}; }
+error connBase::SetReadBuffer(int bytes) {
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptInt(SOL_SOCKET, SO_RCVBUF, bytes));
+}
+error connBase::SetWriteBuffer(int bytes) {
+    return opError("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptInt(SOL_SOCKET, SO_SNDBUF, bytes));
+}
 
-std::pair<int64, error> conn_base::writeBuffers(Buffers& v) {
+std::pair<ptr<syscall::RawConn>, error> connBase::SyscallConn() { return {newRawConn(fd_), nullptr}; }
+
+std::pair<int64, error> connBase::writeBuffers(Buffers& v) {
     auto [n, err] = fd_->writeBuffers(v);
-    return {n, op_error("writev", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    return {n, opError("writev", fd_->network(), fd_->laddr, fd_->raddr, err)};
 }
 
-std::pair<ptr<os::File>, error> conn_base::File() {
+std::pair<ptr<os::File>, error> connBase::File() {
     auto [f, err] = fd_->dup();
-    if (err) return {nullptr, op_error("file", fd_->network(), fd_->laddr, fd_->raddr, err)};
+    if (err) return {nullptr, opError("file", fd_->network(), fd_->laddr, fd_->raddr, err)};
     return {f, nullptr};
 }
 
@@ -185,7 +185,7 @@ std::pair<ptr<netfd>, error> newFileFd(const ptr<os::File>& f) {
 
 template <typename T>
 std::pair<ptr<T>, error> fileError(const ptr<os::File>& f, error err) {
-    return {nullptr, op_error("file", string::fromStatic("file+net"), nullptr, make_ptr<fileAddr>(f->Name()), err)};
+    return {nullptr, opError("file", string::fromStatic("file+net"), nullptr, make_ptr<fileAddr>(f->Name()), err)};
 }
 
 }  // namespace
@@ -225,7 +225,7 @@ std::pair<ptr<PacketConn>, error> FilePacketConn(const ptr<os::File>& f) {
 // Buffers (net.go)
 
 std::pair<int64, error> Buffers::WriteTo(io::Writer& w) {
-    if (auto* c = dynamic_cast<conn_base*>(&w)) return c->writeBuffers(*this);
+    if (auto* c = dynamic_cast<connBase*>(&w)) return c->writeBuffers(*this);
     int64 n = 0;
     for (auto& b : *this) {
         auto [nb, err] = w.Write(b);

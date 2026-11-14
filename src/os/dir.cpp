@@ -14,12 +14,12 @@ namespace gopp::os {
 
 namespace {
 
-constexpr std::size_t block_size = 8192;
+constexpr std::size_t blockSize = 8192;
 
-enum class readdir_mode { name, dir_entry, file_info };
+enum class readdirMode { name, dirEntry, fileInfo };
 
 // Go's direntType: the type bits of a dirent, or ~0 if unknown.
-FileMode dirent_type(unsigned char t) {
+FileMode direntType(unsigned char t) {
     switch (t) {
     case DT_BLK: return ModeDevice;
     case DT_CHR: return ModeDevice | ModeCharDevice;
@@ -33,10 +33,10 @@ FileMode dirent_type(unsigned char t) {
 }
 
 // Go's unixDirent.
-class unix_dirent final : public DirEntry {
+class unixDirent final : public DirEntry {
 public:
-    unix_dirent(string parent, string name, FileMode typ) : parent_(std::move(parent)), name_(std::move(name)), typ_(typ) {}
-    unix_dirent(string parent, string name, ptr<FileInfo> info)
+    unixDirent(string parent, string name, FileMode typ) : parent_(std::move(parent)), name_(std::move(name)), typ_(typ) {}
+    unixDirent(string parent, string name, ptr<FileInfo> info)
         : parent_(std::move(parent)), name_(std::move(name)), typ_(info->Mode().Type()), info_(std::move(info)) {}
 
     string Name() const override { return name_; }
@@ -44,7 +44,7 @@ public:
     FileMode Type() const override { return typ_; }
     std::pair<ptr<FileInfo>, error> Info() const override {
         if (info_) return {info_, nullptr};
-        return Lstat(detail::join_path(parent_.view(), name_.view()));
+        return Lstat(detail::joinPath(parent_.view(), name_.view()));
     }
 
 private:
@@ -55,13 +55,13 @@ private:
 };
 
 // The getdents64 record header (struct linux_dirent64).
-struct dirent64_header {
-    uint64_t d_ino;
-    int64_t d_off;
-    unsigned short d_reclen;
-    unsigned char d_type;
+struct dirent64Header {
+    uint64_t dIno;
+    int64_t dOff;
+    unsigned short dReclen;
+    unsigned char dType;
 };
-constexpr std::size_t name_offset = offsetof(dirent64_header, d_type) + 1;
+constexpr std::size_t nameOffset = offsetof(dirent64Header, dType) + 1;
 
 }  // namespace
 
@@ -69,10 +69,10 @@ constexpr std::size_t name_offset = offsetof(dirent64_header, d_type) + 1;
 // form. With n > 0, no entries at the end of the directory is io::EOF_.
 template <typename Out, typename Add>
 static error readdir(File& f, detail::fileImpl& fi, int n, Out& out, Add&& add) {
-    std::lock_guard l(fi.dir_mu);
-    if (!fi.dir) fi.dir = std::make_unique<detail::dir_info>();
-    detail::dir_info& d = *fi.dir;
-    if (d.buf.empty()) d.buf.resize(block_size);
+    std::lock_guard l(fi.dirMu);
+    if (!fi.dir) fi.dir = std::make_unique<detail::dirInfo>();
+    detail::dirInfo& d = *fi.dir;
+    if (d.buf.empty()) d.buf.resize(blockSize);
     bool limited = n > 0;
     if (n == 0) n = -1;
     while (n != 0) {
@@ -82,7 +82,7 @@ static error readdir(File& f, detail::fileImpl& fi, int n, Out& out, Add&& add) 
             auto [nb, err] = fi.pfd.ReadDirent(d.buf);
             if (err) {
                 if (err == poll::ErrFileClosing) err = ErrClosed;
-                return detail::path_error("readdirent", f.Name().view(), err);
+                return detail::pathError("readdirent", f.Name().view(), err);
             }
             d.nbuf = static_cast<std::size_t>(nb);
             if (d.nbuf == 0) {
@@ -94,16 +94,16 @@ static error readdir(File& f, detail::fileImpl& fi, int n, Out& out, Add&& add) 
         // Drain the buffer.
         const byte* rec = d.buf.data() + d.bufp;
         std::size_t avail = d.nbuf - d.bufp;
-        if (avail < name_offset) break;
-        dirent64_header h;
+        if (avail < nameOffset) break;
+        dirent64Header h;
         std::memcpy(&h, rec, sizeof(h));
-        if (h.d_reclen > avail || h.d_reclen < name_offset) break;
-        d.bufp += h.d_reclen;
-        std::size_t namelen = ::strnlen(reinterpret_cast<const char*>(rec) + name_offset, h.d_reclen - name_offset);
-        std::string_view name(reinterpret_cast<const char*>(rec) + name_offset, namelen);
+        if (h.dReclen > avail || h.dReclen < nameOffset) break;
+        d.bufp += h.dReclen;
+        std::size_t namelen = ::strnlen(reinterpret_cast<const char*>(rec) + nameOffset, h.dReclen - nameOffset);
+        std::string_view name(reinterpret_cast<const char*>(rec) + nameOffset, namelen);
         if (name == "." || name == "..") continue;
         if (n > 0) n--;
-        if (error err = add(name, h.d_type)) {
+        if (error err = add(name, h.dType)) {
             if (IsNotExist(err)) continue;  // removed since the directory was read
             return err;
         }
@@ -124,16 +124,16 @@ std::pair<std::vector<string>, error> File::Readdirnames(int n) {
 std::pair<std::vector<ptr<DirEntry>>, error> File::ReadDir(int n) {
     std::vector<ptr<DirEntry>> dirents;
     error err = readdir(*this, *f_, n, dirents, [&](std::string_view name, unsigned char t) -> error {
-        FileMode typ = dirent_type(t);
+        FileMode typ = direntType(t);
         // In a Root, the lazy Lstat of a name can't be used: lstatat now.
-        if (typ != FileMode(~uint32(0)) && !f_->in_root) {
-            dirents.push_back(make_ptr<unix_dirent>(f_->name, string(name), typ));
+        if (typ != FileMode(~uint32(0)) && !f_->inRoot) {
+            dirents.push_back(make_ptr<unixDirent>(f_->name, string(name), typ));
             return nullptr;
         }
         // The file system doesn't say: ask.
         auto [info, err] = detail::lstatat(*this, *f_, name);
         if (err) return err;
-        dirents.push_back(make_ptr<unix_dirent>(f_->name, string(name), std::move(info)));
+        dirents.push_back(make_ptr<unixDirent>(f_->name, string(name), std::move(info)));
         return nullptr;
     });
     return {std::move(dirents), err};
@@ -153,11 +153,11 @@ std::pair<std::vector<ptr<FileInfo>>, error> File::Readdir(int n) {
 std::pair<std::vector<ptr<DirEntry>>, error> ReadDir(std::string_view name) {
     // Go's openDir: O_DIRECTORY, never polled.
     std::string p;
-    if (!detail::cpath(name, p)) return {{}, detail::path_error("open", name, detail::errnoError(EINVAL))};
+    if (!detail::cpath(name, p)) return {{}, detail::pathError("open", name, detail::errnoError(EINVAL))};
     int e;
     int fd = detail::openAt(AT_FDCWD, p.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY, 0, &e);
-    if (e) return {{}, detail::path_error("open", name, detail::errnoError(e))};
-    ptr<File> f = detail::new_file(fd, string(name), detail::file_kind::no_poll, false);
+    if (e) return {{}, detail::pathError("open", name, detail::errnoError(e))};
+    ptr<File> f = detail::newFile(fd, string(name), detail::fileKind::noPoll, false);
     auto [dirs, err] = f->ReadDir(-1);
     f->Close();
     std::sort(dirs.begin(), dirs.end(), [](const ptr<DirEntry>& a, const ptr<DirEntry>& b) {

@@ -175,7 +175,7 @@ TEST(TextTemplateGopp, NamedStrings) {
 // Templates run on fibers, whose stacks are small: the deepest recursion
 // the executor allows must fit.
 TEST(TextTemplateGopp, DeepRecursionOnFiber) {
-    auto done = makeChan<std::string>(1);
+    auto done = make_chan<std::string>(1);
     go([done] {
         std::string text = R"({{define "r"}}{{if lt . 150}}.{{template "r" (add . 1)}}{{end}}{{end}}{{template "r" 0}})";
         tmpl::FuncMap funcs = {{"add", [](int a, int b) { return a + b; }}};
@@ -192,7 +192,7 @@ TEST(TextTemplateGopp, DeepRecursionOnFiber) {
 TEST(TextTemplateGopp, ConcurrentExecution) {
     auto t = tmpl::Must(tmpl::New("t")->Parse("{{range .}}{{.}}{{end}}"));
     std::vector<int> data = {1, 2, 3};
-    auto results = makeChan<std::string>(16);
+    auto results = make_chan<std::string>(16);
     for (int i = 0; i < 16; i++) {
         go([t, &data, results] {
             strings::Builder b;

@@ -34,14 +34,14 @@ struct pattern {
 
 std::pair<std::unique_ptr<pattern>, gopp::error> parsePattern(std::string_view s);
 
-enum class relationship { equivalent, more_general, more_specific, disjoint, overlaps };
+enum class relationship { equivalent, moreGeneral, moreSpecific, disjoint, overlaps };
 std::string_view to_string(relationship r) noexcept;
 relationship inverseRelationship(relationship r) noexcept;
 relationship combineRelationships(relationship r1, relationship r2) noexcept;
 relationship compareMethods(const pattern& p1, const pattern& p2);
 relationship comparePaths(const pattern& p1, const pattern& p2);
-bool conflicts_with(const pattern& p1, const pattern& p2);
-string describe_conflict(const pattern& p1, const pattern& p2);
+bool conflictsWith(const pattern& p1, const pattern& p2);
+string describeConflict(const pattern& p1, const pattern& p2);
 // A path that both patterns match.
 string commonPath(const pattern& p1, const pattern& p2);
 // A path that p1 matches and p2 doesn't.
@@ -50,33 +50,33 @@ string differencePath(const pattern& p1, const pattern& p2);
 // The first segment of a path starting with '/', unescaped, and the rest.
 std::pair<string, std::string_view> firstSegment(std::string_view path);
 
-struct routing_node {
+struct routingNode {
     const pattern* pat = nullptr;
     ptr<Handler> handler;
-    std::vector<std::pair<string, std::unique_ptr<routing_node>>> children;
-    std::unique_ptr<routing_node> multi_child;  // child with a multi wildcard
-    std::unique_ptr<routing_node> empty_child;  // child with key ""
+    std::vector<std::pair<string, std::unique_ptr<routingNode>>> children;
+    std::unique_ptr<routingNode> multiChild;  // child with a multi wildcard
+    std::unique_ptr<routingNode> emptyChild;  // child with key ""
 
     void addPattern(const pattern* p, ptr<Handler> h);
-    routing_node* addChild(const string& key);
-    routing_node* findChild(std::string_view key) const;
+    routingNode* addChild(const string& key);
+    routingNode* findChild(std::string_view key) const;
 
-    using matches_t = std::vector<string>;
+    using matchesT = std::vector<string>;
     // The leaf for host, method and path, and the wildcard values.
-    const routing_node* match(std::string_view host, std::string_view method, const string& path, matches_t& m) const;
+    const routingNode* match(std::string_view host, std::string_view method, const string& path, matchesT& m) const;
     // The methods for which host and path would match.
-    void matching_methods(std::string_view host, const string& path, std::set<std::string>& methods) const;
+    void matchingMethods(std::string_view host, const string& path, std::set<std::string>& methods) const;
 
 private:
     void set(const pattern* p, ptr<Handler> h);
     void addSegments(std::span<const segment> segs, const pattern* p, ptr<Handler> h);
-    const routing_node* matchMethodAndPath(std::string_view method, const string& path, matches_t& m) const;
-    const routing_node* matchPath(const string& full, std::string_view path, matches_t& m) const;
+    const routingNode* matchMethodAndPath(std::string_view method, const string& path, matchesT& m) const;
+    const routingNode* matchPath(const string& full, std::string_view path, matchesT& m) const;
 };
 
 // Whether n matches path exactly, without a multi wildcard matching an
 // empty suffix.
-bool exactMatch(const routing_node* n, std::string_view path);
+bool exactMatch(const routingNode* n, std::string_view path);
 
 string cleanPath(const string& p);
 
@@ -90,10 +90,10 @@ public:
 };
 
 // ServeMux.registerErr and findHandler, for tests.
-struct mux_access {
-    static gopp::error register_err(ServeMux& mux, std::string_view pattern, ptr<Handler> h,
+struct muxAccess {
+    static gopp::error registerErr(ServeMux& mux, std::string_view pattern, ptr<Handler> h,
                                     std::source_location loc = std::source_location::current());
-    static const routing_node* tree(const ServeMux& mux);
+    static const routingNode* tree(const ServeMux& mux);
 };
 
 }  // namespace gopp::http::internal

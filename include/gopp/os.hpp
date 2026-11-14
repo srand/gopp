@@ -81,8 +81,8 @@ extern const error ErrDeadlineExceeded;
 
 // os.LinkError: an error of a call with two paths, such as Rename.
 struct LinkError : errorInterface {
-    LinkError(string op, string old_path, string new_path, gopp::error err)
-        : Op(std::move(op)), Old(std::move(old_path)), New(std::move(new_path)), Err(std::move(err)) {}
+    LinkError(string op, string oldPath, string newPath, gopp::error err)
+        : Op(std::move(op)), Old(std::move(oldPath)), New(std::move(newPath)), Err(std::move(err)) {}
     string Op;
     string Old;
     string New;
@@ -455,14 +455,14 @@ std::pair<std::vector<int>, error> Getgroups();
 
 // The interface behind os::Signal values that aren't syscall::Signals:
 // Go's os.Signal interface, for signal types of a program's own.
-struct signal_interface : public virtual object {
+struct signalInterface : public virtual object {
     virtual string String() const = 0;
     virtual void Signal() const = 0;  // to tell signals from other Stringers
 };
 
 // os.Signal: an interface value, as gopp::error is. It's nil, a
 // syscall::Signal (held as its number, without allocating), or a
-// signal_interface. Values compare as Go compares interfaces: syscall
+// signalInterface. Values compare as Go compares interfaces: syscall
 // signals by number, others by identity.
 //
 //     auto c = make_chan<os::Signal>(1);
@@ -474,9 +474,9 @@ public:
     constexpr Signal() noexcept = default;
     constexpr Signal(std::nullptr_t) noexcept {}
     constexpr Signal(syscall::Signal s) noexcept : num_(s.value), sys_(true) {}
-    Signal(ptr<const signal_interface> p) noexcept : p_(std::move(p)) {}
+    Signal(ptr<const signalInterface> p) noexcept : p_(std::move(p)) {}
     template <typename T>
-        requires std::is_base_of_v<signal_interface, T>
+        requires std::is_base_of_v<signalInterface, T>
     Signal(ptr<T> p) noexcept : p_(std::move(p)) {}
 
     // s.String(); "<nil>" for a nil Signal, as fmt prints it.
@@ -488,8 +488,8 @@ public:
     // sig.(syscall.Signal): the signal and true if it holds a
     // syscall::Signal.
     std::pair<syscall::Signal, bool> asSyscall() const noexcept { return {syscall::Signal(num_), sys_}; }
-    // The signal_interface it holds, if any.
-    const signal_interface* get() const noexcept { return p_.get(); }
+    // The signalInterface it holds, if any.
+    const signalInterface* get() const noexcept { return p_.get(); }
 
     friend bool operator==(const Signal& a, const Signal& b) noexcept {
         if (a.sys_ || b.sys_) return a.sys_ == b.sys_ && a.num_ == b.num_;
@@ -499,7 +499,7 @@ public:
     friend std::ostream& operator<<(std::ostream& os, const Signal& s) { return os << s.String(); }
 
 private:
-    ptr<const signal_interface> p_;
+    ptr<const signalInterface> p_;
     int num_ = 0;
     bool sys_ = false;
 };
@@ -549,7 +549,7 @@ private:
 };
 
 namespace detail {
-struct process_impl;
+struct processImpl;
 }
 
 // os.Process: a process started by StartProcess or found by FindProcess.
@@ -578,11 +578,11 @@ public:
     ~Process() override;
 
     // Made by StartProcess and FindProcess.
-    explicit Process(int pid, std::unique_ptr<detail::process_impl> impl) noexcept;
+    explicit Process(int pid, std::unique_ptr<detail::processImpl> impl) noexcept;
 
 private:
-    friend struct detail::process_impl;
-    std::unique_ptr<detail::process_impl> p_;
+    friend struct detail::processImpl;
+    std::unique_ptr<detail::processImpl> p_;
 };
 
 // os.ProcAttr: the attributes of a new process.

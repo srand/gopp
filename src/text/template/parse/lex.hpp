@@ -56,19 +56,19 @@ std::string to_string(const item& i);
 // Internal knobs, which Go's tests change: the depth of parenthesized
 // pipelines (maxStackDepth), and whether TextNode.String quotes
 // (textFormat "%q").
-extern int max_stack_depth;
-extern bool text_format_q;
+extern int maxStackDepth;
+extern bool textFormatQ;
 
 // tree.newNumber, for the tests: the number node for text, or its error.
 std::pair<ptr<NumberNode>, gopp::error> newNumberForTest(std::string_view text, int typ);
 
-inline constexpr std::string_view default_left_delim = "{{";
-inline constexpr std::string_view default_right_delim = "}}";
+inline constexpr std::string_view defaultLeftDelim = "{{";
+inline constexpr std::string_view defaultRightDelim = "}}";
 
-struct lex_options {
-    bool emit_comment = false;  // emit itemComment tokens
-    bool break_ok = false;      // break keyword allowed
-    bool continue_ok = false;   // continue keyword allowed
+struct lexOptions {
+    bool emitComment = false;  // emit itemComment tokens
+    bool breakOk = false;      // break keyword allowed
+    bool continueOk = false;   // continue keyword allowed
 };
 
 class lexer {
@@ -78,10 +78,10 @@ public:
     // The next item from the input.
     item nextItem();
 
-    lex_options options;
+    lexOptions options;
 
 private:
-    using state_fn = bool (lexer::*)();  // false: an item is ready
+    using stateFn = bool (lexer::*)();  // false: an item is ready
 
     int32 next();
     int32 peek();
@@ -102,7 +102,7 @@ private:
     bool lexLeftDelim();
     bool lexComment();
     bool lexRightDelim();
-    bool lex_inside_action();
+    bool lexInsideAction();
     bool lexSpace();
     bool lexIdentifier();
     bool lexField();
@@ -115,17 +115,17 @@ private:
 
     string name_;
     string input_;
-    std::string left_delim_;
-    std::string right_delim_;
+    std::string leftDelim_;
+    std::string rightDelim_;
     Pos pos_ = 0;
     Pos start_ = 0;
-    bool at_eof_ = false;
-    int paren_depth_ = 0;
+    bool atEof_ = false;
+    int parenDepth_ = 0;
     int line_ = 1;
-    int start_line_ = 1;
+    int startLine_ = 1;
     item item_;
-    bool inside_action_ = false;
-    state_fn state_ = nullptr;
+    bool insideAction_ = false;
+    stateFn state_ = nullptr;
 };
 
 }  // namespace gopp::text::tmpl::parse

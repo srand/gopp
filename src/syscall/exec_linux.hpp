@@ -8,10 +8,10 @@ long rawSyscall(long n, long a1, long a2, long a3, long a4, long a5, long a6) no
 
 // Whether clone(CLONE_PIDFD) gives a pidfd (Go's checkClonePidfd): makes
 // a child that exits at once.
-bool check_clone_pidfd();
+bool checkClonePidfd();
 
 // A test hook (Go's export_linux_test ForceClone3): start children with
 // clone3 even when clone would do.
-extern bool force_clone3;
+extern bool forceClone3;
 
 }  // namespace gopp::syscall::detail

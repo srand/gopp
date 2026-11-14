@@ -5,12 +5,12 @@ namespace gopp::sort {
 void Sort(Interface& data) {
     isize n = data.Len();
     if (n <= 1) return;
-    detail::interface_data d{data};
+    detail::interfaceData d{data};
     slices::detail::pdqsort(d, 0, n, slices::detail::bitsLen(n));
 }
 
 void Stable(Interface& data) {
-    detail::interface_data d{data};
+    detail::interfaceData d{data};
     slices::detail::stable(d, data.Len());
 }
 

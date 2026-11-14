@@ -51,7 +51,7 @@ namespace gopp::sql {
 
 class Conn;
 class DB;
-struct test_access;  // for tests, like Go's in-package tests
+struct testAccess;  // for tests, like Go's in-package tests
 class Row;
 class Rows;
 class Stmt;
@@ -119,26 +119,26 @@ struct arg {
 };
 
 template <typename T>
-concept has_value_method = requires(const T& t) {
+concept hasValueMethod = requires(const T& t) {
     { t.Value() } -> std::same_as<std::pair<driver::Value, error>>;
 };
 
 template <typename T>
-concept has_scan_method = requires(T& t, const driver::Value& v) {
+concept hasScanMethod = requires(T& t, const driver::Value& v) {
     { t.Scan(v) } -> std::same_as<error>;
 };
 
 template <typename T>
-struct is_optional : std::false_type {};
+struct isOptional : std::false_type {};
 template <typename T>
-struct is_optional<std::optional<T>> : std::true_type {};
+struct isOptional<std::optional<T>> : std::true_type {};
 
 template <typename T>
-inline constexpr bool is_string_like = std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string> ||
+inline constexpr bool isStringLike = std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string> ||
                                        std::is_same_v<T, std::string_view> || std::is_same_v<T, const char*> ||
                                        std::is_same_v<T, char*>;
 
-extern const error err_uint64_high_bit;
+extern const error errUint64HighBit;
 
 }  // namespace detail
 
@@ -158,7 +158,7 @@ detail::arg toArg(const T& v) {
         return a;
     } else if constexpr (std::is_same_v<U, driver::Value>) {
         return {{}, v, nullptr};
-    } else if constexpr (detail::has_value_method<U>) {
+    } else if constexpr (detail::hasValueMethod<U>) {
         auto [val, err] = v.Value();
         return {{}, std::move(val), std::move(err)};
     } else if constexpr (std::is_base_of_v<driver::Valuer, U>) {
@@ -166,12 +166,12 @@ detail::arg toArg(const T& v) {
         return {{}, std::move(val), std::move(err)};
     } else if constexpr (std::is_same_v<U, std::nullptr_t>) {
         return {};
-    } else if constexpr (detail::is_optional<U>::value) {
+    } else if constexpr (detail::isOptional<U>::value) {
         if (!v) return {};
         return toArg(*v);
     } else if constexpr (std::is_array_v<U> && std::is_same_v<std::remove_cv_t<std::remove_extent_t<U>>, char>) {
         return {{}, string(std::string_view(v)), nullptr};
-    } else if constexpr (detail::is_string_like<U>) {
+    } else if constexpr (detail::isStringLike<U>) {
         return {{}, string(std::string_view(v)), nullptr};
     } else if constexpr (std::is_pointer_v<U>) {
         if (!v) return {};
@@ -182,7 +182,7 @@ detail::arg toArg(const T& v) {
         return {{}, static_cast<int64>(v), nullptr};
     } else if constexpr (std::is_integral_v<U> && std::is_unsigned_v<U>) {
         if constexpr (sizeof(U) >= 8) {
-            if (static_cast<uint64>(v) >= uint64(1) << 63) return {{}, nullptr, detail::err_uint64_high_bit};
+            if (static_cast<uint64>(v) >= uint64(1) << 63) return {{}, nullptr, detail::errUint64HighBit};
         }
         return {{}, static_cast<int64>(v), nullptr};
     } else if constexpr (std::is_integral_v<U>) {
@@ -286,7 +286,7 @@ struct NullTime {
 };
 
 template <typename T>
-error convert_assign(T* dest, const driver::Value& src, Rows* rows = nullptr);
+error convertAssign(T* dest, const driver::Value& src, Rows* rows = nullptr);
 
 // sql.Null[T]
 template <typename T>
@@ -300,7 +300,7 @@ struct Null {
             Valid = false;
             return nullptr;
         }
-        error err = convert_assign(&V, value);
+        error err = convertAssign(&V, value);
         Valid = !err;
         return err;
     }
@@ -321,15 +321,15 @@ namespace detail {
 struct dest {
     void* p;
     error (*assign)(void* p, const driver::Value& src, Rows* rows);
-    bool raw_bytes;
+    bool rawBytes;
 };
 
-extern const error err_nil_ptr;  // "destination pointer is nil"
+extern const error errNilPtr;  // "destination pointer is nil"
 
 error convertBytes(const driver::Value& src, slice<byte>& out);
 error convertRawBytes(const driver::Value& src, RawBytes& out, Rows* rows);
 error convertAny(const driver::Value& src, driver::Value& out);
-error unsupportedScan(const driver::Value& src, std::string_view dest_type);
+error unsupportedScan(const driver::Value& src, std::string_view destType);
 
 // Go's kind names and %T names of destination types.
 template <typename T>
@@ -355,7 +355,7 @@ std::string typeName() {
     else if constexpr (std::is_same_v<T, slice<byte>>) return "[]uint8";
     else if constexpr (std::is_same_v<T, time::Time>) return "time.Time";
     else if constexpr (std::is_same_v<T, driver::Value>) return "interface {}";
-    else if constexpr (is_optional<T>::value) return "*" + typeName<typename T::value_type>();
+    else if constexpr (isOptional<T>::value) return "*" + typeName<typename T::value_type>();
     else return "unknown";
 }
 
@@ -363,8 +363,8 @@ std::string typeName() {
 
 // Go's convertAssign: stores src into *dest, converting.
 template <typename T>
-error convert_assign(T* d, const driver::Value& src, Rows* rows) {
-    if (!d) return detail::err_nil_ptr;
+error convertAssign(T* d, const driver::Value& src, Rows* rows) {
+    if (!d) return detail::errNilPtr;
     if constexpr (std::is_same_v<T, gopp::string>) {
         return detail::convertString(src, *d);
     } else if constexpr (std::is_same_v<T, std::string>) {
@@ -380,7 +380,7 @@ error convert_assign(T* d, const driver::Value& src, Rows* rows) {
         return detail::convertBool(src, *d);
     } else if constexpr (std::is_same_v<T, driver::Value>) {
         return detail::convertAny(src, *d);
-    } else if constexpr (detail::has_scan_method<T>) {
+    } else if constexpr (detail::hasScanMethod<T>) {
         return d->Scan(src);
     } else if constexpr (std::is_base_of_v<Scanner, T>) {
         return static_cast<Scanner&>(*d).Scan(src);
@@ -390,14 +390,14 @@ error convert_assign(T* d, const driver::Value& src, Rows* rows) {
             return nullptr;
         }
         return detail::unsupportedScan(src, "*time.Time");
-    } else if constexpr (detail::is_optional<T>::value) {
+    } else if constexpr (detail::isOptional<T>::value) {
         // Go's pointer destinations: nil for NULL, else a new value.
         if (std::holds_alternative<std::nullptr_t>(src)) {
             d->reset();
             return nullptr;
         }
         d->emplace();
-        return convert_assign(&**d, src, rows);
+        return convertAssign(&**d, src, rows);
     } else if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
         if constexpr (std::is_same_v<T, int64>) {
             if (auto* i = std::get_if<int64>(&src)) {
@@ -437,7 +437,7 @@ template <typename T>
 dest makeDest(T* p) {
     return dest{p,
                 [](void* p, const driver::Value& src, Rows* rows) -> error {
-                    return convert_assign(static_cast<T*>(p), src, rows);
+                    return convertAssign(static_cast<T*>(p), src, rows);
                 },
                 std::is_same_v<T, RawBytes>};
 }
@@ -449,7 +449,7 @@ std::vector<arg> args(const A&... a) {
 
 // closingMutex: an RWMutex where readers have priority over the writer,
 // so that reads are safely reentrant (closemu.go).
-class closing_mutex {
+class closingMutex {
 public:
     void RLock();
     void RUnlock();
@@ -468,95 +468,95 @@ private:
 };
 
 // What DB.dep tracks: objects closed when their last dependency goes.
-struct final_closer {
-    virtual ~final_closer() = default;
+struct finalCloser {
+    virtual ~finalCloser() = default;
     virtual error finalClose() = 0;
 };
 
-struct driver_stmt;
+struct driverStmt;
 
 // A connection of the pool (driverConn).
-struct driver_conn final : public object, public final_closer {
+struct driverConn final : public object, public finalCloser {
     DB* db = nullptr;
-    time::Time created_at;
+    time::Time createdAt;
 
     sync::Mutex mu;  // guards the following
     ptr<driver::Conn> ci;
-    bool need_reset = false;
+    bool needReset = false;
     bool closed = false;
-    bool final_closed = false;
-    std::unordered_map<driver_stmt*, ptr<driver_stmt>> open_stmt;
+    bool finalClosed = false;
+    std::unordered_map<driverStmt*, ptr<driverStmt>> openStmt;
 
     // Guarded by db->mu_.
-    bool in_use = false;
-    bool dbmu_closed = false;
-    time::Time returned_at;
-    std::vector<std::function<void()>> on_put;
+    bool inUse = false;
+    bool dbmuClosed = false;
+    time::Time returnedAt;
+    std::vector<std::function<void()>> onPut;
 
     void lock() { mu.lock(); }
     void unlock() { mu.unlock(); }
 
     void releaseConn(error err);
-    void removeOpenStmt(driver_stmt* ds);
+    void removeOpenStmt(driverStmt* ds);
     bool expired(time::Duration timeout) const;
     error resetSession(ptr<context::Context> ctx);
-    bool validateConnection(bool needs_reset);
-    std::pair<ptr<driver_stmt>, error> prepareLocked(ptr<context::Context> ctx, bool grabbed, std::string_view query);
-    std::function<error()> close_db_locked();
+    bool validateConnection(bool needsReset);
+    std::pair<ptr<driverStmt>, error> prepareLocked(ptr<context::Context> ctx, bool grabbed, std::string_view query);
+    std::function<error()> closeDbLocked();
     error Close();
     error finalClose() override;
 };
 
 // A driver statement and the connection whose lock guards it (driverStmt).
-struct driver_stmt final : public object {
-    driver_conn* dc = nullptr;  // the Locker
+struct driverStmt final : public object {
+    driverConn* dc = nullptr;  // the Locker
     ptr<driver::Stmt> si;
     bool closed = false;
-    error close_err;
+    error closeErr;
 
     void lock() { dc->lock(); }
     void unlock() { dc->unlock(); }
     error Close();
 };
 
-struct conn_request {
-    ptr<driver_conn> conn;
+struct connRequest {
+    ptr<driverConn> conn;
     error err;
 };
 
 // connRequestSet: waiters for a connection, taken at random.
-class conn_request_set {
+class connRequestSet {
 public:
     using handle = std::shared_ptr<int>;
-    handle Add(chan<conn_request> c);
+    handle Add(chan<connRequest> c);
     bool Delete(const handle& h);
-    std::optional<chan<conn_request>> TakeRandom();
+    std::optional<chan<connRequest>> TakeRandom();
     void CloseAndRemoveAll();
     std::size_t Len() const noexcept { return s_.size(); }
 
 private:
     void deleteIndex(std::size_t idx);
-    std::vector<std::pair<chan<conn_request>, handle>> s_;
+    std::vector<std::pair<chan<connRequest>, handle>> s_;
 };
 
-using release_fn = std::function<void(error)>;
+using releaseFn = std::function<void(error)>;
 
 // Test hook (rowsCloseHook): may change the error of a Rows close.
-extern std::function<void(Rows&, error&)> rows_close_hook;
+extern std::function<void(Rows&, error&)> rowsCloseHook;
 
 // What Tx and Conn give a Stmt (stmtConnGrabber).
-struct stmt_conn_grabber {
-    virtual ~stmt_conn_grabber() = default;
-    virtual std::tuple<ptr<driver_conn>, release_fn, error> grabConn(ptr<context::Context> ctx) = 0;
-    virtual ptr<context::Context> tx_ctx() = 0;
+struct stmtConnGrabber {
+    virtual ~stmtConnGrabber() = default;
+    virtual std::tuple<ptr<driverConn>, releaseFn, error> grabConn(ptr<context::Context> ctx) = 0;
+    virtual ptr<context::Context> txCtx() = 0;
 };
 
 struct connStmt {
-    ptr<driver_conn> dc;
-    ptr<driver_stmt> ds;
+    ptr<driverConn> dc;
+    ptr<driverStmt> ds;
 };
 
-enum conn_reuse_strategy { always_new_conn, cached_or_new_conn };
+enum connReuseStrategy { alwaysNewConn, cachedOrNewConn };
 
 }  // namespace detail
 
@@ -583,22 +583,22 @@ struct DBStats {
 class ColumnType final : public object {
 public:
     string Name() const { return name_; }
-    std::pair<int64, bool> Length() const { return {length_, has_length_}; }
-    std::tuple<int64, int64, bool> DecimalSize() const { return {precision_, scale_, has_precision_scale_}; }
+    std::pair<int64, bool> Length() const { return {length_, hasLength_}; }
+    std::tuple<int64, int64, bool> DecimalSize() const { return {precision_, scale_, hasPrecisionScale_}; }
     // The Go name of the type to scan into ("interface {}" if unknown).
-    string ScanType() const { return scan_type_; }
-    std::pair<bool, bool> Nullable() const { return {nullable_, has_nullable_}; }
-    string DatabaseTypeName() const { return database_type_; }
+    string ScanType() const { return scanType_; }
+    std::pair<bool, bool> Nullable() const { return {nullable_, hasNullable_}; }
+    string DatabaseTypeName() const { return databaseType_; }
 
 private:
     friend class Rows;
     string name_;
-    bool has_nullable_ = false, has_length_ = false, has_precision_scale_ = false;
+    bool hasNullable_ = false, hasLength_ = false, hasPrecisionScale_ = false;
     bool nullable_ = false;
     int64 length_ = 0;
-    string database_type_;
+    string databaseType_;
     int64 precision_ = 0, scale_ = 0;
-    string scan_type_;
+    string scanType_;
 };
 
 // sql.DB: a pool of connections, safe to use from many fibers.
@@ -662,80 +662,80 @@ public:
     ptr<Row> queryRowArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
 
 private:
-    friend struct sql::test_access;
+    friend struct sql::testAccess;
     friend class sql::Conn;
     friend class Rows;
     friend class sql::Stmt;
     friend class sql::Tx;
-    friend struct detail::driver_conn;
+    friend struct detail::driverConn;
     friend ptr<DB> OpenDB(ptr<driver::Connector> c);
 
     int maxIdleConnsLocked() const;
     time::Duration shortestIdleTimeLocked() const;
     void startCleanerLocked();
     void connectionCleaner(time::Duration d);
-    std::pair<time::Duration, std::vector<ptr<detail::driver_conn>>> connectionCleanerRunLocked(time::Duration d);
+    std::pair<time::Duration, std::vector<ptr<detail::driverConn>>> connectionCleanerRunLocked(time::Duration d);
     void maybeOpenNewConnections();
     void connectionOpener(ptr<context::Context> ctx);
     void openNewConnection(ptr<context::Context> ctx);
-    std::pair<ptr<detail::driver_conn>, error> conn(ptr<context::Context> ctx, detail::conn_reuse_strategy strategy);
-    void noteUnusedDriverStatement(const ptr<detail::driver_conn>& c, const ptr<detail::driver_stmt>& ds);
-    void putConn(ptr<detail::driver_conn> dc, error err, bool resetSession);
-    bool putConnDbLocked(const ptr<detail::driver_conn>& dc, error err);
-    error retry(const std::function<error(detail::conn_reuse_strategy)>& fn);
-    error pingDc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc, const detail::release_fn& release);
-    std::pair<ptr<sql::Stmt>, error> prepareDc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
-                                                detail::release_fn release, detail::stmt_conn_grabber* cg,
-                                                ptr<object> cg_keep, std::string_view query);
-    std::pair<ptr<Result>, error> execDc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
-                                          detail::release_fn release, std::string_view query,
+    std::pair<ptr<detail::driverConn>, error> conn(ptr<context::Context> ctx, detail::connReuseStrategy strategy);
+    void noteUnusedDriverStatement(const ptr<detail::driverConn>& c, const ptr<detail::driverStmt>& ds);
+    void putConn(ptr<detail::driverConn> dc, error err, bool resetSession);
+    bool putConnDbLocked(const ptr<detail::driverConn>& dc, error err);
+    error retry(const std::function<error(detail::connReuseStrategy)>& fn);
+    error pingDc(ptr<context::Context> ctx, const ptr<detail::driverConn>& dc, const detail::releaseFn& release);
+    std::pair<ptr<sql::Stmt>, error> prepareDc(ptr<context::Context> ctx, const ptr<detail::driverConn>& dc,
+                                                detail::releaseFn release, detail::stmtConnGrabber* cg,
+                                                ptr<object> cgKeep, std::string_view query);
+    std::pair<ptr<Result>, error> execDc(ptr<context::Context> ctx, const ptr<detail::driverConn>& dc,
+                                          detail::releaseFn release, std::string_view query,
                                           std::span<const detail::arg> args);
     std::pair<ptr<Rows>, error> queryDc(ptr<context::Context> ctx, ptr<context::Context> txctx,
-                                         const ptr<detail::driver_conn>& dc, detail::release_fn release,
+                                         const ptr<detail::driverConn>& dc, detail::releaseFn release,
                                          std::string_view query, std::span<const detail::arg> args);
-    std::pair<ptr<sql::Tx>, error> beginDc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
-                                            detail::release_fn release, const TxOptions* opts);
-    void addDep(detail::final_closer* x, ptr<object> keep, const void* dep);
-    void addDepLocked(detail::final_closer* x, ptr<object> keep, const void* dep);
-    error remove_dep(detail::final_closer* x, const void* dep);
-    std::function<error()> remove_dep_locked(detail::final_closer* x, const void* dep);
+    std::pair<ptr<sql::Tx>, error> beginDc(ptr<context::Context> ctx, const ptr<detail::driverConn>& dc,
+                                            detail::releaseFn release, const TxOptions* opts);
+    void addDep(detail::finalCloser* x, ptr<object> keep, const void* dep);
+    void addDepLocked(detail::finalCloser* x, ptr<object> keep, const void* dep);
+    error removeDep(detail::finalCloser* x, const void* dep);
+    std::function<error()> removeDepLocked(detail::finalCloser* x, const void* dep);
 
-    std::atomic<int64> wait_duration_{0};
+    std::atomic<int64> waitDuration_{0};
     ptr<driver::Connector> connector_;
-    std::atomic<uint64> num_closed_{0};
+    std::atomic<uint64> numClosed_{0};
 
     sync::Mutex mu_;  // guards the following
-    std::vector<ptr<detail::driver_conn>> free_conn_;  // oldest returned first
-    detail::conn_request_set conn_requests_;
-    int num_open_ = 0;     // opened and being opened
-    int pending_opens_ = 0;  // for the opener (Go's openerCh backlog)
-    chan<empty> opener_ch_;
+    std::vector<ptr<detail::driverConn>> freeConn_;  // oldest returned first
+    detail::connRequestSet connRequests_;
+    int numOpen_ = 0;     // opened and being opened
+    int pendingOpens_ = 0;  // for the opener (Go's openerCh backlog)
+    chan<empty> openerCh_;
     bool closed_ = false;
-    struct dep_entry {
+    struct depEntry {
         ptr<object> keep;
         std::unordered_set<const void*> deps;
     };
-    std::unordered_map<detail::final_closer*, dep_entry> dep_;
-    int max_idle_count_ = 0;  // 0: the default (2); negative: 0
-    int max_open_ = 0;        // <= 0: unlimited
-    time::Duration max_lifetime_;
-    time::Duration max_idle_time_;
-    chan<empty> cleaner_ch_;
-    int64 wait_count_ = 0;
-    int64 max_idle_closed_ = 0;
-    int64 max_idle_time_closed_ = 0;
-    int64 max_lifetime_closed_ = 0;
+    std::unordered_map<detail::finalCloser*, depEntry> dep_;
+    int maxIdleCount_ = 0;  // 0: the default (2); negative: 0
+    int maxOpen_ = 0;        // <= 0: unlimited
+    time::Duration maxLifetime_;
+    time::Duration maxIdleTime_;
+    chan<empty> cleanerCh_;
+    int64 waitCount_ = 0;
+    int64 maxIdleClosed_ = 0;
+    int64 maxIdleTimeClosed_ = 0;
+    int64 maxLifetimeClosed_ = 0;
     context::CancelFunc stop_;
 };
 
 // sql.Open: a DB for a registered driver. It doesn't connect yet; use Ping
 // to check the data source.
-std::pair<ptr<DB>, error> Open(std::string_view driver_name, std::string_view data_source_name);
+std::pair<ptr<DB>, error> Open(std::string_view driverName, std::string_view dataSourceName);
 // sql.OpenDB
 ptr<DB> OpenDB(ptr<driver::Connector> c);
 
 // sql.Conn: one connection of the pool.
-class Conn final : public object, public detail::stmt_conn_grabber {
+class Conn final : public object, public detail::stmtConnGrabber {
 public:
     ~Conn() override;
 
@@ -764,24 +764,24 @@ public:
     std::pair<ptr<Rows>, error> queryArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
     ptr<Row> queryRowArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
 
-    std::tuple<ptr<detail::driver_conn>, detail::release_fn, error> grabConn(ptr<context::Context> ctx) override;
-    ptr<context::Context> tx_ctx() override { return nullptr; }
+    std::tuple<ptr<detail::driverConn>, detail::releaseFn, error> grabConn(ptr<context::Context> ctx) override;
+    ptr<context::Context> txCtx() override { return nullptr; }
 
 private:
-    friend struct sql::test_access;
+    friend struct sql::testAccess;
     friend class DB;
-    Conn(ptr<DB> db, ptr<detail::driver_conn> dc) : db_(std::move(db)), dc_(std::move(dc)) {}
+    Conn(ptr<DB> db, ptr<detail::driverConn> dc) : db_(std::move(db)), dc_(std::move(dc)) {}
     void closemuRunlockCondReleaseConn(error err);
     error close(error err);
 
     ptr<DB> db_;
-    detail::closing_mutex closemu_;
-    ptr<detail::driver_conn> dc_;
+    detail::closingMutex closemu_;
+    ptr<detail::driverConn> dc_;
     std::atomic<bool> done_{false};
 };
 
 // sql.Tx: a transaction, on one connection until Commit or Rollback.
-class Tx final : public object, public detail::stmt_conn_grabber {
+class Tx final : public object, public detail::stmtConnGrabber {
 public:
     ~Tx() override;
 
@@ -822,27 +822,27 @@ public:
     std::pair<ptr<Rows>, error> queryArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
     ptr<Row> queryRowArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
 
-    std::tuple<ptr<detail::driver_conn>, detail::release_fn, error> grabConn(ptr<context::Context> ctx) override;
-    ptr<context::Context> tx_ctx() override { return ctx_; }
+    std::tuple<ptr<detail::driverConn>, detail::releaseFn, error> grabConn(ptr<context::Context> ctx) override;
+    ptr<context::Context> txCtx() override { return ctx_; }
 
 private:
-    friend struct sql::test_access;
+    friend struct sql::testAccess;
     friend class DB;
     Tx() = default;
     void awaitDone();
-    bool is_done() const { return done_.load(); }
+    bool isDone() const { return done_.load(); }
     void close(error err);
     void closePrepared();
-    error rollback(bool discard_conn);
+    error rollback(bool discardConn);
 
     ptr<DB> db_;
-    detail::closing_mutex closemu_;
-    ptr<detail::driver_conn> dc_;
+    detail::closingMutex closemu_;
+    ptr<detail::driverConn> dc_;
     ptr<driver::Tx> txi_;
-    detail::release_fn release_conn_;
+    detail::releaseFn releaseConn_;
     std::atomic<bool> done_{false};
-    bool keep_conn_on_rollback_ = false;
-    sync::Mutex stmts_mu_;
+    bool keepConnOnRollback_ = false;
+    sync::Mutex stmtsMu_;
     std::vector<ptr<sql::Stmt>> stmts_;
     context::CancelFunc cancel_;
     ptr<context::Context> ctx_;
@@ -850,7 +850,7 @@ private:
 
 // sql.Stmt: a prepared statement, usable from many fibers. It is prepared
 // again on other connections as needed.
-class Stmt final : public object, public detail::final_closer {
+class Stmt final : public object, public detail::finalCloser {
 public:
     ~Stmt() override;
 
@@ -885,30 +885,30 @@ public:
     ptr<Row> queryRowArgs(ptr<context::Context> ctx, std::vector<detail::arg> args);
 
 private:
-    friend struct sql::test_access;
+    friend struct sql::testAccess;
     friend class DB;
     friend class Tx;
     friend class Rows;
     Stmt() = default;
     error finalClose() override;
     void removeClosedStmtLocked();
-    std::tuple<ptr<detail::driver_conn>, detail::release_fn, ptr<detail::driver_stmt>, error> connStmt(
-        ptr<context::Context> ctx, detail::conn_reuse_strategy strategy);
-    std::pair<ptr<detail::driver_stmt>, error> prepareOnConnLocked(ptr<context::Context> ctx,
-                                                                      const ptr<detail::driver_conn>& dc);
+    std::tuple<ptr<detail::driverConn>, detail::releaseFn, ptr<detail::driverStmt>, error> connStmt(
+        ptr<context::Context> ctx, detail::connReuseStrategy strategy);
+    std::pair<ptr<detail::driverStmt>, error> prepareOnConnLocked(ptr<context::Context> ctx,
+                                                                      const ptr<detail::driverConn>& dc);
 
     ptr<DB> db_;
     string query_;
-    error sticky_err_;
-    detail::closing_mutex closemu_;
-    detail::stmt_conn_grabber* cg_ = nullptr;  // a Tx or Conn
-    ptr<object> cg_keep_;                      // keeps cg_ alive
-    ptr<detail::driver_stmt> cgds_;
-    ptr<sql::Stmt> parent_stmt_;
+    error stickyErr_;
+    detail::closingMutex closemu_;
+    detail::stmtConnGrabber* cg_ = nullptr;  // a Tx or Conn
+    ptr<object> cgKeep_;                      // keeps cg_ alive
+    ptr<detail::driverStmt> cgds_;
+    ptr<sql::Stmt> parentStmt_;
     sync::Mutex mu_;  // guards the following
     bool closed_ = false;
     std::vector<detail::connStmt> css_;
-    uint64 last_num_closed_ = 0;
+    uint64 lastNumClosed_ = 0;
 };
 
 // sql.Rows: the result of a query. Next before every row, even the first.
@@ -935,7 +935,7 @@ public:
     RawBytes setrawbuf(slice<byte> b);
 
 private:
-    friend struct sql::test_access;
+    friend struct sql::testAccess;
     friend class DB;
     friend class Stmt;
     friend class Row;
@@ -948,22 +948,22 @@ private:
     void closemuRunlockIfHeldByScan();
     error close(error err);
 
-    ptr<detail::driver_conn> dc_;
-    detail::release_fn release_conn_;
+    ptr<detail::driverConn> dc_;
+    detail::releaseFn releaseConn_;
     ptr<driver::Rows> rowsi_;
     context::CancelFunc cancel_;
-    ptr<detail::driver_stmt> close_stmt_;
-    sync::Mutex context_done_mu_;
-    std::atomic<bool> has_context_done_{false};
-    error context_done_;
-    detail::closing_mutex closemu_;
+    ptr<detail::driverStmt> closeStmt_;
+    sync::Mutex contextDoneMu_;
+    std::atomic<bool> hasContextDone_{false};
+    error contextDone_;
+    detail::closingMutex closemu_;
     error lasterr_;
     bool closed_ = false;
-    bool closemu_scan_hold_ = false;
-    bool hit_eof_ = false;
-    bool next_called_ = false;
+    bool closemuScanHold_ = false;
+    bool hitEof_ = false;
+    bool nextCalled_ = false;
     std::vector<driver::Value> lastcols_;
-    std::size_t num_cols_ = 0;
+    std::size_t numCols_ = 0;
     slice<byte> raw_;
 };
 

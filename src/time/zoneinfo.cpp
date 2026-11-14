@@ -37,14 +37,14 @@ union neverDestroyed {
     ~neverDestroyed() {}
 };
 
-constinit neverDestroyed<Location> utc_storage;
-constinit neverDestroyed<Location> local_storage;
+constinit neverDestroyed<Location> utcStorage;
+constinit neverDestroyed<Location> localStorage;
 
-Location& utcLoc() { return utc_storage.value; }
-Location& localLoc() { return local_storage.value; }
+Location& utcLoc() { return utcStorage.value; }
+Location& localLoc() { return localStorage.value; }
 
 // Go's localOnce, resettable for tests.
-std::atomic<bool> local_done{false};
+std::atomic<bool> localDone{false};
 std::mutex& localMu() {
     static auto* m = new std::mutex;
     return *m;
@@ -53,29 +53,29 @@ std::mutex& localMu() {
 void initLocal();
 
 void ensureLocal() {
-    if (local_done.load(std::memory_order_acquire)) return;
+    if (localDone.load(std::memory_order_acquire)) return;
     std::lock_guard l(localMu());
-    if (!local_done.load(std::memory_order_relaxed)) {
+    if (!localDone.load(std::memory_order_relaxed)) {
         initLocal();
-        local_done.store(true, std::memory_order_release);
+        localDone.store(true, std::memory_order_release);
     }
 }
 
 }  // namespace
 
-const Location* const UTC = &utc_storage.value;
-const Location* Local = &local_storage.value;
+const Location* const UTC = &utcStorage.value;
+const Location* Local = &localStorage.value;
 
 namespace {
 // utcLoc's name, set before main; until then String() still says "UTC".
-const bool utc_named = [] {
+const bool utcNamed = [] {
     utcLoc().name = string::fromStatic("UTC");
     return true;
 }();
 }  // namespace
 
 const Location* Location::get() const {
-    if (this == &local_storage.value) ensureLocal();
+    if (this == &localStorage.value) ensureLocal();
     return this;
 }
 
@@ -103,20 +103,20 @@ constexpr int ruleJulian = 0, ruleDOY = 1, ruleMonthWeekDay = 2;
 
 std::tuple<rule, std::string_view, bool> tzsetRule(std::string_view s);
 
-struct tzset_result {
+struct tzsetResult {
     std::string_view name;
     int offset = 0;
     int64 start = 0, end = 0;
     bool isDST = false, ok = false;
 };
 
-tzset_result tzset(std::string_view s, int64 lastTxSec, int64 sec);
+tzsetResult tzset(std::string_view s, int64 lastTxSec, int64 sec);
 
 }  // namespace
 
-Location::lookup_result Location::lookup(int64 sec) const {
+Location::lookupResult Location::lookup(int64 sec) const {
     const Location* l = get();
-    lookup_result r;
+    lookupResult r;
     if (l->zones.empty()) {
         r.name = string::fromStatic("UTC");
         r.offset = 0;
@@ -364,8 +364,8 @@ int tzruleTime(int year, const rule& r, int off) {
     return s + r.time - off;
 }
 
-tzset_result tzset(std::string_view s, int64 lastTxSec, int64 sec) {
-    tzset_result fail;
+tzsetResult tzset(std::string_view s, int64 lastTxSec, int64 sec) {
+    tzsetResult fail;
     auto [stdName, s1, ok] = tzsetName(s);
     int stdOffset = 0;
     if (ok) std::tie(stdOffset, s1, ok) = tzsetOffset(s1);
@@ -721,18 +721,18 @@ const Location* internTZData(std::string_view name, std::span<const byte> data, 
 
 // A file's contents, or the errno of the failure (with a file size error
 // as EFBIG).
-struct file_data {
+struct fileData {
     std::string data;
     error err;
     int errnum = 0;  // the errno, for ENOENT checks
 };
 
-file_data failErrno(int e) { return {{}, syscall::errnoError(e), e}; }
+fileData failErrno(int e) { return {{}, syscall::errnoError(e), e}; }
 
-file_data readFile(const std::string& name) {
+fileData readFile(const std::string& name) {
     int fd = ::open(name.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) return failErrno(errno);
-    file_data r;
+    fileData r;
     char buf[4096];
     for (;;) {
         ssize_t n = ::read(fd, buf, sizeof(buf));
@@ -782,14 +782,14 @@ int get2(std::span<const char> b) {
 }
 
 // Go's loadTzinfoFromZip: the uncompressed file name in zipfile.
-file_data loadTzinfoFromZip(const std::string& zipfile, const std::string& name) {
+fileData loadTzinfoFromZip(const std::string& zipfile, const std::string& name) {
     int fd = ::open(zipfile.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) return failErrno(errno);
     struct closer {
         int fd;
         ~closer() { ::close(fd); }
     } c{fd};
-    auto corrupt = [&] { return file_data{{}, errors::New("corrupt zip file " + string(zipfile)), EINVAL}; };
+    auto corrupt = [&] { return fileData{{}, errors::New("corrupt zip file " + string(zipfile)), EINVAL}; };
 
     constexpr int zecheader = 0x06054b50;
     constexpr int zcheader = 0x02014b50;
@@ -864,7 +864,7 @@ file_data loadTzinfoFromZip(const std::string& zipfile, const std::string& name)
             return corrupt();
         }
         xlen = get2(std::span(h).subspan(28));
-        file_data r;
+        fileData r;
         r.data.assign(static_cast<std::size_t>(fsize), '\0');
         if (!preadn(fd, r.data, foff + 30 + namelen + xlen)) return corrupt();
         return r;
@@ -872,7 +872,7 @@ file_data loadTzinfoFromZip(const std::string& zipfile, const std::string& name)
     return failErrno(ENOENT);
 }
 
-file_data loadTzinfoFromDirOrZip(const std::string& dir, std::string name) {
+fileData loadTzinfoFromDirOrZip(const std::string& dir, std::string name) {
     if (dir.size() > 4 && dir.ends_with(".zip")) return loadTzinfoFromZip(dir, name);
     if (!dir.empty()) name = dir + "/" + name;
     return readFile(name);
@@ -1010,13 +1010,13 @@ void ForceUSPacificForTesting() {
     if (err) panic("cannot load America/Los_Angeles for testing: " + err.Error());
     localLoc() = *z;
     localLoc().name = string::fromStatic("Local");
-    local_done.store(true, std::memory_order_release);
+    localDone.store(true, std::memory_order_release);
 }
 
 void ResetLocalOnceForTest() {
     std::lock_guard l(localMu());
     localLoc() = Location();
-    local_done.store(false, std::memory_order_release);
+    localDone.store(false, std::memory_order_release);
 }
 
 void ForceZipFileForTesting(std::string_view zip) {

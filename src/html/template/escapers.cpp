@@ -520,7 +520,7 @@ struct jsonEncoder {
                     std::string_view src = asStringView(*b);
                     err = json::detail::validate(src);
                     if (!err) {
-                        json::detail::append_compact(e.out, src, true);
+                        json::detail::appendCompact(e.out, src, true);
                         return nullptr;
                     }
                 } else {

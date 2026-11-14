@@ -25,8 +25,8 @@ void putU32(std::string& out, uint32 v) {
     out.append(b, 4);
 }
 
-const gopp::error err_pseudo_after_regular = errors::New("pseudo header field after regular");
-const gopp::error err_mix_pseudo_header_types = errors::New("mix of request and response pseudo headers");
+const gopp::error errPseudoAfterRegular = errors::New("pseudo header field after regular");
+const gopp::error errMixPseudoHeaderTypes = errors::New("mix of request and response pseudo headers");
 
 gopp::error headerFieldNameError(std::string_view name) {
     return errors::New("invalid header field name " + strconv::Quote(name));
@@ -38,8 +38,8 @@ gopp::error headerFieldValueError(std::string_view name) {
 
 }  // namespace
 
-const gopp::error err_frame_too_large = errors::New("http2: frame too large");
-const gopp::error err_closed_pipe_write = errors::New("write on closed buffer");
+const gopp::error errFrameTooLarge = errors::New("http2: frame too large");
+const gopp::error errClosedPipeWrite = errors::New("write on closed buffer");
 
 // ---------------------------------------------------------------------------
 // Names
@@ -66,29 +66,29 @@ string to_string(ErrCode c) {
 
 string to_string(SettingID s) {
     switch (s) {
-    case SettingID::header_table_size: return string::fromStatic("HEADER_TABLE_SIZE");
-    case SettingID::enable_push: return string::fromStatic("ENABLE_PUSH");
-    case SettingID::max_concurrent_streams: return string::fromStatic("MAX_CONCURRENT_STREAMS");
-    case SettingID::initial_window_size: return string::fromStatic("INITIAL_WINDOW_SIZE");
-    case SettingID::max_frame_size: return string::fromStatic("MAX_FRAME_SIZE");
-    case SettingID::max_header_list_size: return string::fromStatic("MAX_HEADER_LIST_SIZE");
-    case SettingID::enable_connect_protocol: return string::fromStatic("ENABLE_CONNECT_PROTOCOL");
-    case SettingID::no_rfc7540_priorities: return string::fromStatic("NO_RFC7540_PRIORITIES");
+    case SettingID::headerTableSize: return string::fromStatic("HEADER_TABLE_SIZE");
+    case SettingID::enablePush: return string::fromStatic("ENABLE_PUSH");
+    case SettingID::maxConcurrentStreams: return string::fromStatic("MAX_CONCURRENT_STREAMS");
+    case SettingID::initialWindowSize: return string::fromStatic("INITIAL_WINDOW_SIZE");
+    case SettingID::maxFrameSize: return string::fromStatic("MAX_FRAME_SIZE");
+    case SettingID::maxHeaderListSize: return string::fromStatic("MAX_HEADER_LIST_SIZE");
+    case SettingID::enableConnectProtocol: return string::fromStatic("ENABLE_CONNECT_PROTOCOL");
+    case SettingID::noRfc7540Priorities: return string::fromStatic("NO_RFC7540_PRIORITIES");
     }
     return "UNKNOWN_SETTING_" + strconv::Itoa(static_cast<int64>(s));
 }
 
 gopp::error Setting::Valid() const {
     switch (id) {
-    case SettingID::enable_push:
-    case SettingID::enable_connect_protocol:
+    case SettingID::enablePush:
+    case SettingID::enableConnectProtocol:
         if (val != 0 && val != 1) return connectionError(ErrCode::protocol);
         break;
-    case SettingID::initial_window_size:
-        if (val > uint32(max_window_size)) return connectionError(ErrCode::flow_control);
+    case SettingID::initialWindowSize:
+        if (val > uint32(maxWindowSize)) return connectionError(ErrCode::flowControl);
         break;
-    case SettingID::max_frame_size:
-        if (val < initial_max_frame_size || val > max_frame_size_limit) return connectionError(ErrCode::protocol);
+    case SettingID::maxFrameSize:
+        if (val < initialMaxFrameSize || val > maxFrameSizeLimit) return connectionError(ErrCode::protocol);
         break;
     default:
         break;
@@ -108,8 +108,8 @@ string StreamError::Error() const {
 }
 
 string GoAwayError::Error() const {
-    return "http2: server sent GOAWAY and closed the connection; LastStreamID=" + strconv::Itoa(last_stream_id) +
-           ", ErrCode=" + to_string(code) + ", debug=" + strconv::Quote(debug_data);
+    return "http2: server sent GOAWAY and closed the connection; LastStreamID=" + strconv::Itoa(lastStreamId) +
+           ", ErrCode=" + to_string(code) + ", debug=" + strconv::Quote(debugData);
 }
 
 gopp::error connectionError(ErrCode code, std::string_view reason) { return make_ptr<ConnectionError>(code, string(reason)); }
@@ -136,13 +136,13 @@ string FrameHeader::String() const {
         case FrameType::data: add(flags::endStream, "END_STREAM"); add(flags::padded, "PADDED"); break;
         case FrameType::headers:
             add(flags::endStream, "END_STREAM");
-            add(flags::end_headers, "END_HEADERS");
+            add(flags::endHeaders, "END_HEADERS");
             add(flags::padded, "PADDED");
             add(flags::priority, "PRIORITY");
             break;
         case FrameType::settings: case FrameType::ping: add(flags::ack, "ACK"); break;
-        case FrameType::push_promise: add(flags::end_headers, "END_HEADERS"); add(flags::padded, "PADDED"); break;
-        case FrameType::continuation: add(flags::end_headers, "END_HEADERS"); break;
+        case FrameType::pushPromise: add(flags::endHeaders, "END_HEADERS"); add(flags::padded, "PADDED"); break;
+        case FrameType::continuation: add(flags::endHeaders, "END_HEADERS"); break;
         default: break;
         }
         if (first) s += "0x" + std::to_string(flags);
@@ -177,34 +177,34 @@ std::optional<uint32> Frame::setting(SettingID id) const {
 }
 
 gopp::error Framer::connError(ErrCode code, std::string_view reason) {
-    err_detail_ = errors::New(string(reason));
+    errDetail_ = errors::New(string(reason));
     return connectionError(code, reason);
 }
 
 gopp::error Framer::checkFrameOrder(const FrameHeader& fh) {
-    FrameType last = last_frame_type_;
-    last_frame_type_ = fh.type;
-    if (last_header_stream_ != 0) {
+    FrameType last = lastFrameType_;
+    lastFrameType_ = fh.type;
+    if (lastHeaderStream_ != 0) {
         if (fh.type != FrameType::continuation) {
             return connError(ErrCode::protocol, std::format("got {} for stream {}; expected CONTINUATION following {} for stream {}",
                                                              to_string(fh.type).view(), fh.streamId, to_string(last).view(),
-                                                             last_header_stream_));
+                                                             lastHeaderStream_));
         }
-        if (fh.streamId != last_header_stream_) {
+        if (fh.streamId != lastHeaderStream_) {
             return connError(ErrCode::protocol, std::format("got CONTINUATION for stream {}; expected stream {}",
-                                                             fh.streamId, last_header_stream_));
+                                                             fh.streamId, lastHeaderStream_));
         }
     } else if (fh.type == FrameType::continuation) {
         return connError(ErrCode::protocol, std::format("unexpected CONTINUATION for stream {}", fh.streamId));
     }
     if (fh.type == FrameType::headers || fh.type == FrameType::continuation) {
-        last_header_stream_ = fh.has(flags::end_headers) ? 0 : fh.streamId;
+        lastHeaderStream_ = fh.has(flags::endHeaders) ? 0 : fh.streamId;
     }
     return nullptr;
 }
 
 std::pair<Frame, gopp::error> Framer::readFrame() {
-    char hb[frame_header_len];
+    char hb[frameHeaderLen];
     if (auto [n, err] = io::ReadFull(*r_, std::span<byte>(reinterpret_cast<byte*>(hb), sizeof(hb))); err) {
         return {Frame{}, err};
     }
@@ -213,7 +213,7 @@ std::pair<Frame, gopp::error> Framer::readFrame() {
     fh.type = static_cast<FrameType>(hb[3]);
     fh.flags = static_cast<uint8>(hb[4]);
     fh.streamId = readU32(hb + 5) & 0x7fffffff;
-    if (fh.length > max_read_size_) return {Frame{}, err_frame_too_large};
+    if (fh.length > maxReadSize_) return {Frame{}, errFrameTooLarge};
     gopp::error rerr;
     string payload = string::build(fh.length, [&](char* p) {
         rerr = io::ReadFull(*r_, std::span<byte>(reinterpret_cast<byte*>(p), fh.length)).second;
@@ -221,11 +221,11 @@ std::pair<Frame, gopp::error> Framer::readFrame() {
     if (rerr) return {Frame{}, rerr == io::EOF_ ? io::ErrUnexpectedEOF : rerr};
     auto [f, err] = Parse(fh, std::move(payload));
     if (err) {
-        if (auto* ce = errors::As<ConnectionError>(err); ce && !ce->reason.empty()) err_detail_ = errors::New(ce->reason);
+        if (auto* ce = errors::As<ConnectionError>(err); ce && !ce->reason.empty()) errDetail_ = errors::New(ce->reason);
         return {Frame{}, err};
     }
     if (gopp::error oerr = checkFrameOrder(fh)) return {Frame{}, oerr};
-    if (fh.type == FrameType::headers && read_meta_headers) {
+    if (fh.type == FrameType::headers && readMetaHeaders) {
         if (gopp::error merr = readMetaFrame(f)) return {std::move(f), merr};
     }
     return {std::move(f), nullptr};
@@ -236,7 +236,7 @@ std::pair<Frame, gopp::error> Framer::Parse(const FrameHeader& fh, string p) {
     f.header = fh;
     auto fail = [](gopp::error e) { return std::pair<Frame, gopp::error>{Frame{}, std::move(e)}; };
     // Strips the pad length byte and the padding.
-    auto unpad = [&](string& q, gopp::error& err, bool stream_err) {
+    auto unpad = [&](string& q, gopp::error& err, bool streamErr) {
         if (!fh.has(flags::padded)) return;
         if (q.empty()) {
             err = io::ErrUnexpectedEOF;
@@ -245,7 +245,7 @@ std::pair<Frame, gopp::error> Framer::Parse(const FrameHeader& fh, string p) {
         std::size_t pad = static_cast<uint8>(q[0]);
         q = q.slice(1);
         if (pad > q.size()) {
-            err = stream_err ? streamError(fh.streamId, ErrCode::protocol)
+            err = streamErr ? streamError(fh.streamId, ErrCode::protocol)
                              : connectionError(ErrCode::protocol, "pad size larger than data payload");
             return;
         }
@@ -271,8 +271,8 @@ std::pair<Frame, gopp::error> Framer::Parse(const FrameHeader& fh, string p) {
         if (fh.has(flags::priority)) {
             if (p.size() < 5) return fail(io::ErrUnexpectedEOF);
             uint32 v = readU32(p.data());
-            f.priority.stream_dep = v & 0x7fffffff;
-            f.priority.exclusive = v != f.priority.stream_dep;
+            f.priority.streamDep = v & 0x7fffffff;
+            f.priority.exclusive = v != f.priority.streamDep;
             f.priority.weight = static_cast<uint8>(p[4]);
             p = p.slice(5);
         }
@@ -283,55 +283,55 @@ std::pair<Frame, gopp::error> Framer::Parse(const FrameHeader& fh, string p) {
     case FrameType::priority: {
         if (fh.streamId == 0) return fail(connectionError(ErrCode::protocol, "PRIORITY frame with stream ID 0"));
         if (p.size() != 5) {
-            return fail(connectionError(ErrCode::frame_size, std::format("PRIORITY frame payload size was {}; want 5", p.size())));
+            return fail(connectionError(ErrCode::frameSize, std::format("PRIORITY frame payload size was {}; want 5", p.size())));
         }
         uint32 v = readU32(p.data());
-        f.priority.stream_dep = v & 0x7fffffff;
-        f.priority.exclusive = v != f.priority.stream_dep;
+        f.priority.streamDep = v & 0x7fffffff;
+        f.priority.exclusive = v != f.priority.streamDep;
         f.priority.weight = static_cast<uint8>(p[4]);
         break;
     }
-    case FrameType::rst_stream:
-        if (p.size() != 4) return fail(connectionError(ErrCode::frame_size));
+    case FrameType::rstStream:
+        if (p.size() != 4) return fail(connectionError(ErrCode::frameSize));
         if (fh.streamId == 0) return fail(connectionError(ErrCode::protocol));
-        f.err_code = static_cast<ErrCode>(readU32(p.data()));
+        f.errCode = static_cast<ErrCode>(readU32(p.data()));
         break;
     case FrameType::settings:
-        if (fh.has(flags::ack) && fh.length > 0) return fail(connectionError(ErrCode::frame_size));
+        if (fh.has(flags::ack) && fh.length > 0) return fail(connectionError(ErrCode::frameSize));
         if (fh.streamId != 0) return fail(connectionError(ErrCode::protocol));
-        if (p.size() % 6 != 0) return fail(connectionError(ErrCode::frame_size));
+        if (p.size() % 6 != 0) return fail(connectionError(ErrCode::frameSize));
         for (std::size_t i = 0; i < p.size(); i += 6) {
             Setting s{static_cast<SettingID>(uint16(uint8(p[i])) << 8 | uint8(p[i + 1])), readU32(p.data() + i + 2)};
-            if (s.id == SettingID::initial_window_size && s.val > uint32(max_window_size)) {
-                return fail(connectionError(ErrCode::flow_control));
+            if (s.id == SettingID::initialWindowSize && s.val > uint32(maxWindowSize)) {
+                return fail(connectionError(ErrCode::flowControl));
             }
             f.settings.push_back(s);
         }
         break;
-    case FrameType::push_promise: {
+    case FrameType::pushPromise: {
         if (fh.streamId == 0) return fail(connectionError(ErrCode::protocol));
         gopp::error err;
         unpad(p, err, false);
         if (err) return fail(err);
         if (p.size() < 4) return fail(io::ErrUnexpectedEOF);
-        f.promise_id = readU32(p.data()) & 0x7fffffff;
+        f.promiseId = readU32(p.data()) & 0x7fffffff;
         f.data = p.slice(4);
         break;
     }
     case FrameType::ping:
-        if (p.size() != 8) return fail(connectionError(ErrCode::frame_size));
+        if (p.size() != 8) return fail(connectionError(ErrCode::frameSize));
         if (fh.streamId != 0) return fail(connectionError(ErrCode::protocol));
         f.data = std::move(p);
         break;
     case FrameType::goaway:
         if (fh.streamId != 0) return fail(connectionError(ErrCode::protocol));
-        if (p.size() < 8) return fail(connectionError(ErrCode::frame_size));
-        f.last_stream_id = readU32(p.data()) & 0x7fffffff;
-        f.err_code = static_cast<ErrCode>(readU32(p.data() + 4));
+        if (p.size() < 8) return fail(connectionError(ErrCode::frameSize));
+        f.lastStreamId = readU32(p.data()) & 0x7fffffff;
+        f.errCode = static_cast<ErrCode>(readU32(p.data() + 4));
         f.data = p.slice(8);
         break;
-    case FrameType::window_update:
-        if (p.size() != 4) return fail(connectionError(ErrCode::frame_size));
+    case FrameType::windowUpdate:
+        if (p.size() != 4) return fail(connectionError(ErrCode::frameSize));
         f.increment = readU32(p.data()) & 0x7fffffff;
         if (f.increment == 0) {
             // A zero increment is a connection error on the connection,
@@ -353,21 +353,21 @@ std::pair<Frame, gopp::error> Framer::Parse(const FrameHeader& fh, string p) {
 
 gopp::error Framer::readMetaFrame(Frame& mh) {
     struct budget {
-        uint32 remain_size;
+        uint32 remainSize;
         int count = 0;
     };
     budget headers{maxHeaderList()}, trailers{maxHeaderList()};
-    bool saw_regular = false;
+    bool sawRegular = false;
     gopp::error invalid;
-    hpack::Decoder& hdec = *read_meta_headers;
+    hpack::Decoder& hdec = *readMetaHeaders;
     hdec.setEmitEnabled(true);
     hdec.setMaxStringLength(static_cast<int>(maxHeaderList()));
     hdec.setEmitFunc([&](const hpack::HeaderField& hf) {
         if (!internal::validHeaderFieldValue(hf.value)) invalid = headerFieldValueError(hf.name);
         if (hf.isPseudo()) {
-            if (saw_regular) invalid = err_pseudo_after_regular;
+            if (sawRegular) invalid = errPseudoAfterRegular;
         } else {
-            saw_regular = true;
+            sawRegular = true;
             if (!validWireHeaderFieldName(hf.name)) invalid = headerFieldNameError(hf.name);
         }
         if (invalid) {
@@ -378,36 +378,36 @@ gopp::error Framer::readMetaFrame(Frame& mh) {
         uint32 size;
         if (hf.name == "trailer") {
             b = &trailers;
-            int field_count = static_cast<int>(std::count(hf.value.begin(), hf.value.end(), ',')) + 1;
-            b->count += field_count;
-            size = static_cast<uint32>(hf.value.size() - field_count + 1) + uint32(field_count) * 32;
+            int fieldCount = static_cast<int>(std::count(hf.value.begin(), hf.value.end(), ',')) + 1;
+            b->count += fieldCount;
+            size = static_cast<uint32>(hf.value.size() - fieldCount + 1) + uint32(fieldCount) * 32;
         } else {
             b = &headers;
             b->count++;
             size = hf.size();
         }
-        if (size > b->remain_size) {
+        if (size > b->remainSize) {
             hdec.setEmitEnabled(false);
             mh.truncated = true;
-            headers.remain_size = trailers.remain_size = 0;
+            headers.remainSize = trailers.remainSize = 0;
             return;
         }
-        b->remain_size -= size;
+        b->remainSize -= size;
         mh.fields.push_back(hf);
     });
-    struct reset_emit {
+    struct resetEmit {
         hpack::Decoder& d;
-        ~reset_emit() { d.setEmitFunc(nullptr); }
+        ~resetEmit() { d.setEmitFunc(nullptr); }
     } reset{hdec};
 
-    mh.is_meta = true;
+    mh.isMeta = true;
     Frame* hc = &mh;
     Frame cont;
     for (;;) {
         std::string_view frag = hc->data;
         // A fragment much larger than what we would accept: refuse to
         // decode it (and spend memory on it).
-        if (static_cast<int64>(frag.size()) > 2 * (int64(headers.remain_size) + trailers.remain_size)) {
+        if (static_cast<int64>(frag.size()) > 2 * (int64(headers.remainSize) + trailers.remainSize)) {
             return connectionError(ErrCode::protocol, "header list too large");
         }
         if (invalid) return connectionError(ErrCode::protocol);
@@ -423,32 +423,32 @@ gopp::error Framer::readMetaFrame(Frame& mh) {
     mh.data = {};
     if (hdec.Close()) return connectionError(ErrCode::compression);
     if (invalid) {
-        err_detail_ = invalid;
+        errDetail_ = invalid;
         return streamError(mh.streamId(), ErrCode::protocol, invalid);
     }
     // checkPseudos
-    bool is_request = false, is_response = false;
+    bool isRequest = false, isResponse = false;
     auto pf = mh.pseudoFields();
     for (std::size_t i = 0; i < pf.size(); i++) {
         std::string_view n = pf[i].name;
         if (n == ":method" || n == ":path" || n == ":scheme" || n == ":authority" || n == ":protocol") {
-            is_request = true;
+            isRequest = true;
         } else if (n == ":status") {
-            is_response = true;
+            isResponse = true;
         } else {
             gopp::error e = errors::New("invalid pseudo-header " + strconv::Quote(n));
-            err_detail_ = e;
+            errDetail_ = e;
             return streamError(mh.streamId(), ErrCode::protocol, e);
         }
         for (std::size_t j = 0; j < i; j++) {
             if (pf[j].name == n) {
                 gopp::error e = errors::New("duplicate pseudo-header " + strconv::Quote(n));
-                err_detail_ = e;
+                errDetail_ = e;
                 return streamError(mh.streamId(), ErrCode::protocol, e);
             }
         }
     }
-    if (is_request && is_response) return streamError(mh.streamId(), ErrCode::protocol, err_mix_pseudo_header_types);
+    if (isRequest && isResponse) return streamError(mh.streamId(), ErrCode::protocol, errMixPseudoHeaderTypes);
     return nullptr;
 }
 
@@ -456,7 +456,7 @@ gopp::error Framer::readMetaFrame(Frame& mh) {
 // Frame writers
 
 void appendFrameHeader(std::string& out, FrameType type, uint8 fl, uint32 streamId, std::size_t length) {
-    char b[frame_header_len] = {static_cast<char>(length >> 16), static_cast<char>(length >> 8), static_cast<char>(length),
+    char b[frameHeaderLen] = {static_cast<char>(length >> 16), static_cast<char>(length >> 8), static_cast<char>(length),
                                 static_cast<char>(type),         static_cast<char>(fl),          0, 0, 0, 0};
     out.append(b, 5);
     putU32(out, streamId & 0x7fffffff);
@@ -467,17 +467,17 @@ void appendData(std::string& out, uint32 streamId, bool endStream, std::string_v
     out.append(data);
 }
 
-void appendHeaders(std::string& out, uint32 streamId, std::string_view block, bool endStream, uint32 max_frame_size) {
-    std::size_t max = max_frame_size ? max_frame_size : initial_max_frame_size;
+void appendHeaders(std::string& out, uint32 streamId, std::string_view block, bool endStream, uint32 maxFrameSize) {
+    std::size_t max = maxFrameSize ? maxFrameSize : initialMaxFrameSize;
     std::string_view first = block.substr(0, max);
     block.remove_prefix(first.size());
-    uint8 fl = (endStream ? flags::endStream : 0) | (block.empty() ? flags::end_headers : 0);
+    uint8 fl = (endStream ? flags::endStream : 0) | (block.empty() ? flags::endHeaders : 0);
     appendFrameHeader(out, FrameType::headers, fl, streamId, first.size());
     out.append(first);
     while (!block.empty()) {
         std::string_view frag = block.substr(0, max);
         block.remove_prefix(frag.size());
-        appendFrameHeader(out, FrameType::continuation, block.empty() ? flags::end_headers : 0, streamId, frag.size());
+        appendFrameHeader(out, FrameType::continuation, block.empty() ? flags::endHeaders : 0, streamId, frag.size());
         out.append(frag);
     }
 }
@@ -500,26 +500,26 @@ void appendPing(std::string& out, bool ack, std::string_view data8) {
     out.append(b, 8);
 }
 
-void appendGoaway(std::string& out, uint32 max_stream_id, ErrCode code, std::string_view debug) {
+void appendGoaway(std::string& out, uint32 maxStreamId, ErrCode code, std::string_view debug) {
     appendFrameHeader(out, FrameType::goaway, 0, 0, 8 + debug.size());
-    putU32(out, max_stream_id & 0x7fffffff);
+    putU32(out, maxStreamId & 0x7fffffff);
     putU32(out, static_cast<uint32>(code));
     out.append(debug);
 }
 
 void appendWindowUpdate(std::string& out, uint32 streamId, uint32 incr) {
-    appendFrameHeader(out, FrameType::window_update, 0, streamId, 4);
+    appendFrameHeader(out, FrameType::windowUpdate, 0, streamId, 4);
     putU32(out, incr & 0x7fffffff);
 }
 
 void appendRstStream(std::string& out, uint32 streamId, ErrCode code) {
-    appendFrameHeader(out, FrameType::rst_stream, 0, streamId, 4);
+    appendFrameHeader(out, FrameType::rstStream, 0, streamId, 4);
     putU32(out, static_cast<uint32>(code));
 }
 
 void appendPriority(std::string& out, uint32 streamId, const PriorityParam& p) {
     appendFrameHeader(out, FrameType::priority, 0, streamId, 5);
-    putU32(out, p.stream_dep | (p.exclusive ? 0x80000000u : 0));
+    putU32(out, p.streamDep | (p.exclusive ? 0x80000000u : 0));
     out.push_back(static_cast<char>(p.weight));
 }
 
@@ -547,11 +547,11 @@ bool validPseudoPath(std::string_view v) noexcept { return !v.empty() && (v[0] =
 // Flow control
 
 int32 inflow::add(int32 n) noexcept {
-    constexpr int32 inflow_min_refresh = 4 << 10;
+    constexpr int32 inflowMinRefresh = 4 << 10;
     int64 u = int64(unsent) + n;
-    if (u + avail > max_window_size) panic("flow control update exceeds maximum window size");
+    if (u + avail > maxWindowSize) panic("flow control update exceeds maximum window size");
     unsent = static_cast<int32>(u);
-    if (unsent < inflow_min_refresh && unsent < avail) return 0;
+    if (unsent < inflowMinRefresh && unsent < avail) return 0;
     avail += unsent;
     unsent = 0;
     return static_cast<int32>(u);
@@ -575,33 +575,33 @@ bool takeInflows(inflow& f1, inflow& f2, uint32 n) noexcept {
 
 std::size_t pipe::len() {
     std::lock_guard l(mu_);
-    return break_err_ ? unread_ : len_;
+    return breakErr_ ? unread_ : len_;
 }
 
 std::pair<isize, gopp::error> pipe::Read(std::span<byte> d) {
     std::lock_guard l(mu_);
     for (;;) {
-        if (break_err_) return {0, break_err_};
+        if (breakErr_) return {0, breakErr_};
         if (len_ > 0) {
             std::size_t n = 0;
             while (n < d.size() && !b_.empty()) {
                 const string& front = b_.front();
-                std::size_t k = std::min(d.size() - n, front.size() - front_off_);
-                std::memcpy(d.data() + n, front.data() + front_off_, k);
+                std::size_t k = std::min(d.size() - n, front.size() - frontOff_);
+                std::memcpy(d.data() + n, front.data() + frontOff_, k);
                 n += k;
-                front_off_ += k;
-                if (front_off_ == front.size()) {
+                frontOff_ += k;
+                if (frontOff_ == front.size()) {
                     b_.pop_front();
-                    front_off_ = 0;
+                    frontOff_ = 0;
                 }
             }
             len_ -= n;
             return {static_cast<isize>(n), nullptr};
         }
         if (err_) {
-            if (read_fn_) {
-                auto fn = std::move(read_fn_);
-                read_fn_ = nullptr;
+            if (readFn_) {
+                auto fn = std::move(readFn_);
+                readFn_ = nullptr;
                 fn();
             }
             return {0, err_};
@@ -612,7 +612,7 @@ std::pair<isize, gopp::error> pipe::Read(std::span<byte> d) {
 
 gopp::error pipe::write(string data) {
     std::lock_guard l(mu_);
-    if (err_ || break_err_) return err_closed_pipe_write;
+    if (err_ || breakErr_) return errClosedPipeWrite;
     if (!data.empty()) {
         len_ += data.size();
         b_.push_back(std::move(data));
@@ -627,7 +627,7 @@ void pipe::closeWithErrorAndCode(gopp::error err, std::function<void()> fn) {
     if (!err) panic("err must be non-nil");
     std::lock_guard l(mu_);
     if (!err_) {
-        read_fn_ = std::move(fn);
+        readFn_ = std::move(fn);
         err_ = std::move(err);
         closeDoneLocked();
     }
@@ -637,12 +637,12 @@ void pipe::closeWithErrorAndCode(gopp::error err, std::function<void()> fn) {
 void pipe::breakWithError(gopp::error err) {
     if (!err) panic("err must be non-nil");
     std::lock_guard l(mu_);
-    if (!break_err_) {
+    if (!breakErr_) {
         unread_ += len_;  // still counts for flow control
         b_.clear();
-        front_off_ = 0;
+        frontOff_ = 0;
         len_ = 0;
-        break_err_ = std::move(err);
+        breakErr_ = std::move(err);
         closeDoneLocked();
     }
     c_.Signal();
@@ -650,13 +650,13 @@ void pipe::breakWithError(gopp::error err) {
 
 gopp::error pipe::err() {
     std::lock_guard l(mu_);
-    return break_err_ ? break_err_ : err_;
+    return breakErr_ ? breakErr_ : err_;
 }
 
 void pipe::closeDoneLocked() {
     if (!donec_) return;  // done() creates it closed
-    if (!done_closed_) {
-        done_closed_ = true;
+    if (!doneClosed_) {
+        doneClosed_ = true;
         donec_.close();
     }
 }
@@ -664,9 +664,9 @@ void pipe::closeDoneLocked() {
 chan<empty> pipe::done() {
     std::lock_guard l(mu_);
     if (!donec_) {
-        donec_ = makeChan<empty>();
-        if (err_ || break_err_) {
-            done_closed_ = true;
+        donec_ = make_chan<empty>();
+        if (err_ || breakErr_) {
+            doneClosed_ = true;
             donec_.close();
         }
     }

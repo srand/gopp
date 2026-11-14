@@ -47,10 +47,10 @@ template <typename S>
 concept contiguous = std::ranges::contiguous_range<S> && std::ranges::sized_range<S>;
 
 template <typename S>
-using elem_t = std::remove_reference_t<std::ranges::range_reference_t<S>>;
+using elemT = std::remove_reference_t<std::ranges::range_reference_t<S>>;
 
 template <typename S>
-std::span<elem_t<S>> spanOf(S& s) noexcept {
+std::span<elemT<S>> spanOf(S& s) noexcept {
     return {std::ranges::data(s), std::ranges::size(s)};
 }
 
@@ -111,7 +111,7 @@ void rotateRight(std::span<T> s, std::size_t r) {
 // Go's sorting algorithms (sort/zsortinterface.go), over data with
 // less(i, j) and swap(i, j).
 
-enum class sorted_hint { unknown, increasing, decreasing };
+enum class sortedHint { unknown, increasing, decreasing };
 
 struct xorshift {
     uint64 r;
@@ -129,7 +129,7 @@ inline std::size_t nextPowerOfTwo(isize length) noexcept {
 
 // insertionSort sorts data[a:b].
 template <typename D>
-void insertion_sort(D& data, isize a, isize b) {
+void insertionSort(D& data, isize a, isize b) {
     for (isize i = a + 1; i < b; i++) {
         for (isize j = i; j > a && data.less(j, j - 1); j--) {
             data.swap(j, j - 1);
@@ -140,7 +140,7 @@ void insertion_sort(D& data, isize a, isize b) {
 // siftDown implements the heap property on data[lo:hi]; first is the
 // offset of the root.
 template <typename D>
-void sift_down(D& data, isize lo, isize hi, isize first) {
+void siftDown(D& data, isize lo, isize hi, isize first) {
     isize root = lo;
     for (;;) {
         isize child = 2 * root + 1;
@@ -155,10 +155,10 @@ void sift_down(D& data, isize lo, isize hi, isize first) {
 template <typename D>
 void heapSort(D& data, isize a, isize b) {
     isize first = a, lo = 0, hi = b - a;
-    for (isize i = (hi - 1) / 2; i >= 0; i--) sift_down(data, i, hi, first);
+    for (isize i = (hi - 1) / 2; i >= 0; i--) siftDown(data, i, hi, first);
     for (isize i = hi - 1; i >= 0; i--) {
         data.swap(first, first + i);
-        sift_down(data, lo, i, first);
+        siftDown(data, lo, i, first);
     }
 }
 
@@ -204,13 +204,13 @@ isize partitionEqual(D& data, isize a, isize b, isize pivot) {
 
 template <typename D>
 bool partialInsertionSort(D& data, isize a, isize b) {
-    constexpr int max_steps = 5;
-    constexpr isize shortest_shifting = 50;
+    constexpr int maxSteps = 5;
+    constexpr isize shortestShifting = 50;
     isize i = a + 1;
-    for (int step = 0; step < max_steps; step++) {
+    for (int step = 0; step < maxSteps; step++) {
         while (i < b && !data.less(i, i - 1)) i++;
         if (i == b) return true;
-        if (b - a < shortest_shifting) return false;
+        if (b - a < shortestShifting) return false;
         data.swap(i, i - 1);
         if (i - a >= 2) {
             for (isize j = i - 1; j >= 1; j--) {
@@ -229,7 +229,7 @@ bool partialInsertionSort(D& data, isize a, isize b) {
 }
 
 template <typename D>
-void break_patterns(D& data, isize a, isize b) {
+void breakPatterns(D& data, isize a, isize b) {
     isize length = b - a;
     if (length >= 8) {
         xorshift random{static_cast<uint64>(length)};
@@ -265,14 +265,14 @@ isize medianAdjacent(D& data, isize a, int& swaps) {
 }
 
 template <typename D>
-std::pair<isize, sorted_hint> choosePivot(D& data, isize a, isize b) {
-    constexpr isize shortest_ninther = 50;
-    constexpr int max_swaps = 4 * 3;
+std::pair<isize, sortedHint> choosePivot(D& data, isize a, isize b) {
+    constexpr isize shortestNinther = 50;
+    constexpr int maxSwaps = 4 * 3;
     isize l = b - a;
     int swaps = 0;
     isize i = a + l / 4 * 1, j = a + l / 4 * 2, k = a + l / 4 * 3;
     if (l >= 8) {
-        if (l >= shortest_ninther) {
+        if (l >= shortestNinther) {
             i = medianAdjacent(data, i, swaps);
             j = medianAdjacent(data, j, swaps);
             k = medianAdjacent(data, k, swaps);
@@ -280,14 +280,14 @@ std::pair<isize, sorted_hint> choosePivot(D& data, isize a, isize b) {
         j = median(data, i, j, k, swaps);
     }
     switch (swaps) {
-        case 0: return {j, sorted_hint::increasing};
-        case max_swaps: return {j, sorted_hint::decreasing};
-        default: return {j, sorted_hint::unknown};
+        case 0: return {j, sortedHint::increasing};
+        case maxSwaps: return {j, sortedHint::decreasing};
+        default: return {j, sortedHint::unknown};
     }
 }
 
 template <typename D>
-void reverse_range(D& data, isize a, isize b) {
+void reverseRange(D& data, isize a, isize b) {
     for (isize i = a, j = b - 1; i < j; i++, j--) data.swap(i, j);
 }
 
@@ -295,45 +295,45 @@ void reverse_range(D& data, isize a, isize b) {
 // before falling back to heapsort.
 template <typename D>
 void pdqsort(D& data, isize a, isize b, int limit) {
-    constexpr isize max_insertion = 12;
-    bool was_balanced = true, was_partitioned = true;
+    constexpr isize maxInsertion = 12;
+    bool wasBalanced = true, wasPartitioned = true;
     for (;;) {
         isize length = b - a;
-        if (length <= max_insertion) {
-            insertion_sort(data, a, b);
+        if (length <= maxInsertion) {
+            insertionSort(data, a, b);
             return;
         }
         if (limit == 0) {
             heapSort(data, a, b);
             return;
         }
-        if (!was_balanced) {
-            break_patterns(data, a, b);
+        if (!wasBalanced) {
+            breakPatterns(data, a, b);
             limit--;
         }
         auto [pivot, hint] = choosePivot(data, a, b);
-        if (hint == sorted_hint::decreasing) {
-            reverse_range(data, a, b);
+        if (hint == sortedHint::decreasing) {
+            reverseRange(data, a, b);
             pivot = (b - 1) - (pivot - a);
-            hint = sorted_hint::increasing;
+            hint = sortedHint::increasing;
         }
-        if (was_balanced && was_partitioned && hint == sorted_hint::increasing) {
+        if (wasBalanced && wasPartitioned && hint == sortedHint::increasing) {
             if (partialInsertionSort(data, a, b)) return;
         }
         if (a > 0 && !data.less(a - 1, pivot)) {
             a = partitionEqual(data, a, b, pivot);
             continue;
         }
-        auto [mid, already_partitioned] = partition(data, a, b, pivot);
-        was_partitioned = already_partitioned;
-        isize left_len = mid - a, right_len = b - mid;
-        isize balance_threshold = length / 8;
-        if (left_len < right_len) {
-            was_balanced = left_len >= balance_threshold;
+        auto [mid, alreadyPartitioned] = partition(data, a, b, pivot);
+        wasPartitioned = alreadyPartitioned;
+        isize leftLen = mid - a, rightLen = b - mid;
+        isize balanceThreshold = length / 8;
+        if (leftLen < rightLen) {
+            wasBalanced = leftLen >= balanceThreshold;
             pdqsort(data, a, mid, limit);
             a = mid + 1;
         } else {
-            was_balanced = right_len >= balance_threshold;
+            wasBalanced = rightLen >= balanceThreshold;
             pdqsort(data, mid + 1, b, limit);
             b = mid;
         }
@@ -364,7 +364,7 @@ void rotate(D& data, isize a, isize m, isize b) {
 // symMerge merges the sorted data[a:m] and data[m:b] (Kim and Kutzner's
 // SymMerge); a < m && m < b.
 template <typename D>
-void sym_merge(D& data, isize a, isize m, isize b) {
+void symMerge(D& data, isize a, isize m, isize b) {
     if (m - a == 1) {
         isize i = m, j = b;
         while (i < j) {
@@ -412,30 +412,30 @@ void sym_merge(D& data, isize a, isize m, isize b) {
     }
     isize end = n - start;
     if (start < m && m < end) rotate(data, start, m, end);
-    if (a < start && start < mid) sym_merge(data, a, start, mid);
-    if (mid < end && end < b) sym_merge(data, mid, end, b);
+    if (a < start && start < mid) symMerge(data, a, start, mid);
+    if (mid < end && end < b) symMerge(data, mid, end, b);
 }
 
 template <typename D>
 void stable(D& data, isize n) {
-    isize block_size = 20;
-    isize a = 0, b = block_size;
+    isize blockSize = 20;
+    isize a = 0, b = blockSize;
     while (b <= n) {
-        insertion_sort(data, a, b);
+        insertionSort(data, a, b);
         a = b;
-        b += block_size;
+        b += blockSize;
     }
-    insertion_sort(data, a, n);
-    while (block_size < n) {
+    insertionSort(data, a, n);
+    while (blockSize < n) {
         a = 0;
-        b = 2 * block_size;
+        b = 2 * blockSize;
         while (b <= n) {
-            sym_merge(data, a, a + block_size, b);
+            symMerge(data, a, a + blockSize, b);
             a = b;
-            b += 2 * block_size;
+            b += 2 * blockSize;
         }
-        if (isize m = a + block_size; m < n) sym_merge(data, a, m, n);
-        block_size *= 2;
+        if (isize m = a + blockSize; m < n) symMerge(data, a, m, n);
+        blockSize *= 2;
     }
 }
 
@@ -443,8 +443,8 @@ void stable(D& data, isize n) {
 template <typename T, typename Less>
 struct elements {
     T* p;
-    Less less_fn;
-    bool less(isize i, isize j) { return less_fn(p[i], p[j]); }
+    Less lessFn;
+    bool less(isize i, isize j) { return lessFn(p[i], p[j]); }
     void swap(isize i, isize j) {
         using std::swap;
         swap(p[i], p[j]);
@@ -456,7 +456,7 @@ elements<T, Less> elementsOf(std::span<T> s, Less less) {
     return {s.data(), std::move(less)};
 }
 
-struct ordered_less {
+struct orderedLess {
     template <typename T>
     bool operator()(const T& x, const T& y) const {
         return cmp::Less(x, y);
@@ -464,7 +464,7 @@ struct ordered_less {
 };
 
 template <typename F>
-struct cmp_less {
+struct cmpLess {
     F& cmp;
     template <typename T>
     bool operator()(const T& x, const T& y) const {
@@ -579,10 +579,10 @@ void Reverse(S&& s) {
 
 // slices.Sort: ascending, NaNs first.
 template <detail::contiguous S>
-    requires cmp::Ordered<detail::elem_t<S>>
+    requires cmp::Ordered<detail::elemT<S>>
 void Sort(S&& x) {
     auto s = detail::spanOf(x);
-    auto data = detail::elementsOf(s, detail::ordered_less{});
+    auto data = detail::elementsOf(s, detail::orderedLess{});
     auto n = static_cast<isize>(s.size());
     detail::pdqsort(data, 0, n, detail::bitsLen(n));
 }
@@ -591,7 +591,7 @@ void Sort(S&& x) {
 template <detail::contiguous S, typename F>
 void SortFunc(S&& x, F cmp) {
     auto s = detail::spanOf(x);
-    auto data = detail::elementsOf(s, detail::cmp_less<F>{cmp});
+    auto data = detail::elementsOf(s, detail::cmpLess<F>{cmp});
     auto n = static_cast<isize>(s.size());
     detail::pdqsort(data, 0, n, detail::bitsLen(n));
 }
@@ -600,13 +600,13 @@ void SortFunc(S&& x, F cmp) {
 template <detail::contiguous S, typename F>
 void SortStableFunc(S&& x, F cmp) {
     auto s = detail::spanOf(x);
-    auto data = detail::elementsOf(s, detail::cmp_less<F>{cmp});
+    auto data = detail::elementsOf(s, detail::cmpLess<F>{cmp});
     detail::stable(data, static_cast<isize>(s.size()));
 }
 
 // slices.IsSorted
 template <detail::contiguous S>
-    requires cmp::Ordered<detail::elem_t<S>>
+    requires cmp::Ordered<detail::elemT<S>>
 bool IsSorted(const S& x) {
     auto s = std::span(std::ranges::data(x), std::ranges::size(x));
     for (std::size_t i = s.size(); i > 1; i--) {
@@ -627,11 +627,11 @@ bool IsSortedFunc(const S& x, F cmp) {
 
 // slices.Min: panics if x is empty; a NaN makes the result NaN.
 template <detail::contiguous S>
-    requires cmp::Ordered<detail::elem_t<S>>
-std::remove_const_t<detail::elem_t<S>> Min(const S& x) {
+    requires cmp::Ordered<detail::elemT<S>>
+std::remove_const_t<detail::elemT<S>> Min(const S& x) {
     auto s = std::span(std::ranges::data(x), std::ranges::size(x));
     if (s.empty()) panic("slices.Min: empty list");
-    std::remove_const_t<detail::elem_t<S>> m = s[0];
+    std::remove_const_t<detail::elemT<S>> m = s[0];
     for (std::size_t i = 1; i < s.size(); i++) {
         if constexpr (std::is_floating_point_v<decltype(m)>) {
             if (m != m) return m;
@@ -645,7 +645,7 @@ std::remove_const_t<detail::elem_t<S>> Min(const S& x) {
 
 // slices.MinFunc: the first minimal element; panics if x is empty.
 template <detail::contiguous S, typename F>
-std::remove_const_t<detail::elem_t<S>> MinFunc(const S& x, F cmp) {
+std::remove_const_t<detail::elemT<S>> MinFunc(const S& x, F cmp) {
     auto s = std::span(std::ranges::data(x), std::ranges::size(x));
     if (s.empty()) panic("slices.MinFunc: empty list");
     std::size_t m = 0;
@@ -657,11 +657,11 @@ std::remove_const_t<detail::elem_t<S>> MinFunc(const S& x, F cmp) {
 
 // slices.Max: panics if x is empty; a NaN makes the result NaN.
 template <detail::contiguous S>
-    requires cmp::Ordered<detail::elem_t<S>>
-std::remove_const_t<detail::elem_t<S>> Max(const S& x) {
+    requires cmp::Ordered<detail::elemT<S>>
+std::remove_const_t<detail::elemT<S>> Max(const S& x) {
     auto s = std::span(std::ranges::data(x), std::ranges::size(x));
     if (s.empty()) panic("slices.Max: empty list");
-    std::remove_const_t<detail::elem_t<S>> m = s[0];
+    std::remove_const_t<detail::elemT<S>> m = s[0];
     for (std::size_t i = 1; i < s.size(); i++) {
         if constexpr (std::is_floating_point_v<decltype(m)>) {
             if (m != m) return m;
@@ -675,7 +675,7 @@ std::remove_const_t<detail::elem_t<S>> Max(const S& x) {
 
 // slices.MaxFunc: the first maximal element; panics if x is empty.
 template <detail::contiguous S, typename F>
-std::remove_const_t<detail::elem_t<S>> MaxFunc(const S& x, F cmp) {
+std::remove_const_t<detail::elemT<S>> MaxFunc(const S& x, F cmp) {
     auto s = std::span(std::ranges::data(x), std::ranges::size(x));
     if (s.empty()) panic("slices.MaxFunc: empty list");
     std::size_t m = 0;
@@ -688,9 +688,9 @@ std::remove_const_t<detail::elem_t<S>> MaxFunc(const S& x, F cmp) {
 // slices.BinarySearch: the first position of target in the sorted x, or
 // where it would be inserted, and whether it's there.
 template <detail::contiguous S, typename T>
-    requires cmp::Ordered<std::remove_const_t<detail::elem_t<S>>>
+    requires cmp::Ordered<std::remove_const_t<detail::elemT<S>>>
 std::pair<isize, bool> BinarySearch(const S& x, const T& t) {
-    using E = std::remove_const_t<detail::elem_t<S>>;
+    using E = std::remove_const_t<detail::elemT<S>>;
     const E& target = t;
     auto s = std::span(std::ranges::data(x), std::ranges::size(x));
     std::size_t i = 0, j = s.size();
@@ -930,8 +930,8 @@ slice<T> Concat(const slice<T>& first, const S&... rest) {
 
 // slices.Repeat: x repeated count times; never nil.
 template <detail::contiguous S>
-slice<std::remove_const_t<detail::elem_t<S>>> Repeat(const S& x, isize count) {
-    using T = std::remove_const_t<detail::elem_t<S>>;
+slice<std::remove_const_t<detail::elemT<S>>> Repeat(const S& x, isize count) {
+    using T = std::remove_const_t<detail::elemT<S>>;
     if (count < 0) panic("cannot be negative");
     std::size_t len = std::ranges::size(x);
     auto ucount = static_cast<std::size_t>(count);

@@ -279,7 +279,7 @@ isize count(sv s, sv sep) noexcept {
     }
 }
 
-bool equal_fold(sv s, sv t) noexcept {
+bool equalFold(sv s, sv t) noexcept {
     // ASCII fast path
     std::size_t i = 0;
     for (std::size_t n = std::min(s.size(), t.size()); i < n; i++) {
@@ -365,7 +365,7 @@ sv trimRight(sv s, sv cutset) noexcept {
     return trimRightUnicode(s, cutset);
 }
 
-sv trim_space(sv s) noexcept {
+sv trimSpace(sv s) noexcept {
     // Fast path for ASCII: look for the first ASCII non-space byte.
     for (std::size_t lo = 0; lo < s.size(); lo++) {
         byte c = at(s, lo);
@@ -412,17 +412,17 @@ sv trimRightFunc(sv s, pred f) {
 
 sv trimFunc(sv s, pred f) { return trimRightFunc(trimLeftFunc(s, f), f); }
 
-cut_result cut(sv s, sv sep) noexcept {
+cutResult cut(sv s, sv sep) noexcept {
     if (auto i = s.find(sep); i != sv::npos) return {s.substr(0, i), s.substr(i + sep.size()), true};
     return {s, nil, false};
 }
 
-cut_result cutLast(sv s, sv sep) noexcept {
+cutResult cutLast(sv s, sv sep) noexcept {
     if (auto i = lastIndex(s, sep); i >= 0) return {s.substr(0, std::size_t(i)), s.substr(std::size_t(i) + sep.size()), true};
     return {s, nil, false};
 }
 
-std::vector<sv> genSplit(sv s, sv sep, std::size_t sep_save, isize n) {
+std::vector<sv> genSplit(sv s, sv sep, std::size_t sepSave, isize n) {
     if (sep.empty()) return explode(s, n);
     if (n < 0) n = count(s, sep) + 1;
     n = std::min(n, isize(s.size()) + 1);
@@ -432,7 +432,7 @@ std::vector<sv> genSplit(sv s, sv sep, std::size_t sep_save, isize n) {
     while (isize(a.size()) < n) {
         auto m = s.find(sep);
         if (m == sv::npos) break;
-        a.push_back(s.substr(0, m + sep_save));
+        a.push_back(s.substr(0, m + sepSave));
         s.remove_prefix(m + sep.size());
     }
     a.push_back(s);

@@ -104,7 +104,7 @@ std::pair<ptr<net::Conn>, ptr<net::Conn>> createSocketPair(const std::string& pr
     std::string addr = proto == "tcp" ? "127.0.0.1:0" : dir + "/sock";
     auto [ln, err] = net::Listen(proto, addr);
     EXPECT_FALSE(err) << err;
-    auto accepted = makeChan<ptr<net::Conn>>(1);
+    auto accepted = make_chan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
     auto [client, derr] = net::Dial(proto, ln->Addr()->String().view());
     EXPECT_FALSE(derr) << derr;

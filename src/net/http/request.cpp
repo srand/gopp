@@ -34,7 +34,7 @@ Request::Request(const Request& o)
       PostForm(o.PostForm),
       MultipartForm(o.MultipartForm),
       ctx_(o.ctx_),
-      path_values_(o.path_values_),
+      pathValues_(o.pathValues_),
       formParsed_(o.formParsed_),
       postFormParsed_(o.postFormParsed_),
       multipartByReader_(o.multipartByReader_) {}
@@ -62,20 +62,20 @@ ptr<Request> Request::WithContext(ptr<context::Context> ctx) const {
 }
 
 string Request::PathValue(std::string_view name) const {
-    for (auto& [k, v] : path_values_) {
+    for (auto& [k, v] : pathValues_) {
         if (k == name) return v;
     }
     return {};
 }
 
 void Request::SetPathValue(std::string_view name, string value) {
-    for (auto& [k, v] : path_values_) {
+    for (auto& [k, v] : pathValues_) {
         if (k == name) {
             v = std::move(value);
             return;
         }
     }
-    path_values_.emplace_back(string(name), std::move(value));
+    pathValues_.emplace_back(string(name), std::move(value));
 }
 
 
@@ -83,7 +83,7 @@ namespace internal {
 
 namespace {
 
-constexpr int64 max_post_handler_read_bytes = 256 << 10;
+constexpr int64 maxPostHandlerReadBytes = 256 << 10;
 
 gopp::error badRequest(std::string_view what) { return make_ptr<statusError>(400, string(what)); }
 
@@ -110,7 +110,7 @@ bool parseHttpVersion(std::string_view v, int& major, int& minor) {
 
 namespace {
 
-struct empty_body final : io::ReadCloser {
+struct emptyBody final : io::ReadCloser {
     std::pair<isize, gopp::error> Read(std::span<byte>) override { return {0, io::EOF_}; }
     gopp::error Close() override { return nullptr; }
 };
@@ -118,8 +118,8 @@ struct empty_body final : io::ReadCloser {
 }  // namespace
 
 ptr<io::ReadCloser> noBody() {
-    static empty_body* b = [] {
-        auto* e = new empty_body();
+    static emptyBody* b = [] {
+        auto* e = new emptyBody();
         e->addRef();
         return e;
     }();
@@ -129,16 +129,16 @@ ptr<io::ReadCloser> noBody() {
 // ---------------------------------------------------------------------------
 // Bodies
 
-std::pair<isize, gopp::error> body_reader::Read(std::span<byte> p) {
+std::pair<isize, gopp::error> bodyReader::Read(std::span<byte> p) {
     if (closed_) return {0, ErrBodyReadAfterClose};
-    if (saw_eof_) return {0, io::EOF_};
+    if (sawEof_) return {0, io::EOF_};
     auto [n, err] = src_->Read(p);
     if (err == io::EOF_) {
-        saw_eof_ = true;
+        sawEof_ = true;
         if (limited_ && static_cast<io::LimitedReader*>(src_.get())->Remaining() > 0) err = io::ErrUnexpectedEOF;
     } else if (!err && limited_ && static_cast<io::LimitedReader*>(src_.get())->Remaining() == 0) {
         // Report EOF along with the last bytes, so callers needn't read again.
-        saw_eof_ = true;
+        sawEof_ = true;
         err = io::EOF_;
         if (n == 0) return {0, io::EOF_};
         return {n, nullptr};
@@ -146,20 +146,20 @@ std::pair<isize, gopp::error> body_reader::Read(std::span<byte> p) {
     return {n, err};
 }
 
-int64 body_reader::unreadSize() const noexcept {
-    if (saw_eof_) return 0;
+int64 bodyReader::unreadSize() const noexcept {
+    if (sawEof_) return 0;
     if (limited_) return static_cast<io::LimitedReader*>(src_.get())->Remaining();
     return -1;
 }
 
-gopp::error body_reader::Close() {
+gopp::error bodyReader::Close() {
     if (closed_) return nullptr;
     closed_ = true;
-    if (saw_eof_) return nullptr;
-    // Read up to max_post_handler_read_bytes looking for the end, so that
+    if (sawEof_) return nullptr;
+    // Read up to maxPostHandlerReadBytes looking for the end, so that
     // the connection can serve another request.
-    if (limited_ && static_cast<io::LimitedReader*>(src_.get())->Remaining() > max_post_handler_read_bytes) {
-        close_failed_ = true;
+    if (limited_ && static_cast<io::LimitedReader*>(src_.get())->Remaining() > maxPostHandlerReadBytes) {
+        closeFailed_ = true;
         return nullptr;
     }
     byte buf[4096];
@@ -168,26 +168,26 @@ gopp::error body_reader::Close() {
         auto [n, err] = src_->Read(buf);
         total += n;
         if (err == io::EOF_) {
-            saw_eof_ = true;
-            if (limited_ && static_cast<io::LimitedReader*>(src_.get())->Remaining() > 0) close_failed_ = true;
+            sawEof_ = true;
+            if (limited_ && static_cast<io::LimitedReader*>(src_.get())->Remaining() > 0) closeFailed_ = true;
             return nullptr;
         }
         if (err) {
-            close_failed_ = true;
+            closeFailed_ = true;
             return err;
         }
         if (limited_ && static_cast<io::LimitedReader*>(src_.get())->Remaining() == 0) {
-            saw_eof_ = true;
+            sawEof_ = true;
             return nullptr;
         }
-        if (total > max_post_handler_read_bytes) {
-            close_failed_ = true;
+        if (total > maxPostHandlerReadBytes) {
+            closeFailed_ = true;
             return nullptr;
         }
     }
 }
 
-gopp::error chunked_reader::beginChunk() {
+gopp::error chunkedReader::beginChunk() {
     auto [line, IsPrefix, err] = r_->ReadLine();
     if (err) return err == io::EOF_ ? io::ErrUnexpectedEOF : err;
     if (IsPrefix) return errors::New("header line too long");
@@ -217,9 +217,9 @@ gopp::error chunked_reader::beginChunk() {
     return nullptr;
 }
 
-std::pair<isize, gopp::error> chunked_reader::Read(std::span<byte> p) {
+std::pair<isize, gopp::error> chunkedReader::Read(std::span<byte> p) {
     while (!err_) {
-        if (check_end_) {
+        if (checkEnd_) {
             auto [a, e1] = r_->ReadByte();
             if (e1) {
                 err_ = e1 == io::EOF_ ? io::ErrUnexpectedEOF : e1;
@@ -234,7 +234,7 @@ std::pair<isize, gopp::error> chunked_reader::Read(std::span<byte> p) {
                 err_ = errors::New("malformed chunked encoding");
                 break;
             }
-            check_end_ = false;
+            checkEnd_ = false;
         }
         if (done_) return {0, io::EOF_};
         if (n_ == 0) {
@@ -245,7 +245,7 @@ std::pair<isize, gopp::error> chunked_reader::Read(std::span<byte> p) {
         std::size_t m = static_cast<std::size_t>(std::min<uint64>(p.size(), n_));
         auto [n, err] = r_->Read(p.first(m));
         n_ -= static_cast<uint64>(n);
-        if (n_ == 0) check_end_ = true;
+        if (n_ == 0) checkEnd_ = true;
         if (err == io::EOF_) err = io::ErrUnexpectedEOF;
         if (err) err_ = err;
         return {n, err};
@@ -256,17 +256,17 @@ std::pair<isize, gopp::error> chunked_reader::Read(std::span<byte> p) {
 // ---------------------------------------------------------------------------
 // Reading a request
 
-gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 max_header_bytes, string& first_line, Header& header) {
+gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 maxHeaderBytes, string& firstLine, Header& header) {
     // Copy the first line and the header lines into one buffer; all the
     // strings are then slices of one shared allocation.
     std::string block;
     block.reserve(512);
-    struct span_t {
+    struct spanT {
         std::size_t off, len;
     };
-    std::vector<span_t> lines;
+    std::vector<spanT> lines;
     lines.reserve(16);
-    int64 budget = max_header_bytes + 4096;
+    int64 budget = maxHeaderBytes + 4096;
 
     for (;;) {
         std::size_t start = block.size();
@@ -278,13 +278,13 @@ gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 max_header_bytes
             }
             block.append(reinterpret_cast<const char*>(line.data()), line.size());
             budget -= static_cast<int64>(line.size()) + 2;
-            if (budget < 0) return err_header_too_large;
+            if (budget < 0) return errHeaderTooLarge;
             if (!IsPrefix) break;
         }
         std::size_t len = block.size() - start;
         if (len == 0) {
             if (lines.empty()) {
-                first_line = {};
+                firstLine = {};
                 return nullptr;  // the caller rejects the empty first line
             }
             break;  // end of header
@@ -293,11 +293,11 @@ gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 max_header_bytes
     }
 
     string shared(block);
-    auto line_at = [&](std::size_t i) { return shared.slice(lines[i].off, lines[i].off + lines[i].len); };
-    first_line = line_at(0);
+    auto lineAt = [&](std::size_t i) { return shared.slice(lines[i].off, lines[i].off + lines[i].len); };
+    firstLine = lineAt(0);
 
     for (std::size_t i = 1; i < lines.size(); i++) {
-        string line = line_at(i);
+        string line = lineAt(i);
         if (line[0] == ' ' || line[0] == '\t') {
             return badRequest("malformed MIME header: unexpected continuation line");
         }
@@ -317,10 +317,10 @@ gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 max_header_bytes
     return nullptr;
 }
 
-std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, int64 max_header_bytes) {
+std::pair<ptr<Request>, gopp::error> readRequest(const ptr<bufio::Reader>& br, int64 maxHeaderBytes) {
     auto req = make_ptr<Request>();
     string rl;
-    if (gopp::error err = readHeaderBlock(br, max_header_bytes, rl, req->Header)) return {nullptr, err};
+    if (gopp::error err = readHeaderBlock(br, maxHeaderBytes, rl, req->Header)) return {nullptr, err};
     if (rl.empty()) return {nullptr, badRequest("malformed HTTP request \"\"")};
 
     // Request line: METHOD SP request-target SP HTTP-version
@@ -337,12 +337,12 @@ std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, 
         return {nullptr, make_ptr<statusError>(505, string("unsupported protocol version"))};
     }
 
-    bool just_authority = req->Method == "CONNECT" && !req->RequestURI.starts_with("/");
-    std::string uri_for_parse(req->RequestURI.view());
-    if (just_authority) uri_for_parse = "http://" + uri_for_parse;
-    auto [u, uerr] = url::ParseRequestURI(uri_for_parse);
+    bool justAuthority = req->Method == "CONNECT" && !req->RequestURI.starts_with("/");
+    std::string uriForParse(req->RequestURI.view());
+    if (justAuthority) uriForParse = "http://" + uriForParse;
+    auto [u, uerr] = url::ParseRequestURI(uriForParse);
     if (uerr) return {nullptr, badRequest(uerr.Error())};
-    if (just_authority) u.Scheme = {};
+    if (justAuthority) u.Scheme = {};
     req->URL = std::move(u);
 
     // Host: from an absolute request-target, else the Host header.
@@ -369,7 +369,7 @@ std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, 
         req->TransferEncoding = {string::fromStatic("chunked")};
         req->Header.Del("Content-Length");  // RFC 9112: Transfer-Encoding overrides
         req->ContentLength = -1;
-        req->Body = make_ptr<body_reader>(make_ptr<chunked_reader>(br), false);
+        req->Body = make_ptr<bodyReader>(make_ptr<chunkedReader>(br), false);
         return {req, nullptr};
     }
     std::vector<string> cl = req->Header.Values("Content-Length");
@@ -382,7 +382,7 @@ std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, 
         req->ContentLength = static_cast<int64>(n);
     }
     if (req->ContentLength > 0) {
-        req->Body = make_ptr<body_reader>(make_ptr<io::LimitedReader>(br, req->ContentLength), true);
+        req->Body = make_ptr<bodyReader>(make_ptr<io::LimitedReader>(br, req->ContentLength), true);
     } else {
         req->Body = noBody();
     }

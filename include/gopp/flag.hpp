@@ -55,7 +55,7 @@ public:
     const gopp::string& Name() const noexcept { return name_; }
 
 private:
-    struct flag_def {
+    struct flagDef {
         gopp::string name;
         gopp::string usage;
         gopp::string DefValue;
@@ -63,11 +63,11 @@ private:
         bool IsBool;
         std::function<gopp::error(std::string_view)> set;
     };
-    void define(flag_def f);
+    void define(flagDef f);
     gopp::error fail(gopp::string msg);
 
     gopp::string name_;
-    std::vector<flag_def> flags_;
+    std::vector<flagDef> flags_;
     std::vector<gopp::string> args_;
     bool parsed_ = false;
 };

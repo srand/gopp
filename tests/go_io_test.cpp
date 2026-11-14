@@ -35,7 +35,7 @@ void checkWrite(io::Writer& w, std::string data, chan<int> c) {
 }
 
 TEST(GoIO, Pipe1) {
-    auto c = makeChan<int>();
+    auto c = make_chan<int>();
     auto [r, w] = io::Pipe();
     byte buf[64];
     go([w, c] { checkWrite(*w, "hello, world", c); });
@@ -62,7 +62,7 @@ void reader(ptr<io::Reader> r, chan<int> c) {
 }
 
 TEST(GoIO, Pipe2) {
-    auto c = makeChan<int>();
+    auto c = make_chan<int>();
     auto [r, w] = io::Pipe();
     go([r, c] { reader(r, c); });
     byte buf[64] = {};
@@ -85,7 +85,7 @@ struct pipeReturn {
 
 TEST(GoIO, Pipe3) {
     // Test a large write that requires multiple reads to satisfy.
-    auto c = makeChan<pipeReturn>();
+    auto c = make_chan<pipeReturn>();
     auto [r, w] = io::Pipe();
     auto wdat = slice<byte>::make(128);
     for (std::size_t i = 0; i < wdat.len(); i++) wdat[i] = byte(i);
@@ -142,7 +142,7 @@ void delayClose(C& cl, chan<int> ch, const pipeTest& tt) {
 
 TEST(GoIO, PipeReadClose) {
     for (const auto& tt : pipeTests()) {
-        auto c = makeChan<int>(1);
+        auto c = make_chan<int>(1);
         auto [r, w] = io::Pipe();
         if (tt.async) {
             go([w, c, tt] { delayClose(*w, c, tt); });
@@ -161,7 +161,7 @@ TEST(GoIO, PipeReadClose) {
 
 // Test close on Read side during Read.
 TEST(GoIO, PipeReadClose2) {
-    auto c = makeChan<int>(1);
+    auto c = make_chan<int>(1);
     auto [r, w] = io::Pipe();
     go([r, c] { delayClose(*r, c, pipeTest{}); });
     byte buf[64];
@@ -174,7 +174,7 @@ TEST(GoIO, PipeReadClose2) {
 // Test write after/before reader close.
 TEST(GoIO, PipeWriteClose) {
     for (const auto& tt : pipeTests()) {
-        auto c = makeChan<int>(1);
+        auto c = make_chan<int>(1);
         auto [r, w] = io::Pipe();
         if (tt.async) {
             go([r, c, tt] { delayClose(*r, c, tt); });
@@ -192,7 +192,7 @@ TEST(GoIO, PipeWriteClose) {
 
 // Test close on Write side during Write.
 TEST(GoIO, PipeWriteClose2) {
-    auto c = makeChan<int>(1);
+    auto c = make_chan<int>(1);
     auto [r, w] = io::Pipe();
     go([w, c] { delayClose(*w, c, pipeTest{}); });
     byte buf[64] = {};
@@ -215,7 +215,7 @@ TEST(GoIO, WriteEmpty) {
 
 TEST(GoIO, WriteAfterWriterClose) {
     auto [r, w] = io::Pipe();
-    auto done = makeChan<bool>();
+    auto done = make_chan<bool>();
     auto writeErr = std::make_shared<error>();
     go([w, done, writeErr] {
         auto [_, err] = io::WriteString(*w, "hello");
@@ -281,7 +281,7 @@ TEST(GoIO, PipeConcurrent) {
     {  // Read
         auto [r, w] = io::Pipe();
         constexpr int reads = count * 16 / readSize;
-        auto c = makeChan<std::string>(reads);
+        auto c = make_chan<std::string>(reads);
         for (int i = 0; i < reads; i++) {
             go([r, c] {
                 time::Sleep(time::Millisecond);  // increase probability of race

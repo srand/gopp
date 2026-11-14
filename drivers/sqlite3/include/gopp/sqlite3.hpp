@@ -88,8 +88,8 @@ struct Error_ final : errorInterface {
     ErrNoExtended ExtendedCode;  // the extended result code
     int SystemErrno = 0;         // the OS errno behind CANTOPEN and IOERR errors, if any
 
-    Error_(ErrNo code, ErrNoExtended extended, int system_errno, string msg)
-        : Code(code), ExtendedCode(extended), SystemErrno(system_errno), msg_(std::move(msg)) {}
+    Error_(ErrNo code, ErrNoExtended extended, int systemErrno, string msg)
+        : Code(code), ExtendedCode(extended), SystemErrno(systemErrno), msg_(std::move(msg)) {}
     // sqlite3_errmsg's message, or the code's description, and the errno.
     string Error() const override;
 

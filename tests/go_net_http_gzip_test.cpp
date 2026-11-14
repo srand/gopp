@@ -20,17 +20,17 @@ using namespace gopp;
 
 // Go's test modes. (Not in the anonymous namespace: googletest's
 // parameterized tests hold one.)
-enum class http_gzip_test_mode { http1, https1, http2 };
+enum class httpGzipTestMode { http1, https1, http2 };
 
 namespace {
 
-using test_mode = http_gzip_test_mode;
+using testMode = httpGzipTestMode;
 
-std::string modeName(const testing::TestParamInfo<test_mode>& info) {
+std::string modeName(const testing::TestParamInfo<testMode>& info) {
     switch (info.param) {
-    case test_mode::http1: return "h1";
-    case test_mode::https1: return "https1";
-    case test_mode::http2: return "h2";
+    case testMode::http1: return "h1";
+    case testMode::https1: return "https1";
+    case testMode::http2: return "h2";
     }
     return "";
 }
@@ -55,22 +55,22 @@ const std::vector<byte> rgz = {
     0x00, 0x00, 0x00,
 };
 
-class GoNetHttpGzip : public testing::TestWithParam<test_mode> {
+class GoNetHttpGzip : public testing::TestWithParam<testMode> {
 protected:
     // newClientServerTest: a test server in the mode, closed at the end.
-    httptest::Server& serve(http::handler_fn f) {
+    httptest::Server& serve(http::handlerFn f) {
         auto h = make_ptr<http::HandlerFunc>(std::move(f));
         ptr<httptest::Server> ts;
         http::Protocols p;
         switch (GetParam()) {
-        case test_mode::http1:
+        case testMode::http1:
             ts = httptest::NewServer(std::move(h));
             break;
-        case test_mode::https1:
+        case testMode::https1:
             p.SetHTTP1(true);
             ts = httptest::NewTLSServer(std::move(h), p);
             break;
-        case test_mode::http2:
+        case testMode::http2:
             p.SetHTTP2(true);
             ts = httptest::NewTLSServer(std::move(h), p);
             break;
@@ -86,7 +86,7 @@ protected:
     ptr<httptest::Server> ts_;
 };
 
-INSTANTIATE_TEST_SUITE_P(Modes, GoNetHttpGzip, testing::Values(test_mode::http1, test_mode::https1, test_mode::http2),
+INSTANTIATE_TEST_SUITE_P(Modes, GoNetHttpGzip, testing::Values(testMode::http1, testMode::https1, testMode::http2),
                          modeName);
 
 TEST_P(GoNetHttpGzip, TransportGzip) {
@@ -195,7 +195,7 @@ TEST_P(GoNetHttpGzip, TransportGzipConcurrentCloseAndRead) {
         time::Sleep(2 * time::Second);
     });
     http::Client c = ts.Client();
-    if (GetParam() == test_mode::http1) {
+    if (GetParam() == testMode::http1) {
         // Avoid response body draining in HTTP/1.
         auto tr = make_ptr<http::Transport>();
         tr->DisableKeepAlives = true;
@@ -205,7 +205,7 @@ TEST_P(GoNetHttpGzip, TransportGzipConcurrentCloseAndRead) {
     ASSERT_FALSE(err) << err;
     // Read from the response body in a goroutine while it is empty. This
     // will block indefinitely.
-    auto readErrCh = makeChan<error>(1);
+    auto readErrCh = make_chan<error>(1);
     auto body = res->Body;
     go([body, readErrCh] {
         byte buf[10];
@@ -254,7 +254,7 @@ void testTransportReuseConnection_Gzip(GoNetHttpGzip& t, httptest::Server& ts, c
 }
 
 TEST_P(GoNetHttpGzip, TransportReuseConnection_Gzip_Chunked) {
-    auto addr = makeChan<string>(2);
+    auto addr = make_chan<string>(2);
     auto& ts = serve([addr](http::ResponseWriter& w, http::Request& r) {
         addr.send(r.RemoteAddr);
         w.Header().Set("Content-Encoding", "gzip");
@@ -265,7 +265,7 @@ TEST_P(GoNetHttpGzip, TransportReuseConnection_Gzip_Chunked) {
 }
 
 TEST_P(GoNetHttpGzip, TransportReuseConnection_Gzip_ContentLength) {
-    auto addr = makeChan<string>(2);
+    auto addr = make_chan<string>(2);
     auto& ts = serve([addr](http::ResponseWriter& w, http::Request& r) {
         addr.send(r.RemoteAddr);
         w.Header().Set("Content-Encoding", "gzip");

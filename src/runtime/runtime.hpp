@@ -44,7 +44,7 @@ inline void cpuRelax() noexcept {
 // Locks for runtime internals. They block the thread, are held only for
 // short sections and never across a fiber switch.
 
-class lock_t {
+class lockT {
 public:
     void lock() noexcept {
         uint32_t c = 0;
@@ -89,24 +89,24 @@ enum class gstatus : uint32_t { idle, runnable, running, waiting, dead };
 // Why a fiber waits, for tracebacks (Go's waitReason).
 enum class waitreason : uint8_t {
     none,
-    chan_receive,
+    chanReceive,
     chanSend,
-    chan_receive_nil,
-    chan_send_nil,
+    chanReceiveNil,
+    chanSendNil,
     select,
-    select_no_cases,
+    selectNoCases,
     sleep,
-    io_wait,
+    ioWait,
     semacquire,
-    sync_mutex_lock,
-    sync_rwmutex_rlock,
-    sync_rwmutex_lock,
-    sync_waitgroup_wait,
-    sync_cond_wait,
+    syncMutexLock,
+    syncRwmutexRlock,
+    syncRwmutexLock,
+    syncWaitgroupWait,
+    syncCondWait,
 };
 enum class gaction : uint8_t { none, park, yield, exit, exitsyscall };
 
-using unlock_fn = bool (*)(struct G* gp, void* arg);
+using unlockFn = bool (*)(struct G* gp, void* arg);
 
 struct G {
     boost::context::fiber ctx;     // the suspended fiber, while not running
@@ -115,7 +115,7 @@ struct G {
 
     std::atomic<gstatus> status{gstatus::idle};
     gaction action = gaction::none;
-    unlock_fn unlockf = nullptr;
+    unlockFn unlockf = nullptr;
     void* unlockarg = nullptr;
 
     M* m = nullptr;
@@ -124,13 +124,13 @@ struct G {
 
     // Channels and select (Go's g.param, g.selectDone, g.waiting).
     void* param = nullptr;
-    std::atomic<uint32_t> select_done{0};
+    std::atomic<uint32_t> selectDone{0};
     sudog* waiting = nullptr;
 
     // A pseudo-G that stands for a thread the runtime didn't start. Parking
-    // it blocks the thread on thread_sema.
-    bool is_thread = false;
-    std::atomic<uint32_t> thread_sema{0};
+    // it blocks the thread on threadSema.
+    bool isThread = false;
+    std::atomic<uint32_t> threadSema{0};
 
     // Nonzero while the fiber runs runtime code that uses its M's P: the
     // SIGURG handler then leaves the P alone. Only the thread running the
@@ -141,17 +141,17 @@ struct G {
 
     // Tracebacks (traceback.cpp). Gs are never freed: all of them, pseudo-
     // Gs included, are on the allgs list through alllink. The fiber's stack
-    // is [stack_lo, stack_hi). sched_fp is the frame address of mcall while
+    // is [stackLo, stackHi). schedFp is the frame address of mcall while
     // the fiber is switched out, 0 before it first runs. gopc is the return
     // address of newproc's caller, in the function that started the fiber,
-    // and parent_goid its goroutine. tid is the thread of a pseudo-G, 0
+    // and parentGoid its goroutine. tid is the thread of a pseudo-G, 0
     // once that thread has exited.
     G* alllink = nullptr;
-    uintptr_t stack_lo = 0;
-    uintptr_t stack_hi = 0;
-    uintptr_t sched_fp = 0;
+    uintptr_t stackLo = 0;
+    uintptr_t stackHi = 0;
+    uintptr_t schedFp = 0;
     uintptr_t gopc = 0;
-    uint64_t parent_goid = 0;
+    uint64_t parentGoid = 0;
     waitreason wait = waitreason::none;
     pid_t tid = 0;
 };
@@ -170,12 +170,12 @@ struct timer {
 // A P's timers: a heap by when, and the earliest when, for Ms that look
 // for due timers without the lock.
 struct ptimers {
-    lock_t lock;
+    lockT lock;
     std::vector<timer*> heap;
     std::atomic<int64_t> next{INT64_MAX};
 };
 
-constexpr uint32_t runq_size = 256;
+constexpr uint32_t runqSize = 256;
 
 struct P {
     int32_t id = 0;
@@ -193,7 +193,7 @@ struct P {
     // from the head.
     std::atomic<uint32_t> runqhead{0};
     std::atomic<uint32_t> runqtail{0};
-    std::atomic<G*> runq[runq_size] = {};
+    std::atomic<G*> runq[runqSize] = {};
     std::atomic<G*> runnext{nullptr};
 
     // Free Gs, for reuse.
@@ -206,11 +206,11 @@ struct P {
 
 // Scheduler counters, per M so that counting doesn't share cache lines.
 // Printed by GOPP_SCHEDTRACE=<ms>.
-struct sched_stats {
+struct schedStats {
 #define GOPP_SCHED_STATS(X) \
-    X(schedules) X(steal_ok) X(steal_fail) X(poll_nb) X(poll_nb_ready) X(poll_block) X(poll_block_ready) \
-    X(stopm) X(startm) X(wakep) X(spin) X(read) X(read_eagain) X(write) X(write_eagain) \
-    X(uring_done) X(uring_park)
+    X(schedules) X(stealOk) X(stealFail) X(pollNb) X(pollNbReady) X(pollBlock) X(pollBlockReady) \
+    X(stopm) X(startm) X(wakep) X(spin) X(read) X(readEagain) X(write) X(writeEagain) \
+    X(uringDone) X(uringPark)
 #define GOPP_FIELD(name) std::atomic<uint64_t> name{0};
     GOPP_SCHED_STATS(GOPP_FIELD)
 #undef GOPP_FIELD
@@ -222,7 +222,7 @@ inline void statInc(std::atomic<uint64_t>& c, uint64_t n = 1) noexcept {
 
 struct M {
     int64_t id = 0;
-    sched_stats stats;
+    schedStats stats;
     M* alllink = nullptr;
     P* p = nullptr;
     P* nextp = nullptr;
@@ -233,17 +233,17 @@ struct M {
     uint64_t fastrand = 0;
 
     // Preemption. tid is the M's thread, for tgkill. sysmon asks for the
-    // P with preempt_tick and then preempt_p; the SIGURG handler, on this
+    // P with preemptTick and then preemptP; the SIGURG handler, on this
     // M's thread, answers with the P it gave up in retaken, or, if the
     // fiber was inside the runtime, with the tick it declined in
-    // preempt_declined (1 << 32 | tick), so that sysmon asks again soon.
+    // preemptDeclined (1 << 32 | tick), so that sysmon asks again soon.
     // preempted is set while the M runs its fiber without the P it lost,
     // and only this M's thread touches it.
     pid_t tid = 0;
-    std::atomic<P*> preempt_p{nullptr};
-    std::atomic<uint32_t> preempt_tick{0};
+    std::atomic<P*> preemptP{nullptr};
+    std::atomic<uint32_t> preemptTick{0};
     std::atomic<P*> retaken{nullptr};
-    std::atomic<uint64_t> preempt_declined{0};
+    std::atomic<uint64_t> preemptDeclined{0};
     bool preempted = false;
 };
 
@@ -292,10 +292,10 @@ G* getg() noexcept;
 // how a fiber releases the lock of a wait queue only once it can no longer
 // run, so that a concurrent ready() can't resume it while it's running.
 // reason shows in tracebacks.
-void park(unlock_fn unlockf, void* arg, waitreason reason) noexcept;
+void park(unlockFn unlockf, void* arg, waitreason reason) noexcept;
 
 // Parks the calling fiber after unlocking l.
-void parkUnlock(lock_t* l, waitreason reason) noexcept;
+void parkUnlock(lockT* l, waitreason reason) noexcept;
 
 // Makes a parked fiber runnable.
 void ready(G* gp) noexcept;
@@ -394,7 +394,7 @@ bool signalIgnored(uint32_t sig) noexcept;
 uint32_t signalRecv() noexcept;
 // Returns once the signals that arrived so far have been delivered by
 // os/signal's loop (Go's signalWaitUntilIdle).
-void signal_wait_until_idle() noexcept;
+void signalWaitUntilIdle() noexcept;
 
 // ---------------------------------------------------------------------------
 // Tracebacks (traceback.cpp), after Go's traceback.go and panic.go.

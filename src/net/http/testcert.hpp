@@ -8,7 +8,7 @@
 
 namespace testcert {
 
-inline constexpr const char* localhost_cert = R"(-----BEGIN CERTIFICATE-----
+inline constexpr const char* localhostCert = R"(-----BEGIN CERTIFICATE-----
 MIIDSDCCAjCgAwIBAgIQEP/md970HysdBTpuzDOf0DANBgkqhkiG9w0BAQsFADAS
 MRAwDgYDVQQKEwdBY21lIENvMCAXDTcwMDEwMTAwMDAwMFoYDzIwODQwMTI5MTYw
 MDAwWjASMRAwDgYDVQQKEwdBY21lIENvMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
@@ -29,7 +29,7 @@ Y/dEpa0D0EHhDxxVg6UzKOXB355n0IetGE/aWvyTV9SiDs6QsaC57Q9qq1/mitx5
 rF7r4gUnKeC7mYIH1zypY7laskopiLFAfe96Kg==
 -----END CERTIFICATE-----)";
 
-inline constexpr const char* localhost_key = R"(-----BEGIN RSA PRIVATE KEY-----
+inline constexpr const char* localhostKey = R"(-----BEGIN RSA PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDFyXr1E4l3GM34
 wlmdsWtjHJCigAMKwnpUOS4zI1AiLH8eTXk2T+4XIFfUx775oSkaZjdEhjh9S8Qu
 pP+yu8AexNfBVVK20xxjylwAWZdKqjfHgy5RMb+MJfdV+2PSvcQzkzwiZjWvMD+O

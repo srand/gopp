@@ -61,12 +61,12 @@ struct URL {
 namespace detail {
 // Implements Error() for an error type named Error, which can't declare it.
 template <typename E>
-struct named_error : errorInterface {
+struct namedError : errorInterface {
     string Error() const override { return static_cast<const E&>(*this).message(); }
 };
 }  // namespace detail
 
-struct Error : detail::named_error<Error> {
+struct Error : detail::namedError<Error> {
     string Op;
     string URL;
     gopp::error Err;

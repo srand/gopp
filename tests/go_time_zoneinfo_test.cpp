@@ -292,8 +292,8 @@ TEST_F(GoTimeZoneinfo, TzsetRule) {
 
 TEST_F(GoTimeZoneinfo, EnvTZUsage) {
     scopedEnv restore("TZ", std::getenv("TZ"));
-    struct reset_after {
-        ~reset_after() { hooks::ForceUSPacificForTesting(); }
+    struct resetAfter {
+        ~resetAfter() { hooks::ForceUSPacificForTesting(); }
     } reset;
 
     std::string localZoneName = exists("/etc/localtime") ? "Local" : "UTC";

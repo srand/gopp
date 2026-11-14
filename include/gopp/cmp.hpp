@@ -41,9 +41,9 @@ constexpr bool Less(const T& x, const T& y) noexcept {
 // any other float and equal to another NaN.
 template <Ordered T>
 constexpr int Compare(const T& x, const T& y) noexcept {
-    bool x_nan = detail::isNan(x), y_nan = detail::isNan(y);
-    if (x_nan) return y_nan ? 0 : -1;
-    if (y_nan) return +1;
+    bool xNan = detail::isNan(x), yNan = detail::isNan(y);
+    if (xNan) return yNan ? 0 : -1;
+    if (yNan) return +1;
     if (x < y) return -1;
     if (x > y) return +1;
     return 0;
