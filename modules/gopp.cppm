@@ -23,6 +23,7 @@ export import gopp.crypto.tls;
 export import gopp.database.sql;
 export import gopp.database.sql.driver;
 export import gopp.encoding.base64;
+export import gopp.encoding.binary;
 export import gopp.encoding.hex;
 export import gopp.encoding.json;
 export import gopp.errors;
