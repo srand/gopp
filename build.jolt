@@ -199,13 +199,38 @@ class Sandbox(Example):
     sources = ["examples/sandbox/*.cpp"]
 
 
+class Panic(Example):
+    """ Crashes on purpose, to show the panic and the goroutines' stacks. """
+    name = "examples/panic"
+    sources = ["examples/panic/*.cpp"]
+
+
+class SHA256Sum(Example):
+    """ Checksums files concurrently with crypto/sha256 and friends, like coreutils. """
+    name = "examples/sha256sum"
+    sources = ["examples/sha256sum/*.cpp"]
+
+
+class WordFreq(Example):
+    """ Counts words with Go's Unicode tables and sorts them with slices.SortFunc. """
+    name = "examples/wordfreq"
+    sources = ["examples/wordfreq/*.cpp"]
+
+
+class Search(Example):
+    """ Replicated search with a context deadline, after "Go Concurrency Patterns". """
+    name = "examples/search"
+    sources = ["examples/search/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
     requires = [
         "examples/hello", "examples/fetch", "examples/modules", "examples/prime", "examples/mandelbrot",
         "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat", "examples/template", "examples/json-file",
         "examples/httpfileserver", "examples/proxy", "examples/lookup", "examples/grep", "examples/parallel",
-        "examples/sandbox", "examples/todo",
+        "examples/sandbox", "examples/todo", "examples/panic",
+        "examples/sha256sum", "examples/wordfreq", "examples/search",
     ]
 
 

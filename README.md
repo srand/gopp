@@ -162,9 +162,17 @@ jolt build examples/tcp-chat       # multi-client chat room; connect from multip
 jolt build examples/template       # render a Markdown report from reflected C++ structs
 jolt build examples/json-file      # a JSON task list, saved atomically: json-file -add "Buy milk"
 jolt build examples/todo           # a JSON to-do API over SQLite: curl -d '{"title":"Buy milk"}' localhost:8080/todos
+jolt build examples/search         # replicated search with a context deadline: search -replicas 1 golang
+jolt build examples/sha256sum      # checksum files concurrently, like coreutils: sha256sum -a md5 *.cpp
+jolt build examples/wordfreq       # the most common words, by Go's Unicode tables: wordfreq -n 10 README.md
+jolt build examples/panic          # crash on purpose to see the goroutine tracebacks: GOTRACEBACK=all panic
 jolt build test                    # run the unit tests
 jolt build benchmark               # go++ vs Go, report in report/benchmark.md
 ```
+
+The programs land in `artifacts/`, as
+`artifacts/examples_hello/bin/examples_hello`. [examples/README.md](examples/README.md)
+says what each example shows, and where to start.
 
 | Task | What it builds |
 |---|---|
