@@ -1017,10 +1017,24 @@ Func::Func(F f) {
     auto params = detail::paramsOf<Args>(std::make_index_sequence<n>());
     in_.assign(params.begin(), params.end());
     variadic_ = detail::lastIsVariadic<Args>();
-    fn_ = [f = std::move(f)](std::span<const Value> args) -> std::pair<Value, gopp::error> {
-        auto tup = detail::argsFrom<Args>(args, std::make_index_sequence<n>());
-        return detail::wrapResult(std::apply([&](auto&&... a) { return f(std::move(a)...); }, tup));
-    };
+    // Arguments are copies, so a callable taking a non-const reference
+    // (a callback field, such as cmd::Command's Run) can't be called from
+    // templates; nor can one without a result, as in Go. They are funcs
+    // all the same: they can be tested for nil.
+    constexpr bool callable = !std::is_void_v<typename Tr::result> && []<std::size_t... I>(std::index_sequence<I...>) {
+        return (!(std::is_lvalue_reference_v<std::tuple_element_t<I, Args>> &&
+                  !std::is_const_v<std::remove_reference_t<std::tuple_element_t<I, Args>>>) && ...);
+    }(std::make_index_sequence<n>());
+    if constexpr (!callable) {
+        fn_ = [](std::span<const Value>) -> std::pair<Value, gopp::error> {
+            return {Value(), errors::New("function can't be called from a template")};
+        };
+    } else {
+        fn_ = [f = std::move(f)](std::span<const Value> args) -> std::pair<Value, gopp::error> {
+            auto tup = detail::argsFrom<Args>(args, std::make_index_sequence<n>());
+            return detail::wrapResult(std::apply([&](auto&&... a) { return f(std::move(a)...); }, tup));
+        };
+    }
 }
 
 }  // namespace gopp::text::tmpl
