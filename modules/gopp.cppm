@@ -33,6 +33,7 @@ export import gopp.fmt;
 export import gopp.hash;
 export import gopp.hash.adler32;
 export import gopp.hash.crc32;
+export import gopp.html;
 export import gopp.io;
 export import gopp.io.fs;
 export import gopp.log;
