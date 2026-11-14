@@ -24,9 +24,32 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace gopp;
+
+// Searches one file: its matching lines, "path:line: text", their number,
+// and a read error. A binary file (a NUL in its first block) counts -1.
+std::tuple<string, int64, error> searchFile(fs::FS& fsys, const regexp::Regexp& re, std::string_view dir,
+                                            const string& name) {
+    auto [data, err] = fs::ReadFile(fsys, name);
+    if (err) return {string(), -1, err};
+    std::string_view text = asStringView(data);
+    if (text.substr(0, 512).find('\0') != text.npos) return {string(), -1, nullptr};
+
+    std::string found;
+    int64 n = 0;
+    for (int lineNo = 1; !text.empty(); lineNo++) {
+        auto nl = text.find('\n');
+        std::string_view line = text.substr(0, nl);
+        text = nl == text.npos ? std::string_view() : text.substr(nl + 1);
+        if (!re.MatchString(line)) continue;
+        n++;
+        found += fmt::Sprint("{}:{}: {}\n", path::Join(dir, name), lineNo, line).view();
+    }
+    return {string(found), n, nullptr};
+}
 
 int main(int argc, char** argv) {
     string dir = ".", exts;
@@ -69,28 +92,12 @@ int main(int argc, char** argv) {
     for (isize i = 0; i < workers; i++) {
         searchers.Go([&] {
             for (const string& name : paths) {
-                auto [data, err] = fs::ReadFile(*fsys, name);
-                if (err) {
-                    fail(err);
-                    continue;
-                }
-                std::string_view text = asStringView(data);
-                // A NUL in the first block: binary.
-                if (text.substr(0, 512).find('\0') != text.npos) continue;
+                auto [found, n, err] = searchFile(*fsys, *re, dir, name);
+                if (err) fail(err);
+                if (n < 0) continue;  // binary
                 searched++;
-
-                std::string found;
-                int lineNo = 0;
-                while (!text.empty()) {
-                    auto nl = text.find('\n');
-                    std::string_view line = text.substr(0, nl);
-                    text = nl == text.npos ? std::string_view() : text.substr(nl + 1);
-                    lineNo++;
-                    if (!re->MatchString(line)) continue;
-                    matches++;
-                    found += fmt::Sprint("{}:{}: {}\n", path::Join(dir, name), lineNo, line).view();
-                }
-                if (!found.empty()) output.send(string(found));
+                matches += n;
+                if (!found.empty()) output.send(found);
             }
         });
     }

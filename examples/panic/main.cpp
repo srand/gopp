@@ -18,7 +18,7 @@
 //     goroutine 1 [running]:
 //     gopp::panic(...)
 //             src/runtime/proc.cpp:28 +0x34
-//     check_stock(...)
+//     checkStock(...)
 //             examples/panic/main.cpp:85 +0x101
 //     fill(...)
 //             examples/panic/main.cpp:111 +0x1c
@@ -32,14 +32,14 @@
 // Goroutine 1 is the first fiber: main runs on the main thread, which
 // GOTRACEBACK=all lists as "thread TID (main)", waiting in
 // sync.WaitGroup.Wait, with the other packers waiting for the lock that
-// check_stock holds. There is no recover: a panic ends the program. An
+// checkStock holds. There is no recover: a panic ends the program. An
 // exception is reported from where it was thrown, before any destructor
 // runs, so the stack shows the throw. GOTRACEBACK=none prints only the
 // message, and crash dies of SIGABRT, for a core dump.
 //
 // Strip the program and the frames print as addresses instead, such as
 // "? pc=0x40aaf8 (/tmp/panic+0x40aaf7)": addr2line -f -C -e examples_panic
-// 0x40aaf7 on the unstripped program gives back check_stock and its line.
+// 0x40aaf7 on the unstripped program gives back checkStock and its line.
 #include <gopp/chan.hpp>
 #include <gopp/flag.hpp>
 #include <gopp/fmt.hpp>

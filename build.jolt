@@ -230,6 +230,24 @@ class Search(Example):
     sources = ["examples/search/*.cpp"]
 
 
+class PngInfo(Example):
+    """ Takes PNG files apart with encoding/binary, hash/crc32 and compress/zlib. """
+    name = "examples/pnginfo"
+    sources = ["examples/pnginfo/*.cpp"]
+
+
+class CsvStats(Example):
+    """ Summarizes a CSV file by a column with encoding/csv and container/heap. """
+    name = "examples/csvstats"
+    sources = ["examples/csvstats/*.cpp"]
+
+
+class Upload(Example):
+    """ File uploads: multipart forms, MaxBytesReader and html/template. """
+    name = "examples/upload"
+    sources = ["examples/upload/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
     requires = [
@@ -237,7 +255,8 @@ class Examples(Alias):
         "examples/tcp-echo", "examples/udp-echo", "examples/tcp-chat", "examples/template", "examples/json-file",
         "examples/httpfileserver", "examples/proxy", "examples/lookup", "examples/grep", "examples/parallel",
         "examples/sandbox", "examples/todo", "examples/panic",
-        "examples/sha256sum", "examples/wordfreq", "examples/search",
+        "examples/sha256sum", "examples/wordfreq", "examples/search", "examples/pnginfo", "examples/csvstats",
+        "examples/upload",
     ]
 
 

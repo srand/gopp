@@ -1,5 +1,19 @@
-// template: render a Markdown project report from ordinary C++ structs.
-// Fields are discovered by C++26 reflection; upper is a custom template function.
+// template: renders a Markdown report from plain C++ structs with
+// text/template. The template reads the structs' fields by C++26
+// reflection, with no registration, and calls a C++ lambda as a function.
+//
+//     $ template
+//     # FRIDAY PROJECT UPDATE
+//
+//     ## go++ (Riley)
+//     - [x] Ship the template example
+//     - [ ] Polish the docs
+//
+//     ## Gopher garden (Sam)
+//     - [x] Water the seedlings
+//     - [x] Plant more beans
+//
+//     3 of 4 tasks done.
 #include <gopp/fmt.hpp>
 #include <gopp/os.hpp>
 #include <gopp/strings.hpp>
@@ -24,7 +38,29 @@ struct Project {
 struct Report {
     string Title;
     std::vector<Project> Projects;
+
+    // A method: templates call it as {{.Done}} like a field.
+    int Done() const {
+        int n = 0;
+        for (const auto& p : Projects) {
+            for (const auto& t : p.Tasks) n += t.Done;
+        }
+        return n;
+    }
+    int Total() const {
+        int n = 0;
+        for (const auto& p : Projects) n += int(p.Tasks.size());
+        return n;
+    }
 };
+
+const char* reportTemplate = R"(# {{.Title | upper}}
+{{range .Projects}}
+## {{.Name}} ({{.Owner}})
+{{range .Tasks}}- [{{if .Done}}x{{else}} {{end}}] {{.Title}}
+{{end}}{{end}}
+{{.Done}} of {{.Total}} tasks done.
+)";
 
 int main() {
     Report report{
@@ -35,20 +71,9 @@ int main() {
         },
     };
 
-    tmpl::FuncMap funcs{
-        {"upper", [](string s) { return strings::ToUpper(s); }},
-    };
-    auto base = tmpl::New("report");
-    base->Funcs(funcs);
-    auto [t, parseErr] = base->Parse(R"(# {{.Title | upper}}
-{{range .Projects}}
-## {{.Name}} — {{.Owner}}
-{{range .Tasks}}- {{if .Done}}[x]{{else}}[ ]{{end}} {{.Title}}
-{{end}}{{end}})");
-    if (parseErr) {
-        fmt::Println(os::Stderr, "template: {}", parseErr);
-        return 1;
-    }
+    auto t = tmpl::Must(tmpl::New("report")
+                            ->Funcs({{"upper", [](string s) { return strings::ToUpper(s); }}})
+                            ->Parse(reportTemplate));
     if (auto err = t->Execute(os::Stdout, report)) {
         fmt::Println(os::Stderr, "template: {}", err);
         return 1;
