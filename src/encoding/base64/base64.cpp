@@ -221,7 +221,7 @@ std::pair<slice<byte>, error> Encoding::AppendDecode(slice<byte> dst, std::span<
     // Compute the output size without padding to avoid over allocating.
     std::size_t n = src.size();
     while (n > 0 && static_cast<rune>(src[n - 1]) == pad_char_) n--;
-    n = static_cast<std::size_t>(decoded_len(static_cast<isize>(n), NoPadding));
+    n = static_cast<std::size_t>(decodedLen(static_cast<isize>(n), NoPadding));
 
     std::size_t len = dst.len();
     dst = slices::Grow(std::move(dst), static_cast<isize>(n)).Sub(0, len + n);
@@ -256,7 +256,7 @@ bool assemble64(const std::array<byte, 256>& m, const byte* s, uint64& dn) {
     return true;
 }
 
-void put_be(byte* dst, uint64 v, int nbytes) {
+void putBe(byte* dst, uint64 v, int nbytes) {
     for (int i = 0; i < nbytes; i++) dst[i] = static_cast<byte>(v >> (8 * (nbytes - 1 - i)));
 }
 
@@ -277,7 +277,7 @@ std::pair<isize, error> Encoding::Decode(std::span<byte> dst, std::span<const by
     while (src.size() - si >= 8 && dst.size() - n >= 8) {
         uint64 dn;
         if (assemble64(decode_map_, src.data() + si, dn)) {
-            put_be(dst.data() + n, dn, 8);
+            putBe(dst.data() + n, dn, 8);
             n += 6;
             si += 8;
         } else if (!quantum()) {
@@ -288,7 +288,7 @@ std::pair<isize, error> Encoding::Decode(std::span<byte> dst, std::span<const by
     while (src.size() - si >= 4 && dst.size() - n >= 4) {
         uint32 dn;
         if (assemble32(decode_map_, src.data() + si, dn)) {
-            put_be(dst.data() + n, dn, 4);
+            putBe(dst.data() + n, dn, 4);
             n += 3;
             si += 4;
         } else if (!quantum()) {
@@ -331,7 +331,7 @@ public:
         }
 
         if (nbuf_ < 4) {
-            if (enc_.pad_char() == NoPadding && nbuf_ > 0) {
+            if (enc_.padChar() == NoPadding && nbuf_ > 0) {
                 // Decode final fragment, without padding.
                 auto [nw, e] = enc_.Decode(outbuf_, std::span<const byte>(buf_.data(), nbuf_));
                 err_ = e;

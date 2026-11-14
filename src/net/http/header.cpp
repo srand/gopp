@@ -13,22 +13,22 @@ namespace gopp::http {
 
 namespace internal {
 
-bool is_token_char(unsigned char c) noexcept {
+bool isTokenChar(unsigned char c) noexcept {
     // tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
     //         "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
     if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) return true;
     return std::strchr("!#$%&'*+-.^_`|~", c) != nullptr && c != 0;
 }
 
-bool valid_header_field_name(std::string_view s) noexcept {
+bool validHeaderFieldName(std::string_view s) noexcept {
     if (s.empty()) return false;
     for (unsigned char c : s) {
-        if (!is_token_char(c)) return false;
+        if (!isTokenChar(c)) return false;
     }
     return true;
 }
 
-bool valid_header_field_value(std::string_view s) noexcept {
+bool validHeaderFieldValue(std::string_view s) noexcept {
     for (unsigned char c : s) {
         // CTLs except HTAB are invalid; obs-text (>= 0x80) is allowed.
         if ((c < ' ' && c != '\t') || c == 0x7f) return false;
@@ -36,9 +36,9 @@ bool valid_header_field_value(std::string_view s) noexcept {
     return true;
 }
 
-bool valid_method(std::string_view m) noexcept { return valid_header_field_name(m); }
+bool validMethod(std::string_view m) noexcept { return validHeaderFieldName(m); }
 
-bool has_token(std::string_view v, std::string_view token) noexcept {
+bool hasToken(std::string_view v, std::string_view token) noexcept {
     if (token.size() > v.size() || token.empty()) return false;
     while (!v.empty()) {
         auto comma = v.find(',');
@@ -52,7 +52,7 @@ bool has_token(std::string_view v, std::string_view token) noexcept {
     return false;
 }
 
-void append_date(std::string& out) {
+void appendDate(std::string& out) {
     // The formatted date is cached per thread and second.
     thread_local time_t cached_sec = 0;
     thread_local char cached[32];
@@ -71,10 +71,10 @@ void append_date(std::string& out) {
 
 namespace {
 
-constexpr char to_lower_c(char c) noexcept { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
-constexpr char to_upper_c(char c) noexcept { return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c; }
+constexpr char toLowerC(char c) noexcept { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
+constexpr char toUpperC(char c) noexcept { return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c; }
 
-bool is_canonical(std::string_view k) noexcept {
+bool isCanonical(std::string_view k) noexcept {
     bool upper = true;
     for (char c : k) {
         if (upper && c >= 'a' && c <= 'z') return false;
@@ -89,13 +89,13 @@ bool is_canonical(std::string_view k) noexcept {
 string CanonicalHeaderKey(std::string_view k) {
     // Keys with invalid characters are returned unchanged, as in Go.
     for (unsigned char c : k) {
-        if (!internal::is_token_char(c)) return string(k);
+        if (!internal::isTokenChar(c)) return string(k);
     }
-    if (is_canonical(k)) return string(k);
+    if (isCanonical(k)) return string(k);
     return string::build(k.size(), [&](char* p) {
         bool upper = true;
         for (std::size_t i = 0; i < k.size(); i++) {
-            p[i] = upper ? to_upper_c(k[i]) : to_lower_c(k[i]);
+            p[i] = upper ? toUpperC(k[i]) : toLowerC(k[i]);
             upper = k[i] == '-';
         }
     });
@@ -338,7 +338,7 @@ struct date_parser {
     }
 
     // A signed hour offset after GMT or alone: its length, or 0.
-    static std::size_t signed_offset(std::string_view v, int& hours) {
+    static std::size_t signedOffset(std::string_view v, int& hours) {
         if (v.empty() || (v[0] != '-' && v[0] != '+')) return 0;
         std::size_t i = 1;
         int64 x = 0;
@@ -358,14 +358,14 @@ struct date_parser {
         }
         if (value.starts_with("GMT")) {
             int hours = 0;
-            std::size_t n = signed_offset(value.substr(3), hours);
+            std::size_t n = signedOffset(value.substr(3), hours);
             zone_offset = hours * 3600;
             value.remove_prefix(3 + n);
             return true;
         }
         if (value[0] == '+' || value[0] == '-') {
             int hours = 0;
-            std::size_t n = signed_offset(value, hours);
+            std::size_t n = signedOffset(value, hours);
             if (n == 0) return false;
             zone_offset = hours * 3600;
             value.remove_prefix(n);
@@ -459,7 +459,7 @@ struct date_parser {
     }
 
     // Days since 1970-01-01 of the civil date (Howard Hinnant's algorithm).
-    static int64 days_from_civil(int64 y, int m, int d) {
+    static int64 daysFromCivil(int64 y, int m, int d) {
         y -= m <= 2;
         int64 era = (y >= 0 ? y : y - 399) / 400;
         int64 yoe = y - era * 400;
@@ -469,7 +469,7 @@ struct date_parser {
     }
 
     time::Time result() const {
-        int64 secs = days_from_civil(year, month, day) * 86400 + hour * 3600 + min * 60 + sec - zone_offset;
+        int64 secs = daysFromCivil(year, month, day) * 86400 + hour * 3600 + min * 60 + sec - zone_offset;
         return time::Time::Unix(secs, nsec);
     }
 };

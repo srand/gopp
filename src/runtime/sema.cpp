@@ -55,7 +55,7 @@ struct alignas(64) semroot {
 constexpr int semtabsize = 251;
 semroot semtable[semtabsize];
 
-semroot& root_of(std::atomic<uint32_t>* addr) noexcept {
+semroot& rootOf(std::atomic<uint32_t>* addr) noexcept {
     return semtable[(reinterpret_cast<uintptr_t>(addr) >> 3) % semtabsize];
 }
 
@@ -71,7 +71,7 @@ bool cansemacquire(std::atomic<uint32_t>* addr) noexcept {
 
 void semacquire(std::atomic<uint32_t>* addr, bool lifo, waitreason reason) noexcept {
     if (cansemacquire(addr)) return;
-    semroot& root = root_of(addr);
+    semroot& root = rootOf(addr);
     semwaiter s{getg(), addr, nullptr, nullptr, false};
     for (;;) {
         root.lock.lock();
@@ -83,13 +83,13 @@ void semacquire(std::atomic<uint32_t>* addr, bool lifo, waitreason reason) noexc
         }
         s.ticket = false;
         root.queue(&s, lifo);
-        park_unlock(&root.lock, reason);
+        parkUnlock(&root.lock, reason);
         if (s.ticket || cansemacquire(addr)) return;
     }
 }
 
 void semrelease(std::atomic<uint32_t>* addr, bool handoff) noexcept {
-    semroot& root = root_of(addr);
+    semroot& root = rootOf(addr);
     addr->fetch_add(1, std::memory_order_release);
     if (root.nwait.load() == 0) return;
     root.lock.lock();

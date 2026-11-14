@@ -17,7 +17,7 @@ TEST(GoOs, Stat) {
     auto [dir, err] = os::Stat(path);
     ASSERT_FALSE(err) << "stat failed: " << err;
     EXPECT_EQ(dir->Name(), sfname);
-    EXPECT_EQ(dir->Size(), file_size(path));
+    EXPECT_EQ(dir->Size(), fileSize(path));
 }
 
 TEST(GoOs, StatError) {
@@ -51,7 +51,7 @@ TEST(GoOs, Fstat) {
     auto [dir, err2] = file->Stat();
     ASSERT_FALSE(err2) << "fstat failed: " << err2;
     EXPECT_EQ(dir->Name(), sfname);
-    EXPECT_EQ(dir->Size(), file_size(path));
+    EXPECT_EQ(dir->Size(), fileSize(path));
     file->Close();
 }
 
@@ -61,7 +61,7 @@ TEST(GoOs, Lstat) {
     ASSERT_FALSE(err) << "lstat failed: " << err;
     EXPECT_EQ(dir->Name(), sfname);
     if ((dir->Mode() & os::ModeSymlink) == 0) {
-        EXPECT_EQ(dir->Size(), file_size(path));
+        EXPECT_EQ(dir->Size(), fileSize(path));
     }
 }
 
@@ -101,7 +101,7 @@ struct DotDir {
 };
 
 template <typename Entry>
-void check_contents(std::string_view dir, const std::vector<Entry>& s, const std::vector<std::string>& contents,
+void checkContents(std::string_view dir, const std::vector<Entry>& s, const std::vector<std::string>& contents,
                     auto name_of) {
     for (auto& m : contents) {
         bool found = false;
@@ -116,30 +116,30 @@ void check_contents(std::string_view dir, const std::vector<Entry>& s, const std
     }
 }
 
-void test_readdirnames(std::string_view dir, const std::vector<std::string>& contents) {
+void testReaddirnames(std::string_view dir, const std::vector<std::string>& contents) {
     auto [file, err] = os::Open(dir);
     ASSERT_FALSE(err) << "open " << dir << " failed: " << err;
     auto [s, err2] = file->Readdirnames(-1);
     ASSERT_FALSE(err2) << "Readdirnames " << dir << " failed: " << err2;
-    check_contents(dir, s, contents, [](const string& n) { return str(n); });
+    checkContents(dir, s, contents, [](const string& n) { return str(n); });
     file->Close();
 }
 
-void test_readdir(std::string_view dir, const std::vector<std::string>& contents) {
+void testReaddir(std::string_view dir, const std::vector<std::string>& contents) {
     auto [file, err] = os::Open(dir);
     ASSERT_FALSE(err) << "open " << dir << " failed: " << err;
     auto [s, err2] = file->Readdir(-1);
     ASSERT_FALSE(err2) << "Readdir " << dir << " failed: " << err2;
-    check_contents(dir, s, contents, [](const ptr<FileInfo>& n) { return str(n->Name()); });
+    checkContents(dir, s, contents, [](const ptr<FileInfo>& n) { return str(n->Name()); });
     file->Close();
 }
 
-void test_read_dir(std::string_view dir, const std::vector<std::string>& contents) {
+void testReadDir(std::string_view dir, const std::vector<std::string>& contents) {
     auto [file, err] = os::Open(dir);
     ASSERT_FALSE(err) << "open " << dir << " failed: " << err;
     auto [s, err2] = file->ReadDir(-1);
     ASSERT_FALSE(err2) << "ReadDir " << dir << " failed: " << err2;
-    check_contents(dir, s, contents, [](const ptr<os::DirEntry>& n) { return str(n->Name()); });
+    checkContents(dir, s, contents, [](const ptr<os::DirEntry>& n) { return str(n->Name()); });
     for (auto& m : contents) {
         for (auto& n : s) {
             if (n->Name() != m) continue;
@@ -162,26 +162,26 @@ void test_read_dir(std::string_view dir, const std::vector<std::string>& content
 
 TEST(GoOs, FileReaddirnames) {
     DotDir d;
-    test_readdirnames(d.dir, dot);
-    test_readdirnames(sfdir, sysdir_files);
+    testReaddirnames(d.dir, dot);
+    testReaddirnames(sfdir, sysdir_files);
     TempDir empty;
-    test_readdirnames(empty, {});
+    testReaddirnames(empty, {});
 }
 
 TEST(GoOs, FileReaddir) {
     DotDir d;
-    test_readdir(d.dir, dot);
-    test_readdir(sfdir, sysdir_files);
+    testReaddir(d.dir, dot);
+    testReaddir(sfdir, sysdir_files);
     TempDir empty;
-    test_readdir(empty, {});
+    testReaddir(empty, {});
 }
 
 TEST(GoOs, FileReadDir) {
     DotDir d;
-    test_read_dir(d.dir, dot);
-    test_read_dir(sfdir, sysdir_files);
+    testReadDir(d.dir, dot);
+    testReadDir(sfdir, sysdir_files);
     TempDir empty;
-    test_read_dir(empty, {});
+    testReadDir(empty, {});
 }
 
 // Check that reading a directory one entry at a time gives the same result
@@ -463,7 +463,7 @@ TEST(GoOs, LongPath) {
                 std::string path = sized + "/" + name;
                 auto [dir, err] = os::Stat(path);
                 ASSERT_FALSE(err) << "Stat(" << path << ") failed: " << err;
-                int64 filesize = file_size(path);
+                int64 filesize = fileSize(path);
                 EXPECT_TRUE(dir->Size() == filesize && filesize == want_size)
                     << "Size(" << path << ") is " << dir->Size() << ", len(ReadFile()) is " << filesize << ", want "
                     << want_size;
@@ -476,13 +476,13 @@ TEST(GoOs, LongPath) {
 
 namespace {
 
-void mkdir_tree(const std::string& root, int level, int max) {
+void mkdirTree(const std::string& root, int level, int max) {
     if (level >= max) return;
     level++;
     for (char i = 'a'; i < 'c'; i++) {
         std::string dir = join(root, std::string(1, i));
         ASSERT_FALSE(os::Mkdir(dir, 0700));
-        mkdir_tree(dir, level, max);
+        mkdirTree(dir, level, max);
     }
 }
 
@@ -493,8 +493,8 @@ void mkdir_tree(const std::string& root, int level, int max) {
 TEST(GoOs, RemoveAllRace) {
     TempDir tmp;
     std::string root = tmp.path();
-    mkdir_tree(root, 1, 6);
-    auto hold = make_chan<empty>();
+    mkdirTree(root, 1, 6);
+    auto hold = makeChan<empty>();
     sync::WaitGroup wg;
     for (int i = 0; i < 4; i++) {
         wg.Add(1);
@@ -519,8 +519,8 @@ TEST(GoOs, PipeThreads) {
         r[static_cast<std::size_t>(i)] = rp;
         w[static_cast<std::size_t>(i)] = wp;
     }
-    auto creading = make_chan<bool>(threads);
-    auto cdone = make_chan<bool>(threads);
+    auto creading = makeChan<bool>(threads);
+    auto cdone = makeChan<bool>(threads);
     for (std::size_t i = 0; i < threads; i++) {
         go([&, i] {
             byte buf[1];
@@ -545,7 +545,7 @@ TEST(GoOs, PipeThreads) {
 
 namespace {
 
-void test_double_close_error(const std::string& path) {
+void testDoubleCloseError(const std::string& path) {
     SCOPED_TRACE(path);
     auto [file, err] = os::Open(path);
     ASSERT_FALSE(err) << err;
@@ -560,8 +560,8 @@ void test_double_close_error(const std::string& path) {
 }  // namespace
 
 TEST(GoOs, DoubleCloseError) {
-    test_double_close_error(sfdir + "/" + sfname);
-    test_double_close_error(sfdir);
+    testDoubleCloseError(sfdir + "/" + sfname);
+    testDoubleCloseError(sfdir);
 }
 
 TEST(GoOs, DirSeek) {
@@ -694,7 +694,7 @@ TEST(GoOs, PipeCloseRace) {
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err) << err;
     sync::WaitGroup wg;
-    auto c = make_chan<error>(4);
+    auto c = makeChan<error>(4);
     auto f = [&] {
         c.send(r->Close());
         c.send(w->Close());

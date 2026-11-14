@@ -9,7 +9,7 @@ namespace gopp::httptest {
 
 namespace {
 
-bool body_allowed_for_status(int status) {
+bool bodyAllowedForStatus(int status) {
     if (status >= 100 && status <= 199) return false;
     return status != 204 && status != 304;
 }
@@ -27,12 +27,12 @@ void ResponseRecorder::WriteHeader(int c) {
 std::pair<isize, gopp::error> ResponseRecorder::Write(std::span<const byte> p) {
     if (!wrote_header_) {
         // Like the server, sniff a missing Content-Type from the first write.
-        if (!header_.Has("Content-Type") && !header_.Has("Transfer-Encoding") && body_allowed_for_status(Code)) {
+        if (!header_.Has("Content-Type") && !header_.Has("Transfer-Encoding") && bodyAllowedForStatus(Code)) {
             header_.Set("Content-Type", http::DetectContentType(p));
         }
         WriteHeader(200);
     }
-    Body.append(as_string_view(p));
+    Body.append(asStringView(p));
     return {static_cast<isize>(p.size()), nullptr};
 }
 
@@ -43,7 +43,7 @@ void ResponseRecorder::Flush() {
 
 ptr<http::Response> ResponseRecorder::Result() {
     auto res = make_ptr<http::Response>();
-    res->Proto = string::from_static("HTTP/1.1");
+    res->Proto = string::fromStatic("HTTP/1.1");
     res->StatusCode = Code;
     res->Status = strconv::Itoa(Code) + " " + string(http::StatusText(Code));
     res->Header = wrote_header_ ? snap_header_ : header_;
@@ -62,15 +62,15 @@ ptr<http::Request> NewRequest(std::string_view method, std::string_view target, 
     if (method.empty()) method = "GET";
     auto req = make_ptr<http::Request>();
     req->Method = string(method);
-    req->Proto = string::from_static("HTTP/1.1");
+    req->Proto = string::fromStatic("HTTP/1.1");
     req->ProtoMajor = 1;
     req->ProtoMinor = 1;
     req->RequestURI = string(target);
     auto [u, err] = target.starts_with("/") ? url::ParseRequestURI(target) : url::Parse(target);
     if (err) panic("invalid NewRequest arguments; " + std::string(err.Error().view()));
-    req->Host = !u.Host.empty() ? u.Host : string::from_static("example.com");
+    req->Host = !u.Host.empty() ? u.Host : string::fromStatic("example.com");
     req->URL = std::move(u);
-    req->RemoteAddr = string::from_static("192.0.2.1:1234");
+    req->RemoteAddr = string::fromStatic("192.0.2.1:1234");
     if (body) {
         if (auto* sr = dynamic_cast<io::StringReader*>(body.get())) req->ContentLength = static_cast<int64>(sr->len());
         else req->ContentLength = -1;
@@ -100,7 +100,7 @@ Server::~Server() { Close(); }
 
 namespace {
 
-ptr<net::Listener> local_listener() {
+ptr<net::Listener> localListener() {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     if (err) panic("httptest: failed to listen on a port: " + std::string(err.Error().view()));
     return ln;
@@ -115,7 +115,7 @@ void Server::start(bool tls) {
     transport_ = make_ptr<http::Transport>();
     client_.Transport = transport_;
     transport_->Protocols = Config.Protocols;
-    done_ = make_chan<gopp::error>(1);
+    done_ = makeChan<gopp::error>(1);
     Server* raw = this;
     if (tls) {
         if (!Config.TLSConfig) {
@@ -142,7 +142,7 @@ void Server::StartTLS() { start(true); }
 ptr<Server> NewUnstartedServer(ptr<http::Handler> handler) {
     auto s = make_ptr<Server>();
     s->Config.Handler = std::move(handler);
-    s->Listener = local_listener();
+    s->Listener = localListener();
     return s;
 }
 

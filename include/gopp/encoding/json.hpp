@@ -60,14 +60,14 @@ namespace gopp::json {
 // Errors
 
 // json.SyntaxError: malformed JSON, found after reading offset bytes.
-struct SyntaxError : error_interface {
+struct SyntaxError : errorInterface {
     string msg;
     int64 offset = 0;
     string Error() const override { return msg; }
 };
 
 // json.UnmarshalTypeError: a JSON value that doesn't fit the C++ type.
-struct UnmarshalTypeError : error_interface {
+struct UnmarshalTypeError : errorInterface {
     string value;   // "string", "number 1.5", "array", ...
     string type;    // the C++ type
     int64 offset = 0;
@@ -80,28 +80,28 @@ struct UnmarshalTypeError : error_interface {
 };
 
 // json.UnsupportedValueError: NaN or infinity.
-struct UnsupportedValueError : error_interface {
+struct UnsupportedValueError : errorInterface {
     string str;
     string Error() const override { return "json: unsupported value: " + str; }
 };
 
 // json.InvalidUnmarshalError: unmarshal into a null pointer.
-struct InvalidUnmarshalError : error_interface {
+struct InvalidUnmarshalError : errorInterface {
     string type;
     explicit InvalidUnmarshalError(string t) : type(std::move(t)) {}
     string Error() const override { return "json: Unmarshal(nil *" + type + ")"; }
 };
 
 // json.MarshalerError: a MarshalJSON member failed or returned bad JSON.
-struct MarshalerError : error_interface {
+struct MarshalerError : errorInterface {
     string type;
     gopp::error Err;
     string source_func;  // "MarshalJSON" if empty
     string Error() const override {
-        return "json: error calling " + (source_func.empty() ? string::from_static("MarshalJSON") : source_func) +
+        return "json: error calling " + (source_func.empty() ? string::fromStatic("MarshalJSON") : source_func) +
                " for type " + type + ": " + Err.Error();
     }
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
 };
 
 // ---------------------------------------------------------------------------
@@ -217,22 +217,22 @@ public:
     std::vector<const void*> ptr_seen;
 
     void WriteString(std::string_view s);
-    void write_float(double f, int bits);
-    void write_int(int64 v) {
+    void writeFloat(double f, int bits);
+    void writeInt(int64 v) {
         char buf[24];
         auto r = std::to_chars(buf, buf + sizeof(buf), v);
         out.append(buf, r.ptr);
     }
-    void write_uint(uint64 v) {
+    void writeUint(uint64 v) {
         char buf[24];
         auto r = std::to_chars(buf, buf + sizeof(buf), v);
         out.append(buf, r.ptr);
     }
-    void write_base64(std::span<const byte> b);
-    void write_value(const Value& v);
+    void writeBase64(std::span<const byte> b);
+    void writeValue(const Value& v);
     // Appends the output of a MarshalJSON member, validated and compacted.
-    void write_marshaled(std::pair<slice<byte>, gopp::error> r, std::string_view type);
-    void cycle_error(std::string_view type);
+    void writeMarshaled(std::pair<slice<byte>, gopp::error> r, std::string_view type);
+    void cycleError(std::string_view type);
 };
 
 // Parses JSON that was validated already, so only type mismatches can go
@@ -249,7 +249,7 @@ public:
     // The first byte of the next value, after whitespace.
     char peek() noexcept;
     // Consumes null if it comes next.
-    bool consume_null() noexcept;
+    bool consumeNull() noexcept;
     // Consumes the next value and returns its text.
     std::string_view raw();
     void skip() { raw(); }
@@ -257,26 +257,26 @@ public:
     std::string_view literal();
     // Consumes and unquotes a string.
     void ReadString(std::string& out);
-    void begin_object() noexcept;
+    void beginObject() noexcept;
     // The next key of the object, or false at its end.
-    bool next_key(std::string& key);
-    void begin_array() noexcept;
+    bool nextKey(std::string& key);
+    void beginArray() noexcept;
     // Whether the array has another element.
-    bool next_element() noexcept;
-    void read_value(Value& v);
-    bool read_base64(slice<byte>& b);
+    bool nextElement() noexcept;
+    void readValue(Value& v);
+    bool readBase64(slice<byte>& b);
 
     // Records a mismatch and skips the value.
     void mismatch(std::string_view type);
     // Records a value that doesn't fit type, such as an out of range number.
-    void bad_value(std::string_view value, std::string_view type);
+    void badValue(std::string_view value, std::string_view type);
     void fail(gopp::error e) {
         if (!err) err = std::move(e);
     }
     std::size_t offset() const noexcept { return pos_; }
 
 private:
-    void skip_ws() noexcept;
+    void skipWs() noexcept;
     std::string_view data_;
     std::size_t pos_ = 0;
 };
@@ -285,12 +285,12 @@ private:
 gopp::error validate(std::string_view data);
 // For streams: the length of the first value in s (after whitespace), 0 if
 // s ends before the value does, or a SyntaxError.
-std::pair<std::size_t, gopp::error> value_length(std::string_view s, bool at_eof);
+std::pair<std::size_t, gopp::error> valueLength(std::string_view s, bool at_eof);
 void indent(std::string& dst, std::string_view src, std::string_view prefix, std::string_view indent);
 void append_compact(std::string& dst, std::string_view src, bool escape_html);
 
 template <typename T>
-consteval std::string_view type_name() {
+consteval std::string_view typeName() {
     return std::define_static_string(std::meta::display_string_of(^^T));
 }
 
@@ -365,14 +365,14 @@ struct field_spec {
 };
 
 template <typename T>
-consteval auto fields_of() {
+consteval auto fieldsOf() {
     return std::define_static_array(
         std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unprivileged()));
 }
 
 // Go's isValidTag: letters, digits and most punctuation; not quotes or
 // backslashes. Bytes of UTF-8 sequences count as letters.
-consteval bool valid_tag_name(std::string_view s) {
+consteval bool validTagName(std::string_view s) {
     if (s.empty()) return false;
     for (char ch : s) {
         unsigned char c = static_cast<unsigned char>(ch);
@@ -383,7 +383,7 @@ consteval bool valid_tag_name(std::string_view s) {
     return true;
 }
 
-consteval field_spec parse_tag(std::string_view member, std::string_view spec) {
+consteval field_spec parseTag(std::string_view member, std::string_view spec) {
     field_spec f{member};
     std::size_t comma = spec.find(',');
     std::string_view name = spec.substr(0, comma);
@@ -391,7 +391,7 @@ consteval field_spec parse_tag(std::string_view member, std::string_view spec) {
         f.skip = true;
         return f;
     }
-    if (valid_tag_name(name)) f.name = std::define_static_string(name);
+    if (validTagName(name)) f.name = std::define_static_string(name);
     while (comma != std::string_view::npos) {
         spec = spec.substr(comma + 1);
         comma = spec.find(',');
@@ -403,11 +403,11 @@ consteval field_spec parse_tag(std::string_view member, std::string_view spec) {
 }
 
 template <std::meta::info M>
-consteval field_spec spec_of() {
+consteval field_spec specOf() {
     std::string_view member = std::define_static_string(std::meta::identifier_of(M));
     for (std::meta::info a : std::meta::annotations_of_with_type(M, ^^json::tag)) {
         json::tag t = std::meta::extract<json::tag>(a);
-        return parse_tag(member, std::string_view(t.spec));
+        return parseTag(member, std::string_view(t.spec));
     }
     return field_spec{member};
 }
@@ -415,9 +415,9 @@ consteval field_spec spec_of() {
 // "name": with the quotes and escapes, for writing keys. Tag names can't
 // hold quotes or backslashes; with html, <, > and & are escaped too.
 template <std::meta::info M, bool html>
-consteval std::string_view quoted_key() {
+consteval std::string_view quotedKey() {
     std::string s = "\"";
-    for (char c : spec_of<M>().name) {
+    for (char c : specOf<M>().name) {
         if (html && c == '<') s += "\\u003c";
         else if (html && c == '>') s += "\\u003e";
         else if (html && c == '&') s += "\\u0026";
@@ -433,7 +433,7 @@ bool EqualFold(std::string_view a, std::string_view b) noexcept;
 // Encoding
 
 template <typename T>
-bool is_empty_value(const T& v) {
+bool isEmptyValue(const T& v) {
     if constexpr (std::is_same_v<T, bool>) return !v;
     else if constexpr (std::is_arithmetic_v<T> || std::is_enum_v<T>) return v == T{};
     else if constexpr (string_like<T>) return v.empty();
@@ -451,24 +451,24 @@ template <typename T>
 void encode(encoder& e, const T& v);
 
 template <typename K>
-std::string map_key(const K& k) {
+std::string mapKey(const K& k) {
     if constexpr (string_like<K>) return std::string(std::string_view(k));
     else if constexpr (std::is_integral_v<K>) return std::to_string(k);
     else static_assert(sizeof(K) == 0, "json: map keys must be strings or integers");
 }
 
 template <typename T>
-void encode_struct(encoder& e, const T& v) {
+void encodeStruct(encoder& e, const T& v) {
     e.out.push_back('{');
     bool first = true;
-    template for (constexpr std::meta::info m : fields_of<T>()) {
-        constexpr field_spec f = spec_of<m>();
+    template for (constexpr std::meta::info m : fieldsOf<T>()) {
+        constexpr field_spec f = specOf<m>();
         if constexpr (!f.skip) {
             const auto& fv = v.[:m:];
-            if (!f.omitempty || !is_empty_value(fv)) {
+            if (!f.omitempty || !isEmptyValue(fv)) {
                 if (!first) e.out.push_back(',');
                 first = false;
-                e.out.append(e.escape_html ? quoted_key<m, true>() : quoted_key<m, false>());
+                e.out.append(e.escape_html ? quotedKey<m, true>() : quotedKey<m, false>());
                 if constexpr (f.AsString) {
                     using F = std::remove_cvref_t<decltype(fv)>;
                     if constexpr (std::is_arithmetic_v<F>) {
@@ -505,14 +505,14 @@ template <typename T>
 void encode(encoder& e, const T& v) {
     using U = std::remove_cvref_t<T>;
     if constexpr (marshaler<U>) {
-        e.write_marshaled(v.MarshalJSON(), type_name<U>());
+        e.writeMarshaled(v.MarshalJSON(), typeName<U>());
     } else if constexpr (std::is_same_v<U, bool>) {
         e.out.append(v ? "true" : "false");
     } else if constexpr (std::is_floating_point_v<U>) {
-        e.write_float(static_cast<double>(v), sizeof(U) == 4 ? 32 : 64);
+        e.writeFloat(static_cast<double>(v), sizeof(U) == 4 ? 32 : 64);
     } else if constexpr (std::is_integral_v<U>) {
-        if constexpr (std::is_signed_v<U>) e.write_int(static_cast<int64>(v));
-        else e.write_uint(static_cast<uint64>(v));
+        if constexpr (std::is_signed_v<U>) e.writeInt(static_cast<int64>(v));
+        else e.writeUint(static_cast<uint64>(v));
     } else if constexpr (std::is_enum_v<U>) {
         encode(e, static_cast<std::underlying_type_t<U>>(v));
     } else if constexpr (string_like<U>) {
@@ -520,17 +520,17 @@ void encode(encoder& e, const T& v) {
     } else if constexpr (std::is_same_v<U, const char*> || std::is_same_v<U, char*>) {
         e.WriteString(v ? std::string_view(v) : std::string_view());
     } else if constexpr (std::is_same_v<U, slice<byte>>) {
-        if (v.is_nil()) e.out.append("null");
-        else e.write_base64(v);
+        if (v.isNil()) e.out.append("null");
+        else e.writeBase64(v);
     } else if constexpr (std::is_same_v<U, Value>) {
-        e.write_value(v);
+        e.writeValue(v);
     } else if constexpr (std::is_same_v<U, time::Duration>) {
-        e.write_int(v.ns);
+        e.writeInt(v.ns);
     } else if constexpr (std::is_same_v<U, std::nullptr_t>) {
         e.out.append("null");
     } else if constexpr (is_slice<U>::value || is_vector<U>::value || is_std_array<U>::value) {
         if constexpr (is_slice<U>::value) {
-            if (v.is_nil()) {
+            if (v.isNil()) {
                 e.out.append("null");
                 return;
             }
@@ -547,7 +547,7 @@ void encode(encoder& e, const T& v) {
         // Sorted by key, as Go sorts map keys.
         std::vector<std::pair<std::string, const typename U::mapped_type*>> kv;
         kv.reserve(v.size());
-        for (const auto& [k, x] : v) kv.emplace_back(map_key(k), &x);
+        for (const auto& [k, x] : v) kv.emplace_back(mapKey(k), &x);
         std::sort(kv.begin(), kv.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         e.out.push_back('{');
         bool first = true;
@@ -572,7 +572,7 @@ void encode(encoder& e, const T& v) {
         bool tracked = ++e.ptr_level > encoder::start_detecting_cycles_after;
         if (tracked) {
             if (std::find(e.ptr_seen.begin(), e.ptr_seen.end(), p) != e.ptr_seen.end()) {
-                e.cycle_error(type_name<U>());
+                e.cycleError(typeName<U>());
                 e.ptr_level--;
                 return;
             }
@@ -582,7 +582,7 @@ void encode(encoder& e, const T& v) {
         if (tracked) e.ptr_seen.pop_back();
         e.ptr_level--;
     } else if constexpr (std::is_class_v<U>) {
-        encode_struct(e, v);
+        encodeStruct(e, v);
     } else {
         static_assert(sizeof(U) == 0, "json: unsupported type");
     }
@@ -595,10 +595,10 @@ template <typename T>
 void decode(decoder& d, T& v);
 
 template <typename T>
-void decode_number(decoder& d, T& v) {
+void decodeNumber(decoder& d, T& v) {
     char c = d.peek();
     if (c != '-' && !(c >= '0' && c <= '9')) {
-        d.mismatch(type_name<T>());
+        d.mismatch(typeName<T>());
         return;
     }
     std::string_view lit = d.literal();
@@ -606,7 +606,7 @@ void decode_number(decoder& d, T& v) {
         double x = 0;
         auto r = std::from_chars(lit.data(), lit.data() + lit.size(), x);
         if (r.ec != std::errc() || (sizeof(T) == 4 && (x > 3.4028234663852886e38 || x < -3.4028234663852886e38))) {
-            d.bad_value("number " + std::string(lit), type_name<T>());
+            d.badValue("number " + std::string(lit), typeName<T>());
             return;
         }
         v = static_cast<T>(x);
@@ -614,7 +614,7 @@ void decode_number(decoder& d, T& v) {
         T x{};
         auto r = std::from_chars(lit.data(), lit.data() + lit.size(), x);
         if (r.ec != std::errc() || r.ptr != lit.data() + lit.size()) {
-            d.bad_value("number " + std::string(lit), type_name<T>());
+            d.badValue("number " + std::string(lit), typeName<T>());
             return;
         }
         v = x;
@@ -622,7 +622,7 @@ void decode_number(decoder& d, T& v) {
 }
 
 template <typename K>
-bool parse_map_key(decoder& d, const std::string& s, K& k) {
+bool parseMapKey(decoder& d, const std::string& s, K& k) {
     if constexpr (std::is_same_v<K, gopp::string>) {
         k = gopp::string(s);
         return true;
@@ -632,7 +632,7 @@ bool parse_map_key(decoder& d, const std::string& s, K& k) {
     } else if constexpr (std::is_integral_v<K>) {
         auto r = std::from_chars(s.data(), s.data() + s.size(), k);
         if (r.ec != std::errc() || r.ptr != s.data() + s.size()) {
-            d.bad_value("number " + s, type_name<K>());
+            d.badValue("number " + s, typeName<K>());
             return false;
         }
         return true;
@@ -644,49 +644,49 @@ bool parse_map_key(decoder& d, const std::string& s, K& k) {
 // A value of a ",string" field: JSON inside a JSON string. null leaves the
 // value alone.
 template <typename T>
-void decode_quoted(decoder& d, T& v) {
+void decodeQuoted(decoder& d, T& v) {
     if (d.peek() == '"') {
         std::string inner;
         d.ReadString(inner);
         if (gopp::error err = validate(inner)) {
-            d.bad_value("string", type_name<T>());
+            d.badValue("string", typeName<T>());
             return;
         }
         decoder sub(inner);
         decode(sub, v);
         if (sub.err) d.fail(sub.err);
-    } else if (!d.consume_null()) {
-        d.mismatch(type_name<T>());
+    } else if (!d.consumeNull()) {
+        d.mismatch(typeName<T>());
     }
 }
 
 template <typename T>
-void decode_struct(decoder& d, T& v) {
+void decodeStruct(decoder& d, T& v) {
     if (d.peek() != '{') {
-        d.mismatch(type_name<T>());
+        d.mismatch(typeName<T>());
         return;
     }
-    d.begin_object();
+    d.beginObject();
     std::string key;
     auto saved_struct = d.struct_name;
-    while (d.next_key(key)) {
+    while (d.nextKey(key)) {
         bool found = false;
         // An exact match wins; otherwise a case-insensitive one, as in Go.
         for (int pass = 0; pass < 2 && !found; pass++) {
-            template for (constexpr std::meta::info m : fields_of<T>()) {
-                constexpr field_spec f = spec_of<m>();
+            template for (constexpr std::meta::info m : fieldsOf<T>()) {
+                constexpr field_spec f = specOf<m>();
                 if constexpr (!f.skip) {
                     if (!found && (pass == 0 ? key == f.name : EqualFold(key, f.name))) {
                         found = true;
-                        d.struct_name = type_name<T>();
+                        d.struct_name = typeName<T>();
                         std::string saved_field = d.field;
                         d.field = d.field.empty() ? std::string(f.name) : d.field + "." + std::string(f.name);
                         using F = std::remove_cvref_t<decltype(v.[:m:])>;
                         if constexpr (f.AsString && (std::is_arithmetic_v<F> || string_like<F>)) {
-                            decode_quoted(d, v.[:m:]);
+                            decodeQuoted(d, v.[:m:]);
                         } else if constexpr (f.AsString && number_pointer<F>) {
                             auto& p = v.[:m:];
-                            if (d.consume_null()) {
+                            if (d.consumeNull()) {
                                 p.reset();
                             } else {
                                 if constexpr (is_optional<F>::value) {
@@ -694,7 +694,7 @@ void decode_struct(decoder& d, T& v) {
                                 } else {
                                     if (!p) allocate(p);
                                 }
-                                decode_quoted(d, *p);
+                                decodeQuoted(d, *p);
                             }
                         } else {
                             decode(d, v.[:m:]);
@@ -719,68 +719,68 @@ void decode(decoder& d, T& v) {
         std::string_view raw = d.raw();
         if (gopp::error err = v.UnmarshalJSON(as_bytes(raw))) d.fail(err);
     } else if constexpr (std::is_same_v<U, Value>) {
-        d.read_value(v);
+        d.readValue(v);
     } else if constexpr (is_optional<U>::value) {
-        if (d.consume_null()) {
+        if (d.consumeNull()) {
             v.reset();
             return;
         }
         if (!v) v.emplace();
         decode(d, *v);
     } else if constexpr (is_ptr<U>::value) {
-        if (d.consume_null()) {
+        if (d.consumeNull()) {
             v.reset();
             return;
         }
         if (!v) allocate(v);
         decode(d, *v);
     } else if constexpr (std::is_same_v<U, bool>) {
-        if (d.consume_null()) return;  // null leaves the value, as in Go
+        if (d.consumeNull()) return;  // null leaves the value, as in Go
         char c = d.peek();
         if (c == 't' || c == 'f') v = d.literal() == "true";
         else d.mismatch("bool");
     } else if constexpr (std::is_arithmetic_v<U>) {
-        if (d.consume_null()) return;
-        decode_number(d, v);
+        if (d.consumeNull()) return;
+        decodeNumber(d, v);
     } else if constexpr (std::is_enum_v<U>) {
-        if (d.consume_null()) return;
+        if (d.consumeNull()) return;
         std::underlying_type_t<U> x{};
-        decode_number(d, x);
+        decodeNumber(d, x);
         v = static_cast<U>(x);
     } else if constexpr (std::is_same_v<U, time::Duration>) {
-        if (d.consume_null()) return;
-        decode_number(d, v.ns);
+        if (d.consumeNull()) return;
+        decodeNumber(d, v.ns);
     } else if constexpr (std::is_same_v<U, gopp::string> || std::is_same_v<U, std::string>) {
-        if (d.consume_null()) return;
+        if (d.consumeNull()) return;
         if (d.peek() != '"') {
-            d.mismatch(type_name<U>());
+            d.mismatch(typeName<U>());
             return;
         }
         std::string s;
         d.ReadString(s);
         v = U(s);
     } else if constexpr (std::is_same_v<U, slice<byte>>) {
-        if (d.consume_null()) {
+        if (d.consumeNull()) {
             v = slice<byte>();
             return;
         }
-        if (d.peek() != '"' || !d.read_base64(v)) d.mismatch("[]byte");
+        if (d.peek() != '"' || !d.readBase64(v)) d.mismatch("[]byte");
     } else if constexpr (is_slice<U>::value || is_vector<U>::value) {
-        if (d.consume_null()) {
+        if (d.consumeNull()) {
             v = U();
             return;
         }
         if (d.peek() != '[') {
-            d.mismatch(type_name<U>());
+            d.mismatch(typeName<U>());
             return;
         }
-        d.begin_array();
+        d.beginArray();
         if constexpr (is_vector<U>::value) {
             v.clear();
-            while (d.next_element()) decode(d, v.emplace_back());
+            while (d.nextElement()) decode(d, v.emplace_back());
         } else {
             U out = U::make(0);
-            while (d.next_element()) {
+            while (d.nextElement()) {
                 typename U::value_type x{};
                 decode(d, x);
                 out = append(std::move(out), std::move(x));
@@ -788,40 +788,40 @@ void decode(decoder& d, T& v) {
             v = std::move(out);
         }
     } else if constexpr (is_std_array<U>::value) {
-        if (d.consume_null()) return;
+        if (d.consumeNull()) return;
         if (d.peek() != '[') {
-            d.mismatch(type_name<U>());
+            d.mismatch(typeName<U>());
             return;
         }
-        d.begin_array();
+        d.beginArray();
         std::size_t i = 0;
-        while (d.next_element()) {
+        while (d.nextElement()) {
             if (i < v.size()) decode(d, v[i++]);
             else d.skip();
         }
         for (; i < v.size(); i++) v[i] = typename U::value_type{};
     } else if constexpr (is_map<U>::value) {
-        if (d.consume_null()) {
+        if (d.consumeNull()) {
             v.clear();
             return;
         }
         if (d.peek() != '{') {
-            d.mismatch(type_name<U>());
+            d.mismatch(typeName<U>());
             return;
         }
-        d.begin_object();
+        d.beginObject();
         std::string key;
-        while (d.next_key(key)) {
+        while (d.nextKey(key)) {
             typename U::key_type k{};
-            if (!parse_map_key(d, key, k)) {
+            if (!parseMapKey(d, key, k)) {
                 d.skip();
                 continue;
             }
             decode(d, v[k]);
         }
     } else if constexpr (std::is_class_v<U>) {
-        if (d.consume_null()) return;
-        decode_struct(d, v);
+        if (d.consumeNull()) return;
+        decodeStruct(d, v);
     } else {
         static_assert(sizeof(U) == 0, "json: unsupported type");
     }
@@ -838,7 +838,7 @@ std::pair<slice<byte>, error> Marshal(const T& v) {
     detail::encoder e;
     detail::encode(e, v);
     if (e.err) return {slice<byte>(), e.err};
-    return {to_bytes(e.out), nullptr};
+    return {toBytes(e.out), nullptr};
 }
 
 // json.MarshalIndent
@@ -849,15 +849,15 @@ std::pair<slice<byte>, error> MarshalIndent(const T& v, std::string_view prefix,
     if (e.err) return {slice<byte>(), e.err};
     std::string out;
     detail::indent(out, e.out, prefix, indent);
-    return {to_bytes(out), nullptr};
+    return {toBytes(out), nullptr};
 }
 
 // json.Unmarshal: data must hold one JSON value. Fields missing from data
 // keep their values; unknown keys are ignored.
 template <typename T>
 error Unmarshal(std::span<const byte> data, T* v) {
-    if (!v) return make_ptr<InvalidUnmarshalError>(string(detail::type_name<T>()));
-    std::string_view s = as_string_view(data);
+    if (!v) return make_ptr<InvalidUnmarshalError>(string(detail::typeName<T>()));
+    std::string_view s = asStringView(data);
     if (error err = detail::validate(s)) return err;
     detail::decoder d(s);
     detail::decode(d, *v);
@@ -876,20 +876,20 @@ inline bool Valid(std::string_view data) { return Valid(as_bytes(data)); }
 // json.Compact: appends src without insignificant space to dst. On
 // error, dst is unchanged.
 error Compact(std::string& dst, std::string_view src);
-inline error Compact(std::string& dst, std::span<const byte> src) { return Compact(dst, as_string_view(src)); }
+inline error Compact(std::string& dst, std::span<const byte> src) { return Compact(dst, asStringView(src)); }
 
 // json.Indent: appends src to dst with each element on its own line,
 // starting with prefix and nested with indent. Leading space in src is
 // dropped and trailing space kept. On error, dst is unchanged.
 error Indent(std::string& dst, std::string_view src, std::string_view prefix, std::string_view indent);
 inline error Indent(std::string& dst, std::span<const byte> src, std::string_view prefix, std::string_view ind) {
-    return Indent(dst, as_string_view(src), prefix, ind);
+    return Indent(dst, asStringView(src), prefix, ind);
 }
 
 // json.HTMLEscape: appends src to dst with <, >, &, U+2028 and U+2029 in
 // strings escaped, so that it can be embedded in HTML <script> tags.
 void HTMLEscape(std::string& dst, std::string_view src);
-inline void HTMLEscape(std::string& dst, std::span<const byte> src) { HTMLEscape(dst, as_string_view(src)); }
+inline void HTMLEscape(std::string& dst, std::span<const byte> src) { HTMLEscape(dst, asStringView(src)); }
 
 // json.Encoder: writes values to a stream, each followed by a newline.
 class Encoder {
@@ -940,8 +940,8 @@ public:
 
     template <typename T>
     error Decode(T* v) {
-        if (!v) return make_ptr<InvalidUnmarshalError>(string(detail::type_name<T>()));
-        auto [value, err] = read_value();
+        if (!v) return make_ptr<InvalidUnmarshalError>(string(detail::typeName<T>()));
+        auto [value, err] = readValue();
         if (err) return err;
         detail::decoder d(value);
         d.disallow_unknown = disallow_unknown_;
@@ -957,7 +957,7 @@ public:
     int64 InputOffset() const noexcept { return offset_ + static_cast<int64>(scanp_); }
 
 private:
-    std::pair<std::string_view, error> read_value();
+    std::pair<std::string_view, error> readValue();
     error refill();
 
     io::Reader* r_;

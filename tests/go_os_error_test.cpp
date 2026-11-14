@@ -8,14 +8,14 @@ using namespace os_test;
 
 namespace {
 
-std::string check_error_predicate(const char* pred_name, bool (*pred)(const error&) noexcept, const error& err,
+std::string checkErrorPredicate(const char* pred_name, bool (*pred)(const error&) noexcept, const error& err,
                                   const error& target) {
     if (!pred(err)) return std::string(pred_name) + " does not work as expected for " + str(err.Error());
     if (!errors::Is(err, target)) return "errors.Is(" + str(err.Error()) + ", " + str(target.Error()) + ") = false, want true";
     return "";
 }
 
-std::string test_err_not_exist(const std::string& name) {
+std::string testErrNotExist(const std::string& name) {
     auto [original_wd, werr] = os::Getwd();
     if (werr) return "Getwd: " + str(werr.Error());
     auto [f, err] = os::Open(name);
@@ -23,7 +23,7 @@ std::string test_err_not_exist(const std::string& name) {
         f->Close();
         return "Open should have failed";
     }
-    if (auto s = check_error_predicate("os.IsNotExist", os::IsNotExist, err, fs::ErrNotExist); !s.empty()) return s;
+    if (auto s = checkErrorPredicate("os.IsNotExist", os::IsNotExist, err, fs::ErrNotExist); !s.empty()) return s;
 
     error cerr = os::Chdir(name);
     if (!cerr) {
@@ -32,7 +32,7 @@ std::string test_err_not_exist(const std::string& name) {
         }
         return "Chdir should have failed, restored original working directory";
     }
-    return check_error_predicate("os.IsNotExist", os::IsNotExist, cerr, fs::ErrNotExist);
+    return checkErrorPredicate("os.IsNotExist", os::IsNotExist, cerr, fs::ErrNotExist);
 }
 
 }  // namespace
@@ -45,7 +45,7 @@ TEST(GoOs, ErrIsExist) {
         f2->Close();
         ADD_FAILURE() << "Open should have failed";
     } else {
-        EXPECT_EQ(check_error_predicate("os.IsExist", os::IsExist, err2, fs::ErrExist), "");
+        EXPECT_EQ(checkErrorPredicate("os.IsExist", os::IsExist, err2, fs::ErrExist), "");
     }
     f->Close();
     os::Remove(f->Name().view());
@@ -54,9 +54,9 @@ TEST(GoOs, ErrIsExist) {
 TEST(GoOs, ErrIsNotExist) {
     TempDir tmp;
     std::string name = join(tmp, "NotExists");
-    EXPECT_EQ(test_err_not_exist(name), "");
+    EXPECT_EQ(testErrNotExist(name), "");
     name = join(name, "NotExists2");
-    EXPECT_EQ(test_err_not_exist(name), "");
+    EXPECT_EQ(testErrNotExist(name), "");
 }
 
 TEST(GoOs, IsExist) {
@@ -134,11 +134,11 @@ TEST(GoOs, PathErrorUnwrap) {
 
 namespace {
 
-struct my_error_is final : error_interface {
+struct my_error_is final : errorInterface {
     explicit my_error_is(error e) : e(std::move(e)) {}
     error e;
     string Error() const override { return e.Error(); }
-    bool Is(const error_interface* target) const noexcept override { return target == e.get(); }
+    bool Is(const errorInterface* target) const noexcept override { return target == e.get(); }
 };
 
 }  // namespace

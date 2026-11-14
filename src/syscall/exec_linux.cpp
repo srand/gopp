@@ -114,7 +114,7 @@ namespace gopp::syscall {
 
 namespace detail {
 
-long raw_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6) noexcept {
+long rawSyscall(long n, long a1, long a2, long a3, long a4, long a5, long a6) noexcept {
     long ret;
 #if defined(__x86_64__)
     register long r10 asm("r10") = a4;
@@ -144,7 +144,7 @@ long raw_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6) n
 
 namespace {
 
-using detail::raw_syscall;
+using detail::rawSyscall;
 
 // The kernel's struct sigaction (with sa_restorer, on x86-64 and ARM64).
 struct kernel_sigaction {
@@ -198,7 +198,7 @@ struct cap_data {
 
 // The child: system calls only, then exec. On failure, writes the errno
 // to the pipe and exits.
-[[gnu::noinline]] int child_main(void* arg) {
+[[gnu::noinline]] int childMain(void* arg) {
     auto* a = static_cast<child_args*>(arg);
     const SysProcAttr* sys = a->sys;
     long r = 0;
@@ -208,7 +208,7 @@ struct cap_data {
 
 #define CHILD_CALL(...)                     \
     do {                                    \
-        r = raw_syscall(__VA_ARGS__);       \
+        r = rawSyscall(__VA_ARGS__);       \
         if (r < 0 && r > -4096) goto childerror; \
     } while (0)
 
@@ -236,7 +236,7 @@ struct cap_data {
     if (sys->Setpgid || sys->Foreground) CHILD_CALL(SYS_setpgid, 0, sys->Pgid, 0, 0, 0, 0);
     if (sys->Foreground) {
         int pgrp = sys->Pgid;
-        if (pgrp == 0) pgrp = static_cast<int>(raw_syscall(SYS_getpid, 0, 0, 0, 0, 0, 0));
+        if (pgrp == 0) pgrp = static_cast<int>(rawSyscall(SYS_getpid, 0, 0, 0, 0, 0, 0));
         // Before the signal mask is restored, so that SIGTTOU doesn't
         // stop the child.
         CHILD_CALL(SYS_ioctl, sys->Ctty, TIOCSPGRP, reinterpret_cast<long>(&pgrp), 0, 0, 0);
@@ -246,14 +246,14 @@ struct cap_data {
     // the default, ignored signals kept ignored; then the signal mask.
     for (int s = 1; s < nsig; s++) {
         kernel_sigaction old{};
-        if (raw_syscall(SYS_rt_sigaction, s, 0, reinterpret_cast<long>(&old), 8, 0, 0) < 0) continue;
+        if (rawSyscall(SYS_rt_sigaction, s, 0, reinterpret_cast<long>(&old), 8, 0, 0) < 0) continue;
         if (old.handler != reinterpret_cast<unsigned long>(SIG_DFL) &&
             old.handler != reinterpret_cast<unsigned long>(SIG_IGN)) {
             kernel_sigaction dfl{};
-            raw_syscall(SYS_rt_sigaction, s, reinterpret_cast<long>(&dfl), 0, 8, 0, 0);
+            rawSyscall(SYS_rt_sigaction, s, reinterpret_cast<long>(&dfl), 0, 8, 0, 0);
         }
     }
-    raw_syscall(SYS_rt_sigprocmask, SIG_SETMASK, reinterpret_cast<long>(a->oldmask), 0, 8, 0, 0);
+    rawSyscall(SYS_rt_sigprocmask, SIG_SETMASK, reinterpret_cast<long>(a->oldmask), 0, 8, 0, 0);
 
     if (sys->Unshareflags != 0) {
         CHILD_CALL(SYS_unshare, static_cast<long>(sys->Unshareflags), 0, 0, 0, 0, 0);
@@ -331,8 +331,8 @@ struct cap_data {
     if (sys->Pdeathsig.value != 0) {
         CHILD_CALL(SYS_prctl, PR_SET_PDEATHSIG, sys->Pdeathsig.value, 0, 0, 0, 0);
         // The parent may have died already.
-        if (raw_syscall(SYS_getppid, 0, 0, 0, 0, 0, 0) != a->ppid) {
-            long pid = raw_syscall(SYS_getpid, 0, 0, 0, 0, 0, 0);
+        if (rawSyscall(SYS_getppid, 0, 0, 0, 0, 0, 0) != a->ppid) {
+            long pid = rawSyscall(SYS_getpid, 0, 0, 0, 0, 0, 0);
             CHILD_CALL(SYS_kill, pid, sys->Pdeathsig.value, 0, 0, 0, 0);
         }
     }
@@ -355,7 +355,7 @@ struct cap_data {
     // Pass 2: dup fd[i] onto i, without close-on-exec.
     for (int i = 0; i < a->nfd; i++) {
         if (a->fd[i] == -1) {
-            raw_syscall(SYS_close, i, 0, 0, 0, 0, 0);
+            rawSyscall(SYS_close, i, 0, 0, 0, 0, 0);
             continue;
         }
         if (a->fd[i] == i) {
@@ -366,7 +366,7 @@ struct cap_data {
         CHILD_CALL(SYS_dup3, a->fd[i], i, 0, 0, 0, 0);
     }
     // By convention, 0, 1 and 2 aren't left to the child unless given.
-    for (int i = a->nfd; i < 3; i++) raw_syscall(SYS_close, i, 0, 0, 0, 0, 0);
+    for (int i = a->nfd; i < 3; i++) rawSyscall(SYS_close, i, 0, 0, 0, 0, 0);
 
     if (sys->Noctty) CHILD_CALL(SYS_ioctl, 0, TIOCNOTTY, 0, 0, 0, 0);
     if (sys->Setctty) CHILD_CALL(SYS_ioctl, sys->Ctty, TIOCSCTTY, 1, 0, 0, 0);
@@ -374,14 +374,14 @@ struct cap_data {
     // Tracing last, so that the setup above isn't traced.
     if (sys->Ptrace) CHILD_CALL(SYS_ptrace, PTRACE_TRACEME, 0, 0, 0, 0, 0);
 
-    r = raw_syscall(SYS_execve, reinterpret_cast<long>(a->argv0), reinterpret_cast<long>(a->argv),
+    r = rawSyscall(SYS_execve, reinterpret_cast<long>(a->argv0), reinterpret_cast<long>(a->argv),
                     reinterpret_cast<long>(a->envv), 0, 0, 0);
 
 childerror:
 #undef CHILD_CALL
     err1 = static_cast<int>(-r);
-    raw_syscall(SYS_write, pipe, reinterpret_cast<long>(&err1), sizeof(err1), 0, 0, 0);
-    for (;;) raw_syscall(SYS_exit, 253, 0, 0, 0, 0, 0);
+    rawSyscall(SYS_write, pipe, reinterpret_cast<long>(&err1), sizeof(err1), 0, 0, 0);
+    for (;;) rawSyscall(SYS_exit, 253, 0, 0, 0, 0, 0);
 }
 
 // NUL-terminated copies of strings, and pointers to them; false if one
@@ -412,7 +412,7 @@ struct clone_args_k {
     uint64_t parent_tid;
     uint64_t exit_signal;
     uint64_t stack;
-    uint64_t stack_size;
+    uint64_t stackSize;
     uint64_t tls;
     uint64_t set_tid;
     uint64_t set_tid_size;
@@ -422,7 +422,7 @@ struct clone_args_k {
 // Makes a child running child_main(args) with clone(2), or clone3(2) if
 // clone3 isn't null (its flags, pidfd and cgroup set); returns its pid, or
 // -errno. Signals are blocked around it.
-long clone_child(child_args& args, int flags, int* pidfd, clone_args_k* clone3) {
+long cloneChild(child_args& args, int flags, int* pidfd, clone_args_k* clone3) {
     void* stack = ::mmap(nullptr, child_stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK,
                          -1, 0);
     if (stack == MAP_FAILED) return -errno;
@@ -432,15 +432,15 @@ long clone_child(child_args& args, int flags, int* pidfd, clone_args_k* clone3) 
     {
         // The thread is suspended until the child execs: a blocking call.
         // Go's runtime_BeforeFork blocks the signals.
-        runtime::blocking_call b;
+        runtime::blockingCall b;
         pthread_sigmask(SIG_SETMASK, &all, &old);
         args.oldmask = &old;
         if (clone3) {
             clone3->stack = reinterpret_cast<uint64_t>(stack);
-            clone3->stack_size = child_stack_size;
-            pid = gopp_clone3_trampoline(clone3, sizeof(*clone3), child_main, &args);
+            clone3->stackSize = child_stack_size;
+            pid = gopp_clone3_trampoline(clone3, sizeof(*clone3), childMain, &args);
         } else {
-            pid = ::clone(child_main, static_cast<char*>(stack) + child_stack_size, flags, &args, pidfd, nullptr,
+            pid = ::clone(childMain, static_cast<char*>(stack) + child_stack_size, flags, &args, pidfd, nullptr,
                           nullptr);
             if (pid < 0) pid = -errno;
         }
@@ -507,7 +507,7 @@ bool check_clone_pidfd() {
     pthread_sigmask(SIG_SETMASK, &all, &old);
     long pid = ::clone(
         [](void*) -> int {
-            for (;;) raw_syscall(SYS_exit_group, 0, 0, 0, 0, 0, 0);
+            for (;;) rawSyscall(SYS_exit_group, 0, 0, 0, 0, 0, 0);
         },
         static_cast<char*>(stack) + child_stack_size, CLONE_VM | CLONE_VFORK | CLONE_PIDFD, &args, &pidfd,
         nullptr, nullptr);
@@ -622,7 +622,7 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     if (::pipe2(p, O_CLOEXEC) < 0) {
         int e = errno;
         ForkLock.Unlock();
-        return {0, errno_error(e)};
+        return {0, errnoError(e)};
     }
     args.pipe = p[1];
     // Another pipe for parent to child communication for synchronizing
@@ -632,9 +632,9 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
         ForkLock.Unlock();
         ::close(p[0]);
         ::close(p[1]);
-        return {0, errno_error(e)};
+        return {0, errnoError(e)};
     }
-    long pid = clone_child(args, clone3 ? 0 : static_cast<int>(flags | SIGCHLD), &pidfd, clone3 ? &*clone3 : nullptr);
+    long pid = cloneChild(args, clone3 ? 0 : static_cast<int>(flags | SIGCHLD), &pidfd, clone3 ? &*clone3 : nullptr);
     ForkLock.Unlock();
     ::close(p[1]);
     if (pid < 0) {
@@ -643,7 +643,7 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
             ::close(args.map_pipe[0]);
             ::close(args.map_pipe[1]);
         }
-        return {0, errno_error(static_cast<int>(-pid))};
+        return {0, errnoError(static_cast<int>(-pid))};
     }
 
     if (mappings) {
@@ -662,7 +662,7 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     int err1 = 0;
     ssize_t n;
     {
-        runtime::blocking_call b;
+        runtime::blockingCall b;
         std::size_t got = 0;
         for (;;) {
             n = ::read(p[0], reinterpret_cast<char*>(&err1) + got, sizeof(err1) - got);
@@ -681,13 +681,13 @@ std::pair<int, gopp::error> ForkExec(std::string_view argv0, std::span<const str
     ::close(p[0]);
     if (n != 0 || rerr != 0) {
         gopp::error err;
-        if (n == static_cast<ssize_t>(sizeof(err1))) err = errno_error(err1);
-        else if (rerr) err = errno_error(rerr);
+        if (n == static_cast<ssize_t>(sizeof(err1))) err = errnoError(err1);
+        else if (rerr) err = errnoError(rerr);
         else err = EPIPE_;
         // The child failed: reap it, so that zombies don't pile up.
         int status;
         {
-            runtime::blocking_call b;
+            runtime::blockingCall b;
             while (::waitpid(static_cast<pid_t>(pid), &status, 0) < 0 && errno == EINTR) {
             }
         }

@@ -21,14 +21,14 @@ namespace gopp::net {
 namespace {
 
 // Go's notFoundError: newDNSError sets IsNotFound for it.
-struct notFoundError final : error_interface {
+struct notFoundError final : errorInterface {
     string s;
     explicit notFoundError(std::string_view s_) : s(s_) {}
     string Error() const override { return s; }
 };
 
 // Go's temporaryError.
-struct temporaryError final : error_interface {
+struct temporaryError final : errorInterface {
     string s;
     explicit temporaryError(std::string_view s_) : s(s_) {}
     string Error() const override { return s; }
@@ -48,7 +48,7 @@ const error errServerTemporarilyMisbehaving = make_ptr<temporaryError>("server m
 const char* const errMalformedDNSRecordsDetail = "DNS response contained records which contain invalid names";
 
 bool isTemporaryError(const error& err) {
-    const error_interface* e = err.get();
+    const errorInterface* e = err.get();
     if (!e) return false;
     if (dynamic_cast<const temporaryError*>(e)) return true;
     if (auto* d = dynamic_cast<const DNSError*>(e)) return d->Temporary();
@@ -84,7 +84,7 @@ namespace {
 // Whether err is a net.Error, whose Timeout and Temporary newDNSError
 // copies.
 bool isNetError(const error& err) {
-    const error_interface* e = err.get();
+    const errorInterface* e = err.get();
     return dynamic_cast<const temporaryError*>(e) || dynamic_cast<const DNSError*>(e) ||
            dynamic_cast<const OpError*>(e) || dynamic_cast<const Errno*>(e) || e == errTimeout.get() ||
            errors::Is(err, os::ErrDeadlineExceeded) || dynamic_cast<const AddrError*>(e) ||
@@ -582,7 +582,7 @@ std::tuple<std::vector<IPAddr>, dnsmessage::Name, error> goLookupIPCNAMEOrder(Re
         error err;
     };
     if (!conf) conf = getSystemDNSConfig();
-    auto lane = make_chan<result>(1);
+    auto lane = makeChan<result>(1);
     std::vector<dnsmessage::Type> qtypes = {dnsmessage::TypeA, dnsmessage::TypeAAAA};
     if (network == "CNAME") qtypes.push_back(dnsmessage::TypeCNAME);
     switch (ipVersion(network)) {
@@ -749,7 +749,7 @@ namespace detail {
 
 chan<lookup_result> lookup_group::DoChan(const std::string& key,
                                          std::function<std::pair<std::vector<IPAddr>, error>()> fn) {
-    auto ch = make_chan<lookup_result>(1);
+    auto ch = makeChan<lookup_result>(1);
     std::unique_lock l(mu);
     if (auto it = m.find(key); it != m.end()) {
         it->second->dups++;
@@ -911,7 +911,7 @@ std::pair<std::vector<ptr<Addr>>, error> internetAddrList(Resolver* r, const ptr
         if (net.back() == '6' && (a.IP.size() != IPv6len || !a.IP.To4().empty())) continue;  // ipv6only
         addrs.push_back(inetaddr(a));
     }
-    if (addrs.empty()) return {{}, make_ptr<AddrError>(string::from_static("no suitable address found"), host)};
+    if (addrs.empty()) return {{}, make_ptr<AddrError>(string::fromStatic("no suitable address found"), host)};
     return {addrs, nullptr};
 }
 

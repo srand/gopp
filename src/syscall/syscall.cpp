@@ -33,7 +33,7 @@ string Errno::Error() const {
 
 bool Errno::Timeout() const noexcept { return Code == EAGAIN || Code == ETIMEDOUT; }
 
-bool Errno::Is(const error_interface* target) const noexcept {
+bool Errno::Is(const errorInterface* target) const noexcept {
     if (target == fs::ErrPermission.get()) return Code == EACCES || Code == EPERM;
     if (target == fs::ErrExist.get()) return Code == EEXIST || Code == ENOTEMPTY;
     if (target == fs::ErrNotExist.get()) return Code == ENOENT;
@@ -46,7 +46,7 @@ namespace {
 // One error per errno Linux defines, made on first use and kept.
 constexpr int nerrno = 134;
 
-const error* errno_table() {
+const error* errnoTable() {
     static const error* table = [] {
         auto* t = new error[nerrno];
         for (int i = 0; i < nerrno; i++) t[i] = make_ptr<Errno>(i);
@@ -57,27 +57,27 @@ const error* errno_table() {
 
 }  // namespace
 
-gopp::error errno_error(int code) {
-    if (code >= 0 && code < nerrno) return errno_table()[code];
+gopp::error errnoError(int code) {
+    if (code >= 0 && code < nerrno) return errnoTable()[code];
     return make_ptr<Errno>(code);
 }
 
-const error E2BIG_ = errno_error(E2BIG);
-const error EACCES_ = errno_error(EACCES);
-const error EAGAIN_ = errno_error(EAGAIN);
-const error EBADF_ = errno_error(EBADF);
-const error ECHILD_ = errno_error(ECHILD);
-const error EEXIST_ = errno_error(EEXIST);
-const error EINTR_ = errno_error(EINTR);
-const error EINVAL_ = errno_error(EINVAL);
-const error EISDIR_ = errno_error(EISDIR);
-const error ENOENT_ = errno_error(ENOENT);
-const error ENOEXEC_ = errno_error(ENOEXEC);
-const error ENOSYS_ = errno_error(ENOSYS);
-const error ENOTDIR_ = errno_error(ENOTDIR);
-const error EPERM_ = errno_error(EPERM);
-const error EPIPE_ = errno_error(EPIPE);
-const error ESRCH_ = errno_error(ESRCH);
+const error E2BIG_ = errnoError(E2BIG);
+const error EACCES_ = errnoError(EACCES);
+const error EAGAIN_ = errnoError(EAGAIN);
+const error EBADF_ = errnoError(EBADF);
+const error ECHILD_ = errnoError(ECHILD);
+const error EEXIST_ = errnoError(EEXIST);
+const error EINTR_ = errnoError(EINTR);
+const error EINVAL_ = errnoError(EINVAL);
+const error EISDIR_ = errnoError(EISDIR);
+const error ENOENT_ = errnoError(ENOENT);
+const error ENOEXEC_ = errnoError(ENOEXEC);
+const error ENOSYS_ = errnoError(ENOSYS);
+const error ENOTDIR_ = errnoError(ENOTDIR);
+const error EPERM_ = errnoError(EPERM);
+const error EPIPE_ = errnoError(EPIPE);
+const error ESRCH_ = errnoError(ESRCH);
 
 namespace {
 
@@ -121,7 +121,7 @@ constexpr const char* signal_names[] = {
 
 string Signal::String() const {
     if (value >= 0 && value < static_cast<int>(std::size(signal_names)) && signal_names[value]) {
-        return string::from_static(signal_names[value]);
+        return string::fromStatic(signal_names[value]);
     }
     return string("signal " + std::to_string(value));
 }
@@ -136,7 +136,7 @@ int Getgid() noexcept { return static_cast<int>(::getgid()); }
 int Getegid() noexcept { return static_cast<int>(::getegid()); }
 
 gopp::error Kill(int pid, Signal sig) {
-    if (::kill(static_cast<pid_t>(pid), sig.value) < 0) return errno_error(errno);
+    if (::kill(static_cast<pid_t>(pid), sig.value) < 0) return errnoError(errno);
     return nullptr;
 }
 
@@ -159,12 +159,12 @@ gopp::error blocking(F&& f) {
     for (;;) {
         int r, e;
         {
-            runtime::blocking_call b;
+            runtime::blockingCall b;
             r = f();
             e = errno;
         }
         if (r == 0) return nullptr;
-        if (e != EINTR) return errno_error(e);
+        if (e != EINTR) return errnoError(e);
     }
 }
 
@@ -197,7 +197,7 @@ int CmsgSpace(int datalen) { return static_cast<int>(CMSG_SPACE(static_cast<unsi
 
 namespace {
 
-constexpr std::size_t cmsg_align(std::size_t n) { return (n + sizeof(std::size_t) - 1) & ~(sizeof(std::size_t) - 1); }
+constexpr std::size_t cmsgAlign(std::size_t n) { return (n + sizeof(std::size_t) - 1) & ~(sizeof(std::size_t) - 1); }
 
 }  // namespace
 
@@ -207,12 +207,12 @@ std::pair<std::vector<SocketControlMessage>, gopp::error> ParseSocketControlMess
     while (i + CMSG_LEN(0) <= b.size()) {
         cmsghdr h;
         std::memcpy(&h, b.data() + i, sizeof(h));
-        if (h.cmsg_len < sizeof(cmsghdr) || h.cmsg_len > b.size() - i) return {{}, errno_error(EINVAL)};
+        if (h.cmsg_len < sizeof(cmsghdr) || h.cmsg_len > b.size() - i) return {{}, errnoError(EINVAL)};
         SocketControlMessage m;
         m.Header = {static_cast<uint64_t>(h.cmsg_len), h.cmsg_level, h.cmsg_type};
-        m.Data = slice<byte>::of(b.subspan(i + cmsg_align(sizeof(cmsghdr)), h.cmsg_len - cmsg_align(sizeof(cmsghdr))));
+        m.Data = slice<byte>::of(b.subspan(i + cmsgAlign(sizeof(cmsghdr)), h.cmsg_len - cmsgAlign(sizeof(cmsghdr))));
         msgs.push_back(std::move(m));
-        i += cmsg_align(h.cmsg_len);
+        i += cmsgAlign(h.cmsg_len);
     }
     return {msgs, nullptr};
 }
@@ -225,12 +225,12 @@ slice<byte> UnixRights(std::initializer_list<int> fds) {
     h.cmsg_type = SCM_RIGHTS;
     h.cmsg_len = CMSG_LEN(datalen);
     std::memcpy(b.data(), &h, sizeof(h));
-    std::memcpy(b.data() + cmsg_align(sizeof(cmsghdr)), fds.begin(), datalen);
+    std::memcpy(b.data() + cmsgAlign(sizeof(cmsghdr)), fds.begin(), datalen);
     return b;
 }
 
 std::pair<std::vector<int>, gopp::error> ParseUnixRights(const SocketControlMessage& m) {
-    if (m.Header.Level != SOL_SOCKET || m.Header.Type != SCM_RIGHTS) return {{}, errno_error(EINVAL)};
+    if (m.Header.Level != SOL_SOCKET || m.Header.Type != SCM_RIGHTS) return {{}, errnoError(EINVAL)};
     std::vector<int> fds(m.Data.size() / sizeof(int));
     std::memcpy(fds.data(), m.Data.data(), fds.size() * sizeof(int));
     return {fds, nullptr};
@@ -238,7 +238,7 @@ std::pair<std::vector<int>, gopp::error> ParseUnixRights(const SocketControlMess
 
 std::pair<std::array<int, 2>, gopp::error> Socketpair(int domain, int typ, int proto) {
     std::array<int, 2> fd{-1, -1};
-    if (::socketpair(domain, typ, proto, fd.data()) < 0) return {{-1, -1}, errno_error(errno)};
+    if (::socketpair(domain, typ, proto, fd.data()) < 0) return {{-1, -1}, errnoError(errno)};
     return {fd, nullptr};
 }
 

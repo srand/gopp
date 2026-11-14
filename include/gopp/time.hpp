@@ -346,7 +346,7 @@ Time UnixMicro(int64 usec) noexcept;
 Time Date(int year, Month month, int day, int hour, int min, int sec, int nsec, const Location* loc);
 
 // time.ParseError
-struct ParseError final : error_interface {
+struct ParseError final : errorInterface {
     string Layout;
     string Value;
     string LayoutElem;

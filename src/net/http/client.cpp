@@ -44,15 +44,15 @@ struct Transport::impl {
     std::mutex tls_mu;
     std::optional<tls::Config> TLSConfig;
 
-    tls::Config client_tls_config(const Transport& t) {
+    tls::Config clientTlsConfig(const Transport& t) {
         std::lock_guard l(tls_mu);
         if (!TLSConfig) {
             TLSConfig = t.TLSClientConfig.value_or(tls::Config{});
             TLSConfig->ctx_ = nullptr;
             if (TLSConfig->NextProtos.empty()) {
                 http::Protocols p = t.Protocols.value_or(DefaultProtocols());
-                if (p.HTTP2() && internal::http2_client_enabled) TLSConfig->NextProtos.push_back(string::from_static("h2"));
-                if (p.HTTP1()) TLSConfig->NextProtos.push_back(string::from_static("http/1.1"));
+                if (p.HTTP2() && internal::http2_client_enabled) TLSConfig->NextProtos.push_back(string::fromStatic("h2"));
+                if (p.HTTP1()) TLSConfig->NextProtos.push_back(string::fromStatic("http/1.1"));
             }
         }
         return *TLSConfig;
@@ -67,7 +67,7 @@ struct Transport::impl {
     std::unordered_map<std::string, std::vector<ptr<internal::http2_client_conn>>> h2;
 
     // An HTTP/2 connection to key that can take a request now.
-    ptr<internal::http2_client_conn> h2_get(const std::string& key) {
+    ptr<internal::http2_client_conn> h2Get(const std::string& key) {
         std::lock_guard l(h2_mu);
         auto it = h2.find(key);
         if (it == h2.end()) return nullptr;
@@ -78,17 +78,17 @@ struct Transport::impl {
         return nullptr;
     }
 
-    void h2_put(const std::string& key, ptr<internal::http2_client_conn> cc) {
+    void h2Put(const std::string& key, ptr<internal::http2_client_conn> cc) {
         std::lock_guard l(h2_mu);
         h2[key].push_back(std::move(cc));
     }
 
-    void h2_close_idle() {
+    void h2CloseIdle() {
         std::lock_guard l(h2_mu);
         for (auto& [key, list] : h2) std::erase_if(list, [](auto& cc) { return cc->close_if_idle() || cc->closed(); });
     }
 
-    ptr<persist_conn> get_idle(const std::string& key) {
+    ptr<persist_conn> getIdle(const std::string& key) {
         std::lock_guard l(mu);
         auto it = idle.find(key);
         if (it == idle.end() || it->second.empty()) return nullptr;
@@ -99,7 +99,7 @@ struct Transport::impl {
     }
 
     // Returns false if the pool is full; the caller closes pc then.
-    bool put_idle(const ptr<persist_conn>& pc, int max_per_host, int max_total) {
+    bool putIdle(const ptr<persist_conn>& pc, int max_per_host, int max_total) {
         std::lock_guard l(mu);
         auto& list = idle[pc->key];
         if (max_per_host <= 0) max_per_host = 2;
@@ -110,7 +110,7 @@ struct Transport::impl {
         return true;
     }
 
-    void close_idle() {
+    void closeIdle() {
         std::unordered_map<std::string, std::vector<ptr<persist_conn>>> old;
         {
             std::lock_guard l(mu);
@@ -120,7 +120,7 @@ struct Transport::impl {
         for (auto& [key, list] : old) {
             for (auto& pc : list) pc->conn->Close();
         }
-        h2_close_idle();
+        h2CloseIdle();
     }
 };
 
@@ -182,7 +182,7 @@ private:
                 pc->conn->SetDeadline(time::Time{});
                 pc->has_deadline = false;
             }
-            if (t_->put_idle(pc, max_per_host_, max_total_)) return;
+            if (t_->putIdle(pc, max_per_host_, max_total_)) return;
         }
         pc->conn->Close();
     }
@@ -198,15 +198,15 @@ private:
     bool closed_ = false;
 };
 
-string url_error_op(std::string_view method) {
+string urlErrorOp(std::string_view method) {
     // "GET" -> "Get", as Go names client errors.
-    if (method.empty()) return string::from_static("Get");
+    if (method.empty()) return string::fromStatic("Get");
     return string(method.substr(0, 1)) + ascii::ToLowerBytes(method.substr(1));
 }
 
-gopp::error url_error(std::string_view method, const url::URL& u, gopp::error err) {
+gopp::error urlError(std::string_view method, const url::URL& u, gopp::error err) {
     auto e = make_ptr<url::Error>();
-    e->Op = url_error_op(method);
+    e->Op = urlErrorOp(method);
     e->URL = u.String();
     e->Err = std::move(err);
     return e;
@@ -218,13 +218,13 @@ bool idempotent(std::string_view method) {
 
 // Errors on a reused connection that the server may have closed while it
 // was idle: the request is safe to retry on a new one.
-bool stale_conn_error(const gopp::error& err) {
+bool staleConnError(const gopp::error& err) {
     if (err == io::EOF_ || err == io::ErrUnexpectedEOF) return true;
     if (auto* e = errors::As<net::Errno>(err)) return e->Code == ECONNRESET || e->Code == EPIPE;
     return false;
 }
 
-gopp::error write_request(persist_conn& pc, Request& req, bool close) {
+gopp::error writeRequest(persist_conn& pc, Request& req, bool close) {
     std::string out;
     out.reserve(256);
     out.append(req.Method.empty() ? std::string_view("GET") : req.Method.view());
@@ -280,11 +280,11 @@ struct read_result {
 };
 
 // Reads a response header, skipping 1xx responses other than 101.
-read_result read_response_header(persist_conn& pc, Request& req) {
+read_result readResponseHeader(persist_conn& pc, Request& req) {
     for (;;) {
         auto resp = make_ptr<Response>();
         string line;
-        if (gopp::error err = internal::read_header_block(pc.br, 10 << 20, line, resp->Header)) {
+        if (gopp::error err = internal::readHeaderBlock(pc.br, 10 << 20, line, resp->Header)) {
             return {nullptr, err};
         }
         if (line.empty()) return {nullptr, err_malformed_response};
@@ -292,7 +292,7 @@ read_result read_response_header(persist_conn& pc, Request& req) {
         if (sp == string::npos) return {nullptr, err_malformed_response};
         resp->Proto = line.slice(0, sp);
         resp->Status = strings::TrimLeft(line.slice(sp + 1), " ");
-        if (!internal::parse_http_version(resp->Proto, resp->ProtoMajor, resp->ProtoMinor)) {
+        if (!internal::parseHttpVersion(resp->Proto, resp->ProtoMajor, resp->ProtoMinor)) {
             return {nullptr, errors::New("malformed HTTP version " + strconv::Quote(resp->Proto))};
         }
         std::string_view code = resp->Status.view().substr(0, 3);
@@ -314,9 +314,9 @@ read_result read_response_header(persist_conn& pc, Request& req) {
 
 Transport::Transport() : impl_(std::make_shared<impl>()) {}
 
-Transport::~Transport() { impl_->close_idle(); }
+Transport::~Transport() { impl_->closeIdle(); }
 
-void Transport::CloseIdleConnections() { impl_->close_idle(); }
+void Transport::CloseIdleConnections() { impl_->closeIdle(); }
 
 std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
     bool https = req.URL.Scheme == "https";
@@ -353,14 +353,14 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
 
     for (int attempt = 0;; attempt++) {
         if (may_h2) {
-            if (auto cc = impl_->h2_get(key)) {
+            if (auto cc = impl_->h2Get(key)) {
                 bool retry;
                 auto res = h2_round_trip(cc, attempt, retry);
                 if (retry) continue;
                 return res;
             }
         }
-        ptr<persist_conn> pc = DisableKeepAlives || h2c ? nullptr : impl_->get_idle(key);
+        ptr<persist_conn> pc = DisableKeepAlives || h2c ? nullptr : impl_->getIdle(key);
         bool reused = static_cast<bool>(pc);
         if (!pc) {
             time::Duration dt = DialTimeout;
@@ -372,7 +372,7 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
             auto [c, err] = net::DialTimeout("tcp", addr, dt);
             if (err) return {nullptr, err};
             if (https) {
-                tls::Config cfg = impl_->client_tls_config(*this);
+                tls::Config cfg = impl_->clientTlsConfig(*this);
                 if (cfg.ServerName.empty()) cfg.ServerName = req.URL.Hostname();
                 auto tc = tls::Client(c, cfg);
                 if (TLSHandshakeTimeout.ns > 0) c->SetDeadline(time::Now().Add(TLSHandshakeTimeout));
@@ -383,8 +383,8 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
                 c->SetDeadline(time::Time{});
                 tls::ConnectionState state = tc->ConnectionState();
                 if (state.NegotiatedProtocol == "h2") {
-                    auto cc = internal::new_http2_client_conn(tc, state, h2opts);
-                    impl_->h2_put(key, cc);
+                    auto cc = internal::newHttp2ClientConn(tc, state, h2opts);
+                    impl_->h2Put(key, cc);
                     bool retry;
                     auto res = h2_round_trip(cc, attempt, retry);
                     if (retry) continue;
@@ -393,8 +393,8 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
                 pc = make_ptr<persist_conn>(key, tc);
                 pc->tls = state;
             } else if (h2c) {
-                auto cc = internal::new_http2_client_conn(c, std::nullopt, h2opts);
-                impl_->h2_put(key, cc);
+                auto cc = internal::newHttp2ClientConn(c, std::nullopt, h2opts);
+                impl_->h2Put(key, cc);
                 bool retry;
                 auto res = h2_round_trip(cc, attempt, retry);
                 if (retry) continue;
@@ -408,19 +408,19 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
             pc->has_deadline = true;
         }
 
-        gopp::error err = write_request(*pc, req, DisableKeepAlives);
+        gopp::error err = writeRequest(*pc, req, DisableKeepAlives);
         read_result rr;
         if (!err) {
             if (ResponseHeaderTimeout.ns > 0 && !deadline) {
                 pc->conn->SetReadDeadline(time::Now().Add(ResponseHeaderTimeout));
             }
-            rr = read_response_header(*pc, req);
+            rr = readResponseHeader(*pc, req);
             err = rr.err;
             if (ResponseHeaderTimeout.ns > 0 && !deadline) pc->conn->SetReadDeadline(time::Time{});
         }
         if (err) {
             pc->conn->Close();
-            if (reused && attempt == 0 && idempotent(req.Method) && !req.Body && stale_conn_error(err)) continue;
+            if (reused && attempt == 0 && idempotent(req.Method) && !req.Body && staleConnError(err)) continue;
             if (deadline && err->Timeout()) err = context::DeadlineExceeded;
             return {nullptr, err};
         }
@@ -430,16 +430,16 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
         resp->TLS = pc->tls;
         resp->Close = DisableKeepAlives || req.Close ||
                       (resp->ProtoMajor == 1 && resp->ProtoMinor == 0
-                           ? !internal::has_token(resp->Header.Get("Connection"), "keep-alive")
-                           : internal::has_token(resp->Header.Get("Connection"), "close"));
+                           ? !internal::hasToken(resp->Header.Get("Connection"), "keep-alive")
+                           : internal::hasToken(resp->Header.Get("Connection"), "close"));
         bool reusable = !resp->Close;
         int code = resp->StatusCode;
-        bool no_body = req.Method == "HEAD" || code == 204 || code == 304 || (code >= 100 && code < 200);
+        bool noBody = req.Method == "HEAD" || code == 204 || code == 304 || (code >= 100 && code < 200);
 
         std::vector<string> te = resp->Header.Values("Transfer-Encoding");
         bool chunked = !te.empty() && ascii::EqualFold(te.back(), "chunked");
         if (chunked) {
-            resp->TransferEncoding = {string::from_static("chunked")};
+            resp->TransferEncoding = {string::fromStatic("chunked")};
             resp->Header.Del("Content-Length");
         }
         string cl = resp->Header.Get("Content-Length");
@@ -451,9 +451,9 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
             }
             resp->ContentLength = n;
         }
-        if (no_body) {
+        if (noBody) {
             if (req.Method != "HEAD") resp->ContentLength = 0;
-            resp->Body = internal::no_body();
+            resp->Body = internal::noBody();
         } else if (chunked) {
             resp->ContentLength = -1;
             resp->Body = make_ptr<client_body>(impl_, pc, make_ptr<internal::chunked_reader>(pc->br), nullptr, reusable,
@@ -466,7 +466,7 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
                                                MaxIdleConns);
             return {resp, nullptr};
         } else if (resp->ContentLength == 0) {
-            resp->Body = internal::no_body();
+            resp->Body = internal::noBody();
         } else {
             // Neither length nor chunking: the body ends when the connection does.
             resp->Close = true;
@@ -480,7 +480,7 @@ std::pair<ptr<Response>, gopp::error> Transport::RoundTrip(Request& req) {
                 pc->conn->SetDeadline(time::Time{});
                 pc->has_deadline = false;
             }
-            if (impl_->put_idle(pc, MaxIdleConnsPerHost, MaxIdleConns)) return {resp, nullptr};
+            if (impl_->putIdle(pc, MaxIdleConnsPerHost, MaxIdleConns)) return {resp, nullptr};
         }
         pc->conn->Close();
         return {resp, nullptr};
@@ -498,7 +498,7 @@ const ptr<Transport>& DefaultTransport() {
 std::pair<ptr<Request>, gopp::error> NewRequestWithContext(ptr<context::Context> ctx, std::string_view method,
                                                               std::string_view rawurl, ptr<io::Reader> body) {
     if (method.empty()) method = "GET";
-    if (!internal::valid_method(method)) return {nullptr, errors::New("net/http: invalid method " + strconv::Quote(method))};
+    if (!internal::validMethod(method)) return {nullptr, errors::New("net/http: invalid method " + strconv::Quote(method))};
     if (!ctx) return {nullptr, errors::New("net/http: nil Context")};
     auto [u, err] = url::Parse(rawurl);
     if (err) return {nullptr, err};
@@ -526,10 +526,10 @@ std::pair<ptr<Request>, gopp::error> NewRequest(std::string_view method, std::st
 
 namespace {
 
-bool is_redirect(int code) { return code == 301 || code == 302 || code == 303 || code == 307 || code == 308; }
+bool isRedirect(int code) { return code == 301 || code == 302 || code == 303 || code == 307 || code == 308; }
 
 // Resolves a Location header against the request URL.
-std::pair<string, gopp::error> resolve_location(const url::URL& base, const string& loc) {
+std::pair<string, gopp::error> resolveLocation(const url::URL& base, const string& loc) {
     if (loc.find("://") != string::npos) return {loc, nullptr};
     url::URL u = base;
     u.RawPath = {};
@@ -546,7 +546,7 @@ std::pair<string, gopp::error> resolve_location(const url::URL& base, const stri
         path = string(l);
     } else {
         std::string_view dir = base.Path.view().substr(0, base.Path.view().rfind('/') + 1);
-        path = internal::clean_path(string(dir) + string(l));
+        path = internal::cleanPath(string(dir) + string(l));
     }
     auto [p, err] = url::PathUnescape(path);
     if (err) return {{}, err};
@@ -596,21 +596,21 @@ std::pair<ptr<Response>, gopp::error> Client::Do(ptr<Request> req) {
     };
     for (int redirects = 0;; redirects++) {
         auto [resp, err] = rt->RoundTrip(*req);
-        if (err) return {nullptr, url_error(req->Method, req->URL, err)};
+        if (err) return {nullptr, urlError(req->Method, req->URL, err)};
         resp->Request = req;
-        if (!is_redirect(resp->StatusCode) || MaxRedirects <= 0) return done(resp);
+        if (!isRedirect(resp->StatusCode) || MaxRedirects <= 0) return done(resp);
         string loc = resp->Header.Get("Location");
         if (loc.empty()) return done(resp);
         // 307 and 308 resend the body, which only works without one.
         if ((resp->StatusCode == 307 || resp->StatusCode == 308) && req->Body) return done(resp);
         if (redirects + 1 > MaxRedirects) {
             resp->Body->Close();
-            return {nullptr, url_error(req->Method, req->URL, errors::New("stopped after " + strconv::Itoa(MaxRedirects) + " redirects"))};
+            return {nullptr, urlError(req->Method, req->URL, errors::New("stopped after " + strconv::Itoa(MaxRedirects) + " redirects"))};
         }
-        auto [target, rerr] = resolve_location(req->URL, loc);
+        auto [target, rerr] = resolveLocation(req->URL, loc);
         if (rerr) {
             resp->Body->Close();
-            return {nullptr, url_error(req->Method, req->URL, rerr)};
+            return {nullptr, urlError(req->Method, req->URL, rerr)};
         }
         // Drain a little of the body so that the connection can be reused.
         io::CopyN(io::Discard(), *resp->Body, 2048);
@@ -618,10 +618,10 @@ std::pair<ptr<Response>, gopp::error> Client::Do(ptr<Request> req) {
 
         string method = req->Method;
         if ((resp->StatusCode == 301 || resp->StatusCode == 302 || resp->StatusCode == 303) && method != "HEAD") {
-            method = string::from_static("GET");
+            method = string::fromStatic("GET");
         }
         auto [next, nerr] = NewRequestWithContext(req->Context(), method, target);
-        if (nerr) return {nullptr, url_error(req->Method, req->URL, nerr)};
+        if (nerr) return {nullptr, urlError(req->Method, req->URL, nerr)};
         for (auto& e : req->Header) next->Header.AddCanonical(e.key, e.value);
         req = next;
     }

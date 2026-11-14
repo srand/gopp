@@ -41,7 +41,7 @@ namespace gopp::os::exec {
 namespace detail {
 // Implements Error() for an error type named Error, which can't declare it.
 template <typename E>
-struct named_error : error_interface {
+struct named_error : errorInterface {
     string Error() const override { return static_cast<const E&>(*this).message(); }
 };
 }  // namespace detail
@@ -55,12 +55,12 @@ struct Error : detail::named_error<Error> {
     gopp::error Err;
     // "exec: \"name\": err"
     string message() const;
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
 };
 
 // exec.ExitError: a command ran and didn't exit with status 0. Go's
 // embedded *os.ProcessState's methods are forwarded.
-struct ExitError : error_interface {
+struct ExitError : errorInterface {
     explicit ExitError(ptr<os::ProcessState> ps) : ProcessState(std::move(ps)) {}
     ptr<os::ProcessState> ProcessState;
     // Some of the standard error of the command, if Output collected it.
@@ -164,10 +164,10 @@ private:
         gopp::error err;
         ptr<time::Timer> timer;
     };
-    std::pair<ptr<os::File>, gopp::error> child_stdin();
-    std::pair<ptr<os::File>, gopp::error> child_stdout();
-    std::pair<ptr<os::File>, gopp::error> child_stderr(const ptr<os::File>& child_stdout);
-    std::pair<ptr<os::File>, gopp::error> writer_descriptor(const ptr<io::Writer>& w);
+    std::pair<ptr<os::File>, gopp::error> childStdin();
+    std::pair<ptr<os::File>, gopp::error> childStdout();
+    std::pair<ptr<os::File>, gopp::error> childStderr(const ptr<os::File>& childStdout);
+    std::pair<ptr<os::File>, gopp::error> writerDescriptor(const ptr<io::Writer>& w);
     std::pair<slice<string>, gopp::error> environ() const;
     slice<string> argv() const;
     void watch_ctx(chan<ctx_result> resultc);

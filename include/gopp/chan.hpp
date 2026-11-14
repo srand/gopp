@@ -49,20 +49,20 @@ inline constexpr elem_ops elem_ops_of = {
 
 struct hchan;
 
-hchan* chan_make(const elem_ops* ops, std::size_t size);
-void chan_retain(hchan* c) noexcept;
-void chan_release(hchan* c) noexcept;
+hchan* chanMake(const elem_ops* ops, std::size_t size);
+void chanRetain(hchan* c) noexcept;
+void chanRelease(hchan* c) noexcept;
 // Moves *elem into the channel. Returns false if !block and it would block.
-bool chan_send(hchan* c, void* elem, bool block);
+bool chanSend(hchan* c, void* elem, bool block);
 struct recv_result {
     bool selected;
     bool received;  // false if the channel is closed; *elem is not constructed then
 };
 // Move-constructs a received value into the storage at elem.
-recv_result chan_recv(hchan* c, void* elem, bool block);
-void chan_close(hchan* c);
-std::size_t chan_len(hchan* c) noexcept;
-std::size_t chan_cap(hchan* c) noexcept;
+recv_result chanRecv(hchan* c, void* elem, bool block);
+void chanClose(hchan* c);
+std::size_t chanLen(hchan* c) noexcept;
+std::size_t chanCap(hchan* c) noexcept;
 
 struct scase {
     hchan* c;
@@ -101,11 +101,11 @@ public:
     chan(std::nullptr_t) noexcept {}
 
     chan(const chan& o) noexcept : c_(o.c_) {
-        if (c_) detail::chan_retain(c_);
+        if (c_) detail::chanRetain(c_);
     }
     chan(chan&& o) noexcept : c_(std::exchange(o.c_, nullptr)) {}
     ~chan() {
-        if (c_) detail::chan_release(c_);
+        if (c_) detail::chanRelease(c_);
     }
     chan& operator=(chan o) noexcept {
         std::swap(c_, o.c_);
@@ -113,42 +113,42 @@ public:
     }
 
     // make(chan T, size)
-    static chan make(std::size_t size = 0) { return chan(detail::chan_make(&detail::elem_ops_of<T>, size)); }
+    static chan make(std::size_t size = 0) { return chan(detail::chanMake(&detail::elem_ops_of<T>, size)); }
 
     // ch <- v. Sending on a nil channel blocks forever; on a closed one, panics.
-    void send(T v) const { detail::chan_send(c_, &v, true); }
+    void send(T v) const { detail::chanSend(c_, &v, true); }
 
     // <-ch. Returns the zero value once the channel is closed and drained.
     T recv() const {
         detail::slot<T> s;
-        if (detail::chan_recv(c_, s.get(), true).received) return s.take();
+        if (detail::chanRecv(c_, s.get(), true).received) return s.take();
         return T{};
     }
 
     // v, ok := <-ch
     std::pair<T, bool> recv2() const {
         detail::slot<T> s;
-        if (detail::chan_recv(c_, s.get(), true).received) return {s.take(), true};
+        if (detail::chanRecv(c_, s.get(), true).received) return {s.take(), true};
         return {T{}, false};
     }
 
     // select { case ch <- v: return true; default: return false }
-    bool try_send(T& v) const { return detail::chan_send(c_, &v, false); }
-    bool try_send(T&& v) const { return detail::chan_send(c_, &v, false); }
+    bool trySend(T& v) const { return detail::chanSend(c_, &v, false); }
+    bool trySend(T&& v) const { return detail::chanSend(c_, &v, false); }
 
     // select { case v, ok := <-ch: ...; default: }. Returns whether a value
     // was received; closed is set when the channel is closed and empty.
-    bool try_recv(T& out, bool* closed = nullptr) const {
+    bool tryRecv(T& out, bool* closed = nullptr) const {
         detail::slot<T> s;
-        auto r = detail::chan_recv(c_, s.get(), false);
+        auto r = detail::chanRecv(c_, s.get(), false);
         if (closed) *closed = r.selected && !r.received;
         if (r.received) out = s.take();
         return r.received;
     }
 
-    void close() const { detail::chan_close(c_); }
-    std::size_t len() const noexcept { return c_ ? detail::chan_len(c_) : 0; }
-    std::size_t cap() const noexcept { return c_ ? detail::chan_cap(c_) : 0; }
+    void close() const { detail::chanClose(c_); }
+    std::size_t len() const noexcept { return c_ ? detail::chanLen(c_) : 0; }
+    std::size_t cap() const noexcept { return c_ ? detail::chanCap(c_) : 0; }
 
     explicit operator bool() const noexcept { return c_ != nullptr; }
     bool operator==(const chan& o) const noexcept { return c_ == o.c_; }
@@ -188,7 +188,7 @@ private:
 
 // make(chan T, size)
 template <typename T>
-chan<T> make_chan(std::size_t size = 0) {
+chan<T> makeChan(std::size_t size = 0) {
     return chan<T>::make(size);
 }
 
@@ -248,7 +248,7 @@ send_case<T, std::decay_t<F>> send(const chan<T>& ch, V&& v, F&& f) {
 
 // default: f()
 template <typename F>
-default_case_t<std::decay_t<F>> default_case(F&& f) {
+default_case_t<std::decay_t<F>> defaultCase(F&& f) {
     return {std::forward<F>(f)};
 }
 

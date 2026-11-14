@@ -80,7 +80,7 @@ extern const error ErrNoDeadline;
 extern const error ErrDeadlineExceeded;
 
 // os.LinkError: an error of a call with two paths, such as Rename.
-struct LinkError : error_interface {
+struct LinkError : errorInterface {
     LinkError(string op, string old_path, string new_path, gopp::error err)
         : Op(std::move(op)), Old(std::move(old_path)), New(std::move(new_path)), Err(std::move(err)) {}
     string Op;
@@ -88,16 +88,16 @@ struct LinkError : error_interface {
     string New;
     gopp::error Err;
     string Error() const override;
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
 };
 
 // os.SyscallError: an error of a system call.
-struct SyscallError : error_interface {
+struct SyscallError : errorInterface {
     SyscallError(string syscall, gopp::error err) : Syscall(std::move(syscall)), Err(std::move(err)) {}
     string Syscall;
     gopp::error Err;
     string Error() const override;
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
     bool Timeout() const noexcept override { return Err && Err->Timeout(); }
 };
 
@@ -134,8 +134,8 @@ inline constexpr bool IsPathSeparator(char c) noexcept { return c == '/'; }
 inline constexpr std::string_view DevNull = "/dev/null";
 
 namespace detail {
-struct file_impl;
-struct root_impl;
+struct fileImpl;
+struct rootImpl;
 }
 
 // os.File: an open file descriptor. The descriptor is closed by Close, or
@@ -153,7 +153,7 @@ class File final : public fs::ReadDirFile,
                    public io::WriterTo,
                    public syscall::Conn {
 public:
-    explicit File(std::unique_ptr<detail::file_impl> impl) noexcept;
+    explicit File(std::unique_ptr<detail::fileImpl> impl) noexcept;
     ~File() override;
     File(const File&) = delete;
     File& operator=(const File&) = delete;
@@ -221,9 +221,9 @@ public:
     uintptr Fd();
 
 private:
-    friend struct detail::file_impl;
-    error wrap_err(std::string_view op, error err) const;
-    std::unique_ptr<detail::file_impl> f_;
+    friend struct detail::fileImpl;
+    error wrapErr(std::string_view op, error err) const;
+    std::unique_ptr<detail::fileImpl> f_;
 };
 
 // os.Root: a directory that file system operations can't escape. Names
@@ -239,7 +239,7 @@ private:
 // of it, and a Root doesn't stop other processes from changing the tree.
 class Root final : public object {
 public:
-    explicit Root(std::unique_ptr<detail::root_impl> impl) noexcept;
+    explicit Root(std::unique_ptr<detail::rootImpl> impl) noexcept;
     ~Root() override;
     Root(const Root&) = delete;
     Root& operator=(const Root&) = delete;
@@ -287,8 +287,8 @@ public:
     ptr<fs::FS> FS();
 
 private:
-    friend struct detail::root_impl;
-    std::unique_ptr<detail::root_impl> r_;
+    friend struct detail::rootImpl;
+    std::unique_ptr<detail::rootImpl> r_;
 };
 
 // os.OpenRoot: a Root of the directory name.
@@ -483,11 +483,11 @@ public:
     string String() const;
 
     explicit operator bool() const noexcept { return sys_ || p_; }
-    bool is_nil() const noexcept { return !*this; }
+    bool isNil() const noexcept { return !*this; }
 
     // sig.(syscall.Signal): the signal and true if it holds a
     // syscall::Signal.
-    std::pair<syscall::Signal, bool> as_syscall() const noexcept { return {syscall::Signal(num_), sys_}; }
+    std::pair<syscall::Signal, bool> asSyscall() const noexcept { return {syscall::Signal(num_), sys_}; }
     // The signal_interface it holds, if any.
     const signal_interface* get() const noexcept { return p_.get(); }
 

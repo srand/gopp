@@ -8,7 +8,7 @@ namespace gopp::os {
 
 namespace detail {
 
-void fill_file_stat(file_stat& fs, std::string_view name) {
+void fillFileStat(file_stat& fs, std::string_view name) {
     // filepathlite.Base: the last element, without trailing slashes.
     while (name.size() > 1 && name.back() == '/') name.remove_suffix(1);
     if (auto i = name.rfind('/'); i != std::string_view::npos && name.size() > 1) name = name.substr(i + 1);
@@ -32,15 +32,15 @@ void fill_file_stat(file_stat& fs, std::string_view name) {
     fs.mode = m;
 }
 
-std::pair<ptr<FileInfo>, error> lstatat(File& f, file_impl& fi, std::string_view name) {
+std::pair<ptr<FileInfo>, error> lstatat(File& f, fileImpl& fi, std::string_view name) {
     std::string p;
     auto st = make_ptr<file_stat>();
-    error e = cpath(name, p) ? fi.pfd.Fstatat(p.c_str(), &st->sys, AT_SYMLINK_NOFOLLOW) : errno_error(EINVAL);
+    error e = cpath(name, p) ? fi.pfd.Fstatat(p.c_str(), &st->sys, AT_SYMLINK_NOFOLLOW) : errnoError(EINVAL);
     if (e) {
         if (e == poll::ErrFileClosing) e = ErrClosed;
         return {nullptr, path_error("fstatat", join_path(f.Name().view(), name), e)};
     }
-    fill_file_stat(*st, name);
+    fillFileStat(*st, name);
     return {st, nullptr};
 }
 
@@ -48,31 +48,31 @@ std::pair<ptr<FileInfo>, error> lstatat(File& f, file_impl& fi, std::string_view
 
 namespace {
 
-std::pair<ptr<FileInfo>, error> stat_path(std::string_view op, std::string_view name, int flags) {
+std::pair<ptr<FileInfo>, error> statPath(std::string_view op, std::string_view name, int flags) {
     std::string p;
-    if (!detail::cpath(name, p)) return {nullptr, detail::path_error(op, name, detail::errno_error(EINVAL))};
+    if (!detail::cpath(name, p)) return {nullptr, detail::path_error(op, name, detail::errnoError(EINVAL))};
     auto st = make_ptr<detail::file_stat>();
     if (int e = poll::statat(AT_FDCWD, p.c_str(), &st->sys, flags)) {
-        return {nullptr, detail::path_error(op, name, detail::errno_error(e))};
+        return {nullptr, detail::path_error(op, name, detail::errnoError(e))};
     }
-    detail::fill_file_stat(*st, name);
+    detail::fillFileStat(*st, name);
     return {st, nullptr};
 }
 
 }  // namespace
 
 std::pair<ptr<FileInfo>, error> Stat(std::string_view name) {
-    return stat_path("stat", name, 0);
+    return statPath("stat", name, 0);
 }
 
 std::pair<ptr<FileInfo>, error> Lstat(std::string_view name) {
-    return stat_path("lstat", name, AT_SYMLINK_NOFOLLOW);
+    return statPath("lstat", name, AT_SYMLINK_NOFOLLOW);
 }
 
 std::pair<ptr<FileInfo>, error> File::Stat() {
     auto st = make_ptr<detail::file_stat>();
-    if (error e = f_->pfd.Fstat(&st->sys)) return {nullptr, wrap_err("stat", std::move(e))};
-    detail::fill_file_stat(*st, f_->name.view());
+    if (error e = f_->pfd.Fstat(&st->sys)) return {nullptr, wrapErr("stat", std::move(e))};
+    detail::fillFileStat(*st, f_->name.view());
     return {st, nullptr};
 }
 

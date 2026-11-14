@@ -23,7 +23,7 @@ timers_t& timers() {
     return *t;
 }
 
-void sift_up(std::vector<timer*>& h, int32_t i) noexcept {
+void siftUp(std::vector<timer*>& h, int32_t i) noexcept {
     timer* t = h[i];
     while (i > 0) {
         int32_t p = (i - 1) / 2;
@@ -52,7 +52,7 @@ void sift_down(std::vector<timer*>& h, int32_t i) noexcept {
     t->idx = i;
 }
 
-void remove_at(std::vector<timer*>& h, int32_t i) noexcept {
+void removeAt(std::vector<timer*>& h, int32_t i) noexcept {
     timer* t = h[i];
     timer* last = h.back();
     h.pop_back();
@@ -61,7 +61,7 @@ void remove_at(std::vector<timer*>& h, int32_t i) noexcept {
         h[i] = last;
         last->idx = i;
         sift_down(h, i);
-        sift_up(h, last->idx);
+        siftUp(h, last->idx);
     }
 }
 
@@ -69,64 +69,64 @@ void remove_at(std::vector<timer*>& h, int32_t i) noexcept {
 void push(timer* t) noexcept {
     auto& h = timers().heap;
     h.push_back(t);
-    sift_up(h, static_cast<int32_t>(h.size() - 1));
+    siftUp(h, static_cast<int32_t>(h.size() - 1));
 }
 
-void update_next() noexcept {
+void updateNext() noexcept {
     auto& ts = timers();
     ts.next.store(ts.heap.empty() ? INT64_MAX : ts.heap[0]->when, std::memory_order_release);
 }
 
 }  // namespace
 
-void add_timer(timer* t) noexcept {
-    ensure_init();
+void addTimer(timer* t) noexcept {
+    ensureInit();
     auto& ts = timers();
     if (t->when <= 0) t->when = INT64_MAX;
     ts.lock.lock();
     if (t->idx >= 0) fatal("add_timer: timer already scheduled");
     push(t);
     bool earliest = ts.heap[0] == t;
-    update_next();
+    updateNext();
     int64_t when = t->when;
     ts.lock.unlock();
-    if (earliest) wake_netpoller(when);
+    if (earliest) wakeNetpoller(when);
 }
 
-bool del_timer(timer* t) noexcept {
+bool delTimer(timer* t) noexcept {
     auto& ts = timers();
     ts.lock.lock();
     bool pending = t->idx >= 0;
     if (pending) {
-        remove_at(ts.heap, t->idx);
-        update_next();
+        removeAt(ts.heap, t->idx);
+        updateNext();
     }
     ts.lock.unlock();
     return pending;
 }
 
-bool mod_timer(timer* t, int64_t when) noexcept {
+bool modTimer(timer* t, int64_t when) noexcept {
     auto& ts = timers();
     ts.lock.lock();
     bool pending = t->idx >= 0;
-    if (pending) remove_at(ts.heap, t->idx);
+    if (pending) removeAt(ts.heap, t->idx);
     t->when = when <= 0 ? INT64_MAX : when;
     push(t);
     bool earliest = ts.heap[0] == t;
-    update_next();
+    updateNext();
     ts.lock.unlock();
-    if (earliest) wake_netpoller(t->when);
+    if (earliest) wakeNetpoller(t->when);
     return pending;
 }
 
-int64_t next_timer() noexcept { return timers().next.load(std::memory_order_acquire); }
+int64_t nextTimer() noexcept { return timers().next.load(std::memory_order_acquire); }
 
-int64_t run_timers(int64_t now) noexcept {
+int64_t runTimers(int64_t now) noexcept {
     auto& ts = timers();
     ts.lock.lock();
     while (!ts.heap.empty() && ts.heap[0]->when <= now) {
         timer* t = ts.heap[0];
-        remove_at(ts.heap, 0);
+        removeAt(ts.heap, 0);
         auto f = t->f;
         void* arg = t->arg;
         uint64_t seq = t->seq;
@@ -134,12 +134,12 @@ int64_t run_timers(int64_t now) noexcept {
             t->when += t->period * (1 + (now - t->when) / t->period);
             push(t);
         }
-        update_next();
+        updateNext();
         ts.lock.unlock();
         f(arg, seq);  // may not block; t may be gone after this
         ts.lock.lock();
     }
-    update_next();
+    updateNext();
     int64_t next = ts.heap.empty() ? INT64_MAX : ts.heap[0]->when;
     ts.lock.unlock();
     return next;

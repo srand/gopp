@@ -29,14 +29,14 @@ constexpr uint64_t closed_bit = uint64_t(1) << 63;
 // Reads and writes of streams are capped like Go's maxRW.
 constexpr std::size_t max_rw = std::size_t(1) << 30;
 
-error errno_error(int e) { return syscall::errno_error(e); }
+error errnoError(int e) { return syscall::errnoError(e); }
 
 // A system call that may block: on a blocking descriptor, its thread hands
 // its processor off meanwhile.
 template <typename F>
 auto sys(bool blocking, F&& f) {
     if (blocking) {
-        runtime::blocking_call b;
+        runtime::blockingCall b;
         return f();
     }
     return f();
@@ -45,23 +45,23 @@ auto sys(bool blocking, F&& f) {
 // A read, pread, write or pwrite on a blocking descriptor, through
 // io_uring if it can and use_uring is set: off is the offset, or -1 for
 // the file's. Returns the count or -errno.
-long blocking_rw(bool use_uring, bool write, int fd, void* p, std::size_t n, int64 off) {
-    using runtime::uring_or_blocking;
+long blockingRw(bool use_uring, bool write, int fd, void* p, std::size_t n, int64 off) {
+    using runtime::uringOrBlocking;
     auto u64off = static_cast<__u64>(off);
     auto len = static_cast<unsigned>(n);
     if (write) {
-        return uring_or_blocking(
+        return uringOrBlocking(
             use_uring ? IORING_OP_WRITE : -1, [&](io_uring_sqe* sqe) { io_uring_prep_write(sqe, fd, p, len, u64off); },
             [&] { return off < 0 ? ::write(fd, p, n) : ::pwrite(fd, p, n, off); });
     }
-    return uring_or_blocking(
+    return uringOrBlocking(
         use_uring ? IORING_OP_READ : -1, [&](io_uring_sqe* sqe) { io_uring_prep_read(sqe, fd, p, len, u64off); },
         [&] { return off < 0 ? ::read(fd, p, n) : ::pread(fd, p, n, off); });
 }
 
 }  // namespace
 
-void stat_from_statx(const struct statx& x, struct stat* st) noexcept {
+void statFromStatx(const struct statx& x, struct stat* st) noexcept {
     *st = {};
     st->st_dev = makedev(x.stx_dev_major, x.stx_dev_minor);
     st->st_ino = x.stx_ino;
@@ -79,11 +79,11 @@ void stat_from_statx(const struct statx& x, struct stat* st) noexcept {
 }
 
 int statat(int dirfd, const char* name, struct stat* st, int flags) noexcept {
-    if (!runtime::uring_worth(IORING_OP_STATX)) {
+    if (!runtime::uringWorth(IORING_OP_STATX)) {
         for (;;) {
             int r, e;
             {
-                runtime::blocking_call b;
+                runtime::blockingCall b;
                 r = ::fstatat(dirfd, name, st, flags);
                 e = errno;
             }
@@ -97,7 +97,7 @@ int statat(int dirfd, const char* name, struct stat* st, int flags) noexcept {
             io_uring_prep_statx(sqe, dirfd, name, flags, STATX_BASIC_STATS, &x);
         });
         if (r == 0) {
-            stat_from_statx(x, st);
+            statFromStatx(x, st);
             return 0;
         }
         if (r != -EINTR) return -r;
@@ -108,8 +108,8 @@ FD::~FD() {
     // Normally closed through Close; this handles a File that wasn't.
     if (!(state_.load(std::memory_order_relaxed) & closed_bit) && sysfd_ >= 0) {
         if (pd_) {
-            runtime::poll_unblock(pd_);
-            runtime::poll_close(pd_);
+            runtime::pollUnblock(pd_);
+            runtime::pollClose(pd_);
         }
         ::close(sysfd_);
     }
@@ -118,8 +118,8 @@ FD::~FD() {
 error FD::Init(bool pollable) {
     if (!pollable) return nullptr;
     int err = 0;
-    pd_ = runtime::poll_open(sysfd_, &err);
-    if (!pd_) return errno_error(err);
+    pd_ = runtime::pollOpen(sysfd_, &err);
+    if (!pd_) return errnoError(err);
     blocking_.store(false, std::memory_order_relaxed);
     return nullptr;
 }
@@ -139,7 +139,7 @@ error FD::decref() noexcept {
 }
 
 error FD::destroy() noexcept {
-    if (pd_) runtime::poll_close(pd_);
+    if (pd_) runtime::pollClose(pd_);
     pd_ = nullptr;
     // close(2) isn't retried after EINTR: on Linux the descriptor is closed
     // anyway.
@@ -147,7 +147,7 @@ error FD::destroy() noexcept {
     int e = errno;
     sysfd_ = -1;
     runtime::semrelease(&csema_);
-    return r < 0 ? errno_error(e) : nullptr;
+    return r < 0 ? errnoError(e) : nullptr;
 }
 
 error FD::Close() {
@@ -159,7 +159,7 @@ error FD::Close() {
     }
     bool was_blocking = blocking_.load(std::memory_order_relaxed);
     // Wake fibers parked on the descriptor; they fail with ErrFileClosing.
-    if (pd_) runtime::poll_unblock(pd_);
+    if (pd_) runtime::pollUnblock(pd_);
     error err = decref();
     // Wait for the operations still using a pollable descriptor, so that
     // it's closed when Close returns. A blocking one can't be interrupted:
@@ -175,10 +175,10 @@ error FD::SetBlocking() {
     int e = 0;
     if (fl < 0 || ::fcntl(sysfd_, F_SETFL, fl & ~O_NONBLOCK) < 0) e = errno;
     decref();
-    return e ? errno_error(e) : nullptr;
+    return e ? errnoError(e) : nullptr;
 }
 
-error FD::poll_error(int pe) const {
+error FD::pollError(int pe) const {
     switch (pe) {
     case runtime::poll_err_closing: return ErrFileClosing;
     case runtime::poll_err_timeout: return os::ErrDeadlineExceeded;
@@ -195,16 +195,16 @@ std::pair<isize, error> FD::Read(std::span<byte> p) {
     }
     bool blocking = !pollable();
     if (!blocking) {
-        if (int pe = runtime::poll_reset(pd_, 'r')) {
+        if (int pe = runtime::pollReset(pd_, 'r')) {
             decref();
-            return {0, poll_error(pe)};
+            return {0, pollError(pe)};
         }
     }
     if (p.size() > max_rw) p = p.first(max_rw);
     if (blocking) {
-        long n = blocking_rw(regular_, false, sysfd_, p.data(), p.size(), -1);
+        long n = blockingRw(regular_, false, sysfd_, p.data(), p.size(), -1);
         decref();
-        if (n < 0) return {0, errno_error(static_cast<int>(-n))};
+        if (n < 0) return {0, errnoError(static_cast<int>(-n))};
         if (n == 0) return {0, io::EOF_};
         return {static_cast<isize>(n), nullptr};
     }
@@ -218,14 +218,14 @@ std::pair<isize, error> FD::Read(std::span<byte> p) {
         int e = errno;
         if (e == EINTR) continue;
         if (e == EAGAIN && !blocking) {
-            if (int pe = runtime::poll_wait(pd_, 'r')) {
+            if (int pe = runtime::pollWait(pd_, 'r')) {
                 decref();
-                return {0, poll_error(pe)};
+                return {0, pollError(pe)};
             }
             continue;
         }
         decref();
-        return {0, errno_error(e)};
+        return {0, errnoError(e)};
     }
 }
 
@@ -234,7 +234,7 @@ std::pair<isize, error> FD::Pread(std::span<byte> p, int64 off) {
     if (p.size() > max_rw) p = p.first(max_rw);
     long n;
     if (!pollable()) {
-        n = blocking_rw(regular_, false, sysfd_, p.data(), p.size(), off);
+        n = blockingRw(regular_, false, sysfd_, p.data(), p.size(), off);
     } else {
         do {
             n = ::pread(sysfd_, p.data(), p.size(), off);
@@ -242,7 +242,7 @@ std::pair<isize, error> FD::Pread(std::span<byte> p, int64 off) {
         if (n < 0) n = -errno;
     }
     decref();
-    if (n < 0) return {0, errno_error(static_cast<int>(-n))};
+    if (n < 0) return {0, errnoError(static_cast<int>(-n))};
     if (n == 0 && !p.empty()) return {0, io::EOF_};
     return {static_cast<isize>(n), nullptr};
 }
@@ -252,9 +252,9 @@ std::pair<isize, error> FD::Write(std::span<const byte> p) {
     if (error err = incref()) return {0, err};
     bool blocking = !pollable();
     if (!blocking) {
-        if (int pe = runtime::poll_reset(pd_, 'w')) {
+        if (int pe = runtime::pollReset(pd_, 'w')) {
             decref();
-            return {0, poll_error(pe)};
+            return {0, pollError(pe)};
         }
     }
     isize nn = 0;
@@ -262,7 +262,7 @@ std::pair<isize, error> FD::Write(std::span<const byte> p) {
         std::size_t max = std::min(p.size(), max_rw);
         ssize_t n;
         if (blocking) {
-            long r = blocking_rw(regular_, true, sysfd_, const_cast<byte*>(p.data()), max, -1);
+            long r = blockingRw(regular_, true, sysfd_, const_cast<byte*>(p.data()), max, -1);
             n = r < 0 ? -1 : r;
             if (r < 0) errno = static_cast<int>(-r);
         } else {
@@ -279,15 +279,15 @@ std::pair<isize, error> FD::Write(std::span<const byte> p) {
         int e = errno;
         if (n < 0 && e == EINTR) continue;
         if (n < 0 && e == EAGAIN && !blocking) {
-            if (int pe = runtime::poll_wait(pd_, 'w')) {
+            if (int pe = runtime::pollWait(pd_, 'w')) {
                 decref();
-                return {nn, poll_error(pe)};
+                return {nn, pollError(pe)};
             }
             continue;
         }
         if (n > 0) continue;
         decref();
-        return {nn, n == 0 ? io::ErrUnexpectedEOF : errno_error(e)};
+        return {nn, n == 0 ? io::ErrUnexpectedEOF : errnoError(e)};
     }
 }
 
@@ -299,7 +299,7 @@ std::pair<isize, error> FD::Pwrite(std::span<const byte> p, int64 off) {
         std::size_t max = std::min(p.size(), max_rw);
         long n;
         if (blocking) {
-            n = blocking_rw(regular_, true, sysfd_, const_cast<byte*>(p.data()), max, off + nn);
+            n = blockingRw(regular_, true, sysfd_, const_cast<byte*>(p.data()), max, off + nn);
         } else {
             n = ::pwrite(sysfd_, p.data(), max, off + nn);
             if (n < 0) {
@@ -309,7 +309,7 @@ std::pair<isize, error> FD::Pwrite(std::span<const byte> p, int64 off) {
         }
         if (n <= 0) {
             decref();
-            return {nn, n == 0 ? io::ErrUnexpectedEOF : errno_error(static_cast<int>(-n))};
+            return {nn, n == 0 ? io::ErrUnexpectedEOF : errnoError(static_cast<int>(-n))};
         }
         nn += n;
         p = p.subspan(static_cast<std::size_t>(n));
@@ -323,7 +323,7 @@ std::pair<int64, error> FD::Seek(int64 offset, int whence) {
     off_t r = ::lseek(sysfd_, offset, whence);
     int e = errno;
     decref();
-    if (r < 0) return {0, errno_error(e)};
+    if (r < 0) return {0, errnoError(e)};
     return {static_cast<int64>(r), nullptr};
 }
 
@@ -334,7 +334,7 @@ std::pair<isize, error> FD::ReadDirent(std::span<byte> buf) {
         if (n < 0 && errno == EINTR) continue;
         int e = errno;
         decref();
-        if (n < 0) return {0, errno_error(e)};
+        if (n < 0) return {0, errnoError(e)};
         return {static_cast<isize>(n), nullptr};
     }
 }
@@ -348,21 +348,21 @@ error FD::fcall(F&& f) {
     } while (r < 0 && errno == EINTR);
     int e = errno;
     decref();
-    return r < 0 ? errno_error(e) : nullptr;
+    return r < 0 ? errnoError(e) : nullptr;
 }
 
 error FD::Fstat(struct stat* st) {
     if (error err = incref()) return err;
     int e = statat(sysfd_, "", st, AT_EMPTY_PATH);
     decref();
-    return e ? errno_error(e) : nullptr;
+    return e ? errnoError(e) : nullptr;
 }
 
 error FD::Fstatat(const char* name, struct stat* st, int flags) {
     if (error err = incref()) return err;
     int e = statat(sysfd_, name, st, flags);
     decref();
-    return e ? errno_error(e) : nullptr;
+    return e ? errnoError(e) : nullptr;
 }
 
 error FD::Fchmod(uint32 mode) {
@@ -377,9 +377,9 @@ error FD::Fchown(int uid, int gid) {
 template <typename Prep, typename Call>
 error FD::ucall(int opcode, Prep&& prep, Call&& call) {
     if (error err = incref()) return err;
-    long r = runtime::uring_or_blocking(opcode, prep, call);
+    long r = runtime::uringOrBlocking(opcode, prep, call);
     decref();
-    return r < 0 ? errno_error(static_cast<int>(-r)) : nullptr;
+    return r < 0 ? errnoError(static_cast<int>(-r)) : nullptr;
 }
 
 error FD::Ftruncate(int64 size) {
@@ -409,7 +409,7 @@ error FD::SetDeadline(time::Time t, int mode) {
         int64 dur = time::Until(t).ns;
         d = dur <= 0 ? -1 : runtime::nanotime() + dur;
     }
-    runtime::poll_set_deadline(pd_, d, mode);
+    runtime::pollSetDeadline(pd_, d, mode);
     decref();
     return nullptr;
 }
@@ -419,9 +419,9 @@ error FD::RawRead(const std::function<bool(int)>& f) {
     if (error err = incref()) return err;
     bool polled = pollable();
     if (polled) {
-        if (int pe = runtime::poll_reset(pd_, 'r')) {
+        if (int pe = runtime::pollReset(pd_, 'r')) {
             decref();
-            return poll_error(pe);
+            return pollError(pe);
         }
     }
     for (;;) {
@@ -433,9 +433,9 @@ error FD::RawRead(const std::function<bool(int)>& f) {
             decref();
             return errors::New("waiting for unsupported file type");
         }
-        if (int pe = runtime::poll_wait(pd_, 'r')) {
+        if (int pe = runtime::pollWait(pd_, 'r')) {
             decref();
-            return poll_error(pe);
+            return pollError(pe);
         }
     }
 }
@@ -445,9 +445,9 @@ error FD::RawWrite(const std::function<bool(int)>& f) {
     if (error err = incref()) return err;
     bool polled = pollable();
     if (polled) {
-        if (int pe = runtime::poll_reset(pd_, 'w')) {
+        if (int pe = runtime::pollReset(pd_, 'w')) {
             decref();
-            return poll_error(pe);
+            return pollError(pe);
         }
     }
     for (;;) {
@@ -459,9 +459,9 @@ error FD::RawWrite(const std::function<bool(int)>& f) {
             decref();
             return errors::New("waiting for unsupported file type");
         }
-        if (int pe = runtime::poll_wait(pd_, 'w')) {
+        if (int pe = runtime::pollWait(pd_, 'w')) {
             decref();
-            return poll_error(pe);
+            return pollError(pe);
         }
     }
 }
@@ -489,7 +489,7 @@ std::tuple<int64, bool, error> FD::CopyFileRange(FD& src, int64 remain) {
                 decref();
                 return {written, written > 0, err};
             }
-            runtime::blocking_call b;
+            runtime::blockingCall b;
             for (;;) {
                 ssize_t r = ::copy_file_range(src.sysfd_, nullptr, sysfd_, nullptr, max, 0);
                 if (r < 0 && errno == EINTR) continue;
@@ -515,12 +515,12 @@ std::tuple<int64, bool, error> FD::CopyFileRange(FD& src, int64 remain) {
         case EOPNOTSUPP:
         case EPERM:
             if (written == 0) return {0, false, nullptr};
-            return {written, true, errno_error(e)};
+            return {written, true, errnoError(e)};
         case 0:
             if (n == 0) return {written, written > 0, nullptr};
             break;
         default:
-            return {written, true, errno_error(e)};
+            return {written, true, errnoError(e)};
         }
     }
     return {written, true, nullptr};

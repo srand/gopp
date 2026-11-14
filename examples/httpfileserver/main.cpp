@@ -63,7 +63,7 @@ private:
 };
 
 // Logs each request: "GET /index.html 200 1234B 120µs".
-ptr<http::Handler> log_requests(ptr<http::Handler> h) {
+ptr<http::Handler> logRequests(ptr<http::Handler> h) {
     return make_ptr<http::HandlerFunc>([h](http::ResponseWriter& w, http::Request& r) {
         time::Time start = time::Now();
         logging_writer lw(w);
@@ -97,8 +97,8 @@ int main(int argc, char** argv) {
     auto mux = http::NewServeMux();
     mux->Handle(prefix, files);
 
-    http::Server srv{.Addr = addr, .Handler = log_requests(mux)};
-    auto served = make_chan<error>(1);
+    http::Server srv{.Addr = addr, .Handler = logRequests(mux)};
+    auto served = makeChan<error>(1);
     go([&srv, served] { served.send(srv.ListenAndServe()); });
     fmt::Println("serving {} at http://{}{}", root->Name(), addr, prefix);
 

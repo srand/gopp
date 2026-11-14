@@ -93,7 +93,7 @@ bool hasMeta(std::string_view path) { return strings::ContainsAny(path, "*?[\\")
 
 // Prepares path for glob matching.
 string cleanGlobPath(const string& path) {
-    if (path.empty()) return string::from_static(".");
+    if (path.empty()) return string::fromStatic(".");
     if (path == std::string_view(&Separator, 1)) return path;
     return path.slice(0, path.size() - 1);  // chop off trailing separator
 }
@@ -196,7 +196,7 @@ std::pair<string, error> Abs(std::string_view path) {
 std::pair<string, error> Rel(std::string_view basepath, std::string_view targpath) {
     string base = Clean(basepath);
     string targ = Clean(targpath);
-    if (targ == base) return {string::from_static("."), nullptr};
+    if (targ == base) return {string::fromStatic("."), nullptr};
     if (base == ".") base = {};
     // Can't use IsAbs - `\a` and `a` are both relative in Windows.
     bool baseSlashed = !base.empty() && base[0] == Separator;

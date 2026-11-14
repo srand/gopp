@@ -31,31 +31,31 @@ struct test_access {
         std::lock_guard l(db.mu_);
         return db.free_conn_;
     }
-    static int num_open(DB& db) {
+    static int numOpen(DB& db) {
         std::lock_guard l(db.mu_);
         return db.num_open_;
     }
-    static std::size_t num_deps(DB& db) {
+    static std::size_t numDeps(DB& db) {
         std::lock_guard l(db.mu_);
         return db.dep_.size();
     }
     static ptr<driver::Connector> connector(DB& db) { return db.connector_; }
     static ptr<driver::Conn> ci(Conn& c) { return c.dc_ ? c.dc_->ci : nullptr; }
-    static bool conn_released(Conn& c) { return !c.dc_; }
-    static bool stmt_closed(Stmt& s) {
+    static bool connReleased(Conn& c) { return !c.dc_; }
+    static bool stmtClosed(Stmt& s) {
         std::lock_guard l(s.mu_);
         return s.closed_;
     }
-    static std::size_t css_size(Stmt& s) {
+    static std::size_t cssSize(Stmt& s) {
         std::lock_guard l(s.mu_);
         return s.css_.size();
     }
-    static void clear_css(Stmt& s) {
+    static void clearCss(Stmt& s) {
         std::lock_guard l(s.mu_);
         s.css_.clear();
     }
     static ptr<driver::Tx> txi(Tx& tx) { return tx.txi_; }
-    static bool rows_closed(Rows& r) {
+    static bool rowsClosed(Rows& r) {
         r.closemu_.RLock();
         bool c = r.closed_;
         r.closemu_.RUnlock();
@@ -82,15 +82,15 @@ namespace driver = sql::driver;
 //
 // Any of these may be preceded by WAIT|<duration>|, to sleep first.
 
-struct fake_error final : error_interface {
+struct fake_error final : errorInterface {
     string Message;
     gopp::error Wrapped;
     fake_error(string m, gopp::error w) : Message(std::move(m)), Wrapped(std::move(w)) {}
     string Error() const override { return Message; }
-    const error_interface* Unwrap() const noexcept override { return Wrapped.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Wrapped.get(); }
 };
 
-gopp::error fake_err(std::string_view msg, gopp::error wrapped) { return make_ptr<fake_error>(string(msg), std::move(wrapped)); }
+gopp::error fakeErr(std::string_view msg, gopp::error wrapped) { return make_ptr<fake_error>(string(msg), std::move(wrapped)); }
 
 gopp::error errf(std::string msg) { return errors::New(string("fakedb: " + msg)); }
 
@@ -210,15 +210,15 @@ struct fake_conn final : driver::Conn,
     gopp::error ResetSession(ptr<context::Context>) override {
         dirty_session = false;
         curr_tx = nullptr;
-        if (is_bad()) return fake_err("Reset Session: bad conn", driver::ErrBadConn);
+        if (is_bad()) return fakeErr("Reset Session: bad conn", driver::ErrBadConn);
         return nullptr;
     }
 
     bool IsValid() override { return !is_bad(); }
 
-    gopp::error close_impl();
+    gopp::error closeImpl();
     gopp::error Close() override {
-        gopp::error err = close_impl();
+        gopp::error err = closeImpl();
         if (err && strict_close) ADD_FAILURE() << "failed to close a test fakeConn: " << err;
         if (hook_post_close_conn) hook_post_close_conn(err);
         return err;
@@ -238,9 +238,9 @@ struct fake_conn final : driver::Conn,
     }
     std::pair<ptr<driver::Stmt>, gopp::error> PrepareContext(ptr<context::Context> ctx, std::string_view query) override;
 
-    std::pair<ptr<fake_stmt>, gopp::error> prepare_select(ptr<fake_stmt> stmt, std::vector<std::string> parts);
-    std::pair<ptr<fake_stmt>, gopp::error> prepare_create(ptr<fake_stmt> stmt, std::vector<std::string> parts);
-    std::pair<ptr<fake_stmt>, gopp::error> prepare_insert(ptr<fake_stmt> stmt, std::vector<std::string> parts);
+    std::pair<ptr<fake_stmt>, gopp::error> prepareSelect(ptr<fake_stmt> stmt, std::vector<std::string> parts);
+    std::pair<ptr<fake_stmt>, gopp::error> prepareCreate(ptr<fake_stmt> stmt, std::vector<std::string> parts);
+    std::pair<ptr<fake_stmt>, gopp::error> prepareInsert(ptr<fake_stmt> stmt, std::vector<std::string> parts);
 };
 
 struct fake_driver final : driver::Driver {
@@ -280,7 +280,7 @@ ptr<fake_driver>& fdriver() {
     return *d;
 }
 
-gopp::error fake_conn::close_impl() {
+gopp::error fake_conn::closeImpl() {
     if (curr_tx) return errors::New("fakedb: can't close fakeConn; in a Transaction");
     if (!db) return errors::New("fakedb: can't close fakeConn; already closed");
     if (stmts_made > stmts_closed) return errors::New("fakedb: can't close; dangling statement(s)");
@@ -295,18 +295,18 @@ struct fake_tx final : driver::Tx {
     explicit fake_tx(fake_conn* conn) : c(conn) {}
     gopp::error Commit() override {
         c->curr_tx = nullptr;
-        if (hook_commit_bad_conn && hook_commit_bad_conn()) return fake_err("Commit: Hook Bad Conn", driver::ErrBadConn);
+        if (hook_commit_bad_conn && hook_commit_bad_conn()) return fakeErr("Commit: Hook Bad Conn", driver::ErrBadConn);
         return nullptr;
     }
     gopp::error Rollback() override {
         c->curr_tx = nullptr;
-        if (hook_rollback_bad_conn && hook_rollback_bad_conn()) return fake_err("Rollback: Hook Bad Conn", driver::ErrBadConn);
+        if (hook_rollback_bad_conn && hook_rollback_bad_conn()) return fakeErr("Rollback: Hook Bad Conn", driver::ErrBadConn);
         return nullptr;
     }
 };
 
 std::pair<ptr<driver::Tx>, gopp::error> fake_conn::Begin() {
-    if (is_bad()) return {nullptr, fake_err("", driver::ErrBadConn)};
+    if (is_bad()) return {nullptr, fakeErr("", driver::ErrBadConn)};
     if (curr_tx) return {nullptr, errors::New("fakedb: already in a transaction")};
     auto tx = make_ptr<fake_tx>(this);
     curr_tx = tx.get();
@@ -325,7 +325,7 @@ struct any_type_converter final : driver::ValueConverter {
     std::pair<Value, gopp::error> ConvertValue(const Value& v) const override { return {v, nullptr}; }
 };
 
-const driver::ValueConverter& converter_for_type(const std::string& typ) {
+const driver::ValueConverter& converterForType(const std::string& typ) {
     static const driver::Null null_bool(driver::Bool);
     static const driver::NotNull not_null_default(driver::DefaultParameterConverter);
     static const driver::Null null_default(driver::DefaultParameterConverter);
@@ -346,7 +346,7 @@ const driver::ValueConverter& converter_for_type(const std::string& typ) {
     panic("invalid fakedb column type of " + typ);
 }
 
-string col_type_to_scan_type(const std::string& typ) {
+string colTypeToScanType(const std::string& typ) {
     static const std::map<std::string, std::string> m = {
         {"bool", "bool"},           {"nullbool", "sql.NullBool"}, {"int16", "int16"},
         {"nullint16", "sql.NullInt16"}, {"int32", "int32"},       {"nullint32", "sql.NullInt32"},
@@ -397,7 +397,7 @@ struct rows_cursor final : driver::Rows, driver::RowsNextResultSet, driver::Rows
         return out;
     }
     string ColumnTypeScanType(int index) override {
-        return col_type_to_scan_type(col_type[pos_set][static_cast<std::size_t>(index)]);
+        return colTypeToScanType(col_type[pos_set][static_cast<std::size_t>(index)]);
     }
     gopp::error Next(std::span<Value> dest) override {
         if (rows_cursor_next_hook) return rows_cursor_next_hook(dest);
@@ -469,7 +469,7 @@ struct fake_stmt final : driver::Stmt, driver::StmtExecContext, driver::StmtQuer
                                                             std::span<const driver::NamedValue> args) override {
         if (closed) return {nullptr, err_closed};
         if (c->sticky_bad || (hook_exec_bad_conn && hook_exec_bad_conn())) {
-            return {nullptr, fake_err("Exec: Sticky Bad", driver::ErrBadConn)};
+            return {nullptr, fakeErr("Exec: Sticky Bad", driver::ErrBadConn)};
         }
         if (c->is_dirty_and_mark()) return {nullptr, err_fake_conn_session_dirty};
         if (wait.ns > 0) time::Sleep(wait);
@@ -531,7 +531,7 @@ struct fake_stmt final : driver::Stmt, driver::StmtExecContext, driver::StmtQuer
                                                            std::span<const driver::NamedValue> args) override {
         if (closed) return {nullptr, err_closed};
         if (c->sticky_bad || (hook_query_bad_conn && hook_query_bad_conn())) {
-            return {nullptr, fake_err("Query: Sticky Bad", driver::ErrBadConn)};
+            return {nullptr, fakeErr("Query: Sticky Bad", driver::ErrBadConn)};
         }
         if (c->is_dirty_and_mark()) return {nullptr, err_fake_conn_session_dirty};
         auto db = c->db;
@@ -571,7 +571,7 @@ struct fake_stmt final : driver::Stmt, driver::StmtExecContext, driver::StmtQuer
                     int idx = t->column_index(wcol.column);
                     if (idx == -1) return {nullptr, errors::New("fakedb: invalid where clause column")};
                     Value tcol = trow[static_cast<std::size_t>(idx)];
-                    if (auto* b = std::get_if<slice<byte>>(&tcol)) tcol = string(as_string_view(b->span()));
+                    if (auto* b = std::get_if<slice<byte>>(&tcol)) tcol = string(asStringView(b->span()));
                     Value arg_value;
                     if (wcol.placeholder == "?") arg_value = args[static_cast<std::size_t>(wcol.ordinal - 1)].Value;
                     else arg_value = value_from_placeholder_name(args, std::string_view(wcol.placeholder).substr(1));
@@ -595,7 +595,7 @@ struct fake_stmt final : driver::Stmt, driver::StmtExecContext, driver::StmtQuer
     }
 };
 
-std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepare_select(ptr<fake_stmt> stmt, std::vector<std::string> parts) {
+std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepareSelect(ptr<fake_stmt> stmt, std::vector<std::string> parts) {
     if (parts.size() != 3) {
         stmt->Close();
         return {nullptr, errf("invalid SELECT syntax with " + std::to_string(parts.size()) + " parts; want 3")};
@@ -625,7 +625,7 @@ std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepare_select(ptr<fake_stmt> 
     return {stmt, nullptr};
 }
 
-std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepare_create(ptr<fake_stmt> stmt, std::vector<std::string> parts) {
+std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepareCreate(ptr<fake_stmt> stmt, std::vector<std::string> parts) {
     if (parts.size() != 2) {
         stmt->Close();
         return {nullptr, errf("invalid CREATE syntax with " + std::to_string(parts.size()) + " parts; want 2")};
@@ -643,7 +643,7 @@ std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepare_create(ptr<fake_stmt> 
     return {stmt, nullptr};
 }
 
-std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepare_insert(ptr<fake_stmt> stmt, std::vector<std::string> parts) {
+std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepareInsert(ptr<fake_stmt> stmt, std::vector<std::string> parts) {
     if (parts.size() != 2) {
         stmt->Close();
         return {nullptr, errf("invalid INSERT syntax with " + std::to_string(parts.size()) + " parts; want 2")};
@@ -680,7 +680,7 @@ std::pair<ptr<fake_stmt>, gopp::error> fake_conn::prepare_insert(ptr<fake_stmt> 
             }
         } else {
             stmt->placeholders++;
-            stmt->placeholder_converter.push_back(&converter_for_type(*ctype));
+            stmt->placeholder_converter.push_back(&converterForType(*ctype));
             cv.placeholder = true;
             cv.ph = nv[1];
         }
@@ -693,7 +693,7 @@ std::pair<ptr<driver::Stmt>, gopp::error> fake_conn::PrepareContext(ptr<context:
     num_prepare++;
     if (!db) panic("nil c.db");
     if (sticky_bad || (hook_prepare_bad_conn && hook_prepare_bad_conn())) {
-        return {nullptr, fake_err("Prepare: Sticky Bad", driver::ErrBadConn)};
+        return {nullptr, fakeErr("Prepare: Sticky Bad", driver::ErrBadConn)};
     }
     ptr<fake_stmt> first, prev;
     for (auto& q : split(query, ';')) {
@@ -726,11 +726,11 @@ std::pair<ptr<driver::Stmt>, gopp::error> fake_conn::PrepareContext(ptr<context:
         gopp::error err;
         if (stmt->cmd == "WIPE") {
         } else if (stmt->cmd == "SELECT") {
-            std::tie(stmt, err) = prepare_select(stmt, parts);
+            std::tie(stmt, err) = prepareSelect(stmt, parts);
         } else if (stmt->cmd == "CREATE") {
-            std::tie(stmt, err) = prepare_create(stmt, parts);
+            std::tie(stmt, err) = prepareCreate(stmt, parts);
         } else if (stmt->cmd == "INSERT" || stmt->cmd == "NOSERT") {
-            std::tie(stmt, err) = prepare_insert(stmt, parts);
+            std::tie(stmt, err) = prepareInsert(stmt, parts);
         } else {
             stmt->Close();
             return {nullptr, errf("unsupported command type " + sql::detail::quote(stmt->cmd).str())};
@@ -827,7 +827,7 @@ struct basic_connector final : driver::Connector {
     ptr<driver::Driver> Driver() override { return fdriver(); }
 };
 
-fake_conn* get_fake_conn(const ptr<driver::Conn>& c) {
+fake_conn* getFakeConn(const ptr<driver::Conn>& c) {
     if (auto* fc = dynamic_cast<fake_conn*>(c.get())) return fc;
     if (auto* bc = dynamic_cast<basic_conn*>(c.get())) return bc->fc.get();
     return nullptr;
@@ -860,7 +860,7 @@ void exec(sql::DB& db, std::string_view query, const A&... args) {
     ASSERT_FALSE(err) << "Exec of " << query << ": " << err;
 }
 
-void close_db(sql::DB& db) {
+void closeDb(sql::DB& db) {
     // The fake driver's databases are global, as in Go, where the next test
     // wipes them; wiping here keeps each test's objects its own.
     db.Exec("WIPE");
@@ -872,8 +872,8 @@ void close_db(sql::DB& db) {
     gopp::error err = db.Close();
     EXPECT_FALSE(err) << "error closing DB: " << err;
     // Connections close asynchronously; wait for them to finish doing so.
-    EXPECT_TRUE(wait_for([&] { return test_access::num_open(db) == 0; }))
-        << test_access::num_open(db) << " connections still open after closing DB";
+    EXPECT_TRUE(wait_for([&] { return test_access::numOpen(db) == 0; }))
+        << test_access::numOpen(db) << " connections still open after closing DB";
     hook_post_close_conn = nullptr;
 }
 
@@ -894,7 +894,7 @@ void populate(sql::DB& db, std::string_view name) {
     }
 }
 
-ptr<sql::DB> new_test_db(std::string_view name = "") {
+ptr<sql::DB> newTestDb(std::string_view name = "") {
     auto fc = make_ptr<fake_connector>();
     fc->name = fake_db_name;
     auto db = sql::OpenDB(fc);
@@ -908,15 +908,15 @@ int num_prepares(sql::DB& db) {
     auto fcs = test_access::free_conns(db);
     EXPECT_EQ(fcs.size(), 1u) << "free conns";
     if (fcs.empty()) return 0;
-    return get_fake_conn(fcs[0]->ci)->num_prepare;
+    return getFakeConn(fcs[0]->ci)->num_prepare;
 }
 
-std::size_t num_free_conns(sql::DB& db) { return test_access::free_conns(db).size(); }
+std::size_t numFreeConns(sql::DB& db) { return test_access::free_conns(db).size(); }
 
-void clear_all_conns(sql::DB& db) {
+void clearAllConns(sql::DB& db) {
     db.SetMaxIdleConns(0);
-    EXPECT_EQ(num_free_conns(db), 0u);
-    EXPECT_TRUE(wait_for([&] { return test_access::num_deps(db) == 0; })) << "number of dependencies = " << test_access::num_deps(db);
+    EXPECT_EQ(numFreeConns(db), 0u);
+    EXPECT_TRUE(wait_for([&] { return test_access::numDeps(db) == 0; })) << "number of dependencies = " << test_access::numDeps(db);
 }
 
 // testDatabase: runs f against the basic driver (no optional interfaces)
@@ -939,7 +939,7 @@ void test_database(const std::function<void(sql::DB&)>& f, bool require_default 
         auto [res, err] = db->Exec("WIPE");
         ASSERT_FALSE(err) << "exec wipe: " << err;
         f(*db);
-        close_db(*db);
+        closeDb(*db);
         // A test may close the DB itself: wipe through a new one.
         auto w = sql::OpenDB(c);
         w->Exec("WIPE");
@@ -988,7 +988,7 @@ TEST(Sql, Query) {
         std::vector<person_row> want = {{1, "Alice"}, {2, "Bob"}, {3, "Chris"}};
         EXPECT_EQ(got, want);
         // The final Next, which hit EOF, closed the rows and freed the conn.
-        EXPECT_EQ(num_free_conns(db), 1u);
+        EXPECT_EQ(numFreeConns(db), 1u);
         EXPECT_EQ(num_prepares(db) - prepares0, 1);
         rows->Close();
     });
@@ -1006,7 +1006,7 @@ TEST(Sql, QueryContext) {
         while (rows->Next()) {
             if (index == 2) {
                 cancel();
-                ASSERT_TRUE(wait_for([&] { return test_access::rows_closed(*rows); }));
+                ASSERT_TRUE(wait_for([&] { return test_access::rowsClosed(*rows); }));
             }
             person_row r;
             if (gopp::error serr = rows->Scan(&r.age, &r.name)) {
@@ -1019,7 +1019,7 @@ TEST(Sql, QueryContext) {
         EXPECT_EQ(ctx->Err().Error(), "context canceled");
         std::vector<person_row> want = {{1, "Alice"}, {2, "Bob"}};
         EXPECT_EQ(got, want);
-        EXPECT_TRUE(wait_for([&] { return num_free_conns(db) == 1; }));
+        EXPECT_TRUE(wait_for([&] { return numFreeConns(db) == 1; }));
         EXPECT_EQ(num_prepares(db) - prepares0, 1);
     });
 }
@@ -1040,7 +1040,7 @@ TEST(Sql, TxContextWait) {
         EXPECT_EQ(qerr.Error(), "context canceled");
         // The transaction rolled back when its context ended.
         EXPECT_TRUE(wait_for([&] { return tx->Commit() == sql::ErrTxDone; }));
-        EXPECT_TRUE(wait_for([&] { return test_access::num_open(db) == static_cast<int>(num_free_conns(db)); }));
+        EXPECT_TRUE(wait_for([&] { return test_access::numOpen(db) == static_cast<int>(numFreeConns(db)); }));
     });
 }
 
@@ -1067,7 +1067,7 @@ TEST(Sql, QueryRow) {
 
         slice<byte> photo;
         ASSERT_FALSE(db.QueryRow("SELECT|people|photo|name=?", "Alice")->Scan(&photo));
-        EXPECT_EQ(as_string_view(photo.span()), "APHOTO");
+        EXPECT_EQ(asStringView(photo.span()), "APHOTO");
     });
 }
 
@@ -1130,7 +1130,7 @@ TEST(Sql, StatementClose) {
     ptr<sql::Stmt> s;
     {
         // A Tx statement for a closed transaction: Stmt with stickyErr.
-        auto db = new_test_db("people");
+        auto db = newTestDb("people");
         auto [tx, err] = db->Begin();
         ASSERT_FALSE(err);
         tx->Rollback();
@@ -1139,7 +1139,7 @@ TEST(Sql, StatementClose) {
         s = tx->Stmt(stmt);
         EXPECT_EQ(s->Close(), sql::ErrTxDone) << "stickyErr not propagated";
         stmt->Close();
-        close_db(*db);
+        closeDb(*db);
     }
 }
 
@@ -1179,7 +1179,7 @@ TEST(Sql, TxPrepare) {
         ASSERT_FALSE(xerr) << "Exec = " << xerr;
         ASSERT_FALSE(tx->Commit());
         // Commit closed the statement.
-        EXPECT_TRUE(test_access::stmt_closed(*stmt)) << "Stmt not closed after Commit";
+        EXPECT_TRUE(test_access::stmtClosed(*stmt)) << "Stmt not closed after Commit";
         stmt->Close();
     });
 }
@@ -1195,7 +1195,7 @@ TEST(Sql, TxStmt) {
         auto [res, xerr] = txs->Exec("Bobby", 7);
         ASSERT_FALSE(xerr) << "Exec = " << xerr;
         ASSERT_FALSE(tx->Commit());
-        EXPECT_TRUE(test_access::stmt_closed(*txs)) << "Stmt not closed after Commit";
+        EXPECT_TRUE(test_access::stmtClosed(*txs)) << "Stmt not closed after Commit";
         txs->Close();
         stmt->Close();
     });
@@ -1254,7 +1254,7 @@ TEST(Sql, ConnQuery) {
         auto ctx = context::Background();
         auto [conn, err] = db.Conn(ctx);
         ASSERT_FALSE(err);
-        get_fake_conn(test_access::ci(*conn))->skip_dirty_session = true;
+        getFakeConn(test_access::ci(*conn))->skip_dirty_session = true;
         string name;
         ASSERT_FALSE(conn->QueryRowContext(ctx, "SELECT|people|name|age=?", 3)->Scan(&name));
         EXPECT_EQ(name, "Chris");
@@ -1269,7 +1269,7 @@ TEST(Sql, ConnRaw) {
         auto ctx = context::Background();
         auto [conn, err] = db.Conn(ctx);
         ASSERT_FALSE(err);
-        get_fake_conn(test_access::ci(*conn))->skip_dirty_session = true;
+        getFakeConn(test_access::ci(*conn))->skip_dirty_session = true;
         bool saw_func = false;
         gopp::error rerr = conn->Raw([&](driver::Conn& dc) -> gopp::error {
             saw_func = true;
@@ -1288,7 +1288,7 @@ TEST(Sql, ConnTx) {
         auto ctx = context::Background();
         auto [conn, err] = db.Conn(ctx);
         ASSERT_FALSE(err);
-        get_fake_conn(test_access::ci(*conn))->skip_dirty_session = true;
+        getFakeConn(test_access::ci(*conn))->skip_dirty_session = true;
         auto [tx, berr] = conn->BeginTx(ctx, nullptr);
         ASSERT_FALSE(berr);
         auto [res, xerr] = tx->ExecContext(ctx, "INSERT|people|name=?,age=?,photo=APHOTO", "Nancy", 33);
@@ -1309,12 +1309,12 @@ TEST(Sql, ConnIsValid) {
             auto [c, err] = db.Conn(context::Background());
             ASSERT_FALSE(err);
             c->Raw([](driver::Conn& raw) -> gopp::error {
-                get_fake_conn(ptr<driver::Conn>(&raw))->sticky_bad = true;
+                getFakeConn(ptr<driver::Conn>(&raw))->sticky_bad = true;
                 return nullptr;
             });
             c->Close();
             auto fcs = test_access::free_conns(db);
-            EXPECT_FALSE(!fcs.empty() && get_fake_conn(fcs[0]->ci)->sticky_bad)
+            EXPECT_FALSE(!fcs.empty() && getFakeConn(fcs[0]->ci)->sticky_bad)
                 << "bad connection returned to pool; expected bad connection to be discarded";
         },
         true);
@@ -1337,7 +1337,7 @@ TEST(Sql, QueryNamedArg) {
             }
             ASSERT_FALSE(rows->Err());
             EXPECT_EQ(got, (std::vector<person_row>{{2, "Bob"}}));
-            EXPECT_EQ(num_free_conns(db), 1u);
+            EXPECT_EQ(numFreeConns(db), 1u);
             EXPECT_EQ(num_prepares(db) - prepares0, 1);
         },
         true);
@@ -1367,7 +1367,7 @@ TEST(Sql, MultiResultSetQuery) {
         ASSERT_FALSE(rows->Err());
         EXPECT_EQ(got2, (std::vector<string>{"Alice", "Bob", "Chris"}));
         EXPECT_FALSE(rows->NextResultSet()) << "expected no more result sets";
-        EXPECT_TRUE(wait_for([&] { return num_free_conns(db) == 1; }));
+        EXPECT_TRUE(wait_for([&] { return numFreeConns(db) == 1; }));
         EXPECT_EQ(num_prepares(db) - prepares0, 1);
     });
 }
@@ -1430,10 +1430,10 @@ TEST(Sql, NullByteSlice) {
         exec(db, "INSERT|t|id=10,name=?", nullptr);
         slice<byte> name;
         ASSERT_FALSE(db.QueryRow("SELECT|t|name|id=?", 10)->Scan(&name));
-        EXPECT_TRUE(name.is_nil()) << "name []byte should be nil for null column value";
+        EXPECT_TRUE(name.isNil()) << "name []byte should be nil for null column value";
         exec(db, "INSERT|t|id=11,name=?", "bob");
         ASSERT_FALSE(db.QueryRow("SELECT|t|name|id=?", 11)->Scan(&name));
-        EXPECT_EQ(as_string_view(name.span()), "bob");
+        EXPECT_EQ(asStringView(name.span()), "bob");
     });
 }
 
@@ -1469,7 +1469,7 @@ void null_test_run(sql::DB& db, std::string null_type, std::string not_null_type
                    const std::function<bool(const N&, const N&)>& eq) {
     exec(db, "CREATE|t|id=int32,name=string,nullf=" + null_type + ",notnullf=" + not_null_type);
     auto arg = [](const std::variant<N, P, std::nullptr_t>& v) {
-        return std::visit([](const auto& x) { return sql::to_arg(x); }, v);
+        return std::visit([](const auto& x) { return sql::toArg(x); }, v);
     };
     auto value = [&](const std::variant<N, P, std::nullptr_t>& v) {
         sql::detail::arg a = arg(v);
@@ -1597,11 +1597,11 @@ TEST(Sql, QueryRowNilScanDest) {
 
 TEST(Sql, InvalidNilValues) {
     for (int which = 0; which < 2; which++) {
-        auto db = new_test_db("people");
+        auto db = newTestDb("people");
         auto ctx = context::Background();
         auto [conn, err] = db->Conn(ctx);
         ASSERT_FALSE(err);
-        get_fake_conn(test_access::ci(*conn))->skip_dirty_session = true;
+        getFakeConn(test_access::ci(*conn))->skip_dirty_session = true;
         gopp::error serr;
         std::string want;
         if (which == 0) {
@@ -1617,7 +1617,7 @@ TEST(Sql, InvalidNilValues) {
         EXPECT_EQ(serr.Error(), want);
         EXPECT_FALSE(conn->PingContext(ctx));
         conn->Close();
-        close_db(*db);
+        closeDb(*db);
     }
 }
 
@@ -1627,13 +1627,13 @@ TEST(Sql, MaxIdleConns) {
         auto [tx, err] = db.Begin();
         ASSERT_FALSE(err);
         tx->Commit();
-        EXPECT_EQ(num_free_conns(db), 1u);
+        EXPECT_EQ(numFreeConns(db), 1u);
         db.SetMaxIdleConns(0);
-        EXPECT_EQ(num_free_conns(db), 0u) << "freeConns after set to zero";
+        EXPECT_EQ(numFreeConns(db), 0u) << "freeConns after set to zero";
         auto [tx2, err2] = db.Begin();
         ASSERT_FALSE(err2);
         tx2->Commit();
-        EXPECT_EQ(num_free_conns(db), 0u);
+        EXPECT_EQ(numFreeConns(db), 0u);
     });
 }
 
@@ -1641,7 +1641,7 @@ TEST(Sql, MaxOpenConns) {
     test_database([](sql::DB& db) {
         populate(db, "magicquery");
         auto drv = fdriver();
-        clear_all_conns(db);
+        clearAllConns(db);
         int opens0, closes0;
         {
             std::lock_guard l(drv->mu);
@@ -1667,8 +1667,8 @@ TEST(Sql, MaxOpenConns) {
             wg.Wait();
         }
         EXPECT_EQ(errs.load(), 0);
-        EXPECT_TRUE(wait_for([&] { return num_free_conns(db) == 10; })) << "free conns = " << num_free_conns(db);
-        EXPECT_LE(test_access::num_deps(db), 20u);
+        EXPECT_TRUE(wait_for([&] { return numFreeConns(db) == 10; })) << "free conns = " << numFreeConns(db);
+        EXPECT_LE(test_access::numDeps(db), 20u);
         int opens, closes;
         {
             std::lock_guard l(drv->mu);
@@ -1677,14 +1677,14 @@ TEST(Sql, MaxOpenConns) {
         }
         EXPECT_LE(opens, 10) << "db connections opened; closes " << closes;
         ASSERT_FALSE(stmt->Close());
-        EXPECT_EQ(num_free_conns(db), 10u);
-        EXPECT_LE(test_access::num_deps(db), 10u);
+        EXPECT_EQ(numFreeConns(db), 10u);
+        EXPECT_LE(test_access::numDeps(db), 10u);
         db.SetMaxOpenConns(5);
-        EXPECT_EQ(num_free_conns(db), 5u);
-        EXPECT_LE(test_access::num_deps(db), 5u);
+        EXPECT_EQ(numFreeConns(db), 5u);
+        EXPECT_LE(test_access::numDeps(db), 5u);
         db.SetMaxOpenConns(0);
-        EXPECT_EQ(num_free_conns(db), 5u);
-        clear_all_conns(db);
+        EXPECT_EQ(numFreeConns(db), 5u);
+        clearAllConns(db);
     });
 }
 
@@ -1695,7 +1695,7 @@ TEST(Sql, PendingConnsAfterErr) {
     db->SetMaxOpenConns(max_open);
     db->SetMaxIdleConns(0);
     const gopp::error err_offline = errors::New("db offline");
-    auto errs = make_chan<gopp::error>(try_open);
+    auto errs = makeChan<gopp::error>(try_open);
     sync::WaitGroup opening;
     opening.Add(try_open);
     hook_open_err = [&] {
@@ -1723,7 +1723,7 @@ TEST(Sql, PendingConnsAfterErr) {
     }
     timeout->Stop();
     hook_open_err = nullptr;
-    close_db(*db);
+    closeDb(*db);
 }
 
 TEST(Sql, SingleOpenConn) {
@@ -1741,12 +1741,12 @@ TEST(Sql, SingleOpenConn) {
 }
 
 TEST(Sql, Stats) {
-    auto db = new_test_db("people");
+    auto db = newTestDb("people");
     EXPECT_EQ(db->Stats().OpenConnections, 1);
     auto [tx, err] = db->Begin();
     ASSERT_FALSE(err);
     tx->Commit();
-    close_db(*db);
+    closeDb(*db);
     EXPECT_EQ(db->Stats().OpenConnections, 0);
 }
 
@@ -1773,19 +1773,19 @@ TEST(Sql, StmtCloseDeps) {
             }
             wg.Wait();
         }
-        EXPECT_TRUE(wait_for([&] { return num_free_conns(db) == 2; })) << "free conns = " << num_free_conns(db);
-        EXPECT_LE(test_access::num_deps(db), 4u);
+        EXPECT_TRUE(wait_for([&] { return numFreeConns(db) == 2; })) << "free conns = " << numFreeConns(db);
+        EXPECT_LE(test_access::numDeps(db), 4u);
         int open_delta;
         {
             std::lock_guard l(drv->mu);
             open_delta = (drv->open_count - drv->close_count) - open_delta0;
         }
         EXPECT_LE(open_delta, 2) << "db connections opened";
-        EXPECT_LE(test_access::css_size(*stmt), static_cast<std::size_t>(nquery));
+        EXPECT_LE(test_access::cssSize(*stmt), static_cast<std::size_t>(nquery));
         ASSERT_FALSE(stmt->Close());
-        EXPECT_EQ(num_free_conns(db), 2u);
-        EXPECT_LE(test_access::num_deps(db), 2u);
-        clear_all_conns(db);
+        EXPECT_EQ(numFreeConns(db), 2u);
+        EXPECT_LE(test_access::numDeps(db), 2u);
+        clearAllConns(db);
     });
 }
 
@@ -1824,7 +1824,7 @@ TEST(Sql, RowsCloseOrder) {
 
 TEST(Sql, ManyErrBadConn) {
     auto setup = [](std::function<void(sql::DB&)> first = nullptr) {
-        auto db = new_test_db("people");
+        auto db = newTestDb("people");
         if (first) first(*db);
         int nconn = 2 + 1;  // maxBadConnRetries + 1
         db->SetMaxIdleConns(nconn);
@@ -1839,12 +1839,12 @@ TEST(Sql, ManyErrBadConn) {
             }
             for (auto& r : open) r->Close();
         }
-        EXPECT_EQ(test_access::num_open(*db), nconn);
+        EXPECT_EQ(test_access::numOpen(*db), nconn);
         auto fcs = test_access::free_conns(*db);
         EXPECT_EQ(static_cast<int>(fcs.size()), nconn);
         for (auto& c : fcs) {
             std::lock_guard l(c->mu);
-            get_fake_conn(c->ci)->sticky_bad = true;
+            getFakeConn(c->ci)->sticky_bad = true;
         }
         return db;
     };
@@ -1854,27 +1854,27 @@ TEST(Sql, ManyErrBadConn) {
         auto [rows, err] = db->Query("SELECT|people|age,name|");
         ASSERT_FALSE(err) << err;
         ASSERT_FALSE(rows->Close());
-        close_db(*db);
+        closeDb(*db);
     }
     {  // Exec
         auto db = setup();
         auto [res, err] = db->Exec("INSERT|people|name=Julia,age=19");
         ASSERT_FALSE(err) << err;
-        close_db(*db);
+        closeDb(*db);
     }
     {  // Begin
         auto db = setup();
         auto [tx, err] = db->Begin();
         ASSERT_FALSE(err) << err;
         ASSERT_FALSE(tx->Rollback());
-        close_db(*db);
+        closeDb(*db);
     }
     {  // Prepare
         auto db = setup();
         auto [stmt, err] = db->Prepare("SELECT|people|age,name|");
         ASSERT_FALSE(err) << err;
         ASSERT_FALSE(stmt->Close());
-        close_db(*db);
+        closeDb(*db);
     }
     {  // Stmt.Exec
         ptr<sql::Stmt> stmt;
@@ -1886,7 +1886,7 @@ TEST(Sql, ManyErrBadConn) {
         auto [res, err] = stmt->Exec();
         ASSERT_FALSE(err) << err;
         ASSERT_FALSE(stmt->Close());
-        close_db(*db);
+        closeDb(*db);
     }
     {  // Stmt.Query
         ptr<sql::Stmt> stmt;
@@ -1899,20 +1899,20 @@ TEST(Sql, ManyErrBadConn) {
         ASSERT_FALSE(err) << err;
         ASSERT_FALSE(rows->Close());
         ASSERT_FALSE(stmt->Close());
-        close_db(*db);
+        closeDb(*db);
     }
     {  // Conn
         auto db = setup();
         auto [conn, err] = db->Conn(context::Background());
         ASSERT_FALSE(err) << err;
-        get_fake_conn(test_access::ci(*conn))->skip_dirty_session = true;
+        getFakeConn(test_access::ci(*conn))->skip_dirty_session = true;
         ASSERT_FALSE(conn->Close());
-        close_db(*db);
+        closeDb(*db);
     }
     {  // Ping
         auto db = setup();
         ASSERT_FALSE(db->PingContext(context::Background()));
-        close_db(*db);
+        closeDb(*db);
     }
 }
 
@@ -1921,7 +1921,7 @@ TEST(Sql, ErrBadConnReconnect) {
         exec(db, "CREATE|t1|name=string,age=int32,dead=bool");
         auto simulate_bad_conn = [&](std::string name, std::function<bool()>& hook, const std::function<gopp::error()>& op) {
             bool broken = false, retried = false;
-            int num_open = test_access::num_open(db);
+            int numOpen = test_access::numOpen(db);
             // A broken connection on the first try.
             hook = [&] {
                 if (!broken) {
@@ -1935,7 +1935,7 @@ TEST(Sql, ErrBadConnReconnect) {
             EXPECT_FALSE(err) << name << ": " << err;
             EXPECT_TRUE(broken && retried) << name << ": Failed to simulate broken connection";
             hook = nullptr;
-            EXPECT_EQ(num_open, test_access::num_open(db)) << name << ": leaked connection(s)";
+            EXPECT_EQ(numOpen, test_access::numOpen(db)) << name << ": leaked connection(s)";
         };
         auto db_exec = [&] { return db.Exec("INSERT|t1|name=?,age=?,dead=?", "Gordon", 3, true).second; };
         simulate_bad_conn("db.Exec prepare", hook_prepare_bad_conn, db_exec);
@@ -1955,13 +1955,13 @@ TEST(Sql, ErrBadConnReconnect) {
         });
         auto [stmt1, err1] = db.Prepare("INSERT|t1|name=?,age=?,dead=?");
         ASSERT_FALSE(err1);
-        test_access::clear_css(*stmt1);  // must prepare again
+        test_access::clearCss(*stmt1);  // must prepare again
         auto stmt_exec = [&] { return stmt1->Exec("Gopher", 3, false).second; };
         simulate_bad_conn("stmt.Exec prepare", hook_prepare_bad_conn, stmt_exec);
         simulate_bad_conn("stmt.Exec exec", hook_exec_bad_conn, stmt_exec);
         auto [stmt2, err2] = db.Prepare("SELECT|t1|age,name|");
         ASSERT_FALSE(err2);
-        test_access::clear_css(*stmt2);
+        test_access::clearCss(*stmt2);
         auto stmt_query = [&] {
             auto [rows, err] = stmt2->Query();
             if (!err) err = rows->Close();
@@ -1981,7 +1981,7 @@ TEST(Sql, TxEndBadConn) {
         db.SetMaxIdleConns(1);
         auto simulate_bad_conn = [&](std::string name, std::function<bool()>& hook, const std::function<gopp::error()>& op) {
             bool broken = false;
-            int num_open = test_access::num_open(db);
+            int numOpen = test_access::numOpen(db);
             hook = [&] {
                 broken = true;
                 return true;
@@ -1990,7 +1990,7 @@ TEST(Sql, TxEndBadConn) {
             EXPECT_TRUE(errors::Is(err, driver::ErrBadConn)) << name << ": " << err;
             EXPECT_TRUE(broken) << name << ": Failed to simulate broken connection";
             hook = nullptr;
-            EXPECT_TRUE(wait_for([&] { return num_open == test_access::num_open(db); })) << name << ": leaked connection(s)";
+            EXPECT_TRUE(wait_for([&] { return numOpen == test_access::numOpen(db); })) << name << ": leaked connection(s)";
         };
         auto db_exec = [&](bool commit) {
             return [&, commit] {
@@ -2031,7 +2031,7 @@ TEST(Sql, TxErrBadConn) {
     ASSERT_FALSE(tx->Commit());
     txs->Close();
     stmt->Close();
-    close_db(*db);
+    closeDb(*db);
 }
 
 TEST(Sql, OpenConnector) {
@@ -2073,19 +2073,19 @@ TEST(Sql, DriverArgsWrapsErrors) {
         std::pair<driver::Value, gopp::error> Value() const { return {nullptr, err_empty}; }
     };
     {
-        auto db = new_test_db("people");
+        auto db = newTestDb("people");
         auto [res, err] = db->Exec("INSERT|keys|dec1=?", always_err_valuer{});
         ASSERT_TRUE(err) << "expecting back an error";
         EXPECT_TRUE(errors::Is(err, err_empty)) << err;
         EXPECT_TRUE(strings::Contains(err.Error(), err_empty.Error()));
-        close_db(*db);
+        closeDb(*db);
     }
     {
-        auto db = new_test_db("people");
+        auto db = newTestDb("people");
         auto [rows, err] = db->Query("INSERT|keys|dec1=?", always_err_valuer{});
         ASSERT_TRUE(err) << "expecting back an error";
         EXPECT_TRUE(errors::Is(err, err_empty)) << err;
-        close_db(*db);
+        closeDb(*db);
     }
 }
 
@@ -2108,7 +2108,7 @@ TEST(Sql, QueryRowClosingStmt) {
         ASSERT_FALSE(db.QueryRow("SELECT|people|age,name|age=?", 3)->Scan(&age, &name));
         auto fcs = test_access::free_conns(db);
         ASSERT_EQ(fcs.size(), 1u) << "expected 1 free conn";
-        auto* fc = get_fake_conn(fcs[0]->ci);
+        auto* fc = getFakeConn(fcs[0]->ci);
         EXPECT_EQ(fc->stmts_made, fc->stmts_closed) << "statement close mismatch";
     });
 }
@@ -2185,7 +2185,7 @@ TEST(Sql, RawBytesReuse) {
         ASSERT_FALSE(err);
         rows->Next();
         rows->Scan(&raw);
-        std::string name1(as_string_view(raw.span()));
+        std::string name1(asStringView(raw.span()));
         rows->Close();
         // This one doesn't, and must not write to the memory above.
         std::tie(rows, err) = db.Query("SELECT|people|age|");
@@ -2198,7 +2198,7 @@ TEST(Sql, RawBytesReuse) {
         ASSERT_FALSE(err);
         rows->Next();
         rows->Scan(&raw);
-        std::string name2(as_string_view(raw.span()));
+        std::string name2(asStringView(raw.span()));
         rows->Close();
         EXPECT_EQ(name1, name2);
     });
@@ -2282,7 +2282,7 @@ TEST(Sql, ConnRequestSet) {
     EXPECT_EQ(s.Len(), 0u);
     EXPECT_FALSE(s.Delete(dh)) << "delete worked twice";
     // take-before-delete
-    auto ch1 = make_chan<sql::detail::conn_request>();
+    auto ch1 = makeChan<sql::detail::conn_request>();
     dh = s.Add(ch1);
     auto got = s.TakeRandom();
     EXPECT_TRUE(got && *got == ch1);
@@ -2291,7 +2291,7 @@ TEST(Sql, ConnRequestSet) {
     // get-take-many
     std::vector<chan<sql::detail::conn_request>> in_order, back_out;
     for (int i = 0; i < 100; i++) {
-        auto c = make_chan<sql::detail::conn_request>();
+        auto c = makeChan<sql::detail::conn_request>();
         s.Add(c);
         in_order.push_back(c);
     }
@@ -2299,7 +2299,7 @@ TEST(Sql, ConnRequestSet) {
     while (s.Len() > 0) back_out.push_back(*s.TakeRandom());
     EXPECT_NE(in_order, back_out) << "wasn't random";
     // close-delete
-    auto ch = make_chan<sql::detail::conn_request>();
+    auto ch = makeChan<sql::detail::conn_request>();
     dh = s.Add(ch);
     s.CloseAndRemoveAll();
     EXPECT_EQ(s.Len(), 0u);
@@ -2379,17 +2379,17 @@ TEST(SqlConvert, Conversions) {
         tests.push_back({s, [&, s] { return sql::convert_assign(&scanstr, s); },
                          [&, want] { return want.empty() || scanstr == want ? "" : "string " + scanstr.str(); }, wanterr});
     };
-    auto to_bytes = [&](Value s, std::optional<std::string> want) {
+    auto toBytes = [&](Value s, std::optional<std::string> want) {
         tests.push_back({s, [&, s] { return sql::convert_assign(&scanbytes, s); }, [&, want] {
-                             if (!want) return scanbytes.is_nil() ? std::string() : "want nil bytes";
-                             return as_string_view(scanbytes.span()) == *want ? "" : "bytes " + std::string(as_string_view(scanbytes.span()));
+                             if (!want) return scanbytes.isNil() ? std::string() : "want nil bytes";
+                             return asStringView(scanbytes.span()) == *want ? "" : "bytes " + std::string(asStringView(scanbytes.span()));
                          },
                          ""});
     };
     auto to_raw = [&](Value s, std::optional<std::string> want) {
         tests.push_back({s, [&, s] { return sql::convert_assign(&scanraw, s); }, [&, want] {
-                             if (!want) return scanraw.is_nil() ? std::string() : "want nil RawBytes";
-                             return as_string_view(scanraw.span()) == *want ? "" : "raw " + std::string(as_string_view(scanraw.span()));
+                             if (!want) return scanraw.isNil() ? std::string() : "want nil RawBytes";
+                             return asStringView(scanraw.span()) == *want ? "" : "raw " + std::string(asStringView(scanraw.span()));
                          },
                          ""});
     };
@@ -2410,13 +2410,13 @@ TEST(SqlConvert, Conversions) {
     to_str(time::Time::Unix(1, 0).UTC(), "1970-01-01T00:00:01Z");
     to_str(time::Time::Unix(1453874597, 0).In(time::FixedZone("here", -3600 * 8)), "2016-01-26T22:03:17-08:00");
     to_str(time::Time::Unix(1, 2).UTC(), "1970-01-01T00:00:01.000000002Z");
-    to_bytes(time::Time::Unix(1, 2).UTC(), "1970-01-01T00:00:01.000000002Z");
+    toBytes(time::Time::Unix(1, 2).UTC(), "1970-01-01T00:00:01.000000002Z");
     // To []byte.
-    to_bytes(nullptr, std::nullopt);
-    to_bytes(string("string"), "string");
-    to_bytes(b("byteslice"), "byteslice");
-    to_bytes(int64(123), "123");
-    to_bytes(1.5, "1.5");
+    toBytes(nullptr, std::nullopt);
+    toBytes(string("string"), "string");
+    toBytes(b("byteslice"), "byteslice");
+    toBytes(int64(123), "123");
+    toBytes(1.5, "1.5");
     // To RawBytes.
     to_raw(nullptr, std::nullopt);
     to_raw(b("byteslice"), "byteslice");
@@ -2513,9 +2513,9 @@ TEST(SqlConvert, NullString) {
 
 TEST(SqlConvert, ValueConverters) {
     // NullString as an argument: its Value.
-    auto a = sql::to_arg(sql::NullString{"hi", true});
+    auto a = sql::toArg(sql::NullString{"hi", true});
     EXPECT_TRUE(driver::Equal(a.value, string("hi")));
-    auto b = sql::to_arg(sql::NullString{"", false});
+    auto b = sql::toArg(sql::NullString{"", false});
     EXPECT_TRUE(std::holds_alternative<std::nullptr_t>(b.value));
 }
 

@@ -42,7 +42,7 @@ zone_table& zones() {
 std::string_view sv(const string& s) { return s.view(); }
 
 // Go's parseAddrError.
-struct parseAddrError final : error_interface {
+struct parseAddrError final : errorInterface {
     string in, msg, at;
     parseAddrError(std::string_view in_, std::string_view msg_, std::string_view at_ = {})
         : in(in_), msg(msg_), at(at_) {}
@@ -58,7 +58,7 @@ error addrErr(std::string_view in, std::string_view msg, std::string_view at = {
 }
 
 // Go's parsePrefixError.
-struct parsePrefixError final : error_interface {
+struct parsePrefixError final : errorInterface {
     string in, msg;
     parsePrefixError(std::string_view in_, string msg_) : in(in_), msg(std::move(msg_)) {}
     string Error() const override { return "netip.ParsePrefix(" + strconv::Quote(in.view()) + "): " + msg; }
@@ -79,7 +79,7 @@ void putbe64(byte* p, uint64 v) {
     }
 }
 
-slice<byte> appendBytes(slice<byte> b, std::string_view s) { return append_span(std::move(b), as_bytes(s)); }
+slice<byte> appendBytes(slice<byte> b, std::string_view s) { return appendSpan(std::move(b), as_bytes(s)); }
 
 slice<byte> appendByte(slice<byte> b, char c) { return append(std::move(b), byte(c)); }
 
@@ -105,7 +105,7 @@ slice<byte> appendHexPad(slice<byte> b, uint16 x) {
 
 slice<byte> appendUint(slice<byte> b, uint64 v) { return appendBytes(std::move(b), std::to_string(v)); }
 
-string bytes_string(const slice<byte>& b) { return String(b); }
+string bytesString(const slice<byte>& b) { return String(b); }
 
 // Go's parseIPv4Fields: the four fields of in[off:end] into fields.
 error parseIPv4Fields(std::string_view in, std::size_t off, std::size_t end, byte* fields) {
@@ -528,12 +528,12 @@ slice<byte> Addr::appendTo6(slice<byte> b) const {
 }
 
 string Addr::String() const {
-    if (!IsValid()) return string::from_static("invalid IP");
+    if (!IsValid()) return string::fromStatic("invalid IP");
     slice<byte> b = slice<byte>::make(0, 46);
     if (z_ == z4) b = appendTo4(std::move(b));
     else if (Is4In6()) b = appendTo4In6(std::move(b));
     else b = appendTo6(std::move(b));
-    return bytes_string(b);
+    return bytesString(b);
 }
 
 slice<byte> Addr::AppendTo(slice<byte> b) const {
@@ -554,7 +554,7 @@ string Addr::StringExpanded() const {
         b = appendByte(std::move(b), '%');
         b = appendBytes(std::move(b), sv(z_->zoneV6));
     }
-    return bytes_string(b);
+    return bytesString(b);
 }
 
 std::pair<slice<byte>, error> Addr::MarshalText() const {
@@ -568,7 +568,7 @@ error Addr::UnmarshalText(std::span<const byte> text) {
         return nullptr;
     }
     error err;
-    std::tie(*this, err) = ParseAddr(as_string_view(text));
+    std::tie(*this, err) = ParseAddr(asStringView(text));
     return err;
 }
 
@@ -578,11 +578,11 @@ std::pair<slice<byte>, error> Addr::AppendBinary(slice<byte> b) const {
     if (z_ == z4) {
         uint32 v = uint32(addr_.lo);
         byte four[4] = {byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)};
-        return {append_span(std::move(b), std::span<const byte>(four)), nullptr};
+        return {appendSpan(std::move(b), std::span<const byte>(four)), nullptr};
     }
     putbe64(buf, addr_.hi);
     putbe64(buf + 8, addr_.lo);
-    b = append_span(std::move(b), std::span<const byte>(buf));
+    b = appendSpan(std::move(b), std::span<const byte>(buf));
     return {appendBytes(std::move(b), sv(Zone())), nullptr};
 }
 
@@ -609,7 +609,7 @@ error Addr::UnmarshalBinary(std::span<const byte> b) {
     if (n >= 16) {
         std::array<byte, 16> a;
         std::copy_n(b.begin(), 16, a.begin());
-        *this = AddrFrom16(a).WithZone(as_string_view(b.subspan(16)));
+        *this = AddrFrom16(a).WithZone(asStringView(b.subspan(16)));
         return nullptr;
     }
     return errors::New("unexpected slice size");
@@ -673,8 +673,8 @@ int AddrPort::Compare(const AddrPort& p2) const {
 }
 
 string AddrPort::String() const {
-    if (ip_.z() == nullptr) return string::from_static("invalid AddrPort");
-    return bytes_string(AppendTo(slice<byte>::make(0, 54)));
+    if (ip_.z() == nullptr) return string::fromStatic("invalid AddrPort");
+    return bytesString(AppendTo(slice<byte>::make(0, 54)));
 }
 
 slice<byte> AddrPort::AppendTo(slice<byte> b) const {
@@ -700,7 +700,7 @@ error AddrPort::UnmarshalText(std::span<const byte> text) {
         return nullptr;
     }
     error err;
-    std::tie(*this, err) = ParseAddrPort(as_string_view(text));
+    std::tie(*this, err) = ParseAddrPort(asStringView(text));
     return err;
 }
 
@@ -741,12 +741,12 @@ int Prefix::Compare(const Prefix& p2) const {
 
 std::pair<Prefix, error> ParsePrefix(std::string_view s) {
     auto i = s.rfind('/');
-    if (i == s.npos) return {Prefix{}, prefixErr(s, string::from_static("no '/'"))};
+    if (i == s.npos) return {Prefix{}, prefixErr(s, string::fromStatic("no '/'"))};
     auto [ip, err] = ParseAddr(s.substr(0, i));
     if (err) return {Prefix{}, prefixErr(s, err.Error())};
     // Zones aren't allowed in prefixes (go.dev/issue/51899).
     if (ip.Is6() && ip.z() != z6noz) {
-        return {Prefix{}, prefixErr(s, string::from_static("IPv6 zones cannot be present in a prefix"))};
+        return {Prefix{}, prefixErr(s, string::fromStatic("IPv6 zones cannot be present in a prefix"))};
     }
     std::string_view bitsStr = s.substr(i + 1);
     // strconv.Atoi accepts a sign and leading zeros; prefixes don't.
@@ -756,7 +756,7 @@ std::pair<Prefix, error> ParsePrefix(std::string_view s) {
     int bits;
     if (!atoi(bitsStr, &bits)) return {Prefix{}, prefixErr(s, "bad bits after slash: " + strconv::Quote(bitsStr))};
     int maxBits = ip.Is6() ? 128 : 32;
-    if (bits < 0 || bits > maxBits) return {Prefix{}, prefixErr(s, string::from_static("prefix length out of range"))};
+    if (bits < 0 || bits > maxBits) return {Prefix{}, prefixErr(s, string::fromStatic("prefix length out of range"))};
     return {PrefixFrom(ip, bits), nullptr};
 }
 
@@ -818,7 +818,7 @@ error Prefix::UnmarshalText(std::span<const byte> text) {
         return nullptr;
     }
     error err;
-    std::tie(*this, err) = ParsePrefix(as_string_view(text));
+    std::tie(*this, err) = ParsePrefix(asStringView(text));
     return err;
 }
 
@@ -841,8 +841,8 @@ error Prefix::UnmarshalBinary(std::span<const byte> b) {
 }
 
 string Prefix::String() const {
-    if (!IsValid()) return string::from_static("invalid Prefix");
-    return bytes_string(AppendTo(slice<byte>::make(0, 43)));
+    if (!IsValid()) return string::fromStatic("invalid Prefix");
+    return bytesString(AppendTo(slice<byte>::make(0, 43)));
 }
 
 }  // namespace gopp::netip

@@ -25,8 +25,8 @@ int main() {
     constexpr int height = 40;
     constexpr int max_iterations = 500;
 
-    auto jobs = make_chan<int>(height);
-    auto rows = make_chan<Row>(height);
+    auto jobs = makeChan<int>(height);
+    auto rows = makeChan<Row>(height);
     sync::WaitGroup workers;
     for (int i = 0; i < 8; ++i) {
         workers.Go([jobs, rows] {

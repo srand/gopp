@@ -41,7 +41,7 @@ constexpr int nwords = (nsig + 31) / 32;
 // Go's sigtable flags for Linux, reduced to what matters here: whether
 // os/signal may handle the signal (_SigNotify), and whether its default
 // action is to ignore it (_SigIgn).
-constexpr bool can_notify(uint32_t s) noexcept {
+constexpr bool canNotify(uint32_t s) noexcept {
     switch (s) {
     case SIGILL: case SIGTRAP: case SIGBUS: case SIGFPE: case SIGKILL: case SIGSEGV:
     case SIGSTKFLT: case SIGSTOP: case SIGSYS: case 32: case 33: case 34:
@@ -51,12 +51,12 @@ constexpr bool can_notify(uint32_t s) noexcept {
     }
 }
 
-constexpr bool default_ignored(int s) noexcept {
+constexpr bool defaultIgnored(int s) noexcept {
     return s == SIGCHLD || s == SIGURG || s == SIGWINCH || s == SIGCONT;
 }
 
 // Go's _SigPanic and _SigThrow signals.
-constexpr bool is_crash(int s) noexcept {
+constexpr bool isCrash(int s) noexcept {
     switch (s) {
     case SIGSEGV: case SIGBUS: case SIGFPE: case SIGILL: case SIGTRAP: case SIGABRT: case SIGSYS: case SIGQUIT:
         return true;
@@ -118,7 +118,7 @@ bool sigsend(uint32_t s) noexcept {
 
 // Takes the default action of s: dies, stops, or nothing. Then puts the
 // runtime's handler back, for a signal that stopped the process.
-void raise_default(int s) noexcept {
+void raiseDefault(int s) noexcept {
     struct sigaction dfl{}, cur{};
     dfl.sa_handler = SIG_DFL;
     sigemptyset(&dfl.sa_mask);
@@ -144,7 +144,7 @@ void forward(int s, siginfo_t* info, void* ctx) noexcept {
     }
     if (f.sa_handler == SIG_IGN) return;
     if (f.sa_handler == SIG_DFL) {
-        if (!default_ignored(s)) raise_default(s);
+        if (!defaultIgnored(s)) raiseDefault(s);
         return;
     }
     f.sa_handler(s);
@@ -153,20 +153,20 @@ void forward(int s, siginfo_t* info, void* ctx) noexcept {
 void sighandler(int s, siginfo_t* info, void* ctx) {
     int saved = errno;
     if (s == SIGURG) {
-        traceback_signal(ctx);
-        preempt_signal();
+        tracebackSignal(ctx);
+        preemptSignal();
     }
-    bool crash = is_crash(s) && test(sig.at_init, static_cast<uint32_t>(s));
+    bool crash = isCrash(s) && test(sig.at_init, static_cast<uint32_t>(s));
     // Faults can't be notified: their handler returning would fault again.
-    if (crash && !can_notify(static_cast<uint32_t>(s))) crash_signal(s, info, ctx);
+    if (crash && !canNotify(static_cast<uint32_t>(s))) crashSignal(s, info, ctx);
     if (!sigsend(static_cast<uint32_t>(s))) {
-        if (crash) crash_signal(s, info, ctx);
+        if (crash) crashSignal(s, info, ctx);
         forward(s, info, ctx);
     }
     errno = saved;
 }
 
-bool is_runtime_handler(const struct sigaction& sa) noexcept {
+bool isRuntimeHandler(const struct sigaction& sa) noexcept {
     return (sa.sa_flags & SA_SIGINFO) && sa.sa_sigaction == sighandler;
 }
 
@@ -175,7 +175,7 @@ void install(int s) noexcept {
     sa.sa_sigaction = sighandler;
     sigfillset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
-    if (is_crash(s)) {
+    if (isCrash(s)) {
         // A fault while the traceback prints comes back to the handler,
         // which then gives up, instead of the kernel killing the process
         // without a word.
@@ -186,12 +186,12 @@ void install(int s) noexcept {
 }
 
 // The eventfd of signal_recv, registered with the poller on first use.
-void ensure_receiver() noexcept {
+void ensureReceiver() noexcept {
     if (sig.wakefd.load(std::memory_order_acquire) >= 0) return;
     int fd = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     if (fd < 0) fatal("os/signal: eventfd failed");
     int err = 0;
-    sig.pd = poll_open(fd, &err);
+    sig.pd = pollOpen(fd, &err);
     if (!sig.pd) fatal("os/signal: can't poll the eventfd");
     sig.wakefd.store(fd, std::memory_order_release);
 }
@@ -221,7 +221,7 @@ void initsig() noexcept {
         // either stays.
         if (is_default(SIGPIPE)) install_at_init(SIGPIPE);
         for (uint32_t s = 1; s < nsig; s++)
-            if (is_crash(static_cast<int>(s)) && is_default(s)) install_at_init(s);
+            if (isCrash(static_cast<int>(s)) && is_default(s)) install_at_init(s);
 
         // SIGURG preempts long-running fibers, and asks threads for their
         // stacks in tracebacks, so its handler goes in even if the program
@@ -230,46 +230,46 @@ void initsig() noexcept {
         install_at_init(SIGURG);
 
         // An exception that escapes a thread is reported as a panic.
-        std::set_terminate(terminate_handler);
-        ensure_sigaltstack();
+        std::set_terminate(terminateHandler);
+        ensureSigaltstack();
     });
 }
 
 void sigpipe() noexcept {
-    if (signal_ignored(SIGPIPE) || sigsend(SIGPIPE)) return;
+    if (signalIgnored(SIGPIPE) || sigsend(SIGPIPE)) return;
     struct sigaction cur{};
     if (::sigaction(SIGPIPE, nullptr, &cur) < 0) return;
     bool siginfo = cur.sa_flags & SA_SIGINFO;
     if (!siginfo && cur.sa_handler == SIG_IGN) return;  // ignored by other means
-    if (!is_runtime_handler(cur) && (siginfo || cur.sa_handler != SIG_DFL)) {
+    if (!isRuntimeHandler(cur) && (siginfo || cur.sa_handler != SIG_DFL)) {
         // The program's own handler: let it have the signal.
         ::raise(SIGPIPE);
         return;
     }
     // Go's dieFromSignal.
-    raise_default(SIGPIPE);
+    raiseDefault(SIGPIPE);
 }
 
-void signal_enable(uint32_t s) noexcept {
+void signalEnable(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    ensure_receiver();
+    ensureReceiver();
     set(sig.wanted, s, true);
     set(sig.ignored, s, false);
-    if (can_notify(s) && !test(sig.handling, s)) {
+    if (canNotify(s) && !test(sig.handling, s)) {
         ::sigaction(static_cast<int>(s), nullptr, &sig.fwd[s]);
-        if (!is_runtime_handler(sig.fwd[s])) install(static_cast<int>(s));
+        if (!isRuntimeHandler(sig.fwd[s])) install(static_cast<int>(s));
         set(sig.handling, s, true);
     }
     sig.lock.unlock();
 }
 
-void signal_disable(uint32_t s) noexcept {
+void signalDisable(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    if (can_notify(s) && test(sig.handling, s) && !test(sig.at_init, s)) {
+    if (canNotify(s) && test(sig.handling, s) && !test(sig.at_init, s)) {
         // Back to the disposition before Notify.
         ::sigaction(static_cast<int>(s), &sig.fwd[s], nullptr);
         set(sig.handling, s, false);
@@ -280,11 +280,11 @@ void signal_disable(uint32_t s) noexcept {
     sig.lock.unlock();
 }
 
-void signal_ignore(uint32_t s) noexcept {
+void signalIgnore(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    if (can_notify(s) && !(s == SIGURG && test(sig.at_init, s))) {
+    if (canNotify(s) && !(s == SIGURG && test(sig.at_init, s))) {
         if (!test(sig.handling, s)) ::sigaction(static_cast<int>(s), nullptr, &sig.fwd[s]);
         struct sigaction ign{};
         ign.sa_handler = SIG_IGN;
@@ -297,12 +297,12 @@ void signal_ignore(uint32_t s) noexcept {
     sig.lock.unlock();
 }
 
-bool signal_ignored(uint32_t s) noexcept {
+bool signalIgnored(uint32_t s) noexcept {
     initsig();
     return s < nsig && test(sig.ignored, s);
 }
 
-uint32_t signal_recv() noexcept {
+uint32_t signalRecv() noexcept {
     for (;;) {
         // Serve the signals of the local copy.
         for (uint32_t i = 0; i < nsig; i++) {
@@ -313,7 +313,7 @@ uint32_t signal_recv() noexcept {
         }
         // Wait for sigsend. The eventfd is drained before the mask is
         // looked at, so a signal queued after that wakes poll_wait.
-        poll_reset(sig.pd, 'r');
+        pollReset(sig.pd, 'r');
         uint64_t n;
         while (::read(sig.wakefd.load(std::memory_order_relaxed), &n, sizeof(n)) < 0 && errno == EINTR) {
         }
@@ -325,7 +325,7 @@ uint32_t signal_recv() noexcept {
         }
         if (any) continue;
         sig.receiving.store(true, std::memory_order_seq_cst);
-        poll_wait(sig.pd, 'r');
+        pollWait(sig.pd, 'r');
     }
 }
 

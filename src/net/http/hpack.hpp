@@ -21,7 +21,7 @@ struct HeaderField {
     string value;
     bool sensitive = false;
 
-    bool is_pseudo() const noexcept { return !name.empty() && name[0] == ':'; }
+    bool isPseudo() const noexcept { return !name.empty() && name[0] == ':'; }
     // The size the field counts for in a dynamic table: 32 bytes of
     // overhead plus the name and value.
     uint32 size() const noexcept { return static_cast<uint32>(name.size() + value.size() + 32); }
@@ -32,15 +32,15 @@ struct HeaderField {
 };
 
 // hpack.DecodingError
-struct DecodingError : error_interface {
+struct DecodingError : errorInterface {
     gopp::error err;
     explicit DecodingError(gopp::error e) : err(std::move(e)) {}
     string Error() const override;
-    const error_interface* Unwrap() const noexcept override { return err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return err.get(); }
 };
 
 // hpack.InvalidIndexError
-struct InvalidIndexError : error_interface {
+struct InvalidIndexError : errorInterface {
     uint64 index;
     explicit InvalidIndexError(uint64 i) : index(i) {}
     string Error() const override;
@@ -62,13 +62,13 @@ public:
     explicit header_field_table(bool is_static = false) : static_(is_static) {}
     std::size_t len() const noexcept { return ents_.size(); }
     const HeaderField& at(std::size_t k) const noexcept { return ents_[k]; }
-    void add_entry(HeaderField f);
+    void addEntry(HeaderField f);
     void evict_oldest(std::size_t n);
     // The index of f and whether the value matched too; 0 if not found.
     std::pair<uint64, bool> search(const HeaderField& f) const;
 
 private:
-    uint64 id_to_index(uint64 id) const;
+    uint64 idToIndex(uint64 id) const;
     struct pair_hash {
         std::size_t operator()(const std::pair<std::string, std::string>& p) const noexcept {
             return std::hash<std::string>{}(p.first) * 31 + std::hash<std::string>{}(p.second);
@@ -81,13 +81,13 @@ private:
     std::unordered_map<std::pair<std::string, std::string>, uint64, pair_hash> by_name_value_;
 };
 
-struct dynamic_table {
+struct dynamicTable {
     header_field_table table;
     uint32 size = 0;              // in bytes
     uint32 max_size = 0;          // current maximum
     uint32 allowed_max_size = 0;  // max_size may go up to this
 
-    void set_max_size(uint32 v);
+    void setMaxSize(uint32 v);
     void add(HeaderField f);
     void evict();
 };
@@ -99,21 +99,21 @@ class Decoder {
 public:
     using emit_func = std::function<void(const HeaderField&)>;
 
-    Decoder(uint32 max_dynamic_table_size, emit_func emit);
+    Decoder(uint32 maxDynamicTableSize, emit_func emit);
 
     // Limits decoded strings to n bytes; 0 means no limit.
-    void set_max_string_length(int n) noexcept { max_str_len_ = n; }
-    void set_emit_func(emit_func f) { emit_ = std::move(f); }
+    void setMaxStringLength(int n) noexcept { max_str_len_ = n; }
+    void setEmitFunc(emit_func f) { emit_ = std::move(f); }
     // Whether to call emit; with emitting off, literal strings are not
     // decoded unless they are indexed.
-    void set_emit_enabled(bool v) noexcept { emit_enabled_ = v; }
-    bool emit_enabled() const noexcept { return emit_enabled_; }
-    void set_max_dynamic_table_size(uint32 v) { dyn_.set_max_size(v); }
+    void setEmitEnabled(bool v) noexcept { emit_enabled_ = v; }
+    bool emitEnabled() const noexcept { return emit_enabled_; }
+    void setMaxDynamicTableSize(uint32 v) { dyn_.setMaxSize(v); }
     // The largest table size the peer may switch to (our SETTINGS).
-    void set_allowed_max_dynamic_table_size(uint32 v) noexcept { dyn_.allowed_max_size = v; }
+    void setAllowedMaxDynamicTableSize(uint32 v) noexcept { dyn_.allowed_max_size = v; }
 
     // Decodes a whole header block.
-    std::pair<std::vector<HeaderField>, gopp::error> decode_full(std::span<const byte> p);
+    std::pair<std::vector<HeaderField>, gopp::error> decodeFull(std::span<const byte> p);
     // Decodes part of a header block; a field split across writes is
     // completed by the next one.
     std::pair<isize, gopp::error> Write(std::span<const byte> p);
@@ -121,24 +121,24 @@ public:
     gopp::error Close();
 
     // For tests: the dynamic table.
-    const detail::dynamic_table& dynamic_table() const noexcept { return dyn_; }
+    const detail::dynamicTable& dynamicTable() const noexcept { return dyn_; }
 
 private:
-    std::size_t max_table_index() const noexcept;
+    std::size_t maxTableIndex() const noexcept;
     const HeaderField* at(uint64 i) const noexcept;
-    gopp::error parse_header_field_repr();
-    gopp::error parse_field_indexed();
-    gopp::error parse_field_literal(uint8 n, int index_type);
-    gopp::error parse_dynamic_table_size_update();
-    gopp::error call_emit(const HeaderField& hf);
+    gopp::error parseHeaderFieldRepr();
+    gopp::error parseFieldIndexed();
+    gopp::error parseFieldLiteral(uint8 n, int index_type);
+    gopp::error parseDynamicTableSizeUpdate();
+    gopp::error callEmit(const HeaderField& hf);
     struct undecoded {
         bool huff = false;
         std::span<const byte> b;
     };
     gopp::error ReadString(std::span<const byte>& p, undecoded& u);
-    gopp::error decode_string(const undecoded& u, string& out);
+    gopp::error decodeString(const undecoded& u, string& out);
 
-    detail::dynamic_table dyn_;
+    detail::dynamicTable dyn_;
     emit_func emit_;
     bool emit_enabled_ = true;
     int max_str_len_ = 0;
@@ -152,20 +152,20 @@ class Encoder {
 public:
     explicit Encoder(std::string* out);
 
-    gopp::error write_field(const HeaderField& f);
+    gopp::error writeField(const HeaderField& f);
     // Changes the dynamic table size, up to the limit; the next field
     // starts with a size update.
-    void set_max_dynamic_table_size(uint32 v);
-    uint32 max_dynamic_table_size() const noexcept { return dyn_.max_size; }
+    void setMaxDynamicTableSize(uint32 v);
+    uint32 maxDynamicTableSize() const noexcept { return dyn_.max_size; }
     // The peer's SETTINGS_HEADER_TABLE_SIZE.
-    void set_max_dynamic_table_size_limit(uint32 v);
-    void set_output(std::string* out) noexcept { out_ = out; }
+    void setMaxDynamicTableSizeLimit(uint32 v);
+    void setOutput(std::string* out) noexcept { out_ = out; }
 
 private:
     friend struct test_access;
-    std::pair<uint64, bool> search_table(const HeaderField& f) const;
+    std::pair<uint64, bool> searchTable(const HeaderField& f) const;
 
-    detail::dynamic_table dyn_;
+    detail::dynamicTable dyn_;
     uint32 min_size_;
     uint32 max_size_limit_;
     bool table_size_update_ = false;
@@ -174,15 +174,15 @@ private:
 
 // Huffman coding (RFC 7541 appendix B). max_len limits the output; 0
 // means no limit.
-gopp::error huffman_decode(std::string& out, int max_len, std::span<const byte> v);
-std::pair<string, gopp::error> huffman_decode_to_string(std::span<const byte> v);
-void append_huffman_string(std::string& dst, std::string_view s);
-uint64 huffman_encode_length(std::string_view s) noexcept;
+gopp::error huffmanDecode(std::string& out, int max_len, std::span<const byte> v);
+std::pair<string, gopp::error> huffmanDecodeToString(std::span<const byte> v);
+void appendHuffmanString(std::string& dst, std::string_view s);
+uint64 huffmanEncodeLength(std::string_view s) noexcept;
 
 // Integer and string representations, for the encoder and tests.
-void append_var_int(std::string& dst, uint8 n, uint64 i);
+void appendVarInt(std::string& dst, uint8 n, uint64 i);
 // Reads an n-bit-prefix integer from p, advancing it. Errors: need more
 // data (returns false in *complete) or overflow.
-gopp::error read_var_int(uint8 n, std::span<const byte>& p, uint64& out);
+gopp::error readVarInt(uint8 n, std::span<const byte>& p, uint64& out);
 
 }  // namespace gopp::http::hpack

@@ -90,7 +90,7 @@ fileLines readLines(const std::string& name) {
         f.err = err;
         return f;
     }
-    std::string_view s = as_string_view(data);
+    std::string_view s = asStringView(data);
     while (!s.empty()) {
         auto nl = s.find('\n');
         std::string_view line = s.substr(0, nl);
@@ -126,7 +126,7 @@ const std::vector<std::string> defaultNS = {"127.0.0.1:53", "[::1]:53"};
 
 std::function<std::pair<string, error>()> getHostname = [] {
     char buf[256];
-    if (::gethostname(buf, sizeof buf) < 0) return std::pair<string, error>{{}, errno_error(errno)};
+    if (::gethostname(buf, sizeof buf) < 0) return std::pair<string, error>{{}, errnoError(errno)};
     buf[sizeof buf - 1] = 0;
     return std::pair<string, error>{string(buf), nullptr};
 };
@@ -521,7 +521,7 @@ std::shared_ptr<nssConf> parseNSSConfFile(const std::string& file) {
         c->err = err;
         return c;
     }
-    auto conf = parseNSSConf(as_string_view(data));
+    auto conf = parseNSSConf(asStringView(data));
     if (auto [fi, serr] = os::Stat(file); !serr) conf->mtime = fi->ModTime();
     return conf;
 }

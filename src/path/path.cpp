@@ -38,7 +38,7 @@ struct lazybuf {
 }  // namespace
 
 string Clean(std::string_view path) {
-    if (path.empty()) return string::from_static(".");
+    if (path.empty()) return string::fromStatic(".");
     bool rooted = path[0] == '/';
     std::size_t n = path.size();
     // Invariants: reading from path; r is index of next byte to process.
@@ -81,7 +81,7 @@ string Clean(std::string_view path) {
         }
     }
     // Turn empty string into "."
-    if (out.w == 0) return string::from_static(".");
+    if (out.w == 0) return string::fromStatic(".");
     return out.str();
 }
 
@@ -118,13 +118,13 @@ string Ext(std::string_view path) {
 }
 
 string Base(std::string_view path) {
-    if (path.empty()) return string::from_static(".");
+    if (path.empty()) return string::fromStatic(".");
     // Strip trailing slashes.
     while (!path.empty() && path.back() == '/') path.remove_suffix(1);
     // Find the last element
     if (auto i = path.rfind('/'); i != path.npos) path = path.substr(i + 1);
     // If empty now, it had only slashes.
-    if (path.empty()) return string::from_static("/");
+    if (path.empty()) return string::fromStatic("/");
     return string(path);
 }
 

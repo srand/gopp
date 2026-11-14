@@ -178,7 +178,7 @@ struct handle_state;
 // What KindAny and KindLogValuer values hold: a T, and how to print it.
 struct any_value : public virtual object {
     virtual const std::type_info& type() const noexcept = 0;
-    virtual std::string_view type_name() const noexcept = 0;
+    virtual std::string_view typeName() const noexcept = 0;
     virtual const void* get() const noexcept = 0;
     virtual std::any to_any() const = 0;
     virtual bool equal(const any_value& o) const noexcept = 0;
@@ -264,10 +264,10 @@ private:
     using group = std::shared_ptr<const std::vector<Attr>>;
 
     Value(slog::Kind k, uint64 num) noexcept : kind_(k), num_(num) {}
-    static Value of_any(ptr<const detail::any_value> p);
+    static Value ofAny(ptr<const detail::any_value> p);
 
-    bool is_nil() const noexcept { return kind_ == KindAny && std::holds_alternative<std::monostate>(data_); }
-    bool is_empty_group() const noexcept;
+    bool isNil() const noexcept { return kind_ == KindAny && std::holds_alternative<std::monostate>(data_); }
+    bool isEmptyGroup() const noexcept;
     void append(std::string& dst) const;
 
     slog::Kind kind_ = KindAny;
@@ -285,7 +285,7 @@ struct Attr {
     string String() const;
 
     // Whether the Attr is the zero Attr, which handlers drop.
-    bool is_empty() const noexcept { return Key.empty() && Value.is_nil(); }
+    bool isEmpty() const noexcept { return Key.empty() && Value.isNil(); }
 };
 
 // The Value constructors.
@@ -371,7 +371,7 @@ concept ptr_to_text_marshaler = pointer_like<T> && text_marshaler<pointee_t<T>>;
 template <typename T>
 inline constexpr bool is_error_v = [] {
     if constexpr (std::is_same_v<T, gopp::error>) return true;
-    else if constexpr (pointer_like<T>) return std::derived_from<std::remove_cvref_t<decltype(*std::declval<T>())>, error_interface>;
+    else if constexpr (pointer_like<T>) return std::derived_from<std::remove_cvref_t<decltype(*std::declval<T>())>, errorInterface>;
     else return false;
 }();
 
@@ -383,7 +383,7 @@ struct any_holder final : any_value {
     explicit any_holder(U&& u) : v(std::forward<U>(u)) {}
 
     const std::type_info& type() const noexcept override { return typeid(T); }
-    std::string_view type_name() const noexcept override { return gopp::json::detail::type_name<T>(); }
+    std::string_view typeName() const noexcept override { return gopp::json::detail::typeName<T>(); }
     const void* get() const noexcept override { return &v; }
 
     std::any to_any() const override {
@@ -420,11 +420,11 @@ struct any_holder final : any_value {
         if constexpr (text_appender<T>) {
             auto [b, err] = v.AppendText(slice<byte>());
             if (err) return err;
-            out = as_string_view(b);
+            out = asStringView(b);
         } else if constexpr (text_marshaler<T>) {
             auto [b, err] = v.MarshalText();
             if (err) return err;
-            out = as_string_view(b);
+            out = asStringView(b);
         } else if constexpr (ptr_to_text_appender<T> || ptr_to_text_marshaler<T>) {
             // Go's handler recovers from the nil dereference and writes <nil>.
             if (!v) {
@@ -436,7 +436,7 @@ struct any_holder final : any_value {
                 else return v->MarshalText();
             }();
             if (err) return err;
-            out = as_string_view(b);
+            out = asStringView(b);
         } else if constexpr (byte_range<T>) {
             raw = true;
             out = quote(std::string_view(reinterpret_cast<const char*>(std::ranges::data(v)), std::ranges::size(v)));
@@ -474,13 +474,13 @@ struct any_holder final : any_value {
 
 // Go's argsToAttr, at compile time: calls emit with each Attr of args.
 template <typename F>
-void args_to_attrs(F&&) {}
+void argsToAttrs(F&&) {}
 
 template <typename F, typename A, typename... Rest>
-void args_to_attrs(F&& emit, A&& a, Rest&&... rest);
+void argsToAttrs(F&& emit, A&& a, Rest&&... rest);
 
 template <typename F, typename K, typename V, typename... Rest>
-void args_kv(F&& emit, K&& k, V&& v, Rest&&... rest);
+void argsKv(F&& emit, K&& k, V&& v, Rest&&... rest);
 
 }  // namespace detail
 
@@ -516,9 +516,9 @@ Value AnyValue(T&& v) {
     } else if constexpr (std::is_same_v<U, gopp::error>) {
         // A nil error is Go's nil interface: the nil Value.
         if (!v) return Value();
-        return Value::of_any(make_ptr<detail::any_holder<U>>(std::forward<T>(v)));
+        return Value::ofAny(make_ptr<detail::any_holder<U>>(std::forward<T>(v)));
     } else {
-        return Value::of_any(make_ptr<detail::any_holder<U>>(std::forward<T>(v)));
+        return Value::ofAny(make_ptr<detail::any_holder<U>>(std::forward<T>(v)));
     }
 }
 
@@ -547,7 +547,7 @@ template <typename... A>
 Attr Group(string key, A&&... args) {
     std::vector<Attr> attrs;
     attrs.reserve(sizeof...(A));
-    detail::args_to_attrs([&](Attr a) { attrs.push_back(std::move(a)); }, std::forward<A>(args)...);
+    detail::argsToAttrs([&](Attr a) { attrs.push_back(std::move(a)); }, std::forward<A>(args)...);
     return Attr{std::move(key), GroupValue(attrs)};
 }
 inline Attr GroupAttrs(string key, std::span<const Attr> attrs) { return Attr{std::move(key), GroupValue(attrs)}; }
@@ -562,26 +562,26 @@ namespace detail {
 inline constexpr std::string_view bad_key = "!BADKEY";
 
 template <typename F, typename A, typename... Rest>
-void args_to_attrs(F&& emit, A&& a, Rest&&... rest) {
+void argsToAttrs(F&& emit, A&& a, Rest&&... rest) {
     if constexpr (is_string_like_v<std::remove_cvref_t<A>>) {
         if constexpr (sizeof...(Rest) == 0) {
-            emit(slog::String(string::from_static(bad_key), string(std::string_view(a))));
+            emit(slog::String(string::fromStatic(bad_key), string(std::string_view(a))));
         } else {
-            args_kv(emit, std::forward<A>(a), std::forward<Rest>(rest)...);
+            argsKv(emit, std::forward<A>(a), std::forward<Rest>(rest)...);
         }
     } else if constexpr (is_attr_v<A>) {
         emit(Attr(std::forward<A>(a)));
-        args_to_attrs(emit, std::forward<Rest>(rest)...);
+        argsToAttrs(emit, std::forward<Rest>(rest)...);
     } else {
-        emit(Any(string::from_static(bad_key), std::forward<A>(a)));
-        args_to_attrs(emit, std::forward<Rest>(rest)...);
+        emit(Any(string::fromStatic(bad_key), std::forward<A>(a)));
+        argsToAttrs(emit, std::forward<Rest>(rest)...);
     }
 }
 
 template <typename F, typename K, typename V, typename... Rest>
-void args_kv(F&& emit, K&& k, V&& v, Rest&&... rest) {
+void argsKv(F&& emit, K&& k, V&& v, Rest&&... rest) {
     emit(Any(string(std::string_view(k)), std::forward<V>(v)));
-    args_to_attrs(emit, std::forward<Rest>(rest)...);
+    argsToAttrs(emit, std::forward<Rest>(rest)...);
 }
 
 }  // namespace detail
@@ -642,7 +642,7 @@ public:
     // Appends the Attrs that args make, as a Logger's arguments do.
     template <typename... A>
     void Add(A&&... args) {
-        detail::args_to_attrs([this](Attr a) { add(std::move(a)); }, std::forward<A>(args)...);
+        detail::argsToAttrs([this](Attr a) { add(std::move(a)); }, std::forward<A>(args)...);
     }
 
     // Where the record was logged, if PC knows.
@@ -786,7 +786,7 @@ public:
         } else {
             std::vector<Attr> attrs;
             attrs.reserve(sizeof...(A));
-            detail::args_to_attrs([&](Attr a) { attrs.push_back(std::move(a)); }, std::forward<A>(args)...);
+            detail::argsToAttrs([&](Attr a) { attrs.push_back(std::move(a)); }, std::forward<A>(args)...);
             return make_ptr<Logger>(handler_->WithAttrs(attrs));
         }
     }

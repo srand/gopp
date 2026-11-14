@@ -347,7 +347,7 @@ string Time::Format(std::string_view layout) const {
 
 slice<byte> Time::AppendFormat(slice<byte> b, std::string_view layout) const {
     string s = Format(layout);
-    return append_span(std::move(b), std::span<const byte>(reinterpret_cast<const byte*>(s.data()), s.size()));
+    return appendSpan(std::move(b), std::span<const byte>(reinterpret_cast<const byte*>(s.data()), s.size()));
 }
 
 void Time::internal::appendFormat(const Time& t, std::string& b, std::string_view layout) {
@@ -536,11 +536,11 @@ string Time::FormatRFC3339() const { return UTC().Format(RFC3339Nano); }
 
 namespace {
 
-slice<byte> to_bytes(std::string_view s) {
-    return append_span(slice<byte>{}, std::span<const byte>(reinterpret_cast<const byte*>(s.data()), s.size()));
+slice<byte> toBytes(std::string_view s) {
+    return appendSpan(slice<byte>{}, std::span<const byte>(reinterpret_cast<const byte*>(s.data()), s.size()));
 }
 
-std::string_view as_view(std::span<const byte> b) { return {reinterpret_cast<const char*>(b.data()), b.size()}; }
+std::string_view asView(std::span<const byte> b) { return {reinterpret_cast<const char*>(b.data()), b.size()}; }
 
 }  // namespace
 
@@ -550,11 +550,11 @@ std::pair<slice<byte>, error> Time::MarshalJSON() const {
     b += '"';
     // Changed to an error in Go 1.20: see https://go.dev/issue/4556.
     if (err) return {slice<byte>{}, errors::New("Time.MarshalJSON: " + err.Error())};
-    return {to_bytes(b), nullptr};
+    return {toBytes(b), nullptr};
 }
 
 error Time::UnmarshalJSON(std::span<const byte> data) {
-    std::string_view s = as_view(data);
+    std::string_view s = asView(data);
     if (s == "null") return nullptr;
     // TODO(https://go.dev/issue/47353): Properly unescape a JSON string.
     if (s.size() < 2 || s.front() != '"' || s.back() != '"') {
@@ -569,17 +569,17 @@ error Time::UnmarshalJSON(std::span<const byte> data) {
 std::pair<slice<byte>, error> Time::AppendText(slice<byte> b) const {
     std::string s;
     if (error err = internal::appendStrictRFC3339(*this, s)) return {slice<byte>{}, errors::New("Time.AppendText: " + err.Error())};
-    return {append_span(std::move(b), std::span<const byte>(reinterpret_cast<const byte*>(s.data()), s.size())), nullptr};
+    return {appendSpan(std::move(b), std::span<const byte>(reinterpret_cast<const byte*>(s.data()), s.size())), nullptr};
 }
 
 std::pair<slice<byte>, error> Time::MarshalText() const {
     std::string s;
     if (error err = internal::appendStrictRFC3339(*this, s)) return {slice<byte>{}, errors::New("Time.MarshalText: " + err.Error())};
-    return {to_bytes(s), nullptr};
+    return {toBytes(s), nullptr};
 }
 
 error Time::UnmarshalText(std::span<const byte> data) {
-    auto [t, err] = parseStrictRFC3339(as_view(data));
+    auto [t, err] = parseStrictRFC3339(asView(data));
     *this = t;
     return err;
 }

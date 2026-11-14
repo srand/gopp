@@ -16,17 +16,17 @@ namespace gopp::os {
 
 namespace {
 
-std::vector<string>& argv_storage() {
+std::vector<string>& argvStorage() {
     static std::vector<string>* v = new std::vector<string>();
     return *v;
 }
 
 }  // namespace
 
-const std::vector<string>& Args() { return argv_storage(); }
+const std::vector<string>& Args() { return argvStorage(); }
 
 void SetArgs(int argc, char** argv) {
-    auto& v = argv_storage();
+    auto& v = argvStorage();
     v.clear();
     for (int i = 0; i < argc; i++) v.emplace_back(argv[i]);
 }
@@ -46,12 +46,12 @@ int Getegid() noexcept { return syscall::Getegid(); }
 std::pair<std::vector<int>, error> Getgroups() {
     for (;;) {
         int n = ::getgroups(0, nullptr);
-        if (n < 0) return {{}, NewSyscallError("getgroups", syscall::errno_error(errno))};
+        if (n < 0) return {{}, NewSyscallError("getgroups", syscall::errnoError(errno))};
         std::vector<gid_t> g(static_cast<std::size_t>(n));
         int m = ::getgroups(n, g.data());
         if (m < 0) {
             if (errno == EINVAL) continue;  // the groups changed meanwhile
-            return {{}, NewSyscallError("getgroups", syscall::errno_error(errno))};
+            return {{}, NewSyscallError("getgroups", syscall::errnoError(errno))};
         }
         return {std::vector<int>(g.begin(), g.begin() + m), nullptr};
     }
@@ -66,7 +66,7 @@ std::pair<string, error> Hostname() {
     }
     auto [b, err] = ReadFile("/proc/sys/kernel/hostname");
     if (err) return {string(), err};
-    std::string_view s = as_string_view(b);
+    std::string_view s = asStringView(b);
     if (!s.empty() && s.back() == '\n') s.remove_suffix(1);
     return {string(s), nullptr};
 }

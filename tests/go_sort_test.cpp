@@ -25,7 +25,7 @@ const double nan_ = std::numeric_limits<double>::quiet_NaN();
 
 const std::array<isize, 13> ints{74, 59, 238, -784, 9845, 959, 905, 0, 0, 42, 7586, -5467984, 7586};
 const std::array<double, 14> float64s{74.3, 59.0, inf, 238.2, -784.0, 2.3, nan_, nan_, -inf, 9845.768, -959.7485, 905, 7.8, 7.8};
-std::array<string, 8> strings_data() { return {"", "Hello", "foo", "bar", "foo", "f00", "%*&^*&^&", "***"}; }
+std::array<string, 8> stringsData() { return {"", "Hello", "foo", "bar", "foo", "f00", "%*&^*&^&", "***"}; }
 
 std::mt19937_64 rng(1);
 isize rand_intn(isize n) { return std::uniform_int_distribution<isize>(0, n - 1)(rng); }
@@ -33,7 +33,7 @@ isize rand_intn(isize n) { return std::uniform_int_distribution<isize>(0, n - 1)
 // export_test.go
 void Heapsort(sort::Interface& data) {
     sort::detail::interface_data d{data};
-    slices::detail::heap_sort(d, 0, data.Len());
+    slices::detail::heapSort(d, 0, data.Len());
 }
 void ReverseRange(sort::Interface&& data, isize a, isize b) {
     sort::detail::interface_data d{data};
@@ -66,7 +66,7 @@ TEST(GoSort, SortFloat64sCompareSlicesSort) {
 }
 
 TEST(GoSort, SortStringSlice) {
-    auto data = strings_data();
+    auto data = stringsData();
     sort::StringSlice a(data);
     sort::Sort(a);
     EXPECT_TRUE(sort::IsSorted(a));
@@ -85,13 +85,13 @@ TEST(GoSort, Float64s) {
 }
 
 TEST(GoSort, Strings) {
-    auto data = strings_data();
+    auto data = stringsData();
     sort::Strings(data);
     EXPECT_TRUE(sort::StringsAreSorted(data));
 }
 
 TEST(GoSort, Slice) {
-    auto data = strings_data();
+    auto data = stringsData();
     sort::Slice(data, [&](isize i, isize j) { return data[i] < data[j]; });
     EXPECT_TRUE(sort::SliceIsSorted(data, [&](isize i, isize j) { return data[i] < data[j]; }));
 }

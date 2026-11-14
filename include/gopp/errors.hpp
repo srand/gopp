@@ -26,9 +26,9 @@ class error;
 
 // The error interface. Implementations derive from it and return their
 // message from error(). Wrapping errors also implement unwrap().
-struct error_interface : public virtual object {
+struct errorInterface : public virtual object {
     virtual string Error() const = 0;
-    virtual const error_interface* Unwrap() const noexcept { return nullptr; }
+    virtual const errorInterface* Unwrap() const noexcept { return nullptr; }
     // Go's Unwrap() []error: the errors a joined error, or an Errorf with
     // several fmt::W arguments, wraps. errors::Is and As search them too.
     virtual std::span<const error> UnwrapList() const noexcept;
@@ -37,7 +37,7 @@ struct error_interface : public virtual object {
     // Optional: whether the error matches target for errors.Is, as an
     // Is(error) bool method does in Go; syscall::Errno matches
     // fs::ErrNotExist, for example.
-    virtual bool Is(const error_interface* target) const noexcept { return false; }
+    virtual bool Is(const errorInterface* target) const noexcept { return false; }
 };
 
 // A value of Go's error type: nil, or a pointer to an implementation.
@@ -45,20 +45,20 @@ class error {
 public:
     constexpr error() noexcept = default;
     constexpr error(std::nullptr_t) noexcept {}
-    error(ptr<const error_interface> p) noexcept : p_(std::move(p)) {}
+    error(ptr<const errorInterface> p) noexcept : p_(std::move(p)) {}
 
     template <typename E>
-        requires std::is_base_of_v<error_interface, E>
+        requires std::is_base_of_v<errorInterface, E>
     error(ptr<E> p) noexcept : p_(std::move(p)) {}
 
     explicit operator bool() const noexcept { return static_cast<bool>(p_); }
-    bool is_nil() const noexcept { return !p_; }
+    bool isNil() const noexcept { return !p_; }
 
     // err.Error(); "<nil>" for a nil error, as fmt prints it.
-    string Error() const { return p_ ? p_->Error() : string::from_static("<nil>"); }
+    string Error() const { return p_ ? p_->Error() : string::fromStatic("<nil>"); }
 
-    const error_interface* operator->() const noexcept { return p_.get(); }
-    const error_interface* get() const noexcept { return p_.get(); }
+    const errorInterface* operator->() const noexcept { return p_.get(); }
+    const errorInterface* get() const noexcept { return p_.get(); }
 
     // Identity comparison, as Go compares interface values holding pointers.
     friend bool operator==(const error& a, const error& b) noexcept { return a.p_.get() == b.p_.get(); }
@@ -67,7 +67,7 @@ public:
     friend std::ostream& operator<<(std::ostream& os, const error& e) { return os << e.Error(); }
 
 private:
-    ptr<const error_interface> p_;
+    ptr<const errorInterface> p_;
 };
 
 namespace errors {
@@ -80,7 +80,7 @@ bool Is(const error& err, const error& target) noexcept;
 
 namespace detail {
 // The first error in the tree at e, depth first, that match says yes to.
-const error_interface* find(const error_interface* e, bool (*match)(const error_interface*, void*), void* ctx) noexcept;
+const errorInterface* find(const errorInterface* e, bool (*match)(const errorInterface*, void*), void* ctx) noexcept;
 }  // namespace detail
 
 // errors.As: the first error in err's tree (its Unwrap chain, and the
@@ -88,7 +88,7 @@ const error_interface* find(const error_interface* e, bool (*match)(const error_
 template <typename E>
 const E* As(const error& err) noexcept {
     auto* e = detail::find(
-        err.get(), [](const error_interface* e, void*) { return dynamic_cast<const E*>(e) != nullptr; }, nullptr);
+        err.get(), [](const errorInterface* e, void*) { return dynamic_cast<const E*>(e) != nullptr; }, nullptr);
     return e ? dynamic_cast<const E*>(e) : nullptr;
 }
 

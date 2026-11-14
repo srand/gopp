@@ -80,11 +80,11 @@ namespace {
 
 constexpr int64 max_post_handler_read_bytes = 256 << 10;
 
-gopp::error bad_request(std::string_view what) { return make_ptr<status_error>(400, string(what)); }
+gopp::error badRequest(std::string_view what) { return make_ptr<statusError>(400, string(what)); }
 
 }  // namespace
 
-bool parse_http_version(std::string_view v, int& major, int& minor) {
+bool parseHttpVersion(std::string_view v, int& major, int& minor) {
     if (v == "HTTP/1.1") {
         major = 1;
         minor = 1;
@@ -112,10 +112,10 @@ struct empty_body final : io::ReadCloser {
 
 }  // namespace
 
-ptr<io::ReadCloser> no_body() {
+ptr<io::ReadCloser> noBody() {
     static empty_body* b = [] {
         auto* e = new empty_body();
-        e->add_ref();
+        e->addRef();
         return e;
     }();
     return ptr<io::ReadCloser>(b);
@@ -141,7 +141,7 @@ std::pair<isize, gopp::error> body_reader::Read(std::span<byte> p) {
     return {n, err};
 }
 
-int64 body_reader::unread_size() const noexcept {
+int64 body_reader::unreadSize() const noexcept {
     if (saw_eof_) return 0;
     if (limited_) return static_cast<io::LimitedReader*>(src_.get())->Remaining();
     return -1;
@@ -182,11 +182,11 @@ gopp::error body_reader::Close() {
     }
 }
 
-gopp::error chunked_reader::begin_chunk() {
+gopp::error chunked_reader::beginChunk() {
     auto [line, IsPrefix, err] = r_->ReadLine();
     if (err) return err == io::EOF_ ? io::ErrUnexpectedEOF : err;
     if (IsPrefix) return errors::New("header line too long");
-    std::string_view s = as_string_view(line);
+    std::string_view s = asStringView(line);
     if (auto semi = s.find(';'); semi != s.npos) s = s.substr(0, semi);  // chunk extensions
     while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) s.remove_suffix(1);
     if (s.empty() || s.size() > 16) return errors::New("invalid byte in chunk length");
@@ -233,7 +233,7 @@ std::pair<isize, gopp::error> chunked_reader::Read(std::span<byte> p) {
         }
         if (done_) return {0, io::EOF_};
         if (n_ == 0) {
-            err_ = begin_chunk();
+            err_ = beginChunk();
             continue;
         }
         if (p.empty()) return {0, nullptr};
@@ -251,7 +251,7 @@ std::pair<isize, gopp::error> chunked_reader::Read(std::span<byte> p) {
 // ---------------------------------------------------------------------------
 // Reading a request
 
-gopp::error read_header_block(const ptr<bufio::Reader>& br, int64 max_header_bytes, string& first_line, Header& header) {
+gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 max_header_bytes, string& first_line, Header& header) {
     // Copy the first line and the header lines into one buffer; all the
     // strings are then slices of one shared allocation.
     std::string block;
@@ -294,17 +294,17 @@ gopp::error read_header_block(const ptr<bufio::Reader>& br, int64 max_header_byt
     for (std::size_t i = 1; i < lines.size(); i++) {
         string line = line_at(i);
         if (line[0] == ' ' || line[0] == '\t') {
-            return bad_request("malformed MIME header: unexpected continuation line");
+            return badRequest("malformed MIME header: unexpected continuation line");
         }
         auto colon = line.find(':');
-        if (colon == line.npos) return bad_request("malformed MIME header line: " + line);
+        if (colon == line.npos) return badRequest("malformed MIME header line: " + line);
         std::string_view key = line.view().substr(0, colon);
-        if (!valid_header_field_name(key)) return bad_request("malformed MIME header line: " + line);
+        if (!validHeaderFieldName(key)) return badRequest("malformed MIME header line: " + line);
         std::size_t vs = colon + 1, ve = line.size();
         while (vs < ve && (line[vs] == ' ' || line[vs] == '\t')) vs++;
         while (ve > vs && (line[ve - 1] == ' ' || line[ve - 1] == '\t')) ve--;
         string value = line.slice(vs, ve);
-        if (!valid_header_field_value(value)) return bad_request("invalid header field value for " + strconv::Quote(key));
+        if (!validHeaderFieldValue(value)) return badRequest("invalid header field value for " + strconv::Quote(key));
         string ckey = CanonicalHeaderKey(key);
         if (ckey.view() == key) ckey = line.slice(0, colon);  // share the buffer
         header.AddCanonical(std::move(ckey), std::move(value));
@@ -315,53 +315,53 @@ gopp::error read_header_block(const ptr<bufio::Reader>& br, int64 max_header_byt
 std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, int64 max_header_bytes) {
     auto req = make_ptr<Request>();
     string rl;
-    if (gopp::error err = read_header_block(br, max_header_bytes, rl, req->Header)) return {nullptr, err};
-    if (rl.empty()) return {nullptr, bad_request("malformed HTTP request \"\"")};
+    if (gopp::error err = readHeaderBlock(br, max_header_bytes, rl, req->Header)) return {nullptr, err};
+    if (rl.empty()) return {nullptr, badRequest("malformed HTTP request \"\"")};
 
     // Request line: METHOD SP request-target SP HTTP-version
     auto sp1 = rl.find(' ');
     auto sp2 = sp1 == rl.npos ? rl.npos : rl.find(' ', sp1 + 1);
-    if (sp1 == rl.npos || sp2 == rl.npos) return {nullptr, bad_request("malformed HTTP request " + strconv::Quote(rl))};
+    if (sp1 == rl.npos || sp2 == rl.npos) return {nullptr, badRequest("malformed HTTP request " + strconv::Quote(rl))};
     req->Method = rl.slice(0, sp1);
     req->RequestURI = rl.slice(sp1 + 1, sp2);
     req->Proto = rl.slice(sp2 + 1);
-    if (!valid_method(req->Method)) return {nullptr, bad_request("invalid method " + strconv::Quote(req->Method))};
-    if (!parse_http_version(req->Proto, req->ProtoMajor, req->ProtoMinor))
-        return {nullptr, bad_request("malformed HTTP version " + strconv::Quote(req->Proto))};
+    if (!validMethod(req->Method)) return {nullptr, badRequest("invalid method " + strconv::Quote(req->Method))};
+    if (!parseHttpVersion(req->Proto, req->ProtoMajor, req->ProtoMinor))
+        return {nullptr, badRequest("malformed HTTP version " + strconv::Quote(req->Proto))};
     if (req->ProtoMajor != 1) {
-        return {nullptr, make_ptr<status_error>(505, string("unsupported protocol version"))};
+        return {nullptr, make_ptr<statusError>(505, string("unsupported protocol version"))};
     }
 
     bool just_authority = req->Method == "CONNECT" && !req->RequestURI.starts_with("/");
     std::string uri_for_parse(req->RequestURI.view());
     if (just_authority) uri_for_parse = "http://" + uri_for_parse;
     auto [u, uerr] = url::ParseRequestURI(uri_for_parse);
-    if (uerr) return {nullptr, bad_request(uerr.Error())};
+    if (uerr) return {nullptr, badRequest(uerr.Error())};
     if (just_authority) u.Scheme = {};
     req->URL = std::move(u);
 
     // Host: from an absolute request-target, else the Host header.
     std::vector<string> hosts = req->Header.Values("Host");
     if (req->ProtoAtLeast(1, 1) && hosts.size() != 1) {
-        return {nullptr, bad_request(hosts.empty() ? "missing required Host header" : "too many Host headers")};
+        return {nullptr, badRequest(hosts.empty() ? "missing required Host header" : "too many Host headers")};
     }
     req->Host = !req->URL.Host.empty() ? req->URL.Host : (hosts.empty() ? string() : hosts[0]);
 
     // Connection persistence.
     string conn = req->Header.Get("Connection");
     if (req->ProtoMajor == 1 && req->ProtoMinor == 0) {
-        req->Close = !has_token(conn, "keep-alive");
+        req->Close = !hasToken(conn, "keep-alive");
     } else {
-        req->Close = has_token(conn, "close");
+        req->Close = hasToken(conn, "close");
     }
 
     // Body framing.
     std::vector<string> te = req->Header.Values("Transfer-Encoding");
     if (!te.empty()) {
         if (te.size() != 1 || !ascii::EqualFold(te[0], "chunked")) {
-            return {nullptr, make_ptr<status_error>(501, "unsupported transfer encoding: " + strconv::Quote(te[0]))};
+            return {nullptr, make_ptr<statusError>(501, "unsupported transfer encoding: " + strconv::Quote(te[0]))};
         }
-        req->TransferEncoding = {string::from_static("chunked")};
+        req->TransferEncoding = {string::fromStatic("chunked")};
         req->Header.Del("Content-Length");  // RFC 9112: Transfer-Encoding overrides
         req->ContentLength = -1;
         req->Body = make_ptr<body_reader>(make_ptr<chunked_reader>(br), false);
@@ -370,16 +370,16 @@ std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, 
     std::vector<string> cl = req->Header.Values("Content-Length");
     if (!cl.empty()) {
         for (auto& v : cl) {
-            if (strings::TrimSpace(v) != strings::TrimSpace(cl[0])) return {nullptr, bad_request("invalid Content-Length")};
+            if (strings::TrimSpace(v) != strings::TrimSpace(cl[0])) return {nullptr, badRequest("invalid Content-Length")};
         }
         auto [n, perr] = strconv::ParseUint(strings::TrimSpace(cl[0]).view(), 10, 63);
-        if (perr) return {nullptr, bad_request("bad Content-Length " + strconv::Quote(cl[0]))};
+        if (perr) return {nullptr, badRequest("bad Content-Length " + strconv::Quote(cl[0]))};
         req->ContentLength = static_cast<int64>(n);
     }
     if (req->ContentLength > 0) {
         req->Body = make_ptr<body_reader>(make_ptr<io::LimitedReader>(br, req->ContentLength), true);
     } else {
-        req->Body = no_body();
+        req->Body = noBody();
     }
     return {req, nullptr};
 }
@@ -387,10 +387,10 @@ std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, 
 // ---------------------------------------------------------------------------
 // Paths
 
-string clean_path(const string& p) {
+string cleanPath(const string& p) {
     // path.Clean: lexical processing of "." and ".." elements and repeated
     // slashes; then put back a trailing slash.
-    if (p.empty()) return string::from_static("/");
+    if (p.empty()) return string::fromStatic("/");
     std::string_view in = p;
     std::string rooted;
     if (in[0] != '/') {

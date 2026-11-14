@@ -243,21 +243,21 @@ TEST(GoUtf8, EncodeRune) {
     for (const auto& m : utf8map) {
         byte buf[10] = {};
         int n = EncodeRune(buf, m.r);
-        EXPECT_EQ(as_string_view(std::span<const byte>(buf, std::size_t(n))), m.str) << "EncodeRune(" << m.r << ")";
+        EXPECT_EQ(asStringView(std::span<const byte>(buf, std::size_t(n))), m.str) << "EncodeRune(" << m.r << ")";
     }
 }
 
 TEST(GoUtf8, AppendRune) {
     for (const auto& m : utf8map) {
-        EXPECT_EQ(as_string_view(AppendRune({}, m.r)), m.str) << "AppendRune(nil, " << m.r << ")";
-        EXPECT_EQ(as_string_view(AppendRune(to_bytes("init"), m.r)), "init" + std::string(m.str))
+        EXPECT_EQ(asStringView(AppendRune({}, m.r)), m.str) << "AppendRune(nil, " << m.r << ")";
+        EXPECT_EQ(asStringView(AppendRune(toBytes("init"), m.r)), "init" + std::string(m.str))
             << "AppendRune(init, " << m.r << ")";
     }
 }
 
 TEST(GoUtf8, DecodeRune) {
     for (const auto& m : utf8map) {
-        auto bb = to_bytes(m.str);
+        auto bb = toBytes(m.str);
         auto [r, size] = DecodeRune(bb);
         EXPECT_TRUE(r == m.r && std::size_t(size) == bb.len()) << "DecodeRune(" << q(m.str) << ") = " << r << ", " << size;
         std::tie(r, size) = DecodeRuneInString(m.str);
@@ -287,9 +287,9 @@ TEST(GoUtf8, DecodeRune) {
             bb[bb.len() - 1] = 0x7F;
         }
         std::tie(r, size) = DecodeRune(bb);
-        EXPECT_TRUE(r == RuneError && size == 1) << "DecodeRune(" << q(as_string_view(bb)) << ")";
-        std::tie(r, size) = DecodeRuneInString(as_string_view(bb));
-        EXPECT_TRUE(r == RuneError && size == 1) << "DecodeRuneInString(" << q(as_string_view(bb)) << ")";
+        EXPECT_TRUE(r == RuneError && size == 1) << "DecodeRune(" << q(asStringView(bb)) << ")";
+        std::tie(r, size) = DecodeRuneInString(asStringView(bb));
+        EXPECT_TRUE(r == RuneError && size == 1) << "DecodeRuneInString(" << q(asStringView(bb)) << ")";
     }
 }
 
@@ -304,7 +304,7 @@ TEST(GoUtf8, DecodeSurrogateRune) {
 
 // The runes of s and their indexes, as Go's `for i, r := range s` visits
 // them.
-std::vector<std::pair<int, rune>> range_string(std::string_view s) {
+std::vector<std::pair<int, rune>> rangeString(std::string_view s) {
     std::vector<std::pair<int, rune>> out;
     for (std::size_t i = 0; i < s.size();) {
         auto [r, n] = DecodeRuneInString(s.substr(i));
@@ -315,7 +315,7 @@ std::vector<std::pair<int, rune>> range_string(std::string_view s) {
 }
 
 void testSequence(std::string_view s) {
-    auto index = range_string(s);
+    auto index = rangeString(s);
     auto bb = b(s);
     int si = 0;
     for (auto [i, r] : index) {
@@ -369,8 +369,8 @@ TEST(GoUtf8, NegativeRune) {
     byte errorbuf[UTFMax], buf[UTFMax];
     int n1 = EncodeRune(errorbuf, RuneError);
     int n2 = EncodeRune(buf, -1);
-    EXPECT_EQ(as_string_view(std::span<const byte>(buf, std::size_t(n2))),
-              as_string_view(std::span<const byte>(errorbuf, std::size_t(n1))));
+    EXPECT_EQ(asStringView(std::span<const byte>(buf, std::size_t(n2))),
+              asStringView(std::span<const byte>(errorbuf, std::size_t(n1))));
 }
 
 TEST(GoUtf8, RuneCount) {

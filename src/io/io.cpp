@@ -113,7 +113,7 @@ struct nop_closer_t final : ReadCloser {
 Writer& Discard() {
     static discard_writer* w = [] {
         auto* d = new discard_writer();
-        d->add_ref();  // never freed
+        d->addRef();  // never freed
         return d;
     }();
     return *w;

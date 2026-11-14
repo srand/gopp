@@ -27,9 +27,9 @@ const std::string Rtime = "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]";
 const std::string Rmicroseconds = "\\.[0-9][0-9][0-9][0-9][0-9][0-9]";
 
 // The lines of the calls to log::Print and log::Println in testPrint.
-int print_line, println_line;
+int printLine, println_line;
 
-std::string Rline() { return "(" + std::to_string(print_line) + "|" + std::to_string(println_line) + "):"; }
+std::string Rline() { return "(" + std::to_string(printLine) + "|" + std::to_string(println_line) + "):"; }
 std::string Rlongfile() { return ".*/[A-Za-z0-9_\\-]+\\.cpp:" + Rline(); }
 std::string Rshortfile() { return "[A-Za-z0-9_\\-]+\\.cpp:" + Rline(); }
 
@@ -72,7 +72,7 @@ void testPrint(int flag, const std::string& prefix, std::string pattern, bool us
     log::SetFlags(flag);
     log::SetPrefix(prefix);
     if (useFormat) {
-        log::Print("hello {} world", 23); print_line = __LINE__;
+        log::Print("hello {} world", 23); printLine = __LINE__;
     } else {
         log::Println("hello {} world", 23); println_line = __LINE__;
     }

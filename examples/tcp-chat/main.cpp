@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     }
     fmt::Println("Chat room listening on {}", listener->Addr());
 
-    auto events = make_chan<Event>();
+    auto events = makeChan<Event>();
     std::atomic<int> next_id{0};
 
     go([listener, events, &next_id] {
@@ -60,8 +60,8 @@ int main(int argc, char** argv) {
 
                 events.send(Event{event_kind::join, id, name, {}, conn});
                 for (;;) {
-                    auto [raw_line, read_err] = reader.ReadString('\n');
-                    if (read_err) break;
+                    auto [raw_line, readErr] = reader.ReadString('\n');
+                    if (readErr) break;
                     string line = strings::TrimSpace(raw_line);
                     if (line == "/quit") break;
                     if (!line.empty()) events.send(Event{event_kind::message, id, name, line, {}});
@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
     std::map<int, ClientState> clients;
     for (Event event : events) {
         if (event.kind == event_kind::join) {
-            auto outgoing = make_chan<string>(64);
+            auto outgoing = makeChan<string>(64);
             auto conn = event.conn;
             go([conn, outgoing] {
                 for (const string& line : outgoing) {

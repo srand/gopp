@@ -90,16 +90,16 @@ inline detail::reverse Reverse(Interface&& data) noexcept { return detail::rever
 // sort.Slice: sorts x by less(i, j) on indexes. Not stable.
 template <slices::detail::contiguous S, typename F>
 void Slice(S&& x, F less) {
-    auto s = slices::detail::span_of(x);
+    auto s = slices::detail::spanOf(x);
     detail::less_swap<slices::detail::elem_t<S>, F> data{s.data(), less};
     auto n = static_cast<isize>(s.size());
-    slices::detail::pdqsort(data, 0, n, slices::detail::bits_len(n));
+    slices::detail::pdqsort(data, 0, n, slices::detail::bitsLen(n));
 }
 
 // sort.SliceStable: sorts x by less(i, j), keeping equal elements in order.
 template <slices::detail::contiguous S, typename F>
 void SliceStable(S&& x, F less) {
-    auto s = slices::detail::span_of(x);
+    auto s = slices::detail::spanOf(x);
     detail::less_swap<slices::detail::elem_t<S>, F> data{s.data(), less};
     slices::detail::stable(data, static_cast<isize>(s.size()));
 }

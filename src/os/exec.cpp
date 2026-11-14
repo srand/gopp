@@ -46,19 +46,19 @@ constexpr int pid_released = -1;
 
 enum process_status : uint32 { status_ok, status_done, status_released };
 
-long sys_pidfd_open(int pid, unsigned flags) { return ::syscall(SYS_pidfd_open, pid, flags); }
+long sysPidfdOpen(int pid, unsigned flags) { return ::syscall(SYS_pidfd_open, pid, flags); }
 
-long sys_pidfd_send_signal(int fd, int sig) { return ::syscall(SYS_pidfd_send_signal, fd, sig, nullptr, 0); }
+long sysPidfdSendSignal(int fd, int sig) { return ::syscall(SYS_pidfd_send_signal, fd, sig, nullptr, 0); }
 
 // waitid(2) with the rusage argument the C library's lacks.
-long sys_waitid(int idtype, int id, siginfo_t* info, int options, struct rusage* ru) {
+long sysWaitid(int idtype, int id, siginfo_t* info, int options, struct rusage* ru) {
     return ::syscall(SYS_waitid, idtype, id, info, options, ru);
 }
 
-error convert_esrch(error err) { return err == syscall::ESRCH_ ? ErrProcessDone : err; }
+error convertEsrch(error err) { return err == syscall::ESRCH_ ? ErrProcessDone : err; }
 
 // The WaitStatus of a siginfo from waitid (Go's SiginfoChild.WaitStatus).
-syscall::WaitStatus wait_status(const siginfo_t& info) {
+syscall::WaitStatus waitStatus(const siginfo_t& info) {
     uint32 st = static_cast<uint32>(info.si_status);
     switch (info.si_code) {
     case CLD_EXITED: return syscall::WaitStatus(st << 8);
@@ -71,7 +71,7 @@ syscall::WaitStatus wait_status(const siginfo_t& info) {
     }
 }
 
-syscall::Rusage to_rusage(const struct rusage& ru) {
+syscall::Rusage toRusage(const struct rusage& ru) {
     syscall::Rusage r;
     r.Utime = {ru.ru_utime.tv_sec, ru.ru_utime.tv_usec};
     r.Stime = {ru.ru_stime.tv_sec, ru.ru_stime.tv_usec};
@@ -94,17 +94,17 @@ syscall::Rusage to_rusage(const struct rusage& ru) {
 
 // Go's checkPidfd.
 bool check_pidfd() {
-    long fd = sys_pidfd_open(::getpid(), 0);
+    long fd = sysPidfdOpen(::getpid(), 0);
     if (fd < 0) return false;
     bool ok = true;
     // waitid(P_PIDFD) of this process: ECHILD, as it's not its own child.
     siginfo_t info{};
     long r;
     do {
-        r = sys_waitid(P_PIDFD, static_cast<int>(fd), &info, WEXITED, nullptr);
+        r = sysWaitid(P_PIDFD, static_cast<int>(fd), &info, WEXITED, nullptr);
     } while (r < 0 && errno == EINTR);
     if (r == 0 || errno != ECHILD) ok = false;
-    if (ok && sys_pidfd_send_signal(static_cast<int>(fd), 0) < 0) ok = false;
+    if (ok && sysPidfdSendSignal(static_cast<int>(fd), 0) < 0) ok = false;
     ::close(static_cast<int>(fd));
     return ok && syscall::detail::check_clone_pidfd();
 }
@@ -169,7 +169,7 @@ struct process_impl {
 
     // Go's handleTransientAcquire: the handle with a reference, or the
     // status that keeps it from being used.
-    std::pair<process_handle*, uint32> transient_acquire() noexcept {
+    std::pair<process_handle*, uint32> transientAcquire() noexcept {
         uint32 s = state.load(std::memory_order_acquire);
         if (s != status_ok) return {nullptr, s};
         if (handle->acquire()) return {handle, status_ok};
@@ -178,17 +178,17 @@ struct process_impl {
         return {nullptr, s};
     }
 
-    static ptr<Process> new_pid_process(int pid) {
+    static ptr<Process> newPidProcess(int pid) {
         return make_ptr<Process>(pid, std::make_unique<process_impl>());
     }
 
-    static ptr<Process> new_handle_process(int pid, int fd) {
+    static ptr<Process> newHandleProcess(int pid, int fd) {
         auto impl = std::make_unique<process_impl>();
         impl->handle = new process_handle(fd);
         return make_ptr<Process>(pid, std::move(impl));
     }
 
-    static ptr<Process> new_done_process(int pid) {
+    static ptr<Process> newDoneProcess(int pid) {
         auto impl = std::make_unique<process_impl>();
         impl->state.store(status_done, std::memory_order_relaxed);
         return make_ptr<Process>(pid, std::move(impl));
@@ -196,7 +196,7 @@ struct process_impl {
 
     // Go's pidfdWait.
     static std::pair<ptr<ProcessState>, error> pidfd_wait(process_impl& p) {
-        auto [h, status] = p.transient_acquire();
+        auto [h, status] = p.transientAcquire();
         if (status == status_done) {
             // Waited for already, or not found by FindProcess: ECHILD, as
             // waitid would say.
@@ -211,7 +211,7 @@ struct process_impl {
             error err = h->pfd.RawRead([&](int fd) {
                 for (;;) {
                     std::memset(&info, 0, sizeof(info));
-                    if (sys_waitid(P_PIDFD, fd, &info, WEXITED | WNOHANG, &ru) == 0) {
+                    if (sysWaitid(P_PIDFD, fd, &info, WEXITED | WNOHANG, &ru) == 0) {
                         // si_pid is 0 while the process runs.
                         return info.si_pid != 0;
                     }
@@ -225,8 +225,8 @@ struct process_impl {
                 return {nullptr, NewSyscallError("waitid", err)};
             }
         } else {
-            runtime::blocking_call b;
-            while (sys_waitid(P_PIDFD, h->pfd.Sysfd(), &info, WEXITED, &ru) < 0) {
+            runtime::blockingCall b;
+            while (sysWaitid(P_PIDFD, h->pfd.Sysfd(), &info, WEXITED, &ru) < 0) {
                 if (errno != EINTR) {
                     e = errno;
                     break;
@@ -234,9 +234,9 @@ struct process_impl {
             }
         }
         h->release();
-        if (e) return {nullptr, NewSyscallError("waitid", syscall::errno_error(e))};
+        if (e) return {nullptr, NewSyscallError("waitid", syscall::errnoError(e))};
         p.do_release(status_done);
-        return {make_ptr<ProcessState>(static_cast<int>(info.si_pid), wait_status(info), to_rusage(ru)), nullptr};
+        return {make_ptr<ProcessState>(static_cast<int>(info.si_pid), waitStatus(info), toRusage(ru)), nullptr};
     }
 
     // Go's pidWait, with blockUntilWaitable: waits until the process can
@@ -246,17 +246,17 @@ struct process_impl {
         if (p.state.load(std::memory_order_acquire) == status_released) return {nullptr, syscall::EINVAL_};
         bool ready = false;
         {
-            runtime::blocking_call b;
+            runtime::blockingCall b;
             siginfo_t info{};
             long r;
             do {
-                r = sys_waitid(P_PID, pid, &info, WEXITED | WNOWAIT, nullptr);
+                r = sysWaitid(P_PID, pid, &info, WEXITED | WNOWAIT, nullptr);
             } while (r < 0 && errno == EINTR);
             if (r == 0) {
                 ready = true;
             } else if (errno != ENOSYS) {
                 int e = errno;
-                return {nullptr, NewSyscallError("waitid", syscall::errno_error(e))};
+                return {nullptr, NewSyscallError("waitid", syscall::errnoError(e))};
             }
         }
         if (ready) {
@@ -269,18 +269,18 @@ struct process_impl {
         struct rusage ru{};
         pid_t pid1;
         {
-            runtime::blocking_call b;
+            runtime::blockingCall b;
             do {
                 pid1 = ::wait4(static_cast<pid_t>(pid), &status, 0, &ru);
             } while (pid1 < 0 && errno == EINTR);
         }
         if (pid1 < 0) {
             int e = errno;
-            return {nullptr, NewSyscallError("wait", syscall::errno_error(e))};
+            return {nullptr, NewSyscallError("wait", syscall::errnoError(e))};
         }
         p.do_release(status_done);
         return {make_ptr<ProcessState>(static_cast<int>(pid1), syscall::WaitStatus(static_cast<uint32>(status)),
-                                       to_rusage(ru)),
+                                       toRusage(ru)),
                 nullptr};
     }
 };
@@ -309,17 +309,17 @@ std::pair<ptr<ProcessState>, error> Process::Wait() {
 }
 
 error Process::Signal(const gopp::os::Signal& sig) {
-    auto [s, ok] = sig.as_syscall();
+    auto [s, ok] = sig.asSyscall();
     if (!ok) return errors::New("os: unsupported signal type");
     if (p_->handle) {
         // Go's pidfdSendSignal.
-        auto [h, status] = p_->transient_acquire();
+        auto [h, status] = p_->transientAcquire();
         if (status == status_done) return ErrProcessDone;
         if (status == status_released) return errProcessReleased;
-        long r = sys_pidfd_send_signal(h->pfd.Sysfd(), s.value);
+        long r = sysPidfdSendSignal(h->pfd.Sysfd(), s.value);
         int e = errno;
         h->release();
-        if (r < 0) return convert_esrch(syscall::errno_error(e));
+        if (r < 0) return convertEsrch(syscall::errnoError(e));
         return nullptr;
     }
     // Go's pidSignal.
@@ -330,7 +330,7 @@ error Process::Signal(const gopp::os::Signal& sig) {
     switch (p_->state.load(std::memory_order_acquire)) {
     case status_done: err = ErrProcessDone; break;
     case status_released: err = errProcessReleased; break;
-    default: err = convert_esrch(syscall::Kill(Pid, s)); break;
+    default: err = convertEsrch(syscall::Kill(Pid, s)); break;
     }
     p_->sig_mu.RUnlock();
     return err;
@@ -338,7 +338,7 @@ error Process::Signal(const gopp::os::Signal& sig) {
 
 error Process::WithHandle(const std::function<void(uintptr)>& f) {
     if (!p_->handle) return ErrNoHandle;
-    auto [h, status] = p_->transient_acquire();
+    auto [h, status] = p_->transientAcquire();
     if (status == status_done) return ErrProcessDone;
     if (status == status_released) return errProcessReleased;
     f(static_cast<uintptr>(h->pfd.Sysfd()));
@@ -368,7 +368,7 @@ string ProcessState::String() const {
 string Signal::String() const {
     if (sys_) return syscall::Signal(num_).String();
     if (p_) return p_->String();
-    return string::from_static("<nil>");
+    return string::fromStatic("<nil>");
 }
 
 std::pair<ptr<Process>, error> StartProcess(std::string_view name, std::span<const string> argv, const ProcAttr& attr) {
@@ -397,7 +397,7 @@ std::pair<ptr<Process>, error> StartProcess(std::string_view name, std::span<con
 
     syscall::ProcAttr sysattr;
     sysattr.Dir = attr.Dir;
-    sysattr.Env = attr.Env.is_nil() ? Environ() : attr.Env;
+    sysattr.Env = attr.Env.isNil() ? Environ() : attr.Env;
     sysattr.Sys = sys ? &*sys : nullptr;
     sysattr.Files.reserve(attr.Files.size());
     for (const ptr<File>& f : attr.Files) sysattr.Files.push_back(f ? f->Fd() : ~uintptr(0));
@@ -408,21 +408,21 @@ std::pair<ptr<Process>, error> StartProcess(std::string_view name, std::span<con
     if (works) {
         int h = *sys->PidFD;
         if (should_dup) h = ::fcntl(h, F_DUPFD_CLOEXEC, 0);
-        if (h >= 0) return {detail::process_impl::new_handle_process(pid, h), nullptr};
+        if (h >= 0) return {detail::process_impl::newHandleProcess(pid, h), nullptr};
     }
-    return {detail::process_impl::new_pid_process(pid), nullptr};
+    return {detail::process_impl::newPidProcess(pid), nullptr};
 }
 
 std::pair<ptr<Process>, error> FindProcess(int pid) {
     // Go's pidfdFind.
     if (detail::pidfd_works()) {
-        long h = sys_pidfd_open(pid, 0);
-        if (h >= 0) return {detail::process_impl::new_handle_process(pid, static_cast<int>(h)), nullptr};
+        long h = sysPidfdOpen(pid, 0);
+        if (h >= 0) return {detail::process_impl::newHandleProcess(pid, static_cast<int>(h)), nullptr};
         // A process that doesn't exist is done: Signal and Wait say so.
         // Other errors fall back to the pid.
-        if (errno == ESRCH) return {detail::process_impl::new_done_process(pid), nullptr};
+        if (errno == ESRCH) return {detail::process_impl::newDoneProcess(pid), nullptr};
     }
-    return {detail::process_impl::new_pid_process(pid), nullptr};
+    return {detail::process_impl::newPidProcess(pid), nullptr};
 }
 
 }  // namespace gopp::os

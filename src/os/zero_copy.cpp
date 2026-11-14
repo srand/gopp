@@ -140,7 +140,7 @@ std::pair<int64, error> File::ReadFrom(io::Reader& r) {
                     if (de) {
                         // EINVAL at once: splice can't do it; copy instead.
                         handled = handled || de != EINVAL;
-                        e = handled ? wrapSyscallError("splice", syscall::errno_error(de)) : nullptr;
+                        e = handled ? wrapSyscallError("splice", syscall::errnoError(de)) : nullptr;
                         break;
                     }
                     handled = true;
@@ -148,7 +148,7 @@ std::pair<int64, error> File::ReadFrom(io::Reader& r) {
                     inPipe += got;
                     // From the pipe into the file.
                     error werr = f_->pfd.RawWrite([&](int dfd) {
-                        runtime::blocking_call b;
+                        runtime::blockingCall b;
                         while (inPipe > 0) {
                             ssize_t k = ::splice(p[0], nullptr, dfd, nullptr, std::size_t(inPipe), 0);
                             if (k > 0) {
@@ -164,7 +164,7 @@ std::pair<int64, error> File::ReadFrom(io::Reader& r) {
                         return true;
                     });
                     if (werr || de) {
-                        e = werr ? werr : wrapSyscallError("splice", syscall::errno_error(de));
+                        e = werr ? werr : wrapSyscallError("splice", syscall::errnoError(de));
                         break;
                     }
                 }
@@ -178,7 +178,7 @@ std::pair<int64, error> File::ReadFrom(io::Reader& r) {
         writerOnly w(*this);
         return io::Copy(w, r);  // without wrapping
     }
-    return {n, wrap_err("write", e)};
+    return {n, wrapErr("write", e)};
 }
 
 std::pair<int64, error> File::WriteTo(io::Writer& w) {
@@ -209,8 +209,8 @@ std::pair<int64, error> File::WriteTo(io::Writer& w) {
         bool handled = !((se == ENOSYS || se == EOPNOTSUPP || se == EINVAL) && written == 0);
         if (handled) {
             error e = cerr;
-            if (se > 0) e = wrapSyscallError("sendfile", syscall::errno_error(se));
-            return {written, wrap_err("read", e)};
+            if (se > 0) e = wrapSyscallError("sendfile", syscall::errnoError(se));
+            return {written, wrapErr("read", e)};
         }
     }
     readerOnly r(*this);

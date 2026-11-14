@@ -19,7 +19,7 @@ std::string str(const string& s) { return std::string(s.view()); }
 
 bool ipAddrEqual(const ptr<IPAddr>& a, const ptr<IPAddr>& b) {
     if (!a || !b) return !a && !b;
-    return as_string_view(a->IP) == as_string_view(b->IP) && a->Zone == b->Zone;
+    return asStringView(a->IP) == asStringView(b->IP) && a->Zone == b->Zone;
 }
 
 // Whether raw IP sockets can be opened (Go's testableNetwork("ip")).

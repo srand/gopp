@@ -11,11 +11,11 @@ namespace gopp::sql::detail {
 
 // strconv.FormatFloat(f, 'g', -1, bits): the shortest representation, in
 // %e form when the exponent is < -4 or >= 6, as fmt's %v prints floats.
-std::string format_float_g(double f, int bits);
+std::string formatFloatG(double f, int bits);
 // strconv.ParseFloat: ErrSyntax or ErrRange as a strconv.NumError.
-std::pair<double, error> parse_float(std::string_view s, int bits);
+std::pair<double, error> parseFloat(std::string_view s, int bits);
 // time.Time formatted as RFC 3339 with nanoseconds (time.RFC3339Nano).
-std::string format_rfc3339_nano(const time::Time& t);
+std::string formatRfc3339Nano(const time::Time& t);
 
 // An error with a message that wraps another (fmt.Errorf with %w).
 error wrapf(string msg, error inner);

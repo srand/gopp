@@ -792,7 +792,7 @@ std::vector<item> collect(const lex_test& t, std::string_view left, std::string_
     l.options = lex_options{.emit_comment = true, .break_ok = true, .continue_ok = true};
     std::vector<item> items;
     for (;;) {
-        item i = l.next_item();
+        item i = l.nextItem();
         items.push_back(i);
         if (i.typ == itemEOF || i.typ == itemError) break;
     }
@@ -885,7 +885,7 @@ TEST(TextTemplateParse, NumberParse) {
         } else if (t.size() > 1 && t.back() == 'i' && t.find_first_of("+-", 1) != std::string_view::npos) {
             typ = itemComplex;
         }
-        auto [n, err] = new_number_for_test(test.text, typ);
+        auto [n, err] = newNumberForTest(test.text, typ);
         bool ok = test.isInt || test.isUint || test.isFloat || test.isComplex;
         if (ok && err) {
             ADD_FAILURE() << "unexpected error for " << test.text << ": " << err;
@@ -976,7 +976,7 @@ TEST(TextTemplateParse, DelimsStringRoundtrip) {
     for (std::string_view input : {"[[.X]]", "[[/* a comment */]]", "[[if .X]]y[[else]]z[[end]]",
                                    "[[range .X]][[break]][[continue]][[end]]", "[[with .X]]y[[end]]",
                                    R"([[template "name" .]])"}) {
-        auto tr = New(string::from_static("test"));
+        auto tr = New(string::fromStatic("test"));
         tr->Mode = ParseComments;
         tree_set ts;
         auto [tmpl, err] = tr->Parse(input, "[[", "]]", ts);
@@ -1006,7 +1006,7 @@ TEST(TextTemplateParse, KeywordsAndFuncs) {
 
 TEST(TextTemplateParse, SkipFuncCheck) {
     test_knobs knobs;
-    auto tr = New(string::from_static("skip func check"));
+    auto tr = New(string::fromStatic("skip func check"));
     tr->Mode = SkipFuncCheck;
     tree_set ts;
     auto [tmpl, err] = tr->Parse("{{fn 1 2}}", "", "", ts);
@@ -1018,7 +1018,7 @@ TEST(TextTemplateParse, IsEmpty) {
     EXPECT_TRUE(IsEmptyTree(nullptr));
     for (auto& test : isEmptyTests) {
         tree_set ts;
-        auto [tree, err] = New(string::from_static("root"))->Parse(test.input, "", "", ts);
+        auto [tree, err] = New(string::fromStatic("root"))->Parse(test.input, "", "", ts);
         ASSERT_FALSE(err) << test.name << ": " << err;
         EXPECT_EQ(IsEmptyTree(tree->Root.get()), test.empty) << test.name;
     }
@@ -1026,7 +1026,7 @@ TEST(TextTemplateParse, IsEmpty) {
 
 TEST(TextTemplateParse, ErrorContextWithTreeCopy) {
     tree_set ts;
-    auto [tree, err] = New(string::from_static("root"))->Parse("{{if true}}{{end}}", "", "", ts);
+    auto [tree, err] = New(string::fromStatic("root"))->Parse("{{if true}}{{end}}", "", "", ts);
     ASSERT_FALSE(err) << err;
     auto tree_copy = tree->Copy();
     auto [want_location, want_context] = tree->ErrorContext(*tree->Root->Nodes[0]);
@@ -1053,7 +1053,7 @@ TEST(TextTemplateParse, Block) {
     const std::string outer = R"(a{{template "inner" .}}b)";
     const std::string inner = "bar{{.}}baz";
     tree_set ts;
-    auto [tmpl, err] = New(string::from_static("outer"))->Parse(input, "", "", ts);
+    auto [tmpl, err] = New(string::fromStatic("outer"))->Parse(input, "", "", ts);
     ASSERT_FALSE(err) << err;
     EXPECT_EQ(tmpl->Root->String(), outer);
     auto it = ts.find("inner");
@@ -1066,7 +1066,7 @@ TEST(TextTemplateParse, LineNum) {
     std::string text;
     for (int i = 0; i < count; i++) text += "{{printf 1234}}\n";
     tree_set ts;
-    auto [tree, err] = New(string::from_static("bench"))->Parse(text, "", "", ts, {&builtins});
+    auto [tree, err] = New(string::fromStatic("bench"))->Parse(text, "", "", ts, {&builtins});
     ASSERT_FALSE(err) << err;
     // Each line is an action followed by text: two nodes per line.
     auto& nodes = tree->Root->Nodes;

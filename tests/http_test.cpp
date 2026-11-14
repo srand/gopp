@@ -25,7 +25,7 @@ public:
         addr = ln->Addr()->String();
         srv.Handler = std::move(h);
         srv.MaxHeaderBytes = max_header_bytes;
-        done = make_chan<gopp::error>(1);
+        done = makeChan<gopp::error>(1);
         go([this, ln] { done.send(srv.Serve(ln)); });
     }
 
@@ -45,7 +45,7 @@ public:
         c->SetReadDeadline(time::Now().Add(5 * time::Second));
         auto [data, rerr] = io::ReadAll(*c);
         EXPECT_FALSE(rerr) << rerr;
-        return std::string(as_string_view(data));
+        return std::string(asStringView(data));
     }
 
     std::string get(std::string_view path, std::string_view method = "GET") {
@@ -57,12 +57,12 @@ public:
     chan<gopp::error> done;
 };
 
-std::string body_of(const std::string& resp) {
+std::string bodyOf(const std::string& resp) {
     auto i = resp.find("\r\n\r\n");
     return i == std::string::npos ? std::string() : resp.substr(i + 4);
 }
 
-ptr<http::ServeMux> hello_mux() {
+ptr<http::ServeMux> helloMux() {
     auto mux = http::NewServeMux();
     mux->HandleFunc("GET /{$}", [](http::ResponseWriter& w, http::Request&) { fmt::Print(w, "Hello, World!\n"); });
     mux->HandleFunc("GET /hello/{name}", [](http::ResponseWriter& w, http::Request& r) {
@@ -81,7 +81,7 @@ ptr<http::ServeMux> hello_mux() {
             http::Error(w, err.Error(), 400);
             return;
         }
-        fmt::Print(w, "{}:{}", data.len(), as_string_view(data));
+        fmt::Print(w, "{}:{}", data.len(), asStringView(data));
     });
     mux->HandleFunc("/dir/", [](http::ResponseWriter& w, http::Request&) { fmt::Print(w, "dir"); });
     return mux;
@@ -122,34 +122,34 @@ TEST(Http, DetectContentType) {
 }
 
 TEST(Http, HelloWorld) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     std::string resp = ts.get("/");
     EXPECT_TRUE(resp.starts_with("HTTP/1.1 200 OK\r\n")) << resp;
     EXPECT_NE(resp.find("Content-Length: 14\r\n"), std::string::npos) << resp;
     EXPECT_NE(resp.find("Content-Type: text/plain; charset=utf-8\r\n"), std::string::npos) << resp;
     EXPECT_NE(resp.find("Date: "), std::string::npos) << resp;
     EXPECT_NE(resp.find("Connection: close\r\n"), std::string::npos) << resp;
-    EXPECT_EQ(body_of(resp), "Hello, World!\n");
+    EXPECT_EQ(bodyOf(resp), "Hello, World!\n");
 }
 
 TEST(Http, PathValues) {
-    TestServer ts(hello_mux());
-    EXPECT_EQ(body_of(ts.get("/hello/gopher")), "Hello, gopher!\n");
-    EXPECT_EQ(body_of(ts.get("/hello/caf%C3%A9")), "Hello, caf\xc3\xa9!\n");
-    EXPECT_EQ(body_of(ts.get("/files/a/b/c.txt")), "file=a/b/c.txt");
+    TestServer ts(helloMux());
+    EXPECT_EQ(bodyOf(ts.get("/hello/gopher")), "Hello, gopher!\n");
+    EXPECT_EQ(bodyOf(ts.get("/hello/caf%C3%A9")), "Hello, caf\xc3\xa9!\n");
+    EXPECT_EQ(bodyOf(ts.get("/files/a/b/c.txt")), "file=a/b/c.txt");
 }
 
 TEST(Http, MostSpecificPatternWins) {
-    TestServer ts(hello_mux());
-    EXPECT_EQ(body_of(ts.get("/items/42")), "item 42");
-    EXPECT_EQ(body_of(ts.get("/items/special")), "special");
+    TestServer ts(helloMux());
+    EXPECT_EQ(bodyOf(ts.get("/items/42")), "item 42");
+    EXPECT_EQ(bodyOf(ts.get("/items/special")), "special");
 }
 
 TEST(Http, NotFoundAndMethodNotAllowed) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     std::string nf = ts.get("/nope");
     EXPECT_TRUE(nf.starts_with("HTTP/1.1 404 Not Found\r\n")) << nf;
-    EXPECT_EQ(body_of(nf), "404 page not found\n");
+    EXPECT_EQ(bodyOf(nf), "404 page not found\n");
     EXPECT_NE(nf.find("X-Content-Type-Options: nosniff"), std::string::npos);
 
     std::string na = ts.get("/hello/x", "DELETE");
@@ -158,35 +158,35 @@ TEST(Http, NotFoundAndMethodNotAllowed) {
 }
 
 TEST(Http, TrailingSlashAndCleanPathRedirects) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     std::string r1 = ts.get("/dir");
     EXPECT_TRUE(r1.starts_with("HTTP/1.1 307 Temporary Redirect\r\n")) << r1;
     EXPECT_NE(r1.find("Location: /dir/\r\n"), std::string::npos) << r1;
     std::string r2 = ts.get("/dir/../hello/x");
     EXPECT_TRUE(r2.starts_with("HTTP/1.1 307")) << r2;
     EXPECT_NE(r2.find("Location: /hello/x\r\n"), std::string::npos) << r2;
-    EXPECT_EQ(body_of(ts.get("/dir/sub/thing")), "dir");
+    EXPECT_EQ(bodyOf(ts.get("/dir/sub/thing")), "dir");
 }
 
 TEST(Http, HeadHasNoBody) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     std::string r = ts.get("/", "HEAD");
     EXPECT_TRUE(r.starts_with("HTTP/1.1 200 OK\r\n")) << r;
-    EXPECT_EQ(body_of(r), "");
+    EXPECT_EQ(bodyOf(r), "");
 }
 
 TEST(Http, PostBody) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     std::string r = ts.roundtrip("POST /echo HTTP/1.1\r\nHost: t\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello");
-    EXPECT_EQ(body_of(r), "5:hello") << r;
+    EXPECT_EQ(bodyOf(r), "5:hello") << r;
 }
 
 TEST(Http, ChunkedRequestBody) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     std::string r = ts.roundtrip(
         "POST /echo HTTP/1.1\r\nHost: t\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
         "5\r\nhello\r\n6;ext=1\r\n world\r\n0\r\nX-Trailer: 1\r\n\r\n");
-    EXPECT_EQ(body_of(r), "11:hello world") << r;
+    EXPECT_EQ(bodyOf(r), "11:hello world") << r;
 }
 
 TEST(Http, ChunkedResponse) {
@@ -202,12 +202,12 @@ TEST(Http, ChunkedResponse) {
     std::string r = ts.get("/");
     EXPECT_NE(r.find("Transfer-Encoding: chunked\r\n"), std::string::npos) << r.substr(0, 300);
     EXPECT_EQ(r.find("Content-Length"), std::string::npos);
-    std::string body = body_of(r);
+    std::string body = bodyOf(r);
     // Small writes fill the 2048-byte buffer before the first chunk.
     EXPECT_TRUE(body.starts_with("800\r\n")) << body.substr(0, 20);
     EXPECT_TRUE(body.ends_with("0\r\n\r\n"));
     // A large write to an empty buffer is one chunk, as with bufio.Writer.
-    EXPECT_TRUE(body_of(ts.get("/big")).starts_with("1388\r\n"));
+    EXPECT_TRUE(bodyOf(ts.get("/big")).starts_with("1388\r\n"));
 }
 
 TEST(Http, ExplicitContentLengthAndStatus) {
@@ -223,11 +223,11 @@ TEST(Http, ExplicitContentLengthAndStatus) {
     EXPECT_TRUE(r.starts_with("HTTP/1.1 201 Created\r\n")) << r;
     EXPECT_NE(r.find("Content-Type: application/json\r\n"), std::string::npos);
     EXPECT_NE(r.find("Content-Length: 2\r\n"), std::string::npos);
-    EXPECT_EQ(body_of(r), "{}");
+    EXPECT_EQ(bodyOf(r), "{}");
 }
 
 TEST(Http, KeepAlive) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     auto [c, err] = net::Dial("tcp", ts.addr);
     ASSERT_FALSE(err);
     c->SetReadDeadline(time::Now().Add(5 * time::Second));
@@ -252,7 +252,7 @@ TEST(Http, KeepAlive) {
 }
 
 TEST(Http, Pipelining) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     std::string r = ts.roundtrip(
         "GET /hello/a HTTP/1.1\r\nHost: t\r\n\r\n"
         "GET /hello/b HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
@@ -261,14 +261,14 @@ TEST(Http, Pipelining) {
 }
 
 TEST(Http, Http10) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     std::string r = ts.roundtrip("GET / HTTP/1.0\r\n\r\n");
     EXPECT_TRUE(r.starts_with("HTTP/1.0 200 OK\r\n")) << r;
-    EXPECT_EQ(body_of(r), "Hello, World!\n");
+    EXPECT_EQ(bodyOf(r), "Hello, World!\n");
 }
 
 TEST(Http, BadRequests) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     EXPECT_TRUE(ts.roundtrip("garbage\r\n\r\n").starts_with("HTTP/1.1 400 Bad Request")) ;
     std::string nohost = ts.roundtrip("GET / HTTP/1.1\r\n\r\n");
     EXPECT_TRUE(nohost.starts_with("HTTP/1.1 400 Bad Request")) << nohost;
@@ -278,7 +278,7 @@ TEST(Http, BadRequests) {
 }
 
 TEST(Http, HeaderTooLarge) {
-    TestServer ts(hello_mux(), 1024);
+    TestServer ts(helloMux(), 1024);
     std::string big = "GET / HTTP/1.1\r\nHost: t\r\nX-Big: " + std::string(8192, 'a') + "\r\n\r\n";
     std::string r = ts.roundtrip(big);
     EXPECT_TRUE(r.starts_with("HTTP/1.1 431 Request Header Fields Too Large")) << r;
@@ -304,7 +304,7 @@ TEST(Http, FlusherAndContext) {
     io::WriteString(*c, "GET /events HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
     c->SetReadDeadline(time::Now().Add(5 * time::Second));
     auto [data, rerr] = io::ReadAll(*c);
-    std::string r(as_string_view(data));
+    std::string r(asStringView(data));
     EXPECT_NE(r.find("Transfer-Encoding: chunked"), std::string::npos) << r;
     EXPECT_NE(r.find("data: 0\n\n"), std::string::npos) << r;
     EXPECT_NE(r.find("data: 2\n\n"), std::string::npos) << r;
@@ -318,12 +318,12 @@ TEST(Http, HandlerExceptionDropsConnection) {
 }
 
 TEST(Http, ConcurrentClients) {
-    TestServer ts(hello_mux());
+    TestServer ts(helloMux());
     sync::WaitGroup wg;
     std::atomic<int> ok{0};
     for (int i = 0; i < 50; i++) {
         wg.Go([&, i] {
-            if (body_of(ts.get(fmt::Sprint("/hello/c{}", i).view())) == fmt::Sprint("Hello, c{}!\n", i).view()) ok++;
+            if (bodyOf(ts.get(fmt::Sprint("/hello/c{}", i).view())) == fmt::Sprint("Hello, c{}!\n", i).view()) ok++;
         });
     }
     wg.Wait();
@@ -333,8 +333,8 @@ TEST(Http, ConcurrentClients) {
 TEST(Http, Shutdown) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    http::Server srv{.Handler = hello_mux()};
-    auto done = make_chan<gopp::error>(1);
+    http::Server srv{.Handler = helloMux()};
+    auto done = makeChan<gopp::error>(1);
     go([&, ln] { done.send(srv.Serve(ln)); });
     time::Sleep(5ms);
     auto [ctx, cancel] = context::WithTimeout(context::Background(), time::Second);
@@ -359,8 +359,8 @@ TEST(Http, DuplicatePatternPanics) {
 
 namespace {
 
-ptr<http::ServeMux> client_mux() {
-    auto mux = hello_mux();
+ptr<http::ServeMux> clientMux() {
+    auto mux = helloMux();
     mux->HandleFunc("GET /addr", [](http::ResponseWriter& w, http::Request& r) { fmt::Print(w, "{}", r.RemoteAddr); });
     mux->HandleFunc("GET /big", [](http::ResponseWriter& w, http::Request&) { io::WriteString(w, std::string(5000, 'z')); });
     mux->HandleFunc("GET /slow", [](http::ResponseWriter& w, http::Request&) {
@@ -371,17 +371,17 @@ ptr<http::ServeMux> client_mux() {
     return mux;
 }
 
-std::string read_body(const ptr<http::Response>& resp) {
+std::string readBody(const ptr<http::Response>& resp) {
     auto [data, err] = io::ReadAll(*resp->Body);
     EXPECT_FALSE(err) << err;
     resp->Body->Close();
-    return std::string(as_string_view(data));
+    return std::string(asStringView(data));
 }
 
 }  // namespace
 
 TEST(HttpClient, Get) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     auto [resp, err] = http::Get(fmt::Sprint("http://{}/", ts.addr).view());
     ASSERT_FALSE(err) << err;
     EXPECT_EQ(resp->StatusCode, 200);
@@ -389,26 +389,26 @@ TEST(HttpClient, Get) {
     EXPECT_EQ(resp->Proto, "HTTP/1.1");
     EXPECT_EQ(resp->ContentLength, 14);
     EXPECT_EQ(resp->Header.Get("Content-Type"), "text/plain; charset=utf-8");
-    EXPECT_EQ(read_body(resp), "Hello, World!\n");
+    EXPECT_EQ(readBody(resp), "Hello, World!\n");
     EXPECT_EQ(resp->Request->Method, "GET");
 }
 
 TEST(HttpClient, ReusesConnections) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     auto t = make_ptr<http::Transport>();
     http::Client c{.Transport = t};
     std::string first;
     for (int i = 0; i < 5; i++) {
         auto [resp, err] = c.Get(fmt::Sprint("http://{}/addr", ts.addr).view());
         ASSERT_FALSE(err) << err;
-        std::string addr = read_body(resp);
+        std::string addr = readBody(resp);
         if (i == 0) first = addr;
         EXPECT_EQ(addr, first) << "request " << i << " used a new connection";
     }
 }
 
 TEST(HttpClient, ClosingUnreadBodyDropsConnection) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     auto t = make_ptr<http::Transport>();
     http::Client c{.Transport = t};
     auto [r1, e1] = c.Get(fmt::Sprint("http://{}/big", ts.addr).view());
@@ -416,15 +416,15 @@ TEST(HttpClient, ClosingUnreadBodyDropsConnection) {
     r1->Body->Close();
     auto [r2, e2] = c.Get(fmt::Sprint("http://{}/big", ts.addr).view());
     ASSERT_FALSE(e2) << e2;
-    EXPECT_EQ(read_body(r2), std::string(5000, 'z'));  // chunked
+    EXPECT_EQ(readBody(r2), std::string(5000, 'z'));  // chunked
     EXPECT_EQ(r2->ContentLength, -1);
 }
 
 TEST(HttpClient, Post) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     auto [resp, err] = http::Post(fmt::Sprint("http://{}/echo", ts.addr).view(), "text/plain", strings::NewReader("hello"));
     ASSERT_FALSE(err) << err;
-    EXPECT_EQ(read_body(resp), "5:hello");
+    EXPECT_EQ(readBody(resp), "5:hello");
 
     // A body of unknown length is sent chunked.
     struct reader final : io::Reader {
@@ -437,29 +437,29 @@ TEST(HttpClient, Post) {
     };
     auto [resp2, err2] = http::Post(fmt::Sprint("http://{}/echo", ts.addr).view(), "text/plain", make_ptr<reader>());
     ASSERT_FALSE(err2) << err2;
-    EXPECT_EQ(read_body(resp2), "3:aaa");
+    EXPECT_EQ(readBody(resp2), "3:aaa");
 }
 
 TEST(HttpClient, HeadAndNotFound) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     auto [h, herr] = http::Head(fmt::Sprint("http://{}/", ts.addr).view());
     ASSERT_FALSE(herr) << herr;
     EXPECT_EQ(h->StatusCode, 200);
     EXPECT_EQ(h->ContentLength, 14);
-    EXPECT_EQ(read_body(h), "");
+    EXPECT_EQ(readBody(h), "");
 
     auto [nf, nerr] = http::Get(fmt::Sprint("http://{}/nope", ts.addr).view());
     ASSERT_FALSE(nerr);
     EXPECT_EQ(nf->StatusCode, 404);
-    EXPECT_EQ(read_body(nf), "404 page not found\n");
+    EXPECT_EQ(readBody(nf), "404 page not found\n");
 }
 
 TEST(HttpClient, FollowsRedirects) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     auto [resp, err] = http::Get(fmt::Sprint("http://{}/dir", ts.addr).view());
     ASSERT_FALSE(err) << err;
     EXPECT_EQ(resp->StatusCode, 200);
-    EXPECT_EQ(read_body(resp), "dir");
+    EXPECT_EQ(readBody(resp), "dir");
     EXPECT_EQ(resp->Request->URL.Path, "/dir/");
 
     auto [loop, lerr] = http::Get(fmt::Sprint("http://{}/loop", ts.addr).view());
@@ -483,7 +483,7 @@ TEST(HttpClient, Errors) {
 }
 
 TEST(HttpClient, Timeout) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     http::Client c{.Timeout = 50ms};
     auto start = time::Now();
     auto [resp, err] = c.Get(fmt::Sprint("http://{}/slow", ts.addr).view());
@@ -495,7 +495,7 @@ TEST(HttpClient, Timeout) {
 // The timer of Client.Timeout stops when the body is closed, rather than
 // keeping the request's context until it fires.
 TEST(HttpClient, TimeoutStopsWhenBodyCloses) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     http::Client c{.Timeout = time::Hour};
     auto [resp, err] = c.Get(fmt::Sprint("http://{}/", ts.addr).view());
     ASSERT_FALSE(err) << err;
@@ -507,7 +507,7 @@ TEST(HttpClient, TimeoutStopsWhenBodyCloses) {
 }
 
 TEST(HttpClient, ConcurrentGets) {
-    TestServer ts(client_mux());
+    TestServer ts(clientMux());
     auto t = make_ptr<http::Transport>();
     t->MaxIdleConnsPerHost = 16;
     http::Client c{.Transport = t};
@@ -518,7 +518,7 @@ TEST(HttpClient, ConcurrentGets) {
             for (int j = 0; j < 50; j++) {
                 auto [resp, err] = c.Get(fmt::Sprint("http://{}/hello/c{}x{}", ts.addr, i, j).view());
                 if (err) return;
-                if (read_body(resp) == fmt::Sprint("Hello, c{}x{}!\n", i, j).view()) ok++;
+                if (readBody(resp) == fmt::Sprint("Hello, c{}x{}!\n", i, j).view()) ok++;
             }
         });
     }

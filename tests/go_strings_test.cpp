@@ -815,7 +815,7 @@ void runStringTests(const std::function<string(const string&)>& f, const char* f
 
 std::string tenRunes(rune ch) {
     std::string s;
-    for (int i = 0; i < 10; i++) s += std::string(as_string_view(utf8::AppendRune({}, ch)));
+    for (int i = 0; i < 10; i++) s += std::string(asStringView(utf8::AppendRune({}, ch)));
     return s;
 }
 
@@ -827,7 +827,7 @@ rune rot13(rune r) {
     return r;
 }
 
-std::string enc(rune r) { return std::string(as_string_view(utf8::AppendRune({}, r))); }
+std::string enc(rune r) { return std::string(asStringView(utf8::AppendRune({}, r))); }
 
 TEST(GoStrings, Map) {
     // Run a couple of awful growth/shrinkage tests

@@ -30,7 +30,7 @@ namespace {
 
 std::string str(const string& s) { return std::string(s.view()); }
 
-std::string bytesStr(std::span<const byte> b) { return std::string(as_string_view(b)); }
+std::string bytesStr(std::span<const byte> b) { return std::string(asStringView(b)); }
 
 // interface_test.go's loopbackInterface.
 ptr<Interface> loopbackInterface() {

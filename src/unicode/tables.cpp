@@ -8411,7 +8411,7 @@ constexpr Range16 foldInheritedr16[] = {
 };
 constexpr RangeTable foldInherited{foldInheritedr16, {}, 0};
 
-constexpr table_map<const RangeTable*>::entry Categories_[] = {
+constexpr tableMap<const RangeTable*>::entry Categories_[] = {
     {"C", &C_},
     {"Cc", &Cc_},
     {"Cf", &Cf_},
@@ -8452,7 +8452,7 @@ constexpr table_map<const RangeTable*>::entry Categories_[] = {
     {"Zs", &Zs_},
 };
 
-constexpr table_map<std::string_view>::entry CategoryAliases_[] = {
+constexpr tableMap<std::string_view>::entry CategoryAliases_[] = {
     {"Cased_Letter", "LC"},
     {"Close_Punctuation", "Pe"},
     {"Combining_Mark", "M"},
@@ -8497,7 +8497,7 @@ constexpr table_map<std::string_view>::entry CategoryAliases_[] = {
     {"punct", "P"},
 };
 
-constexpr table_map<const RangeTable*>::entry Scripts_[] = {
+constexpr tableMap<const RangeTable*>::entry Scripts_[] = {
     {"Adlam", &Adlam_},
     {"Ahom", &Ahom_},
     {"Anatolian_Hieroglyphs", &Anatolian_Hieroglyphs_},
@@ -8674,7 +8674,7 @@ constexpr table_map<const RangeTable*>::entry Scripts_[] = {
     {"Zanabazar_Square", &Zanabazar_Square_},
 };
 
-constexpr table_map<const RangeTable*>::entry Properties_[] = {
+constexpr tableMap<const RangeTable*>::entry Properties_[] = {
     {"ASCII_Hex_Digit", &ASCII_Hex_Digit_},
     {"Bidi_Control", &Bidi_Control_},
     {"Dash", &Dash_},
@@ -8716,7 +8716,7 @@ constexpr table_map<const RangeTable*>::entry Properties_[] = {
     {"White_Space", &White_Space_},
 };
 
-constexpr table_map<const RangeTable*>::entry FoldCategory_[] = {
+constexpr tableMap<const RangeTable*>::entry FoldCategory_[] = {
     {"L", &foldL},
     {"Ll", &foldLl},
     {"Lt", &foldLt},
@@ -8725,7 +8725,7 @@ constexpr table_map<const RangeTable*>::entry FoldCategory_[] = {
     {"Mn", &foldMn},
 };
 
-constexpr table_map<const RangeTable*>::entry FoldScript_[] = {
+constexpr tableMap<const RangeTable*>::entry FoldScript_[] = {
     {"Common", &foldCommon},
     {"Greek", &foldGreek},
     {"Inherited", &foldInherited},
@@ -9337,12 +9337,12 @@ constinit const RangeTable* const Unified_Ideograph = &Unified_Ideograph_;
 constinit const RangeTable* const Variation_Selector = &Variation_Selector_;
 constinit const RangeTable* const White_Space = &White_Space_;
 
-constinit const table_map<const RangeTable*> Categories{Categories_};
-constinit const table_map<std::string_view> CategoryAliases{CategoryAliases_};
-constinit const table_map<const RangeTable*> Scripts{Scripts_};
-constinit const table_map<const RangeTable*> Properties{Properties_};
-constinit const table_map<const RangeTable*> FoldCategory{FoldCategory_};
-constinit const table_map<const RangeTable*> FoldScript{FoldScript_};
+constinit const tableMap<const RangeTable*> Categories{Categories_};
+constinit const tableMap<std::string_view> CategoryAliases{CategoryAliases_};
+constinit const tableMap<const RangeTable*> Scripts{Scripts_};
+constinit const tableMap<const RangeTable*> Properties{Properties_};
+constinit const tableMap<const RangeTable*> FoldCategory{FoldCategory_};
+constinit const tableMap<const RangeTable*> FoldScript{FoldScript_};
 constinit const std::span<const CaseRange> CaseRanges{CaseRanges_};
 
 namespace {

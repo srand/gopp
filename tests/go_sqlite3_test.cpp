@@ -855,9 +855,9 @@ TEST(GoSQLite3, NilAndEmptyBytes) {
         ASSERT_FALSE(rows->Err()) << tst.name;
         rows->Close();
         if (tst.expectNil) {
-            EXPECT_TRUE(scanBytes.is_nil()) << tst.name;
+            EXPECT_TRUE(scanBytes.isNil()) << tst.name;
         } else {
-            EXPECT_TRUE(!scanBytes.is_nil() && scanBytes.empty()) << tst.name;
+            EXPECT_TRUE(!scanBytes.isNil() && scanBytes.empty()) << tst.name;
         }
         tsti++;
     }
@@ -1066,11 +1066,11 @@ TEST_F(GoSQLite3Suite, NullZeroLengthBlobs) {
 
     slice<byte> b0 = slice<byte>::make(1);
     ASSERT_FALSE(db->QueryRow("select bar from foo where id=0")->Scan(&b0));
-    EXPECT_TRUE(b0.is_nil()) << "for id=0, got " << hex(b0) << "; want nil";
+    EXPECT_TRUE(b0.isNil()) << "for id=0, got " << hex(b0) << "; want nil";
 
     slice<byte> b1;
     ASSERT_FALSE(db->QueryRow("select bar from foo where id=1")->Scan(&b1));
-    EXPECT_FALSE(b1.is_nil()) << "for id=1, got nil; want zero-length slice";
+    EXPECT_FALSE(b1.isNil()) << "for id=1, got nil; want zero-length slice";
     EXPECT_TRUE(b1.empty()) << "for id=1, got " << hex(b1) << "; want zero-length slice";
 }
 
@@ -1344,7 +1344,7 @@ constexpr int64 contextTestMaxRows = int64(1) << 60;
 
 // Receives from c within d (a stopped timer, not time::After, so that
 // nothing outlives the test for the leak check); false on timeout.
-bool recv_within(const chan<error>& c, time::Duration d, error* out) {
+bool recvWithin(const chan<error>& c, time::Duration d, error* out) {
     auto t = time::NewTimer(d);
     bool got = false;
     select(recv(c,
@@ -1365,7 +1365,7 @@ TEST(GoSQLite3, RowsContextCancelDuringStep) {
         if (laterRow) query = "SELECT 1 UNION ALL SELECT (" + query + ")";
         auto conn = openConn();
         auto [ctx, cancel] = context::WithCancel(context::Background());
-        auto nextDone = make_chan<error>(1);
+        auto nextDone = makeChan<error>(1);
         go([=] {
             auto args = contextTestQueryArgs(contextTestMaxRows);
             auto [rows, err] = conn->QueryContext(ctx, query, args);
@@ -1389,7 +1389,7 @@ TEST(GoSQLite3, RowsContextCancelDuringStep) {
         time::Sleep(50 * time::Millisecond);
         cancel();
         error err;
-        bool got = recv_within(nextDone, contextTestTimeout, &err);
+        bool got = recvWithin(nextDone, contextTestTimeout, &err);
         EXPECT_TRUE(got) << "laterRow=" << laterRow << ": Next did not return after cancellation";
         if (got) {
             EXPECT_TRUE(errors::Is(err, context::Canceled))
@@ -1447,9 +1447,9 @@ TEST(GoSQLite3, RowsContextCancelAndClose) {
         std::vector<Value> dest(1);
         ASSERT_FALSE(rows->Next(dest)) << "read cancellable rows";
 
-        auto start = make_chan<bool>();
-        auto closeDone = make_chan<error>(1);
-        auto cancelDone = make_chan<bool>(1);
+        auto start = makeChan<bool>();
+        auto closeDone = makeChan<error>(1);
+        auto cancelDone = makeChan<bool>(1);
         go([=] {
             start.recv2();
             closeDone.send(rows->Close());
@@ -1477,7 +1477,7 @@ TEST(GoSQLite3, DatabaseSQLRowsContextCancelAndReuse) {
     auto [sqlConn, err] = db->Conn(context::Background());
     ASSERT_FALSE(err) << S(err);
     auto [ctx, cancel] = context::WithCancel(context::Background());
-    auto nextDone = make_chan<error>(1);
+    auto nextDone = makeChan<error>(1);
     go([=] {
         auto [rows, qerr] = sqlConn->QueryContext(ctx, contextTestLongQuery, contextTestMaxRows);
         if (qerr) {
@@ -1496,7 +1496,7 @@ TEST(GoSQLite3, DatabaseSQLRowsContextCancelAndReuse) {
     time::Sleep(50 * time::Millisecond);
     cancel();
     error e;
-    ASSERT_TRUE(recv_within(nextDone, contextTestTimeout, &e)) << "Next did not return after cancellation";
+    ASSERT_TRUE(recvWithin(nextDone, contextTestTimeout, &e)) << "Next did not return after cancellation";
     EXPECT_TRUE(errors::Is(e, context::Canceled)) << "Next error = " << S(e) << ", want context.Canceled";
     int v = 0;
     ASSERT_FALSE(sqlConn->QueryRowContext(context::Background(), "SELECT 1")->Scan(&v)) << "query reused connection";
@@ -1523,10 +1523,10 @@ TEST(GoppSQLite3, ExecContextCancel) {
 // would stall them until it ended.
 namespace {
 
-const bool sqlite_blocking_helper = go_helper::register_helper("sqlite-blocking", [](const std::vector<std::string>&) {
+const bool sqlite_blocking_helper = go_helper::registerHelper("sqlite-blocking", [](const std::vector<std::string>&) {
     auto [db, err] = sql::Open("sqlite3", ":memory:");
     if (err) os::Exit(2);
-    auto started = make_chan<bool>(1);
+    auto started = makeChan<bool>(1);
     go([db, started] {
         started.send(true);
         // About half a second of computing in SQLite.
@@ -1543,7 +1543,7 @@ const bool sqlite_blocking_helper = go_helper::register_helper("sqlite-blocking"
 
 TEST(GoppSQLite3, LongQueryDoesntStallFibers) {
     auto [ctx, cancel] = context::WithTimeout(context::Background(), 20 * time::Second);
-    auto cmd = go_helper::helper_command_context(ctx, "sqlite-blocking");
+    auto cmd = go_helper::helperCommandContext(ctx, "sqlite-blocking");
     cmd->Env = append(cmd->Environ(), string("GOMAXPROCS=1"), string("GODEBUG=asyncpreemptoff=1"));
     EXPECT_FALSE(cmd->Run()) << "a sleeping fiber waited for the query";
     cancel();

@@ -142,7 +142,7 @@ public:
     std::pair<std::vector<string>, error> Glob(std::string_view pattern) override {
         // Check pattern is well-formed.
         if (auto [m, err] = path::Match(pattern, ""); err) return {{}, err};
-        if (pattern == ".") return {{string::from_static(".")}, nullptr};
+        if (pattern == ".") return {{string::fromStatic(".")}, nullptr};
         std::string full = std::string(dir_.view()) + "/" + std::string(pattern);
         auto [list, err] = fs::Glob(*fsys_, full);
         for (auto& name : list) {
@@ -174,7 +174,7 @@ private:
     // suffix after f.dir.
     std::pair<string, bool> shorten(std::string_view name) const {
         std::string_view dir = dir_.view();
-        if (name == dir) return {string::from_static("."), true};
+        if (name == dir) return {string::fromStatic("."), true};
         if (name.size() >= dir.size() + 2 && name[dir.size()] == '/' && name.substr(0, dir.size()) == dir) {
             return {string(name.substr(dir.size() + 1)), true};
         }

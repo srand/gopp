@@ -11,16 +11,16 @@ using namespace gopp;
 
 namespace {
 
-std::vector<const error_interface*> unwrapList(const error& err) {
-    std::vector<const error_interface*> v;
+std::vector<const errorInterface*> unwrapList(const error& err) {
+    std::vector<const errorInterface*> v;
     for (const error& e : err->UnwrapList()) v.push_back(e.get());
     return v;
 }
 
 // Go's multiErr: an error with Unwrap() []error.
-struct multiErr final : error_interface {
+struct multiErr final : errorInterface {
     explicit multiErr(std::vector<error> e) : errs(std::move(e)) {}
-    string Error() const override { return string::from_static("multiError"); }
+    string Error() const override { return string::fromStatic("multiError"); }
     std::span<const error> UnwrapList() const noexcept override { return errs; }
     std::vector<error> errs;
 };
@@ -39,7 +39,7 @@ TEST(GoErrors, Join) {
     error merr = make_ptr<multiErr>(std::vector<error>{errors::New("err3")});
     struct test {
         std::vector<error> errs;
-        std::vector<const error_interface*> want;
+        std::vector<const errorInterface*> want;
     } tests[] = {
         {{err1}, {err1.get()}},
         {{err1, err2}, {err1.get(), err2.get()}},

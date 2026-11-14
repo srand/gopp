@@ -184,7 +184,7 @@ class Request : public object {
 public:
     string Method;
     url::URL URL;
-    string Proto = string::from_static("HTTP/1.1");
+    string Proto = string::fromStatic("HTTP/1.1");
     int ProtoMajor = 1;
     int ProtoMinor = 1;
     http::Header Header;

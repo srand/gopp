@@ -26,7 +26,7 @@ constexpr std::size_t maxProtoLength = sizeof("RSVP-E2E-IGNORE") - 1 + 10;
 // The minimal mappings, completed from /etc/protocols on first use.
 using protocol_map = std::map<std::string, int, std::less<>>;
 
-protocol_map load_protocols() {
+protocol_map loadProtocols() {
     protocol_map p = {
         {"icmp", 1}, {"igmp", 2}, {"tcp", 6}, {"udp", 17}, {"ipv6-icmp", 58},
     };
@@ -62,7 +62,7 @@ const protocol_map& protocols() {
         protocol_map m;
     };
     static auto* t = new table;
-    t->once.Do([] { t->m = load_protocols(); });
+    t->once.Do([] { t->m = loadProtocols(); });
     return t->m;
 }
 
@@ -74,7 +74,7 @@ std::pair<int, error> lookupProtocol(const ptr<context::Context>&, std::string_v
     auto& m = protocols();
     auto it = m.find(lower);
     if (it == m.end() || lower.size() != name.size()) {
-        return {0, make_ptr<AddrError>(string::from_static("unknown IP protocol specified"), string(name))};
+        return {0, make_ptr<AddrError>(string::fromStatic("unknown IP protocol specified"), string(name))};
     }
     return {it->second, nullptr};
 }
@@ -84,7 +84,7 @@ std::pair<int, error> lookupProtocol(const ptr<context::Context>&, std::string_v
 
 namespace {
 
-ptr<IPAddr> as_ip(const ptr<Addr>& a) { return ptr<IPAddr>(dynamic_cast<IPAddr*>(a.get())); }
+ptr<IPAddr> asIp(const ptr<Addr>& a) { return ptr<IPAddr>(dynamic_cast<IPAddr*>(a.get())); }
 
 // Go's stripIPv4Header: an IPv4 raw socket's reads start with the IP
 // header.
@@ -102,7 +102,7 @@ isize stripIPv4Header(isize n, std::span<byte> b) {
 std::tuple<isize, ptr<IPAddr>, error> IPConn::ReadFromIP(std::span<byte> b) {
     sockaddr_storage from;
     auto [n, oobn, flags, err] = fd_->readMsg(b, {}, 0, &from);
-    ptr<IPAddr> addr = as_ip(sockaddr_to_addr(from, SOCK_RAW));
+    ptr<IPAddr> addr = asIp(sockaddrToAddr(from, SOCK_RAW));
     if (from.ss_family == AF_INET) n = stripIPv4Header(n, b);
     if (err) return {n, addr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
     return {n, addr, nullptr};
@@ -116,7 +116,7 @@ std::tuple<isize, ptr<net::Addr>, error> IPConn::ReadFrom(std::span<byte> b) {
 std::tuple<isize, isize, int, ptr<IPAddr>, error> IPConn::ReadMsgIP(std::span<byte> b, std::span<byte> oob) {
     sockaddr_storage from;
     auto [n, oobn, flags, err] = fd_->readMsg(b, oob, 0, &from);
-    ptr<IPAddr> addr = as_ip(sockaddr_to_addr(from, SOCK_RAW));
+    ptr<IPAddr> addr = asIp(sockaddrToAddr(from, SOCK_RAW));
     if (err) return {n, oobn, flags, addr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
     return {n, oobn, flags, addr, nullptr};
 }
@@ -129,15 +129,15 @@ std::pair<isize, error> IPConn::WriteToIP(std::span<const byte> b, const ptr<IPA
     if (!addr) return fail(errMissingAddress);
     sockaddr_storage sa;
     socklen_t len;
-    if (error err = addr_sockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
+    if (error err = addrSockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
     auto [n, oobn, err] = fd_->writeMsg(b, {}, &sa, len);
     if (err) return {n, op_error("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, nullptr};
 }
 
 std::pair<isize, error> IPConn::WriteTo(std::span<const byte> b, const ptr<net::Addr>& addr) {
-    auto a = as_ip(addr);
-    if (!a) return {0, op_error("write", fd_->network(), fd_->laddr, addr, errno_error(EINVAL))};
+    auto a = asIp(addr);
+    if (!a) return {0, op_error("write", fd_->network(), fd_->laddr, addr, errnoError(EINVAL))};
     return WriteToIP(b, a);
 }
 
@@ -150,7 +150,7 @@ std::tuple<isize, isize, error> IPConn::WriteMsgIP(std::span<const byte> b, std:
     if (!addr) return fail(errMissingAddress);
     sockaddr_storage sa;
     socklen_t len;
-    if (error err = addr_sockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
+    if (error err = addrSockaddr(addr.get(), fd_->family(), &sa, &len)) return fail(err);
     auto [n, oobn, err] = fd_->writeMsg(b, oob, &sa, len);
     if (err) return {n, oobn, op_error("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, oobn, nullptr};

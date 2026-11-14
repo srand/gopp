@@ -44,7 +44,7 @@ std::vector<Addr> mustIPs(std::initializer_list<std::string_view> strs) {
 }
 
 std::string str(const string& s) { return std::string(s.view()); }
-std::string str(const slice<byte>& b) { return std::string(as_string_view(b)); }
+std::string str(const slice<byte>& b) { return std::string(asStringView(b)); }
 
 template <typename T>
 std::string join(const std::vector<T>& v) {
@@ -954,7 +954,7 @@ TEST(GoNetip, AddrPortString) {
 }
 
 TEST(GoNetip, AsSlice) {
-    EXPECT_TRUE(Addr{}.AsSlice().is_nil());
+    EXPECT_TRUE(Addr{}.AsSlice().isNil());
     EXPECT_EQ(str(mustIP("1.2.3.4").AsSlice()), std::string("\x01\x02\x03\x04", 4));
     std::string want(16, '\0');
     want[0] = want[1] = '\xff';

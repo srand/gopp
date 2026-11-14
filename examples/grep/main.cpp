@@ -46,9 +46,9 @@ int main(int argc, char** argv) {
     }
 
     ptr<fs::FS> fsys = os::DirFS(dir);
-    auto paths = make_chan<string>(64);
+    auto paths = makeChan<string>(64);
     // A file's matches are printed together, so that files don't mix.
-    auto output = make_chan<string>(64);
+    auto output = makeChan<string>(64);
     std::atomic<int64> matches{0}, searched{0};
 
     sync::Mutex mu;
@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
                     fail(err);
                     continue;
                 }
-                std::string_view text = as_string_view(data);
+                std::string_view text = asStringView(data);
                 // A NUL in the first block: binary.
                 if (text.substr(0, 512).find('\0') != text.npos) continue;
                 searched++;
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
     }
 
     // The printer.
-    auto printed = make_chan<empty>();
+    auto printed = makeChan<empty>();
     go([output, printed] {
         for (const string& s : output) fmt::Print("{}", s);
         printed.close();

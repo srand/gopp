@@ -53,7 +53,7 @@ public:
 
 private:
     void fill();
-    error read_err();
+    error readErr();
 
     std::unique_ptr<byte[]> buf_;
     std::size_t size_;

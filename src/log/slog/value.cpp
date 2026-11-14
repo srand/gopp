@@ -29,12 +29,12 @@ string Level::String() const {
     return str("ERROR", *this - LevelError);
 }
 
-std::pair<slice<byte>, error> Level::MarshalJSON() const { return {to_bytes(conv::quote(String().view())), nullptr}; }
+std::pair<slice<byte>, error> Level::MarshalJSON() const { return {toBytes(conv::quote(String().view())), nullptr}; }
 
 namespace {
 
 // Go's Level.parse.
-error parse_level(std::string_view s, Level& l) {
+error parseLevel(std::string_view s, Level& l) {
     auto wrap = [&](error err) { return fmt::Errorf("slog: level string {}: {}", conv::quote(s), fmt::W(err)); };
     std::string_view name = s;
     int offset = 0;
@@ -57,16 +57,16 @@ error parse_level(std::string_view s, Level& l) {
 }  // namespace
 
 error Level::UnmarshalJSON(std::span<const byte> data) {
-    auto [s, err] = conv::unquote(as_string_view(data));
+    auto [s, err] = conv::unquote(asStringView(data));
     if (err) return err;
-    return parse_level(s, *this);
+    return parseLevel(s, *this);
 }
 
-std::pair<slice<byte>, error> Level::AppendText(slice<byte> b) const { return {append_span(std::move(b), as_bytes(String().view())), nullptr}; }
+std::pair<slice<byte>, error> Level::AppendText(slice<byte> b) const { return {appendSpan(std::move(b), as_bytes(String().view())), nullptr}; }
 
 std::pair<slice<byte>, error> Level::MarshalText() const { return AppendText(slice<byte>()); }
 
-error Level::UnmarshalText(std::span<const byte> data) { return parse_level(as_string_view(data), *this); }
+error Level::UnmarshalText(std::span<const byte> data) { return parseLevel(asStringView(data), *this); }
 
 string LevelVar::String() const { return fmt::Sprint("LevelVar({})", Level()); }
 
@@ -87,8 +87,8 @@ error LevelVar::UnmarshalText(std::span<const byte> data) {
 string Kind::String() const {
     static constexpr std::string_view names[] = {"Any",    "Bool", "Duration", "Float64", "Int64",
                                                  "String", "Time", "Uint64",   "Group",   "LogValuer"};
-    if (value >= 0 && value < static_cast<int>(std::size(names))) return string::from_static(names[value]);
-    return string::from_static("<unknown slog.Kind>");
+    if (value >= 0 && value < static_cast<int>(std::size(names))) return string::fromStatic(names[value]);
+    return string::fromStatic("<unknown slog.Kind>");
 }
 
 Value LogValuer::LogValue() const { return p_->log_value(); }
@@ -116,14 +116,14 @@ Value GroupValue(std::span<const Attr> as) {
     auto g = std::make_shared<std::vector<Attr>>();
     g->reserve(as.size());
     for (const Attr& a : as) {
-        if (!a.Value.is_empty_group()) g->push_back(a);
+        if (!a.Value.isEmptyGroup()) g->push_back(a);
     }
     Value v(KindGroup, g->size());
     v.data_ = Value::group(std::move(g));
     return v;
 }
 
-Value Value::of_any(ptr<const detail::any_value> p) {
+Value Value::ofAny(ptr<const detail::any_value> p) {
     Value v(p->log_valuer() ? KindLogValuer : KindAny, 0);
     v.data_ = std::move(p);
     return v;
@@ -133,44 +133,44 @@ slog::Kind Value::Kind() const noexcept { return kind_; }
 
 namespace {
 
-[[noreturn]] void bad_kind(Kind got, Kind want) {
+[[noreturn]] void badKind(Kind got, Kind want) {
     panic(fmt::Sprint("Value kind is {}, not {}", got, want).view());
 }
 
 }  // namespace
 
 int64 Value::Int64() const {
-    if (kind_ != KindInt64) bad_kind(kind_, KindInt64);
+    if (kind_ != KindInt64) badKind(kind_, KindInt64);
     return static_cast<int64>(num_);
 }
 
 uint64 Value::Uint64() const {
-    if (kind_ != KindUint64) bad_kind(kind_, KindUint64);
+    if (kind_ != KindUint64) badKind(kind_, KindUint64);
     return num_;
 }
 
 bool Value::Bool() const {
-    if (kind_ != KindBool) bad_kind(kind_, KindBool);
+    if (kind_ != KindBool) badKind(kind_, KindBool);
     return num_ == 1;
 }
 
 time::Duration Value::Duration() const {
-    if (kind_ != KindDuration) bad_kind(kind_, KindDuration);
+    if (kind_ != KindDuration) badKind(kind_, KindDuration);
     return time::Duration(static_cast<int64>(num_));
 }
 
 double Value::Float64() const {
-    if (kind_ != KindFloat64) bad_kind(kind_, KindFloat64);
+    if (kind_ != KindFloat64) badKind(kind_, KindFloat64);
     return std::bit_cast<double>(num_);
 }
 
 time::Time Value::Time() const {
-    if (kind_ != KindTime) bad_kind(kind_, KindTime);
+    if (kind_ != KindTime) badKind(kind_, KindTime);
     return std::get<time::Time>(data_);
 }
 
 slog::LogValuer Value::LogValuer() const {
-    if (kind_ != KindLogValuer) bad_kind(kind_, KindLogValuer);
+    if (kind_ != KindLogValuer) badKind(kind_, KindLogValuer);
     return slog::LogValuer(std::get<ptr<const detail::any_value>>(data_));
 }
 
@@ -204,7 +204,7 @@ string Value::String() const {
     return string(buf);
 }
 
-bool Value::is_empty_group() const noexcept { return kind_ == KindGroup && std::get<group>(data_)->empty(); }
+bool Value::isEmptyGroup() const noexcept { return kind_ == KindGroup && std::get<group>(data_)->empty(); }
 
 void Value::append(std::string& dst) const {
     switch (kind_) {
@@ -270,7 +270,7 @@ Value Value::Resolve() const {
         v = std::get<ptr<const detail::any_value>>(v.data_)->log_value();
     }
     auto* p = std::get_if<ptr<const detail::any_value>>(&data_);
-    std::string_view type = p ? (*p)->type_name() : std::string_view("<nil>");
+    std::string_view type = p ? (*p)->typeName() : std::string_view("<nil>");
     return AnyValue(fmt::Errorf("LogValue called too many times on Value of type {}", type));
 }
 
@@ -288,16 +288,16 @@ std::string quote(std::string_view s) { return conv::quote(s); }
 void Record::AddAttrs(std::span<const Attr> attrs) {
     std::size_t i = 0;
     for (; i < attrs.size() && n_front_ < n_attrs_inline; i++) {
-        if (attrs[i].Value.is_empty_group()) continue;
+        if (attrs[i].Value.isEmptyGroup()) continue;
         front_[static_cast<std::size_t>(n_front_++)] = attrs[i];
     }
     for (; i < attrs.size(); i++) {
-        if (!attrs[i].Value.is_empty_group()) back_.push_back(attrs[i]);
+        if (!attrs[i].Value.isEmptyGroup()) back_.push_back(attrs[i]);
     }
 }
 
 void Record::add(Attr a) {
-    if (a.Value.is_empty_group()) return;
+    if (a.Value.isEmptyGroup()) return;
     if (n_front_ < n_attrs_inline) front_[static_cast<std::size_t>(n_front_++)] = std::move(a);
     else back_.push_back(std::move(a));
 }

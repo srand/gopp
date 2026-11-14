@@ -38,7 +38,7 @@ std::string hexString(std::span<const byte> b) {
     return s;
 }
 
-IP make_ip(std::initializer_list<byte> b) { return IP(b); }
+IP makeIp(std::initializer_list<byte> b) { return IP(b); }
 
 // netip's parseIPv4Fields: four decimal fields without leading zeros.
 bool parseIPv4Fields(std::string_view s, byte* fields) {
@@ -231,12 +231,12 @@ const IP IPv4bcast = IPv4(255, 255, 255, 255);
 const IP IPv4allsys = IPv4(224, 0, 0, 1);
 const IP IPv4allrouter = IPv4(224, 0, 0, 2);
 const IP IPv4zero = IPv4(0, 0, 0, 0);
-const IP IPv6zero = make_ip({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
-const IP IPv6unspecified = make_ip({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
-const IP IPv6loopback = make_ip({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1});
-const IP IPv6interfacelocalallnodes = make_ip({0xff, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01});
-const IP IPv6linklocalallnodes = make_ip({0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01});
-const IP IPv6linklocalallrouters = make_ip({0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02});
+const IP IPv6zero = makeIp({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+const IP IPv6unspecified = makeIp({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+const IP IPv6loopback = makeIp({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1});
+const IP IPv6interfacelocalallnodes = makeIp({0xff, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01});
+const IP IPv6linklocalallnodes = makeIp({0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01});
+const IP IPv6linklocalallrouters = makeIp({0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02});
 
 IP IPv4(byte a, byte b, byte c, byte d) {
     IP p = IP::make(IPv6len);
@@ -349,7 +349,7 @@ bool IP::IsGlobalUnicast() const {
 }
 
 string IP::String() const {
-    if (empty()) return string::from_static("<nil>");
+    if (empty()) return string::fromStatic("<nil>");
     if (size() != IPv4len && size() != IPv6len) return string("?" + hexString(span()));
     std::string s;
     appendTo(s, *this);
@@ -359,11 +359,11 @@ string IP::String() const {
 std::pair<slice<byte>, error> IP::AppendText(slice<byte> b) const {
     if (empty()) return {b, nullptr};
     if (size() != IPv4len && size() != IPv6len) {
-        return {b, make_ptr<AddrError>(string::from_static("invalid IP address"), string(hexString(span())))};
+        return {b, make_ptr<AddrError>(string::fromStatic("invalid IP address"), string(hexString(span())))};
     }
     std::string s;
     appendTo(s, *this);
-    return {append_span(std::move(b), as_bytes(std::string_view(s))), nullptr};
+    return {appendSpan(std::move(b), as_bytes(std::string_view(s))), nullptr};
 }
 
 std::pair<slice<byte>, error> IP::MarshalText() const {
@@ -379,7 +379,7 @@ error IP::UnmarshalText(std::span<const byte> text) {
     }
     std::string_view s(reinterpret_cast<const char*>(text.data()), text.size());
     IP x = ParseIP(s);
-    if (x.empty()) return make_ptr<ParseError>(string::from_static("IP address"), string(s));
+    if (x.empty()) return make_ptr<ParseError>(string::fromStatic("IP address"), string(s));
     *this = x;
     return nullptr;
 }
@@ -397,7 +397,7 @@ std::pair<int, int> IPMask::Size() const {
 }
 
 string IPMask::String() const {
-    if (empty()) return string::from_static("<nil>");
+    if (empty()) return string::fromStatic("<nil>");
     return string(hexString(span()));
 }
 
@@ -415,14 +415,14 @@ bool IPNet::Contains(const net::IP& ip0) const {
 
 string IPNet::String() const {
     auto [nn, m] = networkNumberAndMask(*this);
-    if (nn.empty() || m.empty()) return string::from_static("<nil>");
+    if (nn.empty() || m.empty()) return string::fromStatic("<nil>");
     int l = simpleMaskLength(m.span());
     if (l == -1) return nn.String() + "/" + m.String();
     return nn.String() + "/" + string(std::to_string(l));
 }
 
 std::tuple<IP, ptr<IPNet>, error> ParseCIDR(std::string_view s) {
-    auto bad = [&] { return std::tuple<IP, ptr<IPNet>, error>{{}, nullptr, make_ptr<ParseError>(string::from_static("CIDR address"), string(s))}; };
+    auto bad = [&] { return std::tuple<IP, ptr<IPNet>, error>{{}, nullptr, make_ptr<ParseError>(string::fromStatic("CIDR address"), string(s))}; };
     auto slash = s.find('/');
     if (slash == s.npos) return bad();
     std::string_view addr = s.substr(0, slash), mask = s.substr(slash + 1);

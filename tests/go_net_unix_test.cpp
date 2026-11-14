@@ -59,20 +59,20 @@ private:
     std::vector<std::string> dirs_;
 };
 
-bool unix_addr_equal(const ptr<net::Addr>& got, const ptr<net::UnixAddr>& want) {
+bool unixAddrEqual(const ptr<net::Addr>& got, const ptr<net::UnixAddr>& want) {
     auto* g = dynamic_cast<net::UnixAddr*>(got.get());
     if (!g || !want) return !g && !want;
     return g->Name == want->Name && g->Net == want->Net;
 }
 
-ptr<net::UnixAddr> unix_addr(std::string name, std::string net) {
+ptr<net::UnixAddr> unixAddr(std::string name, std::string net) {
     return make_ptr<net::UnixAddr>(string(name), string(net));
 }
 
 bool isDeadlineExceeded(const error& err) { return errors::Is(err, os::ErrDeadlineExceeded); }
 
 // syscall.Sendto with a SockaddrUnix, from a socket of its own.
-void sendto_unix(const std::string& name, std::span<const byte> data) {
+void sendtoUnix(const std::string& name, std::span<const byte> data) {
     int s = ::socket(AF_UNIX, SOCK_DGRAM, 0);
     ASSERT_GE(s, 0);
     sockaddr_un sa{};
@@ -104,9 +104,9 @@ TEST(GoNetUnix, ReadUnixgramWithUnnamedSocket) {
     ASSERT_FALSE(lerr) << lerr;
 
     const byte data[5] = {1, 2, 3, 4, 5};
-    auto off = make_chan<bool>();
+    auto off = makeChan<bool>();
     go([&] {
-        sendto_unix(addr, data);
+        sendtoUnix(addr, data);
         off.send(true);
     });
     off.recv();
@@ -255,11 +255,11 @@ TEST(GoNetUnix, UnixConnLocalAndRemoteNames) {
             ptr<net::UnixAddr> want;
         } connAddrs[] = {
             {ln->Addr(), ta},
-            {c->LocalAddr(), unix_addr(laddr, "unix")},
+            {c->LocalAddr(), unixAddr(laddr, "unix")},
             {c->RemoteAddr(), ta},
         };
         for (auto& ca : connAddrs) {
-            ASSERT_TRUE(unix_addr_equal(ca.got, ca.want)) << "got " << ca.got << ", expected " << ca.want;
+            ASSERT_TRUE(unixAddrEqual(ca.got, ca.want)) << "got " << ca.got << ", expected " << ca.want;
         }
         c->Close();
         ln->Close();
@@ -291,11 +291,11 @@ TEST(GoNetUnix, UnixgramConnLocalAndRemoteNames) {
         } connAddrs[] = {
             {c1->LocalAddr(), ta},
             {c1->RemoteAddr(), nullptr},
-            {c2->LocalAddr(), unix_addr(laddr, "unixgram")},
+            {c2->LocalAddr(), unixAddr(laddr, "unixgram")},
             {c2->RemoteAddr(), ta},
         };
         for (auto& ca : connAddrs) {
-            ASSERT_TRUE(unix_addr_equal(ca.got, ca.want)) << "got " << ca.got << "; want " << ca.want;
+            ASSERT_TRUE(unixAddrEqual(ca.got, ca.want)) << "got " << ca.got << "; want " << ca.want;
         }
         c2->Close();
         c1->Close();
@@ -400,7 +400,7 @@ TEST(GoNetUnix, UnixUnlink) {
 TEST(GoNetUnix, UnixConnReadEOF) {
     TestDirs t;
     std::string path = t.testUnixAddr();
-    auto addr = unix_addr(path, "unix");
+    auto addr = unixAddr(path, "unix");
 
     auto run = [&](auto read) {
         auto [ln, err] = net::ListenUnix("unix", addr);
@@ -444,7 +444,7 @@ TEST(GoNetUnix, UnixConnReadEOF) {
 // unixsock_linux_test.go
 
 TEST(GoNetUnix, UnixgramAutobind) {
-    auto laddr = unix_addr("", "unixgram");
+    auto laddr = unixAddr("", "unixgram");
     auto [c1, err] = net::ListenUnixgram("unixgram", laddr);
     ASSERT_FALSE(err) << err;
 
@@ -455,14 +455,14 @@ TEST(GoNetUnix, UnixgramAutobind) {
 
     auto [c2, derr] = net::DialUnix("unixgram", nullptr, autoAddr);
     ASSERT_FALSE(derr) << derr;
-    ASSERT_TRUE(unix_addr_equal(c2->RemoteAddr(), autoAddr))
+    ASSERT_TRUE(unixAddrEqual(c2->RemoteAddr(), autoAddr))
         << "expected autobind address " << c1->LocalAddr() << ", got " << c2->RemoteAddr();
     c2->Close();
     c1->Close();
 }
 
 TEST(GoNetUnix, UnixAutobindClose) {
-    auto laddr = unix_addr("", "unix");
+    auto laddr = unixAddr("", "unix");
     auto [ln, err] = net::ListenUnix("unix", laddr);
     ASSERT_FALSE(err) << err;
     ln->Close();
@@ -493,9 +493,9 @@ TEST(GoNetUnix, UnixgramLinuxAbstractLongName) {
     ASSERT_FALSE(lerr) << lerr;
 
     const byte data[5] = {1, 2, 3, 4, 5};
-    auto off = make_chan<bool>();
+    auto off = makeChan<bool>();
     go([&] {
-        sendto_unix(addr, data);
+        sendtoUnix(addr, data);
         off.send(true);
     });
     off.recv();
@@ -520,8 +520,8 @@ TEST(GoNetUnix, UnixConnReadMsgUnixSCMRightsCloseOnExec) {
     auto [fds, serr] = syscall::Socketpair(AF_LOCAL, SOCK_STREAM, 0);
     ASSERT_FALSE(serr) << "Socketpair: " << serr;
 
-    auto writeFile = os::NewFile(static_cast<uintptr>(fds[0]), string::from_static("write-socket"));
-    auto readFile = os::NewFile(static_cast<uintptr>(fds[1]), string::from_static("read-socket"));
+    auto writeFile = os::NewFile(static_cast<uintptr>(fds[0]), string::fromStatic("write-socket"));
+    auto readFile = os::NewFile(static_cast<uintptr>(fds[1]), string::fromStatic("read-socket"));
 
     auto [cw, cwerr] = net::FileConn(writeFile);
     ASSERT_FALSE(cwerr) << "FileConn: " << cwerr;

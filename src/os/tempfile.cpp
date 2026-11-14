@@ -15,7 +15,7 @@ const error errPatternHasSeparator = errors::New("pattern contains path separato
 
 namespace {
 
-std::string next_random() { return std::to_string(runtime::fastrand()); }
+std::string nextRandom() { return std::to_string(runtime::fastrand()); }
 
 // Go's prefixAndSuffix: splits pattern at its last "*".
 error prefix_and_suffix(std::string_view pattern, std::string_view& prefix, std::string_view& suffix) {
@@ -44,7 +44,7 @@ std::pair<ptr<File>, error> CreateTemp(std::string_view dir, std::string_view pa
     if (error err = prefix_and_suffix(pattern, pre, suf)) return {nullptr, detail::path_error("createtemp", pattern, err)};
     std::string prefix = detail::join_path(dir, pre);
     for (int attempt = 0;;) {
-        std::string name = prefix + next_random() + std::string(suf);
+        std::string name = prefix + nextRandom() + std::string(suf);
         auto [f, err] = OpenFile(name, O_RDWR_ | O_CREATE_ | O_EXCL_, 0600);
         if (IsExist(err)) {
             if (++attempt < 10000) continue;
@@ -64,7 +64,7 @@ std::pair<string, error> MkdirTemp(std::string_view dir, std::string_view patter
     if (error err = prefix_and_suffix(pattern, pre, suf)) return {{}, detail::path_error("mkdirtemp", pattern, err)};
     std::string prefix = detail::join_path(dir, pre);
     for (int attempt = 0;;) {
-        std::string name = prefix + next_random() + std::string(suf);
+        std::string name = prefix + nextRandom() + std::string(suf);
         error err = Mkdir(name, 0700);
         if (!err) return {string(name), nullptr};
         if (IsExist(err)) {

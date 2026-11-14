@@ -18,12 +18,12 @@ const error err_uint64_high_bit = errors::New("uint64 values with high bit set a
 
 namespace {
 
-struct wrapped_error final : error_interface {
+struct wrapped_error final : errorInterface {
     string msg;
     gopp::error inner;
     wrapped_error(string m, gopp::error e) : msg(std::move(m)), inner(std::move(e)) {}
     string Error() const override { return msg; }
-    const error_interface* Unwrap() const noexcept override { return inner.get(); }
+    const errorInterface* Unwrap() const noexcept override { return inner.get(); }
 };
 
 }  // namespace
@@ -33,7 +33,7 @@ error errorf(string msg) { return errors::New(std::move(msg)); }
 
 string quote(std::string_view s) { return strconv::Quote(s); }
 
-std::string format_float_g(double f, int bits) {
+std::string formatFloatG(double f, int bits) {
     // strconv.FormatFloat(f, 'g', -1, bits): the shortest digits, in %e
     // form when the exponent is < -4 or >= 6 (Go decides with precision 6
     // when the precision is the shortest).
@@ -76,9 +76,9 @@ std::string format_float_g(double f, int bits) {
     return out;
 }
 
-std::pair<double, error> parse_float(std::string_view s, int bits) {
+std::pair<double, error> parseFloat(std::string_view s, int bits) {
     auto fail = [&](const error& e) {
-        return std::pair<double, error>{0, make_ptr<strconv::NumError>(string::from_static("ParseFloat"), string(s), e)};
+        return std::pair<double, error>{0, make_ptr<strconv::NumError>(string::fromStatic("ParseFloat"), string(s), e)};
     };
     std::string_view t = s;
     bool neg = false;
@@ -105,7 +105,7 @@ std::pair<double, error> parse_float(std::string_view s, int bits) {
     return {neg ? -v : v, nullptr};
 }
 
-std::string format_rfc3339_nano(const time::Time& t) { return std::string(t.Format(time::RFC3339Nano).view()); }
+std::string formatRfc3339Nano(const time::Time& t) { return std::string(t.Format(time::RFC3339Nano).view()); }
 
 namespace {
 
@@ -113,16 +113,16 @@ namespace {
 std::string as_string(const driver::Value& src) {
     switch (src.index()) {
     case 5: return std::get<string>(src).str();
-    case 4: return std::string(as_string_view(std::get<slice<byte>>(src).span()));
+    case 4: return std::string(asStringView(std::get<slice<byte>>(src).span()));
     case 1: return std::to_string(std::get<int64>(src));
-    case 2: return format_float_g(std::get<double>(src), 64);
+    case 2: return formatFloatG(std::get<double>(src), 64);
     case 3: return std::get<bool>(src) ? "true" : "false";
     default: return driver::Format(src).str();
     }
 }
 
 // asBytes: appends src's text for numbers, bools and strings.
-bool append_text(std::string& buf, const driver::Value& src) {
+bool appendText(std::string& buf, const driver::Value& src) {
     switch (src.index()) {
     case 1: case 2: case 3: case 5: buf += as_string(src); return true;
     default: return false;
@@ -137,74 +137,74 @@ error strconv_err(const error& err) {
     return err;
 }
 
-error null_unsupported(std::string_view kind) {
+error nullUnsupported(std::string_view kind) {
     return errorf("converting NULL to " + string(kind) + " is unsupported");
 }
 
-error convert_failed(const driver::Value& src, const std::string& s, std::string_view kind, const error& err) {
+error convertFailed(const driver::Value& src, const std::string& s, std::string_view kind, const error& err) {
     return errorf("converting driver.Value type " + string(driver::TypeName(src)) + " (" + quote(s) + ") to a " +
                   string(kind) + ": " + strconv_err(err).Error());
 }
 
 }  // namespace
 
-error unsupported_scan(const driver::Value& src, std::string_view dest_type) {
+error unsupportedScan(const driver::Value& src, std::string_view dest_type) {
     return errorf("unsupported Scan, storing driver.Value type " + string(driver::TypeName(src)) + " into type " +
                   string(dest_type));
 }
 
-error convert_string(const driver::Value& src, gopp::string& out) {
+error convertString(const driver::Value& src, gopp::string& out) {
     switch (src.index()) {
     case 5: out = std::get<string>(src); return nullptr;
-    case 4: out = string(as_string_view(std::get<slice<byte>>(src).span())); return nullptr;
-    case 6: out = string(format_rfc3339_nano(std::get<time::Time>(src))); return nullptr;
-    case 0: return null_unsupported("string");
+    case 4: out = string(asStringView(std::get<slice<byte>>(src).span())); return nullptr;
+    case 6: out = string(formatRfc3339Nano(std::get<time::Time>(src))); return nullptr;
+    case 0: return nullUnsupported("string");
     default: out = string(as_string(src)); return nullptr;
     }
 }
 
-error convert_bytes(const driver::Value& src, slice<byte>& out) {
+error convertBytes(const driver::Value& src, slice<byte>& out) {
     switch (src.index()) {
     case 5: out = bytes_of(std::get<string>(src)); return nullptr;
     case 4: out = slice<byte>::of(std::get<slice<byte>>(src).span()); return nullptr;  // a copy
-    case 6: out = bytes_of(format_rfc3339_nano(std::get<time::Time>(src))); return nullptr;
+    case 6: out = bytes_of(formatRfc3339Nano(std::get<time::Time>(src))); return nullptr;
     case 0: out = slice<byte>(); return nullptr;
     }
     std::string b;
-    if (append_text(b, src)) {
+    if (appendText(b, src)) {
         out = bytes_of(b);
         return nullptr;
     }
-    return unsupported_scan(src, "*[]uint8");
+    return unsupportedScan(src, "*[]uint8");
 }
 
-error convert_raw_bytes(const driver::Value& src, RawBytes& out, Rows* rows) {
+error convertRawBytes(const driver::Value& src, RawBytes& out, Rows* rows) {
     auto append_raw = [&](std::string_view s) {
         slice<byte> buf = rows ? rows->rawbuf() : slice<byte>();
-        slice<byte> b = append_span(buf, gopp::as_bytes(s));
+        slice<byte> b = appendSpan(buf, gopp::as_bytes(s));
         out = rows ? rows->setrawbuf(b) : RawBytes(b);
     };
     switch (src.index()) {
     case 5: append_raw(std::get<string>(src)); return nullptr;
     case 4: out = RawBytes(std::get<slice<byte>>(src)); return nullptr;  // the driver's memory, as in Go
-    case 6: append_raw(format_rfc3339_nano(std::get<time::Time>(src))); return nullptr;
+    case 6: append_raw(formatRfc3339Nano(std::get<time::Time>(src))); return nullptr;
     case 0: out = RawBytes(); return nullptr;
     }
     std::string b;
-    if (append_text(b, src)) {
+    if (appendText(b, src)) {
         append_raw(b);
         return nullptr;
     }
-    return unsupported_scan(src, "*sql.RawBytes");
+    return unsupportedScan(src, "*sql.RawBytes");
 }
 
-error convert_bool(const driver::Value& src, bool& out) {
+error convertBool(const driver::Value& src, bool& out) {
     auto [bv, err] = driver::Bool.ConvertValue(src);
     if (!err) out = std::get<bool>(bv);
     return err;
 }
 
-error convert_any(const driver::Value& src, driver::Value& out) {
+error convertAny(const driver::Value& src, driver::Value& out) {
     if (auto* b = std::get_if<slice<byte>>(&src)) {
         out = slice<byte>::of(b->span());  // a copy: the driver may reuse its memory
         return nullptr;
@@ -213,39 +213,39 @@ error convert_any(const driver::Value& src, driver::Value& out) {
     return nullptr;
 }
 
-error convert_int(const driver::Value& src, int bits, std::string_view kind, int64& out) {
-    if (std::holds_alternative<std::nullptr_t>(src)) return null_unsupported(kind);
+error convertInt(const driver::Value& src, int bits, std::string_view kind, int64& out) {
+    if (std::holds_alternative<std::nullptr_t>(src)) return nullUnsupported(kind);
     std::string s = as_string(src);
     auto [i, err] = strconv::ParseInt(s, 10, bits);
-    if (err) return convert_failed(src, s, kind, err);
+    if (err) return convertFailed(src, s, kind, err);
     out = i;
     return nullptr;
 }
 
-error convert_uint(const driver::Value& src, int bits, std::string_view kind, uint64& out) {
-    if (std::holds_alternative<std::nullptr_t>(src)) return null_unsupported(kind);
+error convertUint(const driver::Value& src, int bits, std::string_view kind, uint64& out) {
+    if (std::holds_alternative<std::nullptr_t>(src)) return nullUnsupported(kind);
     std::string s = as_string(src);
     auto [u, err] = strconv::ParseUint(s, 10, bits);
-    if (err) return convert_failed(src, s, kind, err);
+    if (err) return convertFailed(src, s, kind, err);
     out = u;
     return nullptr;
 }
 
-error convert_float(const driver::Value& src, int bits, std::string_view kind, double& out) {
-    if (std::holds_alternative<std::nullptr_t>(src)) return null_unsupported(kind);
+error convertFloat(const driver::Value& src, int bits, std::string_view kind, double& out) {
+    if (std::holds_alternative<std::nullptr_t>(src)) return nullUnsupported(kind);
     std::string s = as_string(src);
-    auto [f, err] = parse_float(s, bits);
-    if (err) return convert_failed(src, s, kind, err);
+    auto [f, err] = parseFloat(s, bits);
+    if (err) return convertFailed(src, s, kind, err);
     out = f;
     return nullptr;
 }
 
-error convert_time(const driver::Value& src, time::Time& out) {
+error convertTime(const driver::Value& src, time::Time& out) {
     if (auto* t = std::get_if<time::Time>(&src)) {
         out = *t;
         return nullptr;
     }
-    return unsupported_scan(src, "*time.Time");
+    return unsupportedScan(src, "*time.Time");
 }
 
 // ---------------------------------------------------------------------------
@@ -253,12 +253,12 @@ error convert_time(const driver::Value& src, time::Time& out) {
 
 namespace {
 
-string describe_named_value(const driver::NamedValue& nv) {
+string describeNamedValue(const driver::NamedValue& nv) {
     if (nv.Name.empty()) return "$" + strconv::Itoa(nv.Ordinal);
     return "with name " + quote(nv.Name);
 }
 
-error validate_named_value_name(std::string_view name) {
+error validateNamedValueName(std::string_view name) {
     if (name.empty()) return nullptr;
     unsigned char c = static_cast<unsigned char>(name[0]);
     // unicode.IsLetter on the first rune; non-ASCII runes count as letters.
@@ -284,7 +284,7 @@ struct cc_checker {
     }
 };
 
-error default_check_named_value(driver::NamedValue& nv) {
+error defaultCheckNamedValue(driver::NamedValue& nv) {
     auto [v, err] = driver::DefaultParameterConverter.ConvertValue(nv.Value);
     nv.Value = std::move(v);
     return err;
@@ -312,13 +312,13 @@ std::pair<std::vector<driver::NamedValue>, error> driver_args_conn_locked(driver
     for (const arg& a : args) {
         driver::NamedValue nv;
         if (!a.name.empty()) {
-            if (error err = validate_named_value_name(a.name)) return {{}, err};
+            if (error err = validateNamedValueName(a.name)) return {{}, err};
             nv.Name = a.name;
         }
         nv.Ordinal = static_cast<int>(nvargs.size()) + 1;
         nv.Value = a.value;
         if (a.err) {
-            return {{}, wrapf("sql: converting argument " + describe_named_value(nv) + " type: " + a.err.Error(), a.err)};
+            return {{}, wrapf("sql: converting argument " + describeNamedValue(nv) + " type: " + a.err.Error(), a.err)};
         }
         enum { default_check, nvc_check, cc_check } checker = default_check;
         bool next_cc = false;
@@ -333,7 +333,7 @@ std::pair<std::vector<driver::NamedValue>, error> driver_args_conn_locked(driver
             switch (checker) {
             case nvc_check: err = nvc->CheckNamedValue(nv); break;
             case cc_check: err = cc.check(nv); break;
-            default: err = default_check_named_value(nv); break;
+            default: err = defaultCheckNamedValue(nv); break;
             }
             if (!err) {
                 nvargs.push_back(std::move(nv));
@@ -349,7 +349,7 @@ std::pair<std::vector<driver::NamedValue>, error> driver_args_conn_locked(driver
                 }
                 continue;
             }
-            return {{}, wrapf("sql: converting argument " + describe_named_value(nv) + " type: " + err.Error(), err)};
+            return {{}, wrapf("sql: converting argument " + describeNamedValue(nv) + " type: " + err.Error(), err)};
         }
     }
     if (want != -1 && static_cast<int>(nvargs.size()) != want) {
@@ -366,12 +366,12 @@ std::pair<std::vector<driver::NamedValue>, error> driver_args_conn_locked(driver
 
 namespace {
 
-bool is_null(const driver::Value& v) { return std::holds_alternative<std::nullptr_t>(v); }
+bool isNull(const driver::Value& v) { return std::holds_alternative<std::nullptr_t>(v); }
 
 }  // namespace
 
 error NullString::Scan(const driver::Value& value) {
-    if (is_null(value)) {
+    if (isNull(value)) {
         String = {};
         Valid = false;
         return nullptr;
@@ -387,7 +387,7 @@ std::pair<driver::Value, error> NullString::Value() const {
 }
 
 error NullInt64::Scan(const driver::Value& value) {
-    if (is_null(value)) {
+    if (isNull(value)) {
         Int64 = 0;
         Valid = false;
         return nullptr;
@@ -403,7 +403,7 @@ std::pair<driver::Value, error> NullInt64::Value() const {
 }
 
 error NullInt32::Scan(const driver::Value& value) {
-    if (is_null(value)) {
+    if (isNull(value)) {
         Int32 = 0;
         Valid = false;
         return nullptr;
@@ -419,7 +419,7 @@ std::pair<driver::Value, error> NullInt32::Value() const {
 }
 
 error NullInt16::Scan(const driver::Value& value) {
-    if (is_null(value)) {
+    if (isNull(value)) {
         Int16 = 0;
         Valid = false;
         return nullptr;
@@ -435,7 +435,7 @@ std::pair<driver::Value, error> NullInt16::Value() const {
 }
 
 error NullByte::Scan(const driver::Value& value) {
-    if (is_null(value)) {
+    if (isNull(value)) {
         Byte = 0;
         Valid = false;
         return nullptr;
@@ -451,7 +451,7 @@ std::pair<driver::Value, error> NullByte::Value() const {
 }
 
 error NullFloat64::Scan(const driver::Value& value) {
-    if (is_null(value)) {
+    if (isNull(value)) {
         Float64 = 0;
         Valid = false;
         return nullptr;
@@ -467,7 +467,7 @@ std::pair<driver::Value, error> NullFloat64::Value() const {
 }
 
 error NullBool::Scan(const driver::Value& value) {
-    if (is_null(value)) {
+    if (isNull(value)) {
         Bool = false;
         Valid = false;
         return nullptr;
@@ -483,12 +483,12 @@ std::pair<driver::Value, error> NullBool::Value() const {
 }
 
 error NullTime::Scan(const driver::Value& value) {
-    if (is_null(value)) {
+    if (isNull(value)) {
         Time = {};
         Valid = false;
         return nullptr;
     }
-    error err = detail::convert_time(value, Time);
+    error err = detail::convertTime(value, Time);
     Valid = !err;
     return err;
 }
@@ -500,14 +500,14 @@ std::pair<driver::Value, error> NullTime::Value() const {
 
 string IsolationLevel::String() const {
     switch (v_) {
-    case 0: return string::from_static("Default");
-    case 1: return string::from_static("Read Uncommitted");
-    case 2: return string::from_static("Read Committed");
-    case 3: return string::from_static("Write Committed");
-    case 4: return string::from_static("Repeatable Read");
-    case 5: return string::from_static("Snapshot");
-    case 6: return string::from_static("Serializable");
-    case 7: return string::from_static("Linearizable");
+    case 0: return string::fromStatic("Default");
+    case 1: return string::fromStatic("Read Uncommitted");
+    case 2: return string::fromStatic("Read Committed");
+    case 3: return string::fromStatic("Write Committed");
+    case 4: return string::fromStatic("Repeatable Read");
+    case 5: return string::fromStatic("Snapshot");
+    case 6: return string::fromStatic("Serializable");
+    case 7: return string::fromStatic("Linearizable");
     default: return "IsolationLevel(" + strconv::Itoa(v_) + ")";
     }
 }

@@ -24,7 +24,7 @@ namespace {
 
 string ipEmptyString(const IP& ip) { return ip.empty() ? string() : ip.String(); }
 
-string ip_addr_string(const IP& ip, int port, const string& zone) {
+string ipAddrString(const IP& ip, int port, const string& zone) {
     string host = ipEmptyString(ip);
     if (!zone.empty()) host = host + "%" + zone;
     return JoinHostPort(host.view(), std::to_string(port));
@@ -68,7 +68,7 @@ std::pair<int, bool> parsePort(std::string_view service) {
 // pure-Go resolver does (port_unix.go).
 using services_map = std::map<std::string, std::map<std::string, int>>;
 
-services_map load_services() {
+services_map loadServices() {
     services_map s = {
         {"udp", {{"domain", 53}}},
         {"tcp",
@@ -107,7 +107,7 @@ services_map& services() {
         services_map m;
     };
     static auto* t = new table;
-    t->once.Do([] { t->m = load_services(); });
+    t->once.Do([] { t->m = loadServices(); });
     return t->m;
 }
 
@@ -117,7 +117,7 @@ std::pair<int, error> lookupPortMapWithNetwork(const std::string& network, std::
     auto it = all.find(network);
     if (it == all.end()) {
         auto e = make_ptr<DNSError>();
-        e->Err = string::from_static("unknown network");
+        e->Err = string::fromStatic("unknown network");
         e->Name = string(errNetwork) + "/" + string(service);
         return {0, e};
     }
@@ -125,7 +125,7 @@ std::pair<int, error> lookupPortMapWithNetwork(const std::string& network, std::
     for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (auto p = it->second.find(lower); p != it->second.end()) return {p->second, nullptr};
     auto e = make_ptr<DNSError>();
-    e->Err = string::from_static("unknown port");
+    e->Err = string::fromStatic("unknown port");
     e->Name = string(errNetwork) + "/" + string(service);
     e->IsNotFound = true;
     return {0, e};
@@ -133,8 +133,8 @@ std::pair<int, error> lookupPortMapWithNetwork(const std::string& network, std::
 
 }  // namespace
 
-string TCPAddr::String() const { return ip_addr_string(IP, Port, Zone); }
-string UDPAddr::String() const { return ip_addr_string(IP, Port, Zone); }
+string TCPAddr::String() const { return ipAddrString(IP, Port, Zone); }
+string UDPAddr::String() const { return ipAddrString(IP, Port, Zone); }
 
 string AddrError::Error() const {
     if (Addr.empty()) return Err;
@@ -187,7 +187,7 @@ std::pair<int, error> LookupPort(std::string_view network, std::string_view serv
         if (network == "tcp" || network == "tcp4" || network == "tcp6") net = "tcp";
         else if (network == "udp" || network == "udp4" || network == "udp6") net = "udp";
         else if (network == "ip" || network.empty()) net = "ip";
-        else return {0, make_ptr<AddrError>(string::from_static("unknown network"), string(network))};
+        else return {0, make_ptr<AddrError>(string::fromStatic("unknown network"), string(network))};
         error err;
         if (net == "ip") {
             std::tie(port, err) = lookupPortMapWithNetwork("tcp", "ip", service);
@@ -197,11 +197,11 @@ std::pair<int, error> LookupPort(std::string_view network, std::string_view serv
         }
         if (err) return {0, err};
     }
-    if (port < 0 || port > 65535) return {0, make_ptr<AddrError>(string::from_static("invalid port"), string(service))};
+    if (port < 0 || port > 65535) return {0, make_ptr<AddrError>(string::fromStatic("invalid port"), string(service))};
     return {port, nullptr};
 }
 
-ip_port ip_port_of(const Addr* a) {
+ip_port ipPortOf(const Addr* a) {
     if (auto* t = dynamic_cast<const TCPAddr*>(a)) return {t->IP, t->Port, t->Zone, true};
     if (auto* u = dynamic_cast<const UDPAddr*>(a)) return {u->IP, u->Port, u->Zone, true};
     if (auto* i = dynamic_cast<const IPAddr*>(a)) return {i->IP, 0, i->Zone, true};

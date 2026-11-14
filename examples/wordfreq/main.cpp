@@ -42,13 +42,13 @@ struct FileCounts {
 
 // A word's runes: letters and digits, and apostrophes inside words
 // ("don't"), which FieldsFunc can't tell apart, so they're trimmed after.
-bool not_word(rune r) { return !unicode::IsLetter(r) && !unicode::IsNumber(r) && r != '\''; }
+bool notWord(rune r) { return !unicode::IsLetter(r) && !unicode::IsNumber(r) && r != '\''; }
 
 FileCounts count(string name) {
     auto [data, err] = name == "-" ? io::ReadAll(os::Stdin) : os::ReadFile(name);
     if (err) return {name, {}, err};
     counts words;
-    for (const string& field : strings::FieldsFunc(String(data), not_word)) {
+    for (const string& field : strings::FieldsFunc(String(data), notWord)) {
         string word = strings::Trim(field, "'");
         if (!word.empty()) words[strings::ToLower(word)]++;
     }
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     std::vector<string> files = flag::Args();
     if (files.empty()) files.push_back("-");
 
-    auto results = make_chan<FileCounts>();
+    auto results = makeChan<FileCounts>();
     for (const string& name : files) {
         go([name, results] { results.send(count(name)); });
     }

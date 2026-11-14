@@ -24,7 +24,7 @@ void itoa(std::string& buf, int i, int wid) {
     buf.append(b + bp, sizeof(b) - static_cast<std::size_t>(bp));
 }
 
-void format_header(std::string& buf, time::Time t, std::string_view prefix, int flag, std::string_view file, int line) {
+void formatHeader(std::string& buf, time::Time t, std::string_view prefix, int flag, std::string_view file, int line) {
     if ((flag & Lmsgprefix) == 0) buf += prefix;
     if (flag & (Ldate | Ltime | Lmicroseconds)) {
         if (flag & LUTC) t = t.UTC();
@@ -107,7 +107,7 @@ error Logger::output(const std::source_location& loc, std::string_view s) {
 
     std::string buf;
     buf.reserve(prefix.size() + s.size() + 64);
-    format_header(buf, now, prefix, flag, file, line);
+    formatHeader(buf, now, prefix, flag, file, line);
     buf += s;
     if (buf.empty() || buf.back() != '\n') buf.push_back('\n');
 

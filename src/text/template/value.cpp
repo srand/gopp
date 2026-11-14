@@ -15,7 +15,7 @@ std::string_view intern(std::string s) {
     return *names->insert(std::move(s)).first;
 }
 
-const type_ops* scalar_ops(Kind k, std::string_view name) {
+const type_ops* scalarOps(Kind k, std::string_view name) {
     static std::mutex mu;
     static auto* m = new std::map<std::pair<int, std::string>, type_ops*>();
     std::lock_guard l(mu);
@@ -30,43 +30,43 @@ const type_ops* scalar_ops(Kind k, std::string_view name) {
     return o;
 }
 
-const type_ops* bool_ops() {
+const type_ops* boolOps() {
     static const type_ops* o = [] {
-        auto* t = const_cast<type_ops*>(scalar_ops(Kind::Bool, "bool"));
-        t->zero = [] { return Value::scalar(bool_ops(), false); };
+        auto* t = const_cast<type_ops*>(scalarOps(Kind::Bool, "bool"));
+        t->zero = [] { return Value::scalar(boolOps(), false); };
         return t;
     }();
     return o;
 }
 
-const type_ops* int_ops() {
+const type_ops* intOps() {
     static const type_ops* o = [] {
-        auto* t = const_cast<type_ops*>(scalar_ops(Kind::Int, "int"));
-        t->zero = [] { return Value::scalar_int(int_ops(), 0); };
+        auto* t = const_cast<type_ops*>(scalarOps(Kind::Int, "int"));
+        t->zero = [] { return Value::scalarInt(intOps(), 0); };
         return t;
     }();
     return o;
 }
 
-const type_ops* string_ops() {
+const type_ops* stringOps() {
     static const type_ops* o = [] {
-        auto* t = const_cast<type_ops*>(scalar_ops(Kind::String, "string"));
-        t->zero = [] { return Value::scalar_string(string_ops(), string()); };
+        auto* t = const_cast<type_ops*>(scalarOps(Kind::String, "string"));
+        t->zero = [] { return Value::scalarString(stringOps(), string()); };
         return t;
     }();
     return o;
 }
 
-const type_ops* float64_ops() {
+const type_ops* float64Ops() {
     static const type_ops* o = [] {
-        auto* t = const_cast<type_ops*>(scalar_ops(Kind::Float, "float64"));
-        t->zero = [] { return Value::scalar_float(float64_ops(), 0); };
+        auto* t = const_cast<type_ops*>(scalarOps(Kind::Float, "float64"));
+        t->zero = [] { return Value::scalarFloat(float64Ops(), 0); };
         return t;
     }();
     return o;
 }
 
-const type_ops* complex_ops() { return scalar_ops(Kind::Complex, "complex128"); }
+const type_ops* complexOps() { return scalarOps(Kind::Complex, "complex128"); }
 
 namespace {
 
@@ -74,11 +74,11 @@ namespace {
 const method_info error_methods[] = {
     {"Error", {}, false,
      [](const void* obj, const owner_t&, std::span<const Value>) -> std::pair<Value, gopp::error> {
-         return {Value::scalar_string(string_ops(), static_cast<const gopp::error*>(obj)->Error()), nullptr};
+         return {Value::scalarString(stringOps(), static_cast<const gopp::error*>(obj)->Error()), nullptr};
      }},
 };
 
-const type_ops* error_value_ops() {
+const type_ops* errorValueOps() {
     static const type_ops o = [] {
         type_ops t{};
         t.name = "*errors.errorString";
@@ -89,12 +89,12 @@ const type_ops* error_value_ops() {
     return &o;
 }
 
-Value json_dynamic(const json::Value& j, const owner_t& owner) {
+Value jsonDynamic(const json::Value& j, const owner_t& owner) {
     switch (j.type()) {
     case json::Value::kind::null: return Value();
-    case json::Value::kind::boolean: return Value::scalar(bool_ops(), j.AsBool());
-    case json::Value::kind::number: return Value::scalar_float(float64_ops(), j.AsNumber());
-    case json::Value::kind::string: return Value::scalar_string(string_ops(), j.AsString());
+    case json::Value::kind::boolean: return Value::scalar(boolOps(), j.AsBool());
+    case json::Value::kind::number: return Value::scalarFloat(float64Ops(), j.AsNumber());
+    case json::Value::kind::string: return Value::scalarString(stringOps(), j.AsString());
     case json::Value::kind::array: return Value::Ref(j.AsArray(), owner);
     case json::Value::kind::object: return Value::Ref(j.AsObject(), owner);
     }
@@ -103,15 +103,15 @@ Value json_dynamic(const json::Value& j, const owner_t& owner) {
 
 }  // namespace
 
-const type_ops* error_ops() {
+const type_ops* errorOps() {
     static const type_ops o = [] {
         type_ops t{};
         t.name = "error";
         t.kind = Kind::Interface;
-        t.is_nil = [](const void* p) { return !*static_cast<const gopp::error*>(p); };
+        t.isNil = [](const void* p) { return !*static_cast<const gopp::error*>(p); };
         t.deref = [](const void* p, const owner_t& owner) -> Value {
             if (!*static_cast<const gopp::error*>(p)) return Value();
-            return Value::object(error_value_ops(), p, owner);
+            return Value::object(errorValueOps(), p, owner);
         };
         t.zero = [] { return Value(); };
         return t;
@@ -119,27 +119,27 @@ const type_ops* error_ops() {
     return &o;
 }
 
-const type_ops* json_ops() {
+const type_ops* jsonOps() {
     static const type_ops o = [] {
         type_ops t{};
         t.name = "interface {}";
         t.kind = Kind::Interface;
-        t.is_nil = [](const void* p) { return static_cast<const json::Value*>(p)->IsNull(); };
-        t.deref = [](const void* p, const owner_t& owner) { return json_dynamic(*static_cast<const json::Value*>(p), owner); };
+        t.isNil = [](const void* p) { return static_cast<const json::Value*>(p)->IsNull(); };
+        t.deref = [](const void* p, const owner_t& owner) { return jsonDynamic(*static_cast<const json::Value*>(p), owner); };
         t.zero = [] { return Value(); };
         return t;
     }();
     return &o;
 }
 
-const type_ops* any_ops() { return json_ops(); }
+const type_ops* anyOps() { return jsonOps(); }
 
-const type_ops* func_ops() {
+const type_ops* funcOps() {
     static const type_ops o = [] {
         type_ops t{};
         t.name = "func";
         t.kind = Kind::Func;
-        t.is_nil = [](const void* p) { return !*static_cast<const Func*>(p); };
+        t.isNil = [](const void* p) { return !*static_cast<const Func*>(p); };
         t.func = [](const void* p) { return static_cast<const Func*>(p); };
         t.zero = [] { return Value(); };
         return t;
@@ -159,21 +159,21 @@ Value Value::scalar(const detail::type_ops* t, bool b) {
     return v;
 }
 
-Value Value::scalar_int(const detail::type_ops* t, int64 i) {
+Value Value::scalarInt(const detail::type_ops* t, int64 i) {
     Value v;
     v.t_ = t;
     v.s_.i = i;
     return v;
 }
 
-Value Value::scalar_uint(const detail::type_ops* t, uint64 u) {
+Value Value::scalarUint(const detail::type_ops* t, uint64 u) {
     Value v;
     v.t_ = t;
     v.s_.u = u;
     return v;
 }
 
-Value Value::scalar_float(const detail::type_ops* t, double f, double im) {
+Value Value::scalarFloat(const detail::type_ops* t, double f, double im) {
     Value v;
     v.t_ = t;
     v.s_.f = f;
@@ -181,7 +181,7 @@ Value Value::scalar_float(const detail::type_ops* t, double f, double im) {
     return v;
 }
 
-Value Value::scalar_string(const detail::type_ops* t, string s) {
+Value Value::scalarString(const detail::type_ops* t, string s) {
     Value v;
     v.t_ = t;
     v.str_ = std::move(s);
@@ -208,7 +208,7 @@ std::size_t Value::Len() const {
 
 Value Value::Index(std::size_t i) const {
     if (Kind() == tmpl::Kind::String) {
-        return Value::scalar_uint(detail::scalar_ops(tmpl::Kind::Uint, "uint8"), static_cast<unsigned char>(str_[i]));
+        return Value::scalarUint(detail::scalarOps(tmpl::Kind::Uint, "uint8"), static_cast<unsigned char>(str_[i]));
     }
     if (t_ && t_->index) return t_->index(p_, owner_, i);
     return Value();
@@ -243,7 +243,7 @@ const detail::method_info* Value::MethodByName(std::string_view name) const {
 
 bool Value::IsNil() const {
     if (!t_) return true;
-    if (t_->is_nil) return t_->is_nil(p_);
+    if (t_->isNil) return t_->isNil(p_);
     return false;
 }
 

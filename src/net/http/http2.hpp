@@ -49,7 +49,7 @@ enum class FrameType : uint8 {
 string to_string(FrameType t);
 
 namespace flags {
-inline constexpr uint8 end_stream = 0x1;  // DATA, HEADERS
+inline constexpr uint8 endStream = 0x1;  // DATA, HEADERS
 inline constexpr uint8 ack = 0x1;         // SETTINGS, PING
 inline constexpr uint8 end_headers = 0x4; // HEADERS, PUSH_PROMISE, CONTINUATION
 inline constexpr uint8 padded = 0x8;      // DATA, HEADERS, PUSH_PROMISE
@@ -101,7 +101,7 @@ struct Setting {
 // Errors
 
 // http2.ConnectionError: the connection must end with GOAWAY and this code.
-struct ConnectionError : error_interface {
+struct ConnectionError : errorInterface {
     ErrCode code;
     string reason;  // for logs; not sent
     explicit ConnectionError(ErrCode c, string r = {}) : code(c), reason(std::move(r)) {}
@@ -109,20 +109,20 @@ struct ConnectionError : error_interface {
 };
 
 // http2.StreamError: the stream must end with RST_STREAM and this code.
-struct StreamError : error_interface {
-    uint32 stream_id;
+struct StreamError : errorInterface {
+    uint32 streamId;
     ErrCode code;
     gopp::error cause;
-    StreamError(uint32 id, ErrCode c, gopp::error e = nullptr) : stream_id(id), code(c), cause(std::move(e)) {}
+    StreamError(uint32 id, ErrCode c, gopp::error e = nullptr) : streamId(id), code(c), cause(std::move(e)) {}
     string Error() const override;
-    const error_interface* Unwrap() const noexcept override { return cause.get(); }
+    const errorInterface* Unwrap() const noexcept override { return cause.get(); }
 };
 
-gopp::error connection_error(ErrCode code, std::string_view reason = {});
-gopp::error stream_error(uint32 id, ErrCode code, gopp::error cause = nullptr);
+gopp::error connectionError(ErrCode code, std::string_view reason = {});
+gopp::error streamError(uint32 id, ErrCode code, gopp::error cause = nullptr);
 
 // A GOAWAY from the peer, as the client reports it.
-struct GoAwayError : error_interface {
+struct GoAwayError : errorInterface {
     uint32 last_stream_id;
     ErrCode code;
     string debug_data;
@@ -139,7 +139,7 @@ struct FrameHeader {
     FrameType type{};
     uint8 flags = 0;
     uint32 length = 0;  // of the payload
-    uint32 stream_id = 0;
+    uint32 streamId = 0;
     bool has(uint8 f) const noexcept { return (flags & f) == f; }
     string String() const;  // "[FrameHeader DATA flags=END_STREAM stream=1 len=5]"
 };
@@ -173,16 +173,16 @@ struct Frame {
     bool truncated = false;
 
     FrameType type() const noexcept { return header.type; }
-    uint32 stream_id() const noexcept { return header.stream_id; }
-    bool stream_ended() const noexcept { return header.has(flags::end_stream); }
-    bool headers_ended() const noexcept { return header.has(flags::end_headers); }
-    bool is_ack() const noexcept { return header.has(flags::ack); }
-    bool has_priority() const noexcept { return header.has(flags::priority); }
+    uint32 streamId() const noexcept { return header.streamId; }
+    bool streamEnded() const noexcept { return header.has(flags::endStream); }
+    bool headersEnded() const noexcept { return header.has(flags::end_headers); }
+    bool isAck() const noexcept { return header.has(flags::ack); }
+    bool hasPriority() const noexcept { return header.has(flags::priority); }
 
     // The value of the pseudo header field ":"+name, or "".
-    string pseudo_value(std::string_view name) const;
-    std::span<const hpack::HeaderField> pseudo_fields() const;
-    std::span<const hpack::HeaderField> regular_fields() const;
+    string pseudoValue(std::string_view name) const;
+    std::span<const hpack::HeaderField> pseudoFields() const;
+    std::span<const hpack::HeaderField> regularFields() const;
     // The value of a setting, if present.
     std::optional<uint32> setting(SettingID id) const;
 };
@@ -193,7 +193,7 @@ public:
     explicit Framer(ptr<bufio::Reader> r) : r_(std::move(r)) {}
 
     // The largest frame payload accepted: our SETTINGS_MAX_FRAME_SIZE.
-    void set_max_read_frame_size(uint32 v) noexcept { max_read_size_ = v > max_frame_size_limit ? max_frame_size_limit : v; }
+    void setMaxReadFrameSize(uint32 v) noexcept { max_read_size_ = v > max_frame_size_limit ? max_frame_size_limit : v; }
     // When set, HEADERS frames are read with their CONTINUATION frames and
     // decoded with this decoder (Framer.ReadMetaHeaders).
     hpack::Decoder* read_meta_headers = nullptr;
@@ -202,16 +202,16 @@ public:
 
     // Reads the next frame. A ConnectionError or StreamError for protocol
     // violations; err_frame_too_large; or the network's error.
-    std::pair<Frame, gopp::error> read_frame();
+    std::pair<Frame, gopp::error> readFrame();
     // Details of the last connection error, for logs.
-    gopp::error error_detail() const { return err_detail_; }
+    gopp::error errorDetail() const { return err_detail_; }
 
 private:
     std::pair<Frame, gopp::error> Parse(const FrameHeader& fh, string payload);
-    gopp::error check_frame_order(const FrameHeader& fh);
-    gopp::error conn_error(ErrCode code, std::string_view reason);
-    gopp::error read_meta_frame(Frame& hf);
-    uint32 max_header_list() const noexcept { return max_header_list_size ? max_header_list_size : 16 << 20; }
+    gopp::error checkFrameOrder(const FrameHeader& fh);
+    gopp::error connError(ErrCode code, std::string_view reason);
+    gopp::error readMetaFrame(Frame& hf);
+    uint32 maxHeaderList() const noexcept { return max_header_list_size ? max_header_list_size : 16 << 20; }
 
     ptr<bufio::Reader> r_;
     uint32 max_read_size_ = initial_max_frame_size;
@@ -221,27 +221,27 @@ private:
 };
 
 // Frame writers: append a frame to out (the writing half of Go's Framer).
-void append_frame_header(std::string& out, FrameType type, uint8 flags, uint32 stream_id, std::size_t length);
-void append_data(std::string& out, uint32 stream_id, bool end_stream, std::string_view data);
+void appendFrameHeader(std::string& out, FrameType type, uint8 flags, uint32 streamId, std::size_t length);
+void appendData(std::string& out, uint32 streamId, bool endStream, std::string_view data);
 // A header block as HEADERS and as many CONTINUATION frames as
 // max_frame_size requires.
-void append_headers(std::string& out, uint32 stream_id, std::string_view block, bool end_stream, uint32 max_frame_size);
-void append_settings(std::string& out, std::span<const Setting> settings);
-void append_settings_ack(std::string& out);
-void append_ping(std::string& out, bool ack, std::string_view data8);
-void append_goaway(std::string& out, uint32 max_stream_id, ErrCode code, std::string_view debug = {});
-void append_window_update(std::string& out, uint32 stream_id, uint32 incr);
-void append_rst_stream(std::string& out, uint32 stream_id, ErrCode code);
-void append_priority(std::string& out, uint32 stream_id, const PriorityParam& p);
+void appendHeaders(std::string& out, uint32 streamId, std::string_view block, bool endStream, uint32 max_frame_size);
+void appendSettings(std::string& out, std::span<const Setting> settings);
+void appendSettingsAck(std::string& out);
+void appendPing(std::string& out, bool ack, std::string_view data8);
+void appendGoaway(std::string& out, uint32 max_stream_id, ErrCode code, std::string_view debug = {});
+void appendWindowUpdate(std::string& out, uint32 streamId, uint32 incr);
+void appendRstStream(std::string& out, uint32 streamId, ErrCode code);
+void appendPriority(std::string& out, uint32 streamId, const PriorityParam& p);
 
 // Header field validity on the wire: names are lower case tokens.
-bool valid_wire_header_field_name(std::string_view v) noexcept;
+bool validWireHeaderFieldName(std::string_view v) noexcept;
 // Headers that are connection-specific in HTTP/1 and invalid in HTTP/2.
-bool is_connection_header(std::string_view canonical_key) noexcept;
+bool isConnectionHeader(std::string_view canonical_key) noexcept;
 // The lower-case wire name of a canonical header key.
-string lower_header(std::string_view key);
+string lowerHeader(std::string_view key);
 // Whether the value of a request header may be sent: Go drops some.
-bool valid_pseudo_path(std::string_view v) noexcept;
+bool validPseudoPath(std::string_view v) noexcept;
 
 // ---------------------------------------------------------------------------
 // Flow control (flow.Go)
@@ -280,7 +280,7 @@ struct inflow {
 };
 
 // Takes n from both windows, or neither.
-bool take_inflows(inflow& f1, inflow& f2, uint32 n) noexcept;
+bool takeInflows(inflow& f1, inflow& f2, uint32 n) noexcept;
 
 // ---------------------------------------------------------------------------
 // pipe (pipe.Go): a body buffer between the connection, which writes
@@ -297,19 +297,19 @@ public:
     gopp::error write(string data);
     // The reader gets err once the buffer is drained (io::EOF_ for a body
     // that ended). Later errors are ignored.
-    void close_with_error(gopp::error err);
+    void closeWithError(gopp::error err);
     // The reader gets err now; buffered data is discarded.
-    void break_with_error(gopp::error err);
+    void breakWithError(gopp::error err);
     // Like close_with_error, and runs fn once the reader sees the error,
     // before the read returns (for trailers).
-    void close_with_error_and_code(gopp::error err, std::function<void()> fn);
+    void closeWithErrorAndCode(gopp::error err, std::function<void()> fn);
     // The error the reader gets, once set.
     gopp::error err();
     // Closed when an error is set.
     chan<empty> done();
 
 private:
-    void close_done_locked();
+    void closeDoneLocked();
     sync::Mutex mu_;
     sync::Cond c_{&mu_};
     std::deque<string> b_;

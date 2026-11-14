@@ -19,12 +19,12 @@ const char* const longMonthNames[12] = {"January", "February", "March",     "Apr
                                         "July",    "August",   "September", "October", "November", "December"};
 
 string Month::String() const {
-    if (January <= *this && *this <= December) return string::from_static(longMonthNames[value - 1]);
+    if (January <= *this && *this <= December) return string::fromStatic(longMonthNames[value - 1]);
     return "%!Month(" + string(std::to_string(static_cast<uint64>(static_cast<int64>(value)))) + ")";
 }
 
 string Weekday::String() const {
-    if (Sunday <= *this && *this <= Saturday) return string::from_static(longDayNames[value]);
+    if (Sunday <= *this && *this <= Saturday) return string::fromStatic(longDayNames[value]);
     return "%!Weekday(" + string(std::to_string(static_cast<uint64>(static_cast<int64>(value)))) + ")";
 }
 
@@ -178,7 +178,7 @@ std::tuple<string, int, absSeconds> Time::internal::locabs(const Time& t) {
         }
         sec += offset;
     } else {
-        name = string::from_static("UTC");
+        name = string::fromStatic("UTC");
     }
     return {name, offset, static_cast<absSeconds>(sec + (unixToInternal + internalToAbsolute))};
 }

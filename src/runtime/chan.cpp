@@ -121,14 +121,14 @@ bool chanparkcommit(G*, void* arg) noexcept {
     return true;
 }
 
-[[noreturn]] void block_forever(runtime::waitreason reason) {
+[[noreturn]] void blockForever(runtime::waitreason reason) {
     runtime::park(nullptr, nullptr, reason);
     runtime::fatal("unreachable: resumed a fiber blocked forever");
 }
 
 // Hands ep to the receiver sg, which is dequeued from c, then unlocks.
 template <typename Unlock>
-void send_to(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
+void sendTo(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
     if (sg->elem) {
         c->ops->move_construct(sg->elem, ep);
         sg->elem = nullptr;
@@ -142,7 +142,7 @@ void send_to(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
 
 // Takes a value from the sender sg, which is dequeued from c, then unlocks.
 template <typename Unlock>
-void recv_from(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
+void recvFrom(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
     if (c->dataqsiz == 0) {
         if (ep) c->ops->move_construct(ep, sg->elem);
     } else {
@@ -166,7 +166,7 @@ void recv_from(hchan* c, sudog* sg, void* ep, Unlock unlock) noexcept {
 
 }  // namespace
 
-hchan* chan_make(const elem_ops* ops, std::size_t size) {
+hchan* chanMake(const elem_ops* ops, std::size_t size) {
     auto* c = new hchan();
     c->ops = ops;
     c->dataqsiz = size;
@@ -176,9 +176,9 @@ hchan* chan_make(const elem_ops* ops, std::size_t size) {
     return c;
 }
 
-void chan_retain(hchan* c) noexcept { c->refs.fetch_add(1, std::memory_order_relaxed); }
+void chanRetain(hchan* c) noexcept { c->refs.fetch_add(1, std::memory_order_relaxed); }
 
-void chan_release(hchan* c) noexcept {
+void chanRelease(hchan* c) noexcept {
     if (c->refs.fetch_sub(1, std::memory_order_acq_rel) != 1) return;
     std::size_t n = c->qcount.load();
     for (std::size_t i = 0, x = c->recvx; i < n; i++) {
@@ -189,10 +189,10 @@ void chan_release(hchan* c) noexcept {
     delete c;
 }
 
-bool chan_send(hchan* c, void* ep, bool block) {
+bool chanSend(hchan* c, void* ep, bool block) {
     if (!c) {
         if (!block) return false;
-        block_forever(runtime::waitreason::chan_send_nil);
+        blockForever(runtime::waitreason::chan_send_nil);
     }
     // Fast path: a full open channel fails a non-blocking send.
     if (!block && c->closed.load(std::memory_order_acquire) == 0 && c->full()) return false;
@@ -203,7 +203,7 @@ bool chan_send(hchan* c, void* ep, bool block) {
         panic("send on closed channel");
     }
     if (sudog* sg = c->recvq.dequeue()) {
-        send_to(c, sg, ep, [c] { c->lock.unlock(); });
+        sendTo(c, sg, ep, [c] { c->lock.unlock(); });
         return true;
     }
     if (c->qcount.load(std::memory_order_relaxed) < c->dataqsiz) {
@@ -226,7 +226,7 @@ bool chan_send(hchan* c, void* ep, bool block) {
     gp->waiting = &mysg;
     gp->param = nullptr;
     c->sendq.enqueue(&mysg);
-    runtime::park(chanparkcommit, &c->lock, runtime::waitreason::chan_send);
+    runtime::park(chanparkcommit, &c->lock, runtime::waitreason::chanSend);
 
     gp = runtime::getg();
     gp->waiting = nullptr;
@@ -235,10 +235,10 @@ bool chan_send(hchan* c, void* ep, bool block) {
     return true;
 }
 
-recv_result chan_recv(hchan* c, void* ep, bool block) {
+recv_result chanRecv(hchan* c, void* ep, bool block) {
     if (!c) {
         if (!block) return {false, false};
-        block_forever(runtime::waitreason::chan_receive_nil);
+        blockForever(runtime::waitreason::chan_receive_nil);
     }
     // Fast path: an empty channel fails a non-blocking receive.
     if (!block && c->empty()) {
@@ -253,7 +253,7 @@ recv_result chan_recv(hchan* c, void* ep, bool block) {
             return {true, false};
         }
     } else if (sudog* sg = c->sendq.dequeue()) {
-        recv_from(c, sg, ep, [c] { c->lock.unlock(); });
+        recvFrom(c, sg, ep, [c] { c->lock.unlock(); });
         return {true, true};
     }
     if (c->qcount.load(std::memory_order_relaxed) > 0) {
@@ -286,7 +286,7 @@ recv_result chan_recv(hchan* c, void* ep, bool block) {
     return {true, mysg.success};
 }
 
-void chan_close(hchan* c) {
+void chanClose(hchan* c) {
     if (!c) panic("close of nil channel");
     c->lock.lock();
     if (c->closed.load(std::memory_order_relaxed) != 0) {
@@ -312,8 +312,8 @@ void chan_close(hchan* c) {
     while (G* gp = list.pop()) runtime::ready(gp);
 }
 
-std::size_t chan_len(hchan* c) noexcept { return c->qcount.load(std::memory_order_relaxed); }
-std::size_t chan_cap(hchan* c) noexcept { return c->dataqsiz; }
+std::size_t chanLen(hchan* c) noexcept { return c->qcount.load(std::memory_order_relaxed); }
+std::size_t chanCap(hchan* c) noexcept { return c->dataqsiz; }
 
 // ---------------------------------------------------------------------------
 // select
@@ -371,7 +371,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
     }
     if (norder == 0) {
         if (!block) return {-1, false};
-        block_forever(runtime::waitreason::select_no_cases);
+        blockForever(runtime::waitreason::select_no_cases);
     }
 
     // Lock order: by channel address, to avoid deadlock between selects.
@@ -395,7 +395,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
         c = cas->c;
         if (casi >= nsends) {
             if ((sg = c->sendq.dequeue())) {
-                recv_from(c, sg, cas->elem, [&] { selunlock(cases, lockorder, norder); });
+                recvFrom(c, sg, cas->elem, [&] { selunlock(cases, lockorder, norder); });
                 return {casi, true};
             }
             if (c->qcount.load(std::memory_order_relaxed) > 0) {
@@ -417,7 +417,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
                 panic("send on closed channel");
             }
             if ((sg = c->recvq.dequeue())) {
-                send_to(c, sg, cas->elem, [&] { selunlock(cases, lockorder, norder); });
+                sendTo(c, sg, cas->elem, [&] { selunlock(cases, lockorder, norder); });
                 return {casi, false};
             }
             if (c->qcount.load(std::memory_order_relaxed) < c->dataqsiz) {

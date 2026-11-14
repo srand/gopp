@@ -6,7 +6,7 @@ void Sort(Interface& data) {
     isize n = data.Len();
     if (n <= 1) return;
     detail::interface_data d{data};
-    slices::detail::pdqsort(d, 0, n, slices::detail::bits_len(n));
+    slices::detail::pdqsort(d, 0, n, slices::detail::bitsLen(n));
 }
 
 void Stable(Interface& data) {

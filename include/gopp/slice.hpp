@@ -43,7 +43,7 @@ struct slice_array {
         return a;
     }
 
-    void add_ref() noexcept { refs.fetch_add(1, std::memory_order_relaxed); }
+    void addRef() noexcept { refs.fetch_add(1, std::memory_order_relaxed); }
 
     void release() noexcept {
         if (refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
@@ -68,7 +68,7 @@ public:
     slice(std::initializer_list<T> il) : slice(make(il.size())) { std::copy(il.begin(), il.end(), p_); }
 
     slice(const slice& o) noexcept : a_(o.a_), p_(o.p_), n_(o.n_), cap_(o.cap_) {
-        if (a_) a_->add_ref();
+        if (a_) a_->addRef();
     }
 
     slice(slice&& o) noexcept : a_(o.a_), p_(o.p_), n_(o.n_), cap_(o.cap_) {
@@ -105,7 +105,7 @@ public:
         if (cap == 0) {
             // Empty but not nil: all such slices share one address, like
             // Go's runtime.zerobase.
-            s.p_ = zero_base();
+            s.p_ = zeroBase();
             return s;
         }
         s.a_ = detail::slice_array<T>::alloc(cap);
@@ -128,7 +128,7 @@ public:
     size_type len() const noexcept { return n_; }
     size_type cap() const noexcept { return cap_; }
     bool empty() const noexcept { return n_ == 0; }
-    bool is_nil() const noexcept { return p_ == nullptr; }
+    bool isNil() const noexcept { return p_ == nullptr; }
     T* begin() const noexcept { return p_; }
     T* end() const noexcept { return p_ + n_; }
 
@@ -165,7 +165,7 @@ private:
     template <typename U, typename... Args>
     friend slice<U> append(slice<U> s, Args&&... args);
 
-    static T* zero_base() noexcept {
+    static T* zeroBase() noexcept {
         alignas(alignof(T) > 16 ? alignof(T) : 16) static unsigned char base[1];
         return reinterpret_cast<T*>(base);
     }
@@ -196,7 +196,7 @@ slice<T> append(slice<T> s, Args&&... args) {
 
 // append(s, v...) for a span of elements.
 template <typename T>
-slice<T> append_span(slice<T> s, std::span<const T> v) {
+slice<T> appendSpan(slice<T> s, std::span<const T> v) {
     if (s.len() + v.size() > s.cap()) {
         std::size_t newcap = std::max(s.cap() < 256 ? s.cap() * 2 : s.cap() + s.cap() / 4 + 192, s.len() + v.size());
         slice<T> t = slice<T>::make(s.len(), newcap);
@@ -221,14 +221,14 @@ inline std::span<const byte> as_bytes(std::string_view s) noexcept {
     return {reinterpret_cast<const byte*>(s.data()), s.size()};
 }
 
-inline std::string_view as_string_view(std::span<const byte> b) noexcept {
+inline std::string_view asStringView(std::span<const byte> b) noexcept {
     return {reinterpret_cast<const char*>(b.data()), b.size()};
 }
 
 // string(b): copies the bytes.
-inline string String(std::span<const byte> b) { return string(as_string_view(b)); }
+inline string String(std::span<const byte> b) { return string(asStringView(b)); }
 
 // []byte(s): copies the bytes.
-inline slice<byte> to_bytes(std::string_view s) { return slice<byte>::of(as_bytes(s)); }
+inline slice<byte> toBytes(std::string_view s) { return slice<byte>::of(as_bytes(s)); }
 
 }  // namespace gopp

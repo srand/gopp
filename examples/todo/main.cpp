@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
     auto mux = http::NewServeMux();
     s.Routes(*mux);
     http::Server srv{.Addr = addr, .Handler = mux};
-    auto served = make_chan<error>(1);
+    auto served = makeChan<error>(1);
     go([&srv, served] { served.send(srv.ListenAndServe()); });
     fmt::Println("todo: listening on {}, database {}", addr, dbfile);
 

@@ -38,7 +38,7 @@ struct string_buf {
         return b;
     }
 
-    void add_ref() noexcept { refs.fetch_add(1, std::memory_order_relaxed); }
+    void addRef() noexcept { refs.fetch_add(1, std::memory_order_relaxed); }
 
     void release() noexcept {
         if (refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
@@ -60,13 +60,13 @@ public:
     constexpr string() noexcept = default;
 
     // Copies the bytes.
-    string(std::string_view s) : string(copy_of(s)) {}
+    string(std::string_view s) : string(copyOf(s)) {}
     string(const char* s) : string(std::string_view(s)) {}
     string(const std::string& s) : string(std::string_view(s)) {}
     string(const char* p, size_type n) : string(std::string_view(p, n)) {}
 
     string(const string& o) noexcept : buf_(o.buf_), p_(o.p_), n_(o.n_) {
-        if (buf_) buf_->add_ref();
+        if (buf_) buf_->addRef();
     }
 
     string(string&& o) noexcept : buf_(o.buf_), p_(o.p_), n_(o.n_) {
@@ -96,7 +96,7 @@ public:
     }
 
     // A string that refers to static storage, such as a literal.
-    static constexpr string from_static(std::string_view s) noexcept {
+    static constexpr string fromStatic(std::string_view s) noexcept {
         string r;
         r.p_ = s.data();
         r.n_ = s.size();
@@ -174,7 +174,7 @@ public:
     friend std::ostream& operator<<(std::ostream& os, const string& s) { return os << s.view(); }
 
 private:
-    static string copy_of(std::string_view s) {
+    static string copyOf(std::string_view s) {
         return build(s.size(), [&](char* p) { std::memcpy(p, s.data(), s.size()); });
     }
 
@@ -186,7 +186,7 @@ private:
 inline namespace literals {
 // "text"_s: a string in static storage, without allocation.
 constexpr string operator""_s(const char* p, std::size_t n) noexcept {
-    return string::from_static(std::string_view(p, n));
+    return string::fromStatic(std::string_view(p, n));
 }
 }  // namespace literals
 

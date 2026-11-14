@@ -50,10 +50,10 @@ inline constexpr int LstdFlags = Ldate | Ltime;  // the standard logger's
 // A std::format string and where it was written: the parameter type of
 // the logging functions, so that they know their caller's file and line.
 template <typename... A>
-struct basic_format_string {
+struct basicFormatString {
     template <typename S>
         requires std::convertible_to<const S&, std::string_view>
-    consteval basic_format_string(const S& s, std::source_location l = std::source_location::current())
+    consteval basicFormatString(const S& s, std::source_location l = std::source_location::current())
         : fmt(s), loc(l) {}
 
     std::format_string<A...> fmt;
@@ -61,7 +61,7 @@ struct basic_format_string {
 };
 
 template <typename... A>
-using format_string = basic_format_string<std::type_identity_t<A>...>;
+using format_string = basicFormatString<std::type_identity_t<A>...>;
 
 namespace detail {
 // A Writer that also takes the location of the call that logged: slog's

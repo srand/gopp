@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
                 fmt::Println(os::Stderr, "{}", err);
             }
             std::lock_guard l(mu);
-            lats = append_span<time::Duration>(lats, local);
+            lats = appendSpan<time::Duration>(lats, local);
         });
     }
     wg.Wait();

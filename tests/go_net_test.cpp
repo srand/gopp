@@ -40,14 +40,14 @@ std::string str(const string& s) { return std::string(s.view()); }
 
 // reflect.DeepEqual of two byte slices: nil and empty differ only in Go,
 // where both read as empty here.
-bool deep_equal(std::span<const byte> a, std::span<const byte> b) {
+bool deepEqual(std::span<const byte> a, std::span<const byte> b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
 }
 
 template <typename A>
-bool addr_equal(const ptr<A>& a, const ptr<A>& b) {
+bool addrEqual(const ptr<A>& a, const ptr<A>& b) {
     if (!a || !b) return !a && !b;
-    return deep_equal(a->IP, b->IP) && a->Port == b->Port && a->Zone == b->Zone;
+    return deepEqual(a->IP, b->IP) && a->Port == b->Port && a->Zone == b->Zone;
 }
 
 // The error tables' errors, compared as reflect.DeepEqual would.
@@ -59,7 +59,7 @@ struct want_err {
 want_err UnknownNetworkError(std::string net) { return {want_err::unknown_network, std::move(net), {}}; }
 want_err AddrError(std::string err, std::string addr) { return {want_err::addr_error, std::move(err), std::move(addr)}; }
 
-bool err_equal(const error& err, const want_err& w) {
+bool errEqual(const error& err, const want_err& w) {
     switch (w.kind) {
     case want_err::none: return !err;
     case want_err::unknown_network: {
@@ -128,13 +128,13 @@ TEST(GoNet, ParseIP) {
         {"0123.0.0.1", {}},
     };
     for (auto& tt : parseIPTests) {
-        if (IP out = net::ParseIP(tt.in); !deep_equal(out, tt.out)) {
+        if (IP out = net::ParseIP(tt.in); !deepEqual(out, tt.out)) {
             ADD_FAILURE() << "ParseIP(" << tt.in << ") = " << out.String() << ", want " << tt.out.String();
         }
         if (tt.in.empty()) continue;  // Tested in TestMarshalEmptyIP below.
         IP out;
         error err = out.UnmarshalText(as_bytes(tt.in));
-        if (!deep_equal(out, tt.out) || tt.out.empty() != static_cast<bool>(err)) {
+        if (!deepEqual(out, tt.out) || tt.out.empty() != static_cast<bool>(err)) {
             ADD_FAILURE() << "IP.UnmarshalText(" << tt.in << ") = " << out.String() << ", " << err << ", want "
                           << tt.out.String();
         }
@@ -156,7 +156,7 @@ TEST(GoNet, MarshalEmptyIP) {
     auto buf = slice<byte>::make(4);
     auto [got2, err2] = ip.AppendText(buf);
     ASSERT_FALSE(err2) << err2;
-    EXPECT_TRUE(deep_equal(got2, std::vector<byte>{0, 0, 0, 0}));
+    EXPECT_TRUE(deepEqual(got2, std::vector<byte>{0, 0, 0, 0}));
 }
 
 TEST(GoNet, IPString) {
@@ -196,7 +196,7 @@ TEST(GoNet, IPString) {
     for (auto& tt : ipStringTests) {
         EXPECT_EQ(str(tt.in.String()), tt.str);
         auto [out, err] = tt.in.MarshalText();
-        EXPECT_EQ(as_string_view(out), tt.byt) << tt.str;
+        EXPECT_EQ(asStringView(out), tt.byt) << tt.str;
         EXPECT_EQ(static_cast<bool>(err), tt.err) << tt.str;
         if (tt.err) {
             auto* e = errors::As<net::AddrError>(err);
@@ -206,7 +206,7 @@ TEST(GoNet, IPString) {
         }
         auto buf = slice<byte>::make(4, 32);
         auto [out2, err2] = tt.in.AppendText(buf);
-        EXPECT_EQ(as_string_view(out2.span().subspan(4)), tt.byt) << tt.str;
+        EXPECT_EQ(asStringView(out2.span().subspan(4)), tt.byt) << tt.str;
         EXPECT_EQ(static_cast<bool>(err2), tt.err) << tt.str;
     }
 }
@@ -291,7 +291,7 @@ TEST(GoNet, ParseCIDR) {
             continue;
         }
         ASSERT_FALSE(err) << tt.in << ": " << err;
-        EXPECT_TRUE(tt.ip.Equal(ip) && tt.netip.Equal(n->IP) && deep_equal(n->Mask, tt.mask))
+        EXPECT_TRUE(tt.ip.Equal(ip) && tt.netip.Equal(n->IP) && deepEqual(n->Mask, tt.mask))
             << "ParseCIDR(" << tt.in << ") = " << ip << ", {" << n->IP << ", " << str(n->Mask.String()) << "}";
     }
 }
@@ -349,7 +349,7 @@ TEST(GoNet, CIDRMask) {
         {128, -1, {}},
     };
     for (auto& tt : cidrMaskTests) {
-        EXPECT_TRUE(deep_equal(net::CIDRMask(tt.ones, tt.bits), tt.out)) << "CIDRMask(" << tt.ones << ", " << tt.bits << ")";
+        EXPECT_TRUE(deepEqual(net::CIDRMask(tt.ones, tt.bits), tt.out)) << "CIDRMask(" << tt.ones << ", " << tt.bits << ")";
     }
 }
 
@@ -587,7 +587,7 @@ ptr<A> mk(IP ip, int port, std::string zone = {}) {
 }
 
 template <typename A>
-std::vector<resolve_test<A>> resolve_tests(const std::string& p, const std::string& svc, int svcport) {
+std::vector<resolve_test<A>> resolveTests(const std::string& p, const std::string& svc, int svcport) {
     auto n = [&](const char* suffix) { return p + suffix; };
     return {
         {n(""), "127.0.0.1:0", mk<A>(net::IPv4(127, 0, 0, 1), 0), {}},
@@ -620,17 +620,17 @@ std::vector<resolve_test<A>> resolve_tests(const std::string& p, const std::stri
 }
 
 template <typename A, typename Resolve>
-void test_resolve(const std::vector<resolve_test<A>>& tests, Resolve resolve) {
+void testResolve(const std::vector<resolve_test<A>>& tests, Resolve resolve) {
     for (auto& tt : tests) {
         auto [addr, err] = resolve(tt.network, tt.litAddrOrName);
-        if (!addr_equal(addr, tt.addr) || !err_equal(err, tt.err)) {
+        if (!addrEqual(addr, tt.addr) || !errEqual(err, tt.err)) {
             ADD_FAILURE() << "Resolve(" << tt.network << ", " << tt.litAddrOrName << ") = " << addr << ", " << err
                           << ", want " << tt.addr;
             continue;
         }
         if (!err) {
             auto [addr2, err2] = resolve(str(addr->Network()), str(addr->String()));
-            EXPECT_TRUE(addr_equal(addr2, tt.addr) && !err2)
+            EXPECT_TRUE(addrEqual(addr2, tt.addr) && !err2)
                 << "(" << tt.network << ", " << tt.litAddrOrName << "): Resolve(" << addr->Network() << ", "
                 << addr->String() << ") = " << addr2 << ", " << err2;
         }
@@ -640,7 +640,7 @@ void test_resolve(const std::vector<resolve_test<A>>& tests, Resolve resolve) {
 }  // namespace
 
 TEST(GoNet, ResolveTCPAddr) {
-    test_resolve(resolve_tests<net::TCPAddr>("tcp", "http", 80),
+    testResolve(resolveTests<net::TCPAddr>("tcp", "http", 80),
                  [](const std::string& n, const std::string& a) { return net::ResolveTCPAddr(n, a); });
 }
 
@@ -648,7 +648,7 @@ TEST(GoNet, ResolveTCPAddr) {
 // udpsock_test.go
 
 TEST(GoNet, ResolveUDPAddr) {
-    test_resolve(resolve_tests<net::UDPAddr>("udp", "domain", 53),
+    testResolve(resolveTests<net::UDPAddr>("udp", "domain", 53),
                  [](const std::string& n, const std::string& a) { return net::ResolveUDPAddr(n, a); });
 }
 

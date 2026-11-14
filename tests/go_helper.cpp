@@ -35,7 +35,7 @@ std::map<std::string, helper_fn>& helpers() {
 // where /proc isn't mounted (a child in a chroot).
 int init_argc = 0;
 char** init_argv = nullptr;
-[[gnu::constructor(101)]] void capture_args(int argc, char** argv, char**) {
+[[gnu::constructor(101)]] void captureArgs(int argc, char** argv, char**) {
     init_argc = argc;
     init_argv = argv;
 }
@@ -100,7 +100,7 @@ const bool helper_mode = [] {
 
 }  // namespace
 
-bool register_helper(const std::string& name, helper_fn f) {
+bool registerHelper(const std::string& name, helper_fn f) {
     if (helpers().count(name)) {
         std::fprintf(stderr, "duplicate command registered: %s\n", name.c_str());
         std::abort();
@@ -115,7 +115,7 @@ string executable() {
     return exe;
 }
 
-ptr<os::exec::Cmd> helper_command_context(ptr<context::Context> ctx, const std::string& name,
+ptr<os::exec::Cmd> helperCommandContext(ptr<context::Context> ctx, const std::string& name,
                                           const std::vector<std::string>& args) {
     // Go's TestMain sets GO_EXEC_TEST_PID for the children.
     static std::once_flag once;

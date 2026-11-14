@@ -18,7 +18,7 @@ std::atomic<long> n_live{0};  // templates alive
 }  // namespace
 
 // Templates alive, for tests.
-long detail::live_templates() noexcept { return n_live.load(); }
+long detail::liveTemplates() noexcept { return n_live.load(); }
 
 Template::Template(string name) : name_(std::move(name)) { n_live.fetch_add(1, std::memory_order_relaxed); }
 
@@ -28,14 +28,14 @@ common::~common() {
     for (Template* t : members) delete t;
 }
 
-void Template::add_ref() const noexcept {
+void Template::addRef() const noexcept {
     if (common_) common_->refs.fetch_add(1, std::memory_order_relaxed);
-    else object::add_ref();
+    else object::addRef();
 }
 
-void Template::release_ref() const noexcept {
+void Template::releaseRef() const noexcept {
     if (!common_) {
-        object::release_ref();
+        object::releaseRef();
         return;
     }
     if (common_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) delete common_;
@@ -132,14 +132,14 @@ Template* Template::Delims(std::string_view left, std::string_view right) {
 
 namespace {
 
-bool good_name(std::string_view name) {
+bool goodName(std::string_view name) {
     if (name.empty()) return false;
     for (std::size_t i = 0; i < name.size();) {
-        auto [r, w] = detail::decode_rune(name, i);
+        auto [r, w] = detail::decodeRune(name, i);
         if (r == '_') {
-        } else if (i == 0 && !detail::is_letter(r)) {
+        } else if (i == 0 && !detail::isLetter(r)) {
             return false;
-        } else if (!detail::is_letter(r) && !detail::is_digit(r)) {
+        } else if (!detail::isLetter(r) && !detail::is_digit(r)) {
             return false;
         }
         i += static_cast<std::size_t>(w);
@@ -153,7 +153,7 @@ Template* Template::Funcs(const FuncMap& funcs) {
     init();
     common_->mu_funcs.Lock();
     for (auto& [name, fn] : funcs) {
-        if (!good_name(name)) {
+        if (!goodName(name)) {
             common_->mu_funcs.Unlock();
             panic("function name " + detail::quote(name) + " is not a valid identifier");
         }
@@ -178,7 +178,7 @@ std::pair<ptr<Template>, gopp::error> Template::Parse(std::string_view text) {
     common_->mu_funcs.RLock();
     parse::FuncNames funcs = common_->parse_funcs;
     common_->mu_funcs.RUnlock();
-    auto [trees, err] = parse::Parse(name_, text, left_delim_, right_delim_, {&funcs, &builtin_names()});
+    auto [trees, err] = parse::Parse(name_, text, left_delim_, right_delim_, {&funcs, &builtinNames()});
     if (err) return {nullptr, err};
     // Add the newly parsed trees, including the one for t, into our common
     // structure.
@@ -262,13 +262,13 @@ std::pair<std::string, gopp::error> read_file(std::string_view file) {
     return {ss.str(), nullptr};
 }
 
-std::string base_name(std::string_view path) {
+std::string baseName(std::string_view path) {
     while (path.size() > 1 && path.back() == '/') path.remove_suffix(1);
     auto slash = path.rfind('/');
     return std::string(slash == std::string_view::npos ? path : path.substr(slash + 1));
 }
 
-std::pair<ptr<Template>, gopp::error> parse_files(ptr<Template> t, std::span<const string> filenames) {
+std::pair<ptr<Template>, gopp::error> parseFiles(ptr<Template> t, std::span<const string> filenames) {
     if (filenames.empty()) {
         // Not really a problem, but be consistent.
         return {nullptr, errors::New("template: no files named in call to ParseFiles")};
@@ -276,7 +276,7 @@ std::pair<ptr<Template>, gopp::error> parse_files(ptr<Template> t, std::span<con
     for (auto& filename : filenames) {
         auto [s, err] = read_file(filename);
         if (err) return {nullptr, err};
-        std::string name = base_name(filename);
+        std::string name = baseName(filename);
         // First template becomes return value if not already defined, and
         // we use that one for subsequent New calls to associate all the
         // templates together. Also, if this file has the same name as t,
@@ -292,7 +292,7 @@ std::pair<ptr<Template>, gopp::error> parse_files(ptr<Template> t, std::span<con
     return {t, nullptr};
 }
 
-std::pair<ptr<Template>, gopp::error> parse_glob(ptr<Template> t, std::string_view pattern) {
+std::pair<ptr<Template>, gopp::error> parseGlob(ptr<Template> t, std::string_view pattern) {
     glob_t g{};
     int rc = ::glob(std::string(pattern).c_str(), 0, nullptr, &g);
     std::vector<string> names;
@@ -302,14 +302,14 @@ std::pair<ptr<Template>, gopp::error> parse_glob(ptr<Template> t, std::string_vi
     globfree(&g);
     if (rc != 0 && rc != GLOB_NOMATCH) return {nullptr, errors::New("syntax error in pattern")};
     if (names.empty()) return {nullptr, errors::New("template: pattern matches no files: " + string(detail::quote(pattern)))};
-    return parse_files(std::move(t), names);
+    return parseFiles(std::move(t), names);
 }
 
 }  // namespace
 
 std::pair<ptr<Template>, gopp::error> Template::ParseFiles(std::span<const string> filenames) {
     init();
-    return parse_files(ptr<Template>(this), filenames);
+    return parseFiles(ptr<Template>(this), filenames);
 }
 
 std::pair<ptr<Template>, gopp::error> Template::ParseFiles(std::initializer_list<std::string_view> filenames) {
@@ -319,14 +319,14 @@ std::pair<ptr<Template>, gopp::error> Template::ParseFiles(std::initializer_list
 
 std::pair<ptr<Template>, gopp::error> Template::ParseGlob(std::string_view pattern) {
     init();
-    return parse_glob(ptr<Template>(this), pattern);
+    return parseGlob(ptr<Template>(this), pattern);
 }
 
 std::pair<ptr<Template>, gopp::error> ParseFiles(std::initializer_list<std::string_view> filenames) {
     std::vector<string> v(filenames.begin(), filenames.end());
-    return parse_files(nullptr, v);
+    return parseFiles(nullptr, v);
 }
 
-std::pair<ptr<Template>, gopp::error> ParseGlob(std::string_view pattern) { return parse_glob(nullptr, pattern); }
+std::pair<ptr<Template>, gopp::error> ParseGlob(std::string_view pattern) { return parseGlob(nullptr, pattern); }
 
 }  // namespace gopp::text::tmpl

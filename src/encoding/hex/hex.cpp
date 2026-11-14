@@ -26,7 +26,7 @@ constexpr std::array<byte, 256> reverse_hex_table = [] {
 
 constexpr std::size_t buffer_size = 1024;
 
-std::span<const byte> view_bytes(const byte* p, std::size_t n) { return {p, n}; }
+std::span<const byte> viewBytes(const byte* p, std::size_t n) { return {p, n}; }
 
 }  // namespace
 
@@ -36,9 +36,9 @@ string InvalidByteError::Error() const {
     // fmt's %#U: U+0067 'g', without the quoted character if it isn't printable.
     auto r = static_cast<rune>(Byte);
     std::string s = std::format("encoding/hex: invalid byte: U+{:04X}", r);
-    if (text::tmpl::detail::is_print(r)) {
+    if (text::tmpl::detail::isPrint(r)) {
         s += " '";
-        text::tmpl::detail::append_rune(s, r);
+        text::tmpl::detail::appendRune(s, r);
         s += "'";
     }
     return string(s);
@@ -113,7 +113,7 @@ public:
         while (!p.empty() && !err_) {
             std::size_t chunk = std::min(buffer_size / 2, p.size());
             isize encoded = hex::Encode(out_, p.first(chunk));
-            auto [written, err] = w_->Write(view_bytes(out_.data(), static_cast<std::size_t>(encoded)));
+            auto [written, err] = w_->Write(viewBytes(out_.data(), static_cast<std::size_t>(encoded)));
             err_ = err;
             n += written / 2;
             p = p.subspan(chunk);
@@ -163,7 +163,7 @@ private:
     std::array<byte, buffer_size> arr_;  // backing array for in_
 };
 
-constexpr byte to_char(byte b) { return b < 32 || b > 126 ? '.' : b; }
+constexpr byte toChar(byte b) { return b < 32 || b > 126 ? '.' : b; }
 
 class dumper final : public io::WriteCloser {
 public:
@@ -186,7 +186,7 @@ public:
                 hex::Encode(std::span<byte>(buf_).subspan(4), std::span<const byte>(buf_.data(), 4));
                 buf_[12] = ' ';
                 buf_[13] = ' ';
-                if (auto err = w_->Write(view_bytes(buf_.data() + 4, 10)).second) return {n, err};
+                if (auto err = w_->Write(viewBytes(buf_.data() + 4, 10)).second) return {n, err};
             }
             hex::Encode(buf_, std::span<const byte>(&b, 1));
             buf_[2] = ' ';
@@ -202,9 +202,9 @@ public:
                 buf_[4] = '|';
                 l = 5;
             }
-            if (auto err = w_->Write(view_bytes(buf_.data(), l)).second) return {n, err};
+            if (auto err = w_->Write(viewBytes(buf_.data(), l)).second) return {n, err};
             n++;
-            right_chars_[used_] = to_char(b);
+            right_chars_[used_] = toChar(b);
             used_++;
             n_++;
             if (used_ == 16) {
@@ -232,12 +232,12 @@ public:
             std::size_t l = 3;
             if (used_ == 7) l = 4;
             else if (used_ == 15) l = 5;
-            if (auto err = w_->Write(view_bytes(buf_.data(), l)).second) return err;
+            if (auto err = w_->Write(viewBytes(buf_.data(), l)).second) return err;
             used_++;
         }
         right_chars_[n_bytes] = '|';
         right_chars_[n_bytes + 1] = '\n';
-        return w_->Write(view_bytes(right_chars_.data(), n_bytes + 2)).second;
+        return w_->Write(viewBytes(right_chars_.data(), n_bytes + 2)).second;
     }
 
 private:

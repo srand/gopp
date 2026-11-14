@@ -18,13 +18,13 @@ namespace internal {
 
 namespace {
 
-string path_unescape_or_raw(std::string_view s) {
+string pathUnescapeOrRaw(std::string_view s) {
     if (s.find('%') == s.npos) return string(s);
     auto [u, err] = url::PathUnescape(s);
     return err ? string(s) : u;
 }
 
-bool valid_wildcard_name(std::string_view s) {
+bool validWildcardName(std::string_view s) {
     if (s.empty()) return false;
     for (std::size_t i = 0; i < s.size(); i++) {
         unsigned char c = static_cast<unsigned char>(s[i]);
@@ -37,7 +37,7 @@ bool valid_wildcard_name(std::string_view s) {
 
 }  // namespace
 
-std::pair<std::unique_ptr<pattern>, gopp::error> parse_pattern(std::string_view s) {
+std::pair<std::unique_ptr<pattern>, gopp::error> parsePattern(std::string_view s) {
     if (s.empty()) return {nullptr, errors::New("empty pattern")};
     std::size_t off = 0;  // offset into s, for error messages
     auto fail = [&](std::string_view msg) {
@@ -54,7 +54,7 @@ std::pair<std::unique_ptr<pattern>, gopp::error> parse_pattern(std::string_view 
         found = true;
     }
     if (!found) rest = s;
-    if (!method.empty() && !valid_method(method)) return fail(fmt::Sprint("invalid method {}", strconv::Quote(method)).view());
+    if (!method.empty() && !validMethod(method)) return fail(fmt::Sprint("invalid method {}", strconv::Quote(method)).view());
     auto p = std::make_unique<pattern>();
     p->str = string(s);
     p->method = string(method);
@@ -72,7 +72,7 @@ std::pair<std::unique_ptr<pattern>, gopp::error> parse_pattern(std::string_view 
 
     // At this point, rest is the path. A non-CONNECT pattern with an unclean
     // path can never match, because paths are cleaned before matching.
-    if (!method.empty() && method != "CONNECT" && clean_path(string(rest)).view() != rest) {
+    if (!method.empty() && method != "CONNECT" && cleanPath(string(rest)).view() != rest) {
         return fail("non-CONNECT pattern with unclean path can never match");
     }
 
@@ -92,7 +92,7 @@ std::pair<std::unique_ptr<pattern>, gopp::error> parse_pattern(std::string_view 
         auto brace = seg.find('{');
         if (brace == seg.npos) {
             // A literal segment; patterns are unescaped by segment.
-            p->segments.push_back({path_unescape_or_raw(seg), false, false});
+            p->segments.push_back({pathUnescapeOrRaw(seg), false, false});
             continue;
         }
         if (brace != 0) return fail("bad wildcard segment (must start with '{')");
@@ -100,14 +100,14 @@ std::pair<std::unique_ptr<pattern>, gopp::error> parse_pattern(std::string_view 
         std::string_view name = seg.substr(1, seg.size() - 2);
         if (name == "$") {
             if (!rest.empty()) return fail("{$} not at end");
-            p->segments.push_back({string::from_static("/"), false, false});
+            p->segments.push_back({string::fromStatic("/"), false, false});
             break;
         }
         bool multi = name.ends_with("...");
         if (multi) name.remove_suffix(3);
         if (multi && !rest.empty()) return fail("{...} wildcard not at end");
         if (name.empty()) return fail("empty wildcard");
-        if (!valid_wildcard_name(name)) return fail(fmt::Sprint("bad wildcard name {}", strconv::Quote(name)).view());
+        if (!validWildcardName(name)) return fail(fmt::Sprint("bad wildcard name {}", strconv::Quote(name)).view());
         if (seen.contains(name)) return fail(fmt::Sprint("duplicate wildcard name {}", strconv::Quote(name)).view());
         seen.emplace(name);
         p->segments.push_back({string(name), true, multi});
@@ -126,13 +126,13 @@ std::string_view to_string(relationship r) noexcept {
     return "?";
 }
 
-relationship inverse_relationship(relationship r) noexcept {
+relationship inverseRelationship(relationship r) noexcept {
     if (r == relationship::more_specific) return relationship::more_general;
     if (r == relationship::more_general) return relationship::more_specific;
     return r;
 }
 
-relationship combine_relationships(relationship r1, relationship r2) noexcept {
+relationship combineRelationships(relationship r1, relationship r2) noexcept {
     switch (r1) {
     case relationship::equivalent: return r2;
     case relationship::disjoint: return relationship::disjoint;
@@ -140,13 +140,13 @@ relationship combine_relationships(relationship r1, relationship r2) noexcept {
     case relationship::more_general:
     case relationship::more_specific:
         if (r2 == relationship::equivalent) return r1;
-        if (r2 == inverse_relationship(r1)) return relationship::overlaps;
+        if (r2 == inverseRelationship(r1)) return relationship::overlaps;
         return r2;
     }
     return relationship::disjoint;
 }
 
-relationship compare_methods(const pattern& p1, const pattern& p2) {
+relationship compareMethods(const pattern& p1, const pattern& p2) {
     if (p1.method == p2.method) return relationship::equivalent;
     if (p1.method.empty()) return relationship::more_general;  // p1 matches any method
     if (p2.method.empty()) return relationship::more_specific;
@@ -157,7 +157,7 @@ relationship compare_methods(const pattern& p1, const pattern& p2) {
 
 namespace {
 
-relationship compare_segments(const segment& s1, const segment& s2) {
+relationship compareSegments(const segment& s1, const segment& s2) {
     if (s1.multi && s2.multi) return relationship::equivalent;
     if (s1.multi) return relationship::more_general;
     if (s2.multi) return relationship::more_specific;
@@ -167,61 +167,61 @@ relationship compare_segments(const segment& s1, const segment& s2) {
     return s1.s == s2.s ? relationship::equivalent : relationship::disjoint;
 }
 
-void write_segment(std::string& b, const segment& s) {
+void writeSegment(std::string& b, const segment& s) {
     b.push_back('/');
     if (!s.multi && s.s != "/") b.append(s.s.view());
 }
 
-void write_matching_path(std::string& b, std::span<const segment> segs) {
-    for (const segment& s : segs) write_segment(b, s);
+void writeMatchingPath(std::string& b, std::span<const segment> segs) {
+    for (const segment& s : segs) writeSegment(b, s);
 }
 
 }  // namespace
 
-relationship compare_paths(const pattern& p1, const pattern& p2) {
+relationship comparePaths(const pattern& p1, const pattern& p2) {
     // Different numbers of segments are disjoint unless a multi wildcard
     // at the end can take up the difference.
-    if (p1.segments.size() != p2.segments.size() && !p1.last_segment().multi && !p2.last_segment().multi) {
+    if (p1.segments.size() != p2.segments.size() && !p1.lastSegment().multi && !p2.lastSegment().multi) {
         return relationship::disjoint;
     }
     relationship rel = relationship::equivalent;
     std::size_t i = 0;
     for (; i < p1.segments.size() && i < p2.segments.size(); i++) {
-        rel = combine_relationships(rel, compare_segments(p1.segments[i], p2.segments[i]));
+        rel = combineRelationships(rel, compareSegments(p1.segments[i], p2.segments[i]));
         if (rel == relationship::disjoint) return rel;
     }
     if (i == p1.segments.size() && i == p2.segments.size()) return rel;
     // One pattern is longer; the shorter one must end in a multi.
-    if (p1.segments.size() < p2.segments.size() && p1.last_segment().multi) {
-        return combine_relationships(rel, relationship::more_general);
+    if (p1.segments.size() < p2.segments.size() && p1.lastSegment().multi) {
+        return combineRelationships(rel, relationship::more_general);
     }
-    if (p2.segments.size() < p1.segments.size() && p2.last_segment().multi) {
-        return combine_relationships(rel, relationship::more_specific);
+    if (p2.segments.size() < p1.segments.size() && p2.lastSegment().multi) {
+        return combineRelationships(rel, relationship::more_specific);
     }
     return relationship::disjoint;
 }
 
 bool conflicts_with(const pattern& p1, const pattern& p2) {
     if (p1.host != p2.host) return false;  // a host pattern is always more specific
-    relationship mrel = compare_methods(p1, p2);
+    relationship mrel = compareMethods(p1, p2);
     if (mrel == relationship::disjoint) return false;
-    relationship rel = combine_relationships(mrel, compare_paths(p1, p2));
+    relationship rel = combineRelationships(mrel, comparePaths(p1, p2));
     return rel == relationship::equivalent || rel == relationship::overlaps;
 }
 
-string common_path(const pattern& p1, const pattern& p2) {
+string commonPath(const pattern& p1, const pattern& p2) {
     std::string b;
     std::size_t i = 0;
     for (; i < p1.segments.size() && i < p2.segments.size(); i++) {
         const segment& s1 = p1.segments[i];
-        write_segment(b, s1.wild ? p2.segments[i] : s1);
+        writeSegment(b, s1.wild ? p2.segments[i] : s1);
     }
-    if (i < p1.segments.size()) write_matching_path(b, std::span(p1.segments).subspan(i));
-    else if (i < p2.segments.size()) write_matching_path(b, std::span(p2.segments).subspan(i));
+    if (i < p1.segments.size()) writeMatchingPath(b, std::span(p1.segments).subspan(i));
+    else if (i < p2.segments.size()) writeMatchingPath(b, std::span(p2.segments).subspan(i));
     return string(b);
 }
 
-string difference_path(const pattern& p1, const pattern& p2) {
+string differencePath(const pattern& p1, const pattern& p2) {
     std::string b;
     std::size_t i = 0;
     for (; i < p1.segments.size() && i < p2.segments.size(); i++) {
@@ -241,43 +241,43 @@ string difference_path(const pattern& p1, const pattern& p2) {
             return string(b);
         }
         if (!s1.multi && s2.multi) {
-            write_segment(b, s1);
+            writeSegment(b, s1);
         } else if (s1.wild && s2.wild) {
-            write_segment(b, s1);  // both match anything: use the first name
+            writeSegment(b, s1);  // both match anything: use the first name
         } else if (s1.wild && !s2.wild) {
             // Any segment other than the literal s2.s.
             if (s1.s != s2.s) {
-                write_segment(b, s1);
+                writeSegment(b, s1);
             } else {
                 b.push_back('/');
                 b.append(s2.s.view());
                 b.push_back('x');
             }
         } else if (!s1.wild && s2.wild) {
-            write_segment(b, s1);
+            writeSegment(b, s1);
         } else {
             // Both literals; overlapping patterns have the same one here.
             if (s1.s != s2.s) panic(fmt::Sprint("literals differ: {} and {}", strconv::Quote(s1.s), strconv::Quote(s2.s)).view());
-            write_segment(b, s1);
+            writeSegment(b, s1);
         }
     }
-    if (i < p1.segments.size()) write_matching_path(b, std::span(p1.segments).subspan(i));
-    else if (i < p2.segments.size()) write_matching_path(b, std::span(p2.segments).subspan(i));
+    if (i < p1.segments.size()) writeMatchingPath(b, std::span(p1.segments).subspan(i));
+    else if (i < p2.segments.size()) writeMatchingPath(b, std::span(p2.segments).subspan(i));
     return string(b);
 }
 
 string describe_conflict(const pattern& p1, const pattern& p2) {
-    relationship mrel = compare_methods(p1, p2);
-    relationship prel = compare_paths(p1, p2);
-    relationship rel = combine_relationships(mrel, prel);
+    relationship mrel = compareMethods(p1, p2);
+    relationship prel = comparePaths(p1, p2);
+    relationship rel = combineRelationships(mrel, prel);
     if (rel == relationship::equivalent) return fmt::Sprint("{} matches the same requests as {}", p1.str, p2.str);
     if (rel != relationship::overlaps) panic("describeConflict called with non-conflicting patterns");
     if (prel == relationship::overlaps) {
         return fmt::Sprint(
             "{0} and {1} both match some paths, like {2}.\nBut neither is more specific than the other.\n"
             "{0} matches {3}, but {1} doesn't.\n{1} matches {4}, but {0} doesn't.",
-            p1.str, p2.str, strconv::Quote(common_path(p1, p2)), strconv::Quote(difference_path(p1, p2)),
-            strconv::Quote(difference_path(p2, p1)));
+            p1.str, p2.str, strconv::Quote(commonPath(p1, p2)), strconv::Quote(differencePath(p1, p2)),
+            strconv::Quote(differencePath(p2, p1)));
     }
     if (mrel == relationship::more_general && prel == relationship::more_specific) {
         return fmt::Sprint("{} matches more methods than {}, but has a more specific path pattern", p1.str, p2.str);
@@ -295,7 +295,7 @@ string describe_conflict(const pattern& p1, const pattern& p2) {
 namespace {
 
 // The first segment of path as a view: "/a/b" -> "a", "/b".
-std::pair<std::string_view, std::string_view> first_segment_view(std::string_view path) {
+std::pair<std::string_view, std::string_view> firstSegmentView(std::string_view path) {
     if (path == "/") return {"/", {}};
     path.remove_prefix(1);
     auto i = path.find('/');
@@ -305,9 +305,9 @@ std::pair<std::string_view, std::string_view> first_segment_view(std::string_vie
 
 }  // namespace
 
-std::pair<string, std::string_view> first_segment(std::string_view path) {
-    auto [seg, rest] = first_segment_view(path);
-    return {seg == "/" ? string::from_static("/") : path_unescape_or_raw(seg), rest};
+std::pair<string, std::string_view> firstSegment(std::string_view path) {
+    auto [seg, rest] = firstSegmentView(path);
+    return {seg == "/" ? string::fromStatic("/") : pathUnescapeOrRaw(seg), rest};
 }
 
 void routing_node::set(const pattern* p, ptr<http::Handler> h) {
@@ -316,17 +316,17 @@ void routing_node::set(const pattern* p, ptr<http::Handler> h) {
     handler = std::move(h);
 }
 
-routing_node* routing_node::add_child(const string& key) {
+routing_node* routing_node::addChild(const string& key) {
     if (key.empty()) {
         if (!empty_child) empty_child = std::make_unique<routing_node>();
         return empty_child.get();
     }
-    if (routing_node* c = find_child(key)) return c;
+    if (routing_node* c = findChild(key)) return c;
     children.emplace_back(key, std::make_unique<routing_node>());
     return children.back().second.get();
 }
 
-routing_node* routing_node::find_child(std::string_view key) const {
+routing_node* routing_node::findChild(std::string_view key) const {
     if (key.empty()) return empty_child.get();
     for (auto& [k, c] : children) {
         if (k == key) return c.get();
@@ -334,7 +334,7 @@ routing_node* routing_node::find_child(std::string_view key) const {
     return nullptr;
 }
 
-void routing_node::add_segments(std::span<const segment> segs, const pattern* p, ptr<http::Handler> h) {
+void routing_node::addSegments(std::span<const segment> segs, const pattern* p, ptr<http::Handler> h) {
     if (segs.empty()) {
         set(p, std::move(h));
         return;
@@ -345,73 +345,73 @@ void routing_node::add_segments(std::span<const segment> segs, const pattern* p,
         multi_child = std::make_unique<routing_node>();
         multi_child->set(p, std::move(h));
     } else if (seg.wild) {
-        add_child(string())->add_segments(segs.subspan(1), p, std::move(h));
+        addChild(string())->addSegments(segs.subspan(1), p, std::move(h));
     } else {
-        add_child(seg.s)->add_segments(segs.subspan(1), p, std::move(h));
+        addChild(seg.s)->addSegments(segs.subspan(1), p, std::move(h));
     }
 }
 
-void routing_node::add_pattern(const pattern* p, ptr<http::Handler> h) {
+void routing_node::addPattern(const pattern* p, ptr<http::Handler> h) {
     // Keys of the first two levels: host, then method; "" is any.
-    routing_node* n = add_child(p->host);
-    n = n->add_child(p->method);
-    n->add_segments(p->segments, p, std::move(h));
+    routing_node* n = addChild(p->host);
+    n = n->addChild(p->method);
+    n->addSegments(p->segments, p, std::move(h));
 }
 
 // path is a suffix of full, so that wildcard values can share its buffer.
-const routing_node* routing_node::match_path(const string& full, std::string_view path, matches_t& m) const {
+const routing_node* routing_node::matchPath(const string& full, std::string_view path, matches_t& m) const {
     // An empty path matches the node itself, if it ends a pattern.
     if (path.empty()) return pat ? this : nullptr;
-    auto [seg, rest] = first_segment_view(path);
-    string useg = seg == "/" ? string::from_static("/")
+    auto [seg, rest] = firstSegmentView(path);
+    string useg = seg == "/" ? string::fromStatic("/")
                   : seg.find('%') == seg.npos ? full.Sub(seg)
-                                              : path_unescape_or_raw(seg);
+                                              : pathUnescapeOrRaw(seg);
     // Literal children first, as they are more specific.
-    if (const routing_node* c = find_child(useg)) {
+    if (const routing_node* c = findChild(useg)) {
         std::size_t before = m.size();
-        if (auto* n = c->match_path(full, rest, m)) return n;
+        if (auto* n = c->matchPath(full, rest, m)) return n;
         m.resize(before);
     }
     // Then a single wildcard, which doesn't match the "/" of a trailing slash.
     if (seg != "/" && empty_child) {
         std::size_t before = m.size();
         m.push_back(useg);
-        if (auto* n = empty_child->match_path(full, rest, m)) return n;
+        if (auto* n = empty_child->matchPath(full, rest, m)) return n;
         m.resize(before);
     }
     // Then a multi wildcard, which takes the rest of the path.
     if (multi_child) {
-        if (!multi_child->pat->last_segment().s.empty()) m.push_back(path_unescape_or_raw(path.substr(1)));
+        if (!multi_child->pat->lastSegment().s.empty()) m.push_back(pathUnescapeOrRaw(path.substr(1)));
         return multi_child.get();
     }
     return nullptr;
 }
 
-const routing_node* routing_node::match_method_and_path(std::string_view method, const string& path, matches_t& m) const {
-    if (auto* c = find_child(method)) {
-        if (auto* n = c->match_path(path, path, m)) return n;
+const routing_node* routing_node::matchMethodAndPath(std::string_view method, const string& path, matches_t& m) const {
+    if (auto* c = findChild(method)) {
+        if (auto* n = c->matchPath(path, path, m)) return n;
     }
     if (method == "HEAD") {
         // GET patterns match HEAD requests too.
-        if (auto* c = find_child("GET")) {
+        if (auto* c = findChild("GET")) {
             m.clear();
-            if (auto* n = c->match_path(path, path, m)) return n;
+            if (auto* n = c->matchPath(path, path, m)) return n;
         }
     }
     m.clear();
-    if (empty_child) return empty_child->match_path(path, path, m);
+    if (empty_child) return empty_child->matchPath(path, path, m);
     return nullptr;
 }
 
 const routing_node* routing_node::match(std::string_view host, std::string_view method, const string& path,
                                         matches_t& m) const {
     if (!host.empty()) {
-        if (auto* h = find_child(host)) {
-            if (auto* n = h->match_method_and_path(method, path, m)) return n;
+        if (auto* h = findChild(host)) {
+            if (auto* n = h->matchMethodAndPath(method, path, m)) return n;
         }
     }
     m.clear();
-    if (empty_child) return empty_child->match_method_and_path(method, path, m);
+    if (empty_child) return empty_child->matchMethodAndPath(method, path, m);
     return nullptr;
 }
 
@@ -420,18 +420,18 @@ void routing_node::matching_methods(std::string_view host, const string& path, s
         if (!n) return;
         for (auto& [method, c] : n->children) {
             matches_t m;
-            if (c->match_path(path, path, m)) methods.emplace(method.view());
+            if (c->matchPath(path, path, m)) methods.emplace(method.view());
         }
     };
-    if (!host.empty()) add(find_child(host));
+    if (!host.empty()) add(findChild(host));
     add(empty_child.get());
     if (methods.contains("GET")) methods.emplace("HEAD");
 }
 
-bool exact_match(const routing_node* n, std::string_view path) {
+bool exactMatch(const routing_node* n, std::string_view path) {
     if (!n) return false;
     // Without a multi, the match is exact.
-    if (!n->pat->last_segment().multi) return true;
+    if (!n->pat->lastSegment().multi) return true;
     // A path without a trailing slash makes the multi match non-empty.
     if (!path.empty() && path.back() != '/') return false;
     // The match is exact if the pattern has as many segments as the path
@@ -449,7 +449,7 @@ using internal::routing_node;
 
 namespace {
 
-string strip_host_port(const string& h) {
+string stripHostPort(const string& h) {
     if (h.find(':') == string::npos) return h;
     auto [host, port, err] = net::SplitHostPort(h);
     return err ? h : host;
@@ -492,7 +492,7 @@ struct ServeMux::impl {
     gopp::error register_err(std::string_view patstr, ptr<http::Handler> h, std::source_location loc) {
         if (patstr.empty()) return errors::New("http: invalid pattern");
         if (!h) return errors::New("http: nil handler");
-        auto [pat, err] = internal::parse_pattern(patstr);
+        auto [pat, err] = internal::parsePattern(patstr);
         if (err) return fmt::Errorf("parsing {}: {}", strconv::Quote(patstr), err);
         pat->loc = fmt::Sprint("{}:{}", loc.file_name(), loc.line());
 
@@ -506,7 +506,7 @@ struct ServeMux::impl {
         }
         regs.push_back({std::move(pat), std::move(h)});
         auto t = std::make_unique<routing_node>();
-        for (auto& r : regs) t->add_pattern(r.pat.get(), r.handler);
+        for (auto& r : regs) t->addPattern(r.pat.get(), r.handler);
         tree.store(t.get(), std::memory_order_release);
         trees.push_back(std::move(t));
         return nullptr;
@@ -520,11 +520,11 @@ struct ServeMux::impl {
         const routing_node* t = tree.load(std::memory_order_acquire);
         if (!t) return nullptr;
         const routing_node* n = t->match(host, method, path, m);
-        if (!internal::exact_match(n, path) && redirect_to && !path.ends_with("/") && !path.empty()) {
+        if (!internal::exactMatch(n, path) && redirect_to && !path.ends_with("/") && !path.empty()) {
             string p2 = path + "/";
             routing_node::matches_t m2;
             const routing_node* n2 = t->match(host, method, p2, m2);
-            if (internal::exact_match(n2, p2)) {
+            if (internal::exactMatch(n2, p2)) {
                 *redirect_to = p2;
                 return n2;
             }
@@ -568,8 +568,8 @@ std::pair<ptr<http::Handler>, string> ServeMux::Handler(Request& r) const {
     } else {
         // Paths are cleaned, and hosts stripped of their port, before
         // matching; requests for unclean paths are redirected.
-        host = strip_host_port(r.Host);
-        path = internal::clean_path(path);
+        host = stripHostPort(r.Host);
+        path = internal::cleanPath(path);
         string redirect_to;
         n = impl_->match_or_redirect(host, r.Method, path, matches, &redirect_to);
         if (!redirect_to.empty()) {
@@ -622,7 +622,7 @@ ptr<ServeMux> NewServeMux() { return make_ptr<ServeMux>(); }
 ServeMux& DefaultServeMux() {
     static ServeMux* m = [] {
         auto* mux = new ServeMux();
-        mux->add_ref();  // never freed
+        mux->addRef();  // never freed
         return mux;
     }();
     return *m;
@@ -649,8 +649,8 @@ void Error(ResponseWriter& w, std::string_view msg, int code) {
     Header& h = w.Header();
     // Drop headers meant for the successful response.
     h.Del("Content-Length");
-    h.Set("Content-Type", string::from_static("text/plain; charset=utf-8"));
-    h.Set("X-Content-Type-Options", string::from_static("nosniff"));
+    h.Set("Content-Type", string::fromStatic("text/plain; charset=utf-8"));
+    h.Set("X-Content-Type-Options", string::fromStatic("nosniff"));
     w.WriteHeader(code);
     fmt::Println(w, "{}", msg);
 }
@@ -660,7 +660,7 @@ void NotFound(ResponseWriter& w, Request&) { Error(w, "404 page not found", Stat
 ptr<http::Handler> NotFoundHandler() {
     static Handler* h = [] {
         auto* f = new HandlerFunc(NotFound);
-        f->add_ref();
+        f->addRef();
         return f;
     }();
     return ptr<http::Handler>(h);
@@ -674,11 +674,11 @@ void Redirect(ResponseWriter& w, Request& r, std::string_view target, int code) 
         if (old.empty()) old = "/";
         auto dir = old.substr(0, old.rfind('/') + 1);
         bool trailing = u.ends_with("/");
-        u = internal::clean_path(string(dir) + u);
+        u = internal::cleanPath(string(dir) + u);
         if (trailing && !u.ends_with("/")) u = u + "/";
     }
     w.Header().Set("Location", u);
-    if (r.Method == "GET" || r.Method == "HEAD") w.Header().Set("Content-Type", string::from_static("text/html; charset=utf-8"));
+    if (r.Method == "GET" || r.Method == "HEAD") w.Header().Set("Content-Type", string::fromStatic("text/html; charset=utf-8"));
     w.WriteHeader(code);
     if (r.Method == "GET") fmt::Print(w, "<a href=\"{}\">{}</a>.\n", u, StatusText(code));
 }

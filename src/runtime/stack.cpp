@@ -15,7 +15,7 @@ struct free_stack {
     free_stack* next;
 };
 
-std::size_t page_size() noexcept {
+std::size_t pageSize() noexcept {
     static const std::size_t ps = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
     return ps;
 }
@@ -35,21 +35,21 @@ free_stack* global_free = nullptr;
 
 }  // namespace
 
-std::size_t stack_size() noexcept {
+std::size_t stackSize() noexcept {
     static const std::size_t size = [] {
         std::size_t s = 256 * 1024;
         if (const char* e = std::getenv("GOPP_STACK_SIZE")) {
             long v = std::atol(e);
             if (v >= 16 * 1024) s = static_cast<std::size_t>(v);
         }
-        std::size_t ps = page_size();
+        std::size_t ps = pageSize();
         return (s + ps - 1) / ps * ps;
     }();
     return size;
 }
 
 boost::context::stack_context stack_allocator::allocate() {
-    std::size_t size = stack_size();
+    std::size_t size = stackSize();
     void* base = nullptr;  // lowest usable address
 
     stack_cache& c = tls_cache;
@@ -65,7 +65,7 @@ boost::context::stack_context stack_allocator::allocate() {
     }
 
     if (!base) {
-        std::size_t guard = page_size();
+        std::size_t guard = pageSize();
         void* mem = mmap(nullptr, size + guard, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
         if (mem == MAP_FAILED) fatal("out of memory allocating fiber stack");
         mprotect(mem, guard, PROT_NONE);

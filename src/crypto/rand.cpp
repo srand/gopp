@@ -17,11 +17,11 @@ struct reader final : io::Reader {
     std::pair<isize, error> Read(std::span<byte> p) override { return rand::Read(p); }
 };
 
-reader& the_reader() {
+reader& theReader() {
     // Never destroyed, and counted once so that ptrs to it never free it.
     static reader* r = [] {
         auto* x = new reader;
-        x->add_ref();
+        x->addRef();
         return x;
     }();
     return *r;
@@ -29,7 +29,7 @@ reader& the_reader() {
 
 }  // namespace
 
-io::Reader& Reader = the_reader();
+io::Reader& Reader = theReader();
 
 std::pair<isize, error> Read(std::span<byte> b) {
     std::size_t n = 0;

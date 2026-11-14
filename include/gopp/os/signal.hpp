@@ -34,7 +34,7 @@ namespace detail {
 void notify(const chan<os::Signal>& c, std::span<const os::Signal> sigs);
 void ignore(std::span<const os::Signal> sigs);
 void reset(std::span<const os::Signal> sigs);
-std::pair<ptr<context::Context>, context::CancelFunc> notify_context(ptr<context::Context> parent,
+std::pair<ptr<context::Context>, context::CancelFunc> notifyContext(ptr<context::Context> parent,
                                                                     std::span<const os::Signal> sigs);
 }  // namespace detail
 
@@ -76,7 +76,7 @@ void Reset(const S&... sigs) {
 template <typename... S>
 std::pair<ptr<context::Context>, context::CancelFunc> NotifyContext(ptr<context::Context> parent, const S&... sigs) {
     const os::Signal a[] = {os::Signal(sigs)..., os::Signal()};
-    return detail::notify_context(std::move(parent), std::span<const os::Signal>(a, sizeof...(S)));
+    return detail::notifyContext(std::move(parent), std::span<const os::Signal>(a, sizeof...(S)));
 }
 
 }  // namespace gopp::os::signal

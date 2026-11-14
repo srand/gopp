@@ -19,7 +19,7 @@ bool is_digit(char c) noexcept { return c >= '0' && c <= '9'; }
 
 // Decodes the UTF-8 sequence at s[i]; returns the rune and its size, or
 // U+FFFD and 1 for invalid bytes (utf8.DecodeRuneInString).
-std::pair<rune, int> decode_rune(std::string_view s, std::size_t i) noexcept {
+std::pair<rune, int> decodeRune(std::string_view s, std::size_t i) noexcept {
     unsigned char c0 = static_cast<unsigned char>(s[i]);
     if (c0 < 0x80) return {c0, 1};
     auto cont = [&](std::size_t k) { return i + k < s.size() && (static_cast<unsigned char>(s[i + k]) & 0xC0) == 0x80; };
@@ -36,7 +36,7 @@ std::pair<rune, int> decode_rune(std::string_view s, std::size_t i) noexcept {
     return {0xFFFD, 1};
 }
 
-void append_rune(std::string& out, rune r) {
+void appendRune(std::string& out, rune r) {
     if (r < 0x80) {
         out.push_back(static_cast<char>(r));
     } else if (r < 0x800) {
@@ -89,7 +89,7 @@ struct scanner {
         return scan_result::eof;
     }
 
-    void skip_ws() {
+    void skipWs() {
         while (pos < s.size() && is_space(s[pos])) pos++;
     }
 
@@ -173,13 +173,13 @@ struct scanner {
         for (;;) {
             switch (state) {
             case want_value: {
-                skip_ws();
+                skipWs();
                 if (pos >= s.size()) return eof();
                 char c = s[pos];
                 if (c == '{' || c == '[') {
                     if (stack.size() >= max_nesting_depth) return fail("exceeded max depth");
                     pos++;
-                    skip_ws();
+                    skipWs();
                     if (pos >= s.size()) return eof();
                     if (s[pos] == (c == '{' ? '}' : ']')) {
                         pos++;
@@ -202,13 +202,13 @@ struct scanner {
                 break;
             }
             case want_key:
-                skip_ws();
+                skipWs();
                 if (pos >= s.size()) return eof();
                 if (s[pos] != '"') {
                     return fail("invalid character " + quote_char(s[pos]) + " looking for beginning of object key string");
                 }
                 if (auto r = string_(); r != scan_result::ok) return r;
-                skip_ws();
+                skipWs();
                 if (pos >= s.size()) return eof();
                 if (s[pos] != ':') return fail("invalid character " + quote_char(s[pos]) + " after object key");
                 pos++;
@@ -216,7 +216,7 @@ struct scanner {
                 break;
             case after_value:
                 if (stack.empty()) return scan_result::ok;
-                skip_ws();
+                skipWs();
                 if (pos >= s.size()) return eof();
                 if (stack.back() == '{') {
                     if (s[pos] == ',') {
@@ -245,7 +245,7 @@ struct scanner {
     }
 };
 
-gopp::error syntax_error(const scanner& sc) {
+gopp::error syntaxError(const scanner& sc) {
     auto e = make_ptr<SyntaxError>();
     e->msg = string(sc.msg);
     e->offset = static_cast<int64>(sc.err_offset);
@@ -254,7 +254,7 @@ gopp::error syntax_error(const scanner& sc) {
 
 const char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-int base64_value(char c) noexcept {
+int base64Value(char c) noexcept {
     if (c >= 'A' && c <= 'Z') return c - 'A';
     if (c >= 'a' && c <= 'z') return c - 'a' + 26;
     if (c >= '0' && c <= '9') return c - '0' + 52;
@@ -281,22 +281,22 @@ bool EqualFold(std::string_view a, std::string_view b) noexcept { return strings
 
 gopp::error validate(std::string_view data) {
     scanner sc{data};
-    if (sc.value() != scan_result::ok) return syntax_error(sc);
-    sc.skip_ws();
+    if (sc.value() != scan_result::ok) return syntaxError(sc);
+    sc.skipWs();
     if (sc.pos < data.size()) {
         sc.fail("invalid character " + quote_char(data[sc.pos]) + " after top-level value");
-        return syntax_error(sc);
+        return syntaxError(sc);
     }
     return nullptr;
 }
 
-std::pair<std::size_t, gopp::error> value_length(std::string_view s, bool at_eof) {
+std::pair<std::size_t, gopp::error> valueLength(std::string_view s, bool at_eof) {
     scanner sc{s};
     sc.at_eof = at_eof;
     switch (sc.value()) {
     case scan_result::ok: return {sc.pos, nullptr};
     case scan_result::eof: return {0, nullptr};
-    case scan_result::error: return {0, syntax_error(sc)};
+    case scan_result::error: return {0, syntaxError(sc)};
     }
     return {0, nullptr};
 }
@@ -334,7 +334,7 @@ void encoder::WriteString(std::string_view s) {
             start = i;
             continue;
         }
-        auto [r, size] = decode_rune(s, i);
+        auto [r, size] = decodeRune(s, i);
         if (r == 0xFFFD && size == 1) {
             out.append(s.substr(start, i - start));
             out.append("\\ufffd");
@@ -357,11 +357,11 @@ void encoder::WriteString(std::string_view s) {
     out.push_back('"');
 }
 
-void encoder::write_float(double f, int bits) {
+void encoder::writeFloat(double f, int bits) {
     if (std::isnan(f) || std::isinf(f)) {
         if (!err) {
             auto e = make_ptr<UnsupportedValueError>();
-            e->str = std::isnan(f) ? string::from_static("NaN") : f > 0 ? string::from_static("+Inf") : string::from_static("-Inf");
+            e->str = std::isnan(f) ? string::fromStatic("NaN") : f > 0 ? string::fromStatic("+Inf") : string::fromStatic("-Inf");
             err = e;
         }
         out.append("null");
@@ -428,7 +428,7 @@ void encoder::write_float(double f, int bits) {
     }
 }
 
-void encoder::write_base64(std::span<const byte> b) {
+void encoder::writeBase64(std::span<const byte> b) {
     out.push_back('"');
     std::size_t i = 0;
     for (; i + 3 <= b.size(); i += 3) {
@@ -449,11 +449,11 @@ void encoder::write_base64(std::span<const byte> b) {
     out.push_back('"');
 }
 
-void encoder::write_value(const Value& v) {
+void encoder::writeValue(const Value& v) {
     switch (v.type()) {
     case Value::kind::null: out.append("null"); break;
     case Value::kind::boolean: out.append(v.AsBool() ? "true" : "false"); break;
-    case Value::kind::number: write_float(v.AsNumber(), 64); break;
+    case Value::kind::number: writeFloat(v.AsNumber(), 64); break;
     case Value::kind::string: WriteString(v.AsString()); break;
     case Value::kind::array: {
         out.push_back('[');
@@ -461,7 +461,7 @@ void encoder::write_value(const Value& v) {
         for (const Value& x : v.AsArray()) {
             if (!first) out.push_back(',');
             first = false;
-            write_value(x);
+            writeValue(x);
         }
         out.push_back(']');
         break;
@@ -474,7 +474,7 @@ void encoder::write_value(const Value& v) {
             first = false;
             WriteString(k);
             out.push_back(':');
-            write_value(x);
+            writeValue(x);
         }
         out.push_back('}');
         break;
@@ -482,7 +482,7 @@ void encoder::write_value(const Value& v) {
     }
 }
 
-void encoder::write_marshaled(std::pair<slice<byte>, gopp::error> r, std::string_view type) {
+void encoder::writeMarshaled(std::pair<slice<byte>, gopp::error> r, std::string_view type) {
     auto fail = [&](gopp::error e) {
         if (!err) {
             auto me = make_ptr<MarshalerError>();
@@ -493,14 +493,14 @@ void encoder::write_marshaled(std::pair<slice<byte>, gopp::error> r, std::string
         out.append("null");
     };
     if (r.second) return fail(r.second);
-    std::string_view s = as_string_view(r.first);
+    std::string_view s = asStringView(r.first);
     if (gopp::error e = validate(s)) return fail(e);
     std::string compacted;
     append_compact(compacted, s, escape_html);
     out.append(compacted);
 }
 
-void encoder::cycle_error(std::string_view type) {
+void encoder::cycleError(std::string_view type) {
     if (err) return;
     auto e = make_ptr<UnsupportedValueError>();
     e->str = "encountered a cycle via " + string(type);
@@ -600,16 +600,16 @@ void indent(std::string& dst, std::string_view src, std::string_view prefix, std
 // ---------------------------------------------------------------------------
 // Decoding (of validated input)
 
-void decoder::skip_ws() noexcept {
+void decoder::skipWs() noexcept {
     while (pos_ < data_.size() && is_space(data_[pos_])) pos_++;
 }
 
 char decoder::peek() noexcept {
-    skip_ws();
+    skipWs();
     return pos_ < data_.size() ? data_[pos_] : '\0';
 }
 
-bool decoder::consume_null() noexcept {
+bool decoder::consumeNull() noexcept {
     if (peek() == 'n') {
         pos_ += 4;
         return true;
@@ -618,7 +618,7 @@ bool decoder::consume_null() noexcept {
 }
 
 std::string_view decoder::literal() {
-    skip_ws();
+    skipWs();
     std::size_t start = pos_;
     while (pos_ < data_.size()) {
         char c = data_[pos_];
@@ -629,7 +629,7 @@ std::string_view decoder::literal() {
 }
 
 std::string_view decoder::raw() {
-    skip_ws();
+    skipWs();
     std::size_t start = pos_;
     scanner sc{data_};
     sc.pos = pos_;
@@ -639,7 +639,7 @@ std::string_view decoder::raw() {
 }
 
 void decoder::ReadString(std::string& out) {
-    skip_ws();
+    skipWs();
     out.clear();
     pos_++;  // the opening quote
     std::size_t start = pos_;
@@ -698,7 +698,7 @@ void decoder::ReadString(std::string& out) {
                 } else if (r >= 0xDC00 && r < 0xE000) {
                     r = 0xFFFD;
                 }
-                append_rune(out, r);
+                appendRune(out, r);
                 break;
             }
             }
@@ -709,38 +709,38 @@ void decoder::ReadString(std::string& out) {
             pos_++;
             continue;
         }
-        auto [r, size] = decode_rune(data_, pos_);
-        if (r == 0xFFFD && size == 1) append_rune(out, 0xFFFD);
+        auto [r, size] = decodeRune(data_, pos_);
+        if (r == 0xFFFD && size == 1) appendRune(out, 0xFFFD);
         else out.append(data_.substr(pos_, static_cast<std::size_t>(size)));
         pos_ += static_cast<std::size_t>(size);
     }
 }
 
-void decoder::begin_object() noexcept {
-    skip_ws();
+void decoder::beginObject() noexcept {
+    skipWs();
     pos_++;
 }
 
-bool decoder::next_key(std::string& key) {
-    skip_ws();
+bool decoder::nextKey(std::string& key) {
+    skipWs();
     if (data_[pos_] == '}') {
         pos_++;
         return false;
     }
     if (data_[pos_] == ',') pos_++;
     ReadString(key);
-    skip_ws();
+    skipWs();
     pos_++;  // the colon
     return true;
 }
 
-void decoder::begin_array() noexcept {
-    skip_ws();
+void decoder::beginArray() noexcept {
+    skipWs();
     pos_++;
 }
 
-bool decoder::next_element() noexcept {
-    skip_ws();
+bool decoder::nextElement() noexcept {
+    skipWs();
     if (data_[pos_] == ']') {
         pos_++;
         return false;
@@ -749,7 +749,7 @@ bool decoder::next_element() noexcept {
     return true;
 }
 
-void decoder::read_value(Value& root) {
+void decoder::readValue(Value& root) {
     // Iterative, like the scanner: a stack of the open arrays and objects.
     // Pointers into them stay valid, as a container only grows after its
     // nested containers are complete.
@@ -777,12 +777,12 @@ void decoder::read_value(Value& root) {
             break;
         }
         case '[':
-            begin_array();
+            beginArray();
             *target = Value::array();
             stack.push_back({target, false});
             break;
         case '{':
-            begin_object();
+            beginObject();
             *target = Value::object();
             stack.push_back({target, true});
             break;
@@ -799,17 +799,17 @@ void decoder::read_value(Value& root) {
             if (stack.empty()) return;
             frame& f = stack.back();
             if (f.object) {
-                if (next_key(key)) target = &f.v->AsObject()[std::string_view(key)];
+                if (nextKey(key)) target = &f.v->AsObject()[std::string_view(key)];
                 else stack.pop_back();
             } else {
-                if (next_element()) target = &f.v->AsArray().emplace_back();
+                if (nextElement()) target = &f.v->AsArray().emplace_back();
                 else stack.pop_back();
             }
         }
     }
 }
 
-bool decoder::read_base64(slice<byte>& b) {
+bool decoder::readBase64(slice<byte>& b) {
     std::string s;
     ReadString(s);
     std::string_view in = s;
@@ -819,7 +819,7 @@ bool decoder::read_base64(slice<byte>& b) {
     uint32_t acc = 0;
     int bits = 0;
     for (char c : in) {
-        int v = base64_value(c);
+        int v = base64Value(c);
         if (v < 0) return false;
         acc = acc << 6 | static_cast<uint32_t>(v);
         bits += 6;
@@ -844,11 +844,11 @@ void decoder::mismatch(std::string_view type) {
     case 'n': what = "null"; break;
     default: what = "number"; break;
     }
-    bad_value(what, type);
+    badValue(what, type);
     skip();
 }
 
-void decoder::bad_value(std::string_view value, std::string_view type) {
+void decoder::badValue(std::string_view value, std::string_view type) {
     fail(make_ptr<UnmarshalTypeError>(string(value), string(type), static_cast<int64>(pos_), string(struct_name), string(field)));
 }
 
@@ -911,7 +911,7 @@ std::size_t Value::size() const noexcept {
 }
 
 std::pair<slice<byte>, gopp::error> RawMessage::MarshalJSON() const {
-    if (data.is_nil()) return {to_bytes("null"), nullptr};
+    if (data.isNil()) return {toBytes("null"), nullptr};
     return {data, nullptr};
 }
 
@@ -920,7 +920,7 @@ gopp::error RawMessage::UnmarshalJSON(std::span<const byte> d) {
     return nullptr;
 }
 
-bool Valid(std::span<const byte> data) { return !detail::validate(as_string_view(data)); }
+bool Valid(std::span<const byte> data) { return !detail::validate(asStringView(data)); }
 
 error Compact(std::string& dst, std::string_view src) {
     if (error err = detail::validate(src)) return err;
@@ -967,7 +967,7 @@ gopp::error Decoder::refill() {
     return err;
 }
 
-std::pair<std::string_view, error> Decoder::read_value() {
+std::pair<std::string_view, error> Decoder::readValue() {
     for (;;) {
         std::string_view rest = std::string_view(buf_).substr(scanp_);
         bool at_eof = static_cast<bool>(err_);
@@ -979,7 +979,7 @@ std::pair<std::string_view, error> Decoder::read_value() {
                 scanp_ = buf_.size();
                 return {{}, err_};  // io::EOF_ at the end of the stream
             }
-            auto [len, serr] = detail::value_length(rest, at_eof);
+            auto [len, serr] = detail::valueLength(rest, at_eof);
             if (serr) {
                 err_ = serr;
                 return {{}, serr};

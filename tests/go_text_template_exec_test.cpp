@@ -127,7 +127,7 @@ const ::V v1_val{7777};
 const ::W w1_val{999};
 const std::array<int, 3> pai_val = {3, 4, 5};
 
-const T* make_tval() {
+const T* makeTval() {
     static T t = [] {
         T t;
         t.True = true;
@@ -181,7 +181,7 @@ const T* make_tval() {
     return &t;
 }
 
-const T* tVal = make_tval();
+const T* tVal = makeTval();
 
 // bigInt and bigUint are hex strings representing numbers either side of
 // the max int boundary.
@@ -257,7 +257,7 @@ Value D(X x) {
     return Value::Of(std::move(x));
 }
 
-FuncMap test_funcs() {
+FuncMap testFuncs() {
     return FuncMap{
         {"add", add},
         {"dddArg", dddArg},
@@ -275,8 +275,8 @@ FuncMap test_funcs() {
     };
 }
 
-void test_execute(const std::vector<exec_test>& tests, tmpl::Template* tpl) {
-    FuncMap funcs = test_funcs();
+void testExecute(const std::vector<exec_test>& tests, tmpl::Template* tpl) {
+    FuncMap funcs = testFuncs();
     for (auto& test : tests) {
         ptr<tmpl::Template> t = tpl ? tpl->New(string(test.name)) : tmpl::New(string(test.name));
         auto [parsed, err] = t->Funcs(funcs)->Parse(test.input);
@@ -759,8 +759,8 @@ struct error_writer final : io::Writer {
     std::pair<isize, gopp::error> Write(std::span<const byte>) override { return {0, alwaysError}; }
 };
 
-struct custom_error final : error_interface {
-    string Error() const override { return string::from_static("heyo !"); }
+struct custom_error final : errorInterface {
+    string Error() const override { return string::fromStatic("heyo !"); }
 };
 
 int funcNameTestFunc() { return 0; }
@@ -835,7 +835,7 @@ const std::string cloneText5 = R"({{define "e"}}{{.Foo}}{{end}})";
 
 }  // namespace
 
-TEST(TextTemplate, Execute) { test_execute(execTests, nullptr); }
+TEST(TextTemplate, Execute) { testExecute(execTests, nullptr); }
 
 TEST(TextTemplate, Delims) {
     const std::string hello = "Hello, world";
@@ -935,7 +935,7 @@ TEST(TextTemplate, ExecuteOnNewTemplate) {
     // This is issue 11379.
     make_ptr<tmpl::Template>(string())->Templates();
     make_ptr<tmpl::Template>(string())->Parse("");
-    make_ptr<tmpl::Template>(string())->New(string::from_static("abc"))->Parse("");
+    make_ptr<tmpl::Template>(string())->New(string::fromStatic("abc"))->Parse("");
     EXPECT_TRUE(make_ptr<tmpl::Template>(string())->Execute(io::Discard(), nullptr));  // an error, not a crash
     EXPECT_TRUE(make_ptr<tmpl::Template>(string())->ExecuteTemplate(io::Discard(), "XXX", Value()));
 }
@@ -1329,7 +1329,7 @@ TEST(TextTemplate, MultiExecute) {
     ASSERT_FALSE(err) << err;
     auto [t2, err2] = t->Parse(multiText2);
     ASSERT_FALSE(err2) << err2;
-    test_execute(multiExecTests(), t.get());
+    testExecute(multiExecTests(), t.get());
 }
 
 TEST(TextTemplate, ParseFiles) {
@@ -1338,7 +1338,7 @@ TEST(TextTemplate, ParseFiles) {
     std::string d = testdata();
     auto [p, err] = t->ParseFiles({d + "/file1.tmpl", d + "/file2.tmpl"});
     ASSERT_FALSE(err) << err;
-    test_execute(multiExecTests(), t.get());
+    testExecute(multiExecTests(), t.get());
 }
 
 TEST(TextTemplate, ParseGlob) {
@@ -1347,20 +1347,20 @@ TEST(TextTemplate, ParseGlob) {
     auto t = tmpl::New("root");
     auto [p, err] = t->ParseGlob(testdata() + "/file*.tmpl");
     ASSERT_FALSE(err) << err;
-    test_execute(multiExecTests(), t.get());
+    testExecute(multiExecTests(), t.get());
 }
 
 TEST(TextTemplate, ParseFilesWithData) {
     std::string d = testdata();
     auto [t, err] = tmpl::New("root")->ParseFiles({d + "/tmpl1.tmpl", d + "/tmpl2.tmpl"});
     ASSERT_FALSE(err) << err;
-    test_execute(templateFileExecTests, t.get());
+    testExecute(templateFileExecTests, t.get());
 }
 
 TEST(TextTemplate, ParseGlobWithData) {
     auto [t, err] = tmpl::New("root")->ParseGlob(testdata() + "/tmpl*.tmpl");
     ASSERT_FALSE(err) << err;
-    test_execute(templateFileExecTests, t.get());
+    testExecute(templateFileExecTests, t.get());
 }
 
 TEST(TextTemplate, Clone) {
@@ -1426,7 +1426,7 @@ TEST(TextTemplate, Redefinition) {
     auto [t, err] = tmpl::New("tmpl1")->Parse(R"({{define "test"}}foo{{end}})");
     ASSERT_FALSE(err) << "parse 1: " << err;
     EXPECT_FALSE(t->Parse(R"({{define "test"}}bar{{end}})").second);
-    EXPECT_FALSE(t->New(string::from_static("tmpl2"))->Parse(R"({{define "test"}}bar{{end}})").second);
+    EXPECT_FALSE(t->New(string::fromStatic("tmpl2"))->Parse(R"({{define "test"}}bar{{end}})").second);
 }
 
 // Issue 10879
@@ -1439,7 +1439,7 @@ TEST(TextTemplate, EmptyTemplateCloneCrash) {
 TEST(TextTemplate, TemplateLookUp) {
     auto t1 = tmpl::New("foo");
     EXPECT_FALSE(t1->Lookup("foo")) << "Lookup returned non-nil value for undefined template foo";
-    t1->New(string::from_static("bar"));
+    t1->New(string::fromStatic("bar"));
     EXPECT_FALSE(t1->Lookup("bar")) << "Lookup returned non-nil value for undefined template bar";
     t1->Parse(R"({{define "foo"}}test{{end}})");
     EXPECT_TRUE(t1->Lookup("foo")) << "Lookup returned nil value for defined template";
@@ -1449,7 +1449,7 @@ TEST(TextTemplate, New) {
     // A template with the same name already exists.
     auto [t1, err] = tmpl::New("test")->Parse(R"({{define "test"}}foo{{end}})");
     ASSERT_FALSE(err) << err;
-    auto t2 = t1->New(string::from_static("test"));
+    auto t2 = t1->New(string::fromStatic("test"));
     EXPECT_TRUE(t1->Tree) << "defined template got nil Tree";
     EXPECT_FALSE(t2->Tree) << "undefined template got non-nil Tree";
     bool contains_t1 = false;

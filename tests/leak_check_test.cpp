@@ -26,21 +26,21 @@ public:
     }
 
     void OnTestStart(const testing::TestInfo&) override {
-        before_ = gopp::objects_in_use();
-        created_ = gopp::objects_created();
+        before_ = gopp::objectsInUse();
+        created_ = gopp::objectsCreated();
     }
 
     void OnTestEnd(const testing::TestInfo& t) override {
         if (!checking_) return;
-        long now = gopp::objects_in_use();
+        long now = gopp::objectsInUse();
         for (int i = 0; i < 300 && now > before_; i++) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            now = gopp::objects_in_use();
+            now = gopp::objectsInUse();
         }
         if (now > before_) {
             std::string name = std::string(t.test_suite_name()) + "." + t.name();
             std::fprintf(stderr, "LEAK: %s leaked %ld objects:\n", name.c_str(), now - before_);
-            for (auto& t : gopp::live_objects_since(created_)) std::fprintf(stderr, "    %s\n", t.c_str());
+            for (auto& t : gopp::liveObjectsSince(created_)) std::fprintf(stderr, "    %s\n", t.c_str());
             leaky_.push_back(name + " (" + std::to_string(now - before_) + ")");
         }
     }

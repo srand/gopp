@@ -25,15 +25,15 @@ const error errMissingAddress = errors::New("missing address");
 namespace {
 
 // Go's canceledError and timeoutError.
-struct canceledError final : error_interface {
-    string Error() const override { return string::from_static("operation was canceled"); }
-    bool Is(const error_interface* target) const noexcept override { return target == context::Canceled.get(); }
+struct canceledError final : errorInterface {
+    string Error() const override { return string::fromStatic("operation was canceled"); }
+    bool Is(const errorInterface* target) const noexcept override { return target == context::Canceled.get(); }
 };
 
-struct timeoutError final : error_interface {
-    string Error() const override { return string::from_static("i/o timeout"); }
+struct timeoutError final : errorInterface {
+    string Error() const override { return string::fromStatic("i/o timeout"); }
     bool Timeout() const noexcept override { return true; }
-    bool Is(const error_interface* target) const noexcept override {
+    bool Is(const errorInterface* target) const noexcept override {
         return target == context::DeadlineExceeded.get();
     }
 };
@@ -49,17 +49,17 @@ error mapErr(const error& err) {
     return err;
 }
 
-error addr_sockaddr(const Addr* a, int family, sockaddr_storage* sa, socklen_t* len) {
+error addrSockaddr(const Addr* a, int family, sockaddr_storage* sa, socklen_t* len) {
     *len = 0;
     if (!a) return nullptr;
-    if (auto* u = dynamic_cast<const UnixAddr*>(a)) return unix_sockaddr(u->Name.view(), sa, len);
-    ip_port ip = ip_port_of(a);
-    if (!ip.ok) return make_ptr<AddrError>(string::from_static("unexpected address type"), a->String());
+    if (auto* u = dynamic_cast<const UnixAddr*>(a)) return unixSockaddr(u->Name.view(), sa, len);
+    ip_port ip = ipPortOf(a);
+    if (!ip.ok) return make_ptr<AddrError>(string::fromStatic("unexpected address type"), a->String());
     return ip_to_sockaddr(family, ip.ip, ip.port, ip.zone.view(), sa, len);
 }
 
-netfd* netfd_of(const object* c) {
-    if (auto* cb = dynamic_cast<const conn_base*>(c)) return cb->internal_fd().get();
+netfd* netfdOf(const object* c) {
+    if (auto* cb = dynamic_cast<const conn_base*>(c)) return cb->internalFd().get();
     return nullptr;
 }
 
@@ -118,10 +118,10 @@ error conn_base::SetWriteDeadline(time::Time t) {
 }
 
 error conn_base::SetReadBuffer(int bytes) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockopt_int(SOL_SOCKET, SO_RCVBUF, bytes));
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptInt(SOL_SOCKET, SO_RCVBUF, bytes));
 }
 error conn_base::SetWriteBuffer(int bytes) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockopt_int(SOL_SOCKET, SO_SNDBUF, bytes));
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptInt(SOL_SOCKET, SO_SNDBUF, bytes));
 }
 
 std::pair<ptr<syscall::RawConn>, error> conn_base::SyscallConn() { return {newRawConn(fd_), nullptr}; }
@@ -146,19 +146,19 @@ namespace {
 struct fileAddr final : Addr {
     string name;
     explicit fileAddr(string n) : name(std::move(n)) {}
-    string Network() const override { return string::from_static("file+net"); }
+    string Network() const override { return string::fromStatic("file+net"); }
     string String() const override { return name; }
 };
 
 // Go's newFileFD: a non-blocking copy of f's socket.
-std::pair<ptr<netfd>, error> new_file_fd(const ptr<os::File>& f) {
+std::pair<ptr<netfd>, error> newFileFd(const ptr<os::File>& f) {
     int s = ::fcntl(static_cast<int>(f->Fd()), F_DUPFD_CLOEXEC, 0);
-    if (s < 0) return {nullptr, os::NewSyscallError("dup", errno_error(errno))};
+    if (s < 0) return {nullptr, os::NewSyscallError("dup", errnoError(errno))};
     int fl = ::fcntl(s, F_GETFL);
     if (fl < 0 || ::fcntl(s, F_SETFL, fl | O_NONBLOCK) < 0) {
         int e = errno;
         ::close(s);
-        return {nullptr, os::NewSyscallError("setnonblock", errno_error(e))};
+        return {nullptr, os::NewSyscallError("setnonblock", errnoError(e))};
     }
     int sotype = 0;
     socklen_t optlen = sizeof(sotype);
@@ -168,57 +168,57 @@ std::pair<ptr<netfd>, error> new_file_fd(const ptr<os::File>& f) {
         ::getsockname(s, reinterpret_cast<sockaddr*>(&lsa), &llen) < 0) {
         int e = errno;
         ::close(s);
-        return {nullptr, os::NewSyscallError("getsockopt", errno_error(e))};
+        return {nullptr, os::NewSyscallError("getsockopt", errnoError(e))};
     }
     int family = lsa.ss_family;
     if (family != AF_INET && family != AF_INET6 && family != AF_UNIX) {
         ::close(s);
-        return {nullptr, errno_error(EPROTONOSUPPORT)};
+        return {nullptr, errnoError(EPROTONOSUPPORT)};
     }
     // The network is the local address's.
-    ptr<Addr> la = sockaddr_to_addr(lsa, sotype);
+    ptr<Addr> la = sockaddrToAddr(lsa, sotype);
     auto fd = make_ptr<netfd>(s, family, sotype, la->Network());
     if (error err = fd->init()) return {nullptr, err};
-    fd->set_addrs();
+    fd->setAddrs();
     return {fd, nullptr};
 }
 
 template <typename T>
-std::pair<ptr<T>, error> file_error(const ptr<os::File>& f, error err) {
-    return {nullptr, op_error("file", string::from_static("file+net"), nullptr, make_ptr<fileAddr>(f->Name()), err)};
+std::pair<ptr<T>, error> fileError(const ptr<os::File>& f, error err) {
+    return {nullptr, op_error("file", string::fromStatic("file+net"), nullptr, make_ptr<fileAddr>(f->Name()), err)};
 }
 
 }  // namespace
 
 std::pair<ptr<Conn>, error> FileConn(const ptr<os::File>& f) {
-    auto [fd, err] = new_file_fd(f);
-    if (err) return file_error<Conn>(f, err);
+    auto [fd, err] = newFileFd(f);
+    if (err) return fileError<Conn>(f, err);
     if (dynamic_cast<TCPAddr*>(fd->laddr.get())) return {newTCPConn(fd, 15 * time::Second, KeepAliveConfig{}), nullptr};
     if (dynamic_cast<UDPAddr*>(fd->laddr.get())) return {make_ptr<UDPConn>(fd), nullptr};
     if (dynamic_cast<IPAddr*>(fd->laddr.get())) return {make_ptr<IPConn>(fd), nullptr};
     if (dynamic_cast<UnixAddr*>(fd->laddr.get())) return {make_ptr<UnixConn>(fd), nullptr};
     fd->Close();
-    return file_error<Conn>(f, errno_error(EINVAL));
+    return fileError<Conn>(f, errnoError(EINVAL));
 }
 
 std::pair<ptr<Listener>, error> FileListener(const ptr<os::File>& f) {
-    auto [fd, err] = new_file_fd(f);
-    if (err) return file_error<Listener>(f, err);
+    auto [fd, err] = newFileFd(f);
+    if (err) return fileError<Listener>(f, err);
     if (dynamic_cast<TCPAddr*>(fd->laddr.get())) return {make_ptr<TCPListener>(fd, KeepAliveConfig{}, time::Duration(0)), nullptr};
     // A listener from a File doesn't remove the socket file when closed.
     if (auto* ua = dynamic_cast<UnixAddr*>(fd->laddr.get())) return {make_ptr<UnixListener>(fd, ua->Name, false), nullptr};
     fd->Close();
-    return file_error<Listener>(f, errno_error(EINVAL));
+    return fileError<Listener>(f, errnoError(EINVAL));
 }
 
 std::pair<ptr<PacketConn>, error> FilePacketConn(const ptr<os::File>& f) {
-    auto [fd, err] = new_file_fd(f);
-    if (err) return file_error<PacketConn>(f, err);
+    auto [fd, err] = newFileFd(f);
+    if (err) return fileError<PacketConn>(f, err);
     if (dynamic_cast<UDPAddr*>(fd->laddr.get())) return {make_ptr<UDPConn>(fd), nullptr};
     if (dynamic_cast<IPAddr*>(fd->laddr.get())) return {make_ptr<IPConn>(fd), nullptr};
     if (dynamic_cast<UnixAddr*>(fd->laddr.get())) return {make_ptr<UnixConn>(fd), nullptr};
     fd->Close();
-    return file_error<PacketConn>(f, errno_error(EINVAL));
+    return fileError<PacketConn>(f, errnoError(EINVAL));
 }
 
 // ---------------------------------------------------------------------------

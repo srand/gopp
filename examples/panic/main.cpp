@@ -77,7 +77,7 @@ sync::Mutex mu;
 std::vector<ptr<Item>> catalog;  // guarded by mu
 
 // Takes the order's items from stock. Order 7 is the one with the bug.
-void check_stock(const Order& o) {
+void checkStock(const Order& o) {
     std::lock_guard lock(mu);
     if (o.id == 7) {
         if (crash == "panic") {
@@ -89,7 +89,7 @@ void check_stock(const Order& o) {
             auto counts = slice<int>::make(catalog.size());
             counts[o.item + 10]++;
         } else if (crash == "closed") {
-            auto done = make_chan<int>(1);
+            auto done = makeChan<int>(1);
             done.close();
             done.send(o.id);
         } else if (crash == "throw") {
@@ -108,7 +108,7 @@ void check_stock(const Order& o) {
 }
 
 Receipt fill(const Order& o) {
-    check_stock(o);
+    checkStock(o);
     time::Sleep(10 * time::Millisecond);  // packing
     return Receipt{o.id, fmt::Sprint("order {}: {} x item {}", o.id, o.quantity, o.item)};
 }
@@ -119,8 +119,8 @@ int main(int argc, char** argv) {
 
     catalog = {make_ptr<Item>("widget", 100), make_ptr<Item>("gizmo", 3), make_ptr<Item>("doohickey", 40)};
 
-    auto orders = make_chan<Order>();
-    auto receipts = make_chan<Receipt>();
+    auto orders = makeChan<Order>();
+    auto receipts = makeChan<Receipt>();
 
     // The packers: a pool of fibers that fill the orders.
     sync::WaitGroup packers;
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
     }
 
     // The printer, which gets the receipts.
-    auto printed = make_chan<empty>();
+    auto printed = makeChan<empty>();
     go([receipts, printed] {
         for (const Receipt& r : receipts) fmt::Println("{}", r.line);
         printed.close();

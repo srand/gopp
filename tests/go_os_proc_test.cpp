@@ -24,25 +24,25 @@ namespace {
 
 const bool helpers_registered = [] {
     // Go's TestMain with GO_OS_TEST_DRAIN_STDIN.
-    go_helper::register_helper("drainstdin", [](const std::vector<std::string>&) {
+    go_helper::registerHelper("drainstdin", [](const std::vector<std::string>&) {
         os::Stdout.Close();
         io::Copy(io::Discard(), os::Stdin);
         os::Exit(0);
     });
-    go_helper::register_helper("getppid", [](const std::vector<std::string>&) { fmt::Print("{}", os::Getppid()); });
-    go_helper::register_helper("execpath", [](const std::vector<std::string>&) {
+    go_helper::registerHelper("getppid", [](const std::vector<std::string>&) { fmt::Print("{}", os::Getppid()); });
+    go_helper::registerHelper("execpath", [](const std::vector<std::string>&) {
         os::Chdir("/");
         auto [ep, err] = os::Executable();
         if (err) fmt::Print(os::Stderr, "ERROR: {}", err);
         else fmt::Print(os::Stderr, "{}", ep);
         os::Exit(0);
     });
-    go_helper::register_helper("sleepminute", [](const std::vector<std::string>&) { time::Sleep(time::Minute); });
+    go_helper::registerHelper("sleepminute", [](const std::vector<std::string>&) { time::Sleep(time::Minute); });
     return true;
 }();
 
-std::string base_name(const std::string& p) { return p.substr(p.rfind('/') + 1); }
-std::string dir_name(const std::string& p) {
+std::string baseName(const std::string& p) { return p.substr(p.rfind('/') + 1); }
+std::string dirName(const std::string& p) {
     std::size_t i = p.rfind('/');
     return i == 0 ? "/" : p.substr(0, i);
 }
@@ -109,7 +109,7 @@ std::string run_bin_hostname() {
 // pidfd_send_signal(2), for the pidfd tests.
 error pidfd_send_signal(uintptr pidfd, syscall::Signal sig) {
     if (::syscall(SYS_pidfd_send_signal, static_cast<int>(pidfd), sig.value, nullptr, 0) < 0) {
-        return syscall::errno_error(errno);
+        return syscall::errnoError(errno);
     }
     return nullptr;
 }
@@ -120,7 +120,7 @@ TEST(GoOs, StartProcess) {
     auto [cmd, err] = os::exec::LookPath("pwd");
     ASSERT_FALSE(err) << "Can't find pwd: " << err;
     std::string c = str(cmd);
-    std::string cmddir = dir_name(c), cmdbase = base_name(c);
+    std::string cmddir = dirName(c), cmdbase = baseName(c);
     {
         SCOPED_TRACE("absolute");
         test_start_process("/", c, {string(cmdbase)}, "/");
@@ -160,8 +160,8 @@ TEST(GoOs, Getppid) {
     auto cmd = helper_command("getppid");
     // Verify that Getppid() from the forked process reports our process id.
     auto [output, err] = cmd->CombinedOutput();
-    ASSERT_FALSE(err) << "Failed to spawn child process: " << err << " " << as_string_view(output);
-    EXPECT_EQ(as_string_view(output), std::to_string(os::Getpid()));
+    ASSERT_FALSE(err) << "Failed to spawn child process: " << err << " " << asStringView(output);
+    EXPECT_EQ(asStringView(output), std::to_string(os::Getpid()));
 }
 
 TEST(GoOs, KillFindProcess) {
@@ -361,7 +361,7 @@ TEST(GoOs, PidfdLeak) {
 TEST(GoOs, ProcessWithHandleLinux) {
     bool have_pidfd = os::detail::pidfd_works();
     auto [ctx, cancel] = context::WithCancel(context::Background());
-    auto cmd = go_helper::helper_command_context(ctx, "sleepminute");
+    auto cmd = go_helper::helperCommandContext(ctx, "sleepminute");
     ASSERT_FALSE(cmd->Start());
 
     const syscall::Signal sig = syscall::SIGINT_;
@@ -401,7 +401,7 @@ TEST(GoOs, ProcessWithHandleLinux) {
 TEST(GoOs, Executable) {
     std::string ep = str(go_helper::executable());
     // Run the child as "dir/prog", from dir.
-    std::string dir = dir_name(dir_name(ep));
+    std::string dir = dirName(dirName(ep));
     std::string fn = ep.substr(dir.size() + (dir == "/" ? 0 : 1));
 
     auto cmd = helper_command("execpath");
@@ -412,7 +412,7 @@ TEST(GoOs, Executable) {
     cmd->Args[0] = "-";
     auto [out, err] = cmd->CombinedOutput();
     ASSERT_FALSE(err) << "exec(self) failed: " << err;
-    std::string outs(as_string_view(out));
+    std::string outs(asStringView(out));
     ASSERT_TRUE(!outs.empty() && outs[0] == '/') << "Child returned " << outs << ", want an absolute path";
     auto [fi1, e1] = os::Stat(outs);
     auto [fi2, e2] = os::Stat(ep);
@@ -429,15 +429,15 @@ TEST(GoOs, ExecutableDeleted) {
 
 namespace {
 
-struct without_pidfd {
-    without_pidfd() { os::detail::pidfd_disabled.store(true); }
-    ~without_pidfd() { os::detail::pidfd_disabled.store(false); }
+struct withoutPidfd {
+    withoutPidfd() { os::detail::pidfd_disabled.store(true); }
+    ~withoutPidfd() { os::detail::pidfd_disabled.store(false); }
 };
 
 }  // namespace
 
 TEST(GoOs, ProcessWithoutPidfd) {
-    without_pidfd guard;
+    withoutPidfd guard;
     // Exit status.
     auto [p, err] = os::StartProcess("/bin/sh", std::vector<string>{"sh", "-c", "exit 3"}, os::ProcAttr{});
     ASSERT_FALSE(err) << err;
@@ -454,7 +454,7 @@ TEST(GoOs, ProcessWithoutPidfd) {
     // Killed, from fibers that wait meanwhile.
     auto [s, serr] = os::StartProcess("/bin/sleep", std::vector<string>{"sleep", "10"}, os::ProcAttr{});
     ASSERT_FALSE(serr) << serr;
-    auto done = make_chan<ptr<os::ProcessState>>(1);
+    auto done = makeChan<ptr<os::ProcessState>>(1);
     go([s, done] { done.send(s->Wait().first); });
     time::Sleep(10 * time::Millisecond);
     EXPECT_FALSE(s->Signal(syscall::SIGTERM_));

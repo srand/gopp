@@ -43,7 +43,7 @@ error Setenv(std::string_view key, std::string_view value) {
     int r = ::setenv(k.c_str(), v.c_str(), 1);
     int e = errno;
     env_lock.Unlock();
-    if (r < 0) return NewSyscallError("setenv", syscall::errno_error(e));
+    if (r < 0) return NewSyscallError("setenv", syscall::errnoError(e));
     return nullptr;
 }
 
@@ -75,7 +75,7 @@ slice<string> Environ() {
 
 namespace {
 
-bool is_shell_special_var(char c) {
+bool isShellSpecialVar(char c) {
     switch (c) {
     case '*': case '#': case '$': case '@': case '!': case '?': case '-':
     case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
@@ -84,7 +84,7 @@ bool is_shell_special_var(char c) {
     return false;
 }
 
-bool is_alpha_num(char c) {
+bool isAlphaNum(char c) {
     return c == '_' || ('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z');
 }
 
@@ -93,7 +93,7 @@ bool is_alpha_num(char c) {
 // to eat.
 std::pair<std::string_view, std::size_t> get_shell_name(std::string_view s) {
     if (s[0] == '{') {
-        if (s.size() > 2 && is_shell_special_var(s[1]) && s[2] == '}') return {s.substr(1, 1), 3};
+        if (s.size() > 2 && isShellSpecialVar(s[1]) && s[2] == '}') return {s.substr(1, 1), 3};
         for (std::size_t i = 1; i < s.size(); i++) {
             if (s[i] == '}') {
                 if (i == 1) return {{}, 2};  // bad syntax; eat "${}"
@@ -102,9 +102,9 @@ std::pair<std::string_view, std::size_t> get_shell_name(std::string_view s) {
         }
         return {{}, 1};  // bad syntax; eat "${"
     }
-    if (is_shell_special_var(s[0])) return {s.substr(0, 1), 1};
+    if (isShellSpecialVar(s[0])) return {s.substr(0, 1), 1};
     std::size_t i = 0;
-    while (i < s.size() && is_alpha_num(s[i])) i++;
+    while (i < s.size() && isAlphaNum(s[i])) i++;
     return {s.substr(0, i), i};
 }
 

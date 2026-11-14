@@ -185,13 +185,13 @@ inline ptr<io::StringReader> NewReader(string s) { return make_ptr<io::StringRea
 namespace gopp::strconv {
 
 // The error of a failed conversion (strconv.NumError).
-struct NumError : error_interface {
+struct NumError : errorInterface {
     string Func;
     string Num;
     gopp::error Err;  // error() hides the type name in this scope
     NumError(string f, string n, gopp::error e) : Func(std::move(f)), Num(std::move(n)), Err(std::move(e)) {}
     string Error() const override;
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
 };
 
 extern const error ErrRange;

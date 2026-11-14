@@ -184,7 +184,7 @@ struct unwind_state {
     bool started;
 };
 
-_Unwind_Reason_Code unwind_frame(_Unwind_Context* ctx, void* arg) {
+_Unwind_Reason_Code unwindFrame(_Unwind_Context* ctx, void* arg) {
     auto* u = static_cast<unwind_state*>(arg);
     int before = 0;
     uintptr_t ip = _Unwind_GetIPInfo(ctx, &before);
@@ -202,25 +202,25 @@ _Unwind_Reason_Code unwind_frame(_Unwind_Context* ctx, void* arg) {
 }
 
 // Collects the calling thread's stack.
-void collect_here(stack_pcs& s, skip_to kind, uintptr_t key) noexcept {
+void collectHere(stack_pcs& s, skip_to kind, uintptr_t key) noexcept {
     s.clear();
     unwind_state u{&s, kind, key, false};
-    _Unwind_Backtrace(unwind_frame, &u);
+    _Unwind_Backtrace(unwindFrame, &u);
 }
 
-uintptr_t load_word(uintptr_t addr) noexcept {
+uintptr_t loadWord(uintptr_t addr) noexcept {
     return __atomic_load_n(reinterpret_cast<const uintptr_t*>(addr), __ATOMIC_RELAXED);
 }
 
 // Walks the frame pointers from fp, within the stack [lo, hi). On x86-64
 // and AArch64 alike a frame starts with the caller's frame pointer and the
 // return address.
-void collect_fp(stack_pcs& s, uintptr_t fp, uintptr_t lo, uintptr_t hi) noexcept {
+void collectFp(stack_pcs& s, uintptr_t fp, uintptr_t lo, uintptr_t hi) noexcept {
     constexpr uintptr_t w = sizeof(uintptr_t);
     if (lo == 0 || hi < lo + 2 * w) return;
     while (fp >= lo && fp <= hi - 2 * w && fp % w == 0) {
-        uintptr_t next = load_word(fp);
-        uintptr_t ret = load_word(fp + w);
+        uintptr_t next = loadWord(fp);
+        uintptr_t ret = loadWord(fp + w);
         if (ret == 0) break;
         s.push(ret, true);
         if (s.more || next <= fp) break;
@@ -228,7 +228,7 @@ void collect_fp(stack_pcs& s, uintptr_t fp, uintptr_t lo, uintptr_t hi) noexcept
     }
 }
 
-uintptr_t uc_pc(void* uc) noexcept {
+uintptr_t ucPc(void* uc) noexcept {
     auto* u = static_cast<ucontext_t*>(uc);
 #if defined(__x86_64__)
     return static_cast<uintptr_t>(u->uc_mcontext.gregs[REG_RIP]);
@@ -239,7 +239,7 @@ uintptr_t uc_pc(void* uc) noexcept {
 #endif
 }
 
-uintptr_t uc_fp(void* uc) noexcept {
+uintptr_t ucFp(void* uc) noexcept {
     auto* u = static_cast<ucontext_t*>(uc);
 #if defined(__x86_64__)
     return static_cast<uintptr_t>(u->uc_mcontext.gregs[REG_RBP]);
@@ -248,7 +248,7 @@ uintptr_t uc_fp(void* uc) noexcept {
 #endif
 }
 
-uintptr_t uc_sp(void* uc) noexcept {
+uintptr_t ucSp(void* uc) noexcept {
     auto* u = static_cast<ucontext_t*>(uc);
 #if defined(__x86_64__)
     return static_cast<uintptr_t>(u->uc_mcontext.gregs[REG_RSP]);
@@ -258,20 +258,20 @@ uintptr_t uc_sp(void* uc) noexcept {
 }
 
 // The calling fiber or pseudo-G, without creating one.
-G* current_g() noexcept {
+G* currentG() noexcept {
     M* m = getm();
-    return m ? m->curg : getg_if_any();
+    return m ? m->curg : getgIfAny();
 }
 
 // ---------------------------------------------------------------------------
 // Symbols
 
-void bt_error(void*, const char*, int) {}  // missing debug information: names come from the symbol table
+void btError(void*, const char*, int) {}  // missing debug information: names come from the symbol table
 
 constinit backtrace_state* bt_state = nullptr;
 
 backtrace_state* bt() noexcept {
-    if (!bt_state) bt_state = __glibcxx_backtrace_create_state(nullptr, 1, bt_error, nullptr);
+    if (!bt_state) bt_state = __glibcxx_backtrace_create_state(nullptr, 1, btError, nullptr);
     return bt_state;
 }
 
@@ -298,23 +298,23 @@ struct pc_info {
 
 constinit pc_info info;
 
-void copy_name(char* dst, size_t cap, const char* src) noexcept {
+void copyName(char* dst, size_t cap, const char* src) noexcept {
     size_t k = src ? strnlen(src, cap - 1) : 0;
     if (k) std::memcpy(dst, src, k);
     dst[k] = '\0';
 }
 
-int pcinfo_cb(void*, uintptr_t, const char* file, int line, const char* func) {
+int pcinfoCb(void*, uintptr_t, const char* file, int line, const char* func) {
     if (info.n == max_inline) return 1;
     src_frame& f = info.f[info.n++];
-    copy_name(f.func, sizeof(f.func), func);
-    copy_name(f.file, sizeof(f.file), file);
+    copyName(f.func, sizeof(f.func), func);
+    copyName(f.file, sizeof(f.file), file);
     f.line = line;
     return 0;
 }
 
-void syminfo_cb(void*, uintptr_t, const char* name, uintptr_t val, uintptr_t) {
-    copy_name(info.sym, sizeof(info.sym), name);
+void syminfoCb(void*, uintptr_t, const char* name, uintptr_t val, uintptr_t) {
+    copyName(info.sym, sizeof(info.sym), name);
     info.symval = val;
 }
 
@@ -324,8 +324,8 @@ void lookup(uintptr_t pc) noexcept {
     info.symval = 0;
     info.start = 0;
     if (bt()) {
-        __glibcxx_backtrace_pcinfo(bt(), pc, pcinfo_cb, bt_error, nullptr);
-        __glibcxx_backtrace_syminfo(bt(), pc, syminfo_cb, bt_error, nullptr);
+        __glibcxx_backtrace_pcinfo(bt(), pc, pcinfoCb, btError, nullptr);
+        __glibcxx_backtrace_syminfo(bt(), pc, syminfoCb, btError, nullptr);
     }
     info.start = info.symval ? info.symval
                              : reinterpret_cast<uintptr_t>(_Unwind_FindEnclosingFunction(reinterpret_cast<void*>(pc)));
@@ -340,7 +340,7 @@ struct module_info {
     bool found;
 };
 
-int find_module_cb(dl_phdr_info* i, size_t, void* data) {
+int findModuleCb(dl_phdr_info* i, size_t, void* data) {
     auto* m = static_cast<module_info*>(data);
     for (int k = 0; k < i->dlpi_phnum; k++) {
         const ElfW(Phdr)& ph = i->dlpi_phdr[k];
@@ -362,9 +362,9 @@ char exe_path[1024];
 // no source: what addr2line -e /path/prog 0x4012ab, run on a copy of the
 // program that isn't stripped, needs. For a return address pc is the
 // address before it, in the call, which maps to the call's line.
-void put_module(uintptr_t pc) noexcept {
+void putModule(uintptr_t pc) noexcept {
     module_info m{pc, 0, nullptr, false};
-    dl_iterate_phdr(find_module_cb, &m);
+    dl_iterate_phdr(findModuleCb, &m);
     if (!m.found) return;
     const char* name = m.name;
     if (!name || !name[0]) {  // the program itself
@@ -387,19 +387,19 @@ void put_module(uintptr_t pc) noexcept {
 // as the runtime's only within a function of go++.
 char runtime_dir[1024];
 
-void find_runtime_dir() noexcept {
+void findRuntimeDir() noexcept {
     if (runtime_dir[0]) return;
-    lookup(gentry_pc());
+    lookup(gentryPc());
     if (info.n == 0) return;
     const char* file = info.f[info.n - 1].file;
     const char* slash = std::strrchr(file, '/');
     if (!slash) return;
-    copy_name(runtime_dir, std::min<size_t>(sizeof(runtime_dir), slash - file + 2), file);
+    copyName(runtime_dir, std::min<size_t>(sizeof(runtime_dir), slash - file + 2), file);
 }
 
 // Whether the mangled name m is of an entity in the namespace or class ns,
 // given as mangled components such as "4gopp7runtime".
-bool in_namespace(std::string_view m, std::string_view ns) noexcept {
+bool inNamespace(std::string_view m, std::string_view ns) noexcept {
     if (!m.starts_with("_Z")) return false;
     m.remove_prefix(2);
     while (m.starts_with('Z')) m.remove_prefix(1);  // a local entity: its enclosing function
@@ -435,7 +435,7 @@ constexpr std::string_view plumbing_syms[] = {
 
 // The throw machinery, above the function that threw: by name, or by
 // where the function starts when the symbols are stripped.
-bool is_throw_frame(std::string_view sym, uintptr_t start) noexcept {
+bool isThrowFrame(std::string_view sym, uintptr_t start) noexcept {
     if (start) {
         for (uintptr_t f : {reinterpret_cast<uintptr_t>(&abi::__cxa_throw), reinterpret_cast<uintptr_t>(&abi::__cxa_rethrow),
                             reinterpret_cast<uintptr_t>(&_Unwind_RaiseException),
@@ -454,15 +454,15 @@ bool is_throw_frame(std::string_view sym, uintptr_t start) noexcept {
 // are one call's, and sym is the symbol of the function the call is in.
 bool hidden(std::string_view func, std::string_view file, std::string_view sym, int level) noexcept {
     if (level >= 2) return false;
-    if (in_namespace(func, "4gopp5panic")) return false;  // Go shows panic's frame
-    if (in_namespace(func, "4gopp7runtime") || in_namespace(func, "5boost7context") || in_namespace(func, "4gopp2go"))
+    if (inNamespace(func, "4gopp5panic")) return false;  // Go shows panic's frame
+    if (inNamespace(func, "4gopp7runtime") || inNamespace(func, "5boost7context") || inNamespace(func, "4gopp2go"))
         return true;
     for (std::string_view s : start_frames)
         if (func == s) return true;
     for (std::string_view s : plumbing_syms)
         if (func.starts_with(s)) return true;
     if (!file.empty()) {
-        if (runtime_dir[0] && file.starts_with(runtime_dir) && in_namespace(sym, "4gopp")) return true;
+        if (runtime_dir[0] && file.starts_with(runtime_dir) && inNamespace(sym, "4gopp")) return true;
         if (file.find("/boost/context/") != std::string_view::npos) return true;
         for (std::string_view s : plumbing_files)
             if (file.ends_with(s)) return true;
@@ -480,7 +480,7 @@ struct demangled {
     bool truncated;
 };
 
-void demangle_cb(const char* s, size_t len, void* opaque) {
+void demangleCb(const char* s, size_t len, void* opaque) {
     auto* d = static_cast<demangled*>(opaque);
     if (d->n + len > d->cap) {
         len = d->cap - d->n;
@@ -494,12 +494,12 @@ char demangle_buf[16384];
 
 // Writes a function's name, demangled, with its parameters elided Go's
 // way, "ns::f(...)" or "ns::f()"; without them if !params.
-void put_func(const char* name, bool params) noexcept {
+void putFunc(const char* name, bool params) noexcept {
     std::string_view s = name;
     // Names this long take the demangler more stack than the report has.
     if (s.starts_with("_Z") && s.size() < 8000) {
         demangled d{demangle_buf, 0, sizeof(demangle_buf), false};
-        if (__gcclibcxx_demangle_callback(name, demangle_cb, &d) == 0 && !d.truncated) s = {d.p, d.n};
+        if (__gcclibcxx_demangle_callback(name, demangleCb, &d) == 0 && !d.truncated) s = {d.p, d.n};
     }
     // GCC's clones, "f(int) [clone .isra.0]", are the function.
     for (size_t c; (c = s.rfind(" [clone ")) != std::string_view::npos && s.ends_with(']');) s = s.substr(0, c);
@@ -549,7 +549,7 @@ struct call {
 
 int ncalls() noexcept { return info.n == 0 ? 1 : info.n; }
 
-call call_at(int k) noexcept {
+call callAt(int k) noexcept {
     call c{"", "", 0, k == ncalls() - 1};
     if (info.n > 0) {
         c.func = info.f[k].func;
@@ -565,7 +565,7 @@ call call_at(int k) noexcept {
 
 // pc is the frame's, a return address or where it was interrupted;
 // call_pc the address looked up, in the call.
-void put_source(const call& c, uintptr_t pc, uintptr_t call_pc) noexcept {
+void putSource(const call& c, uintptr_t pc, uintptr_t call_pc) noexcept {
     out.put('\t');
     if (c.file[0]) {
         out.put(c.file);
@@ -583,7 +583,7 @@ void put_source(const call& c, uintptr_t pc, uintptr_t call_pc) noexcept {
         if (!c.file[0] || !info.symval) {
             out.put(" pc=");
             out.hex(pc);
-            put_module(call_pc);
+            putModule(call_pc);
         }
     }
     out.put('\n');
@@ -599,32 +599,32 @@ struct frame_opts {
 //
 //     ns::f(...)
 //             /path/file.cpp:12 +0x1f
-void print_frames(const stack_pcs& s, const frame_opts& o) noexcept {
+void printFrames(const stack_pcs& s, const frame_opts& o) noexcept {
     auto lookup_pc = [&](int i) { return s.ret[i] ? s.pc[i] - 1 : s.pc[i]; };
     int start = 0;
     if (o.skip_throw) {
         for (int i = 0; i < s.n && i < 48; i++) {
             lookup(lookup_pc(i));
-            if (is_throw_frame(info.sym, info.start)) start = i + 1;
+            if (isThrowFrame(info.sym, info.start)) start = i + 1;
         }
     }
     int printed = 0;
     for (int i = start; i < s.n; i++) {
         lookup(lookup_pc(i));
-        if (o.fiber && info.start == gentry_pc()) return;
+        if (o.fiber && info.start == gentryPc()) return;
         // gentry's call to the fiber's function, hidden by its namespace
         // when there are symbols.
-        if (o.fiber && o.level < 2 && info.start == reinterpret_cast<uintptr_t>(&run_fiber_fn)) continue;
+        if (o.fiber && o.level < 2 && info.start == reinterpret_cast<uintptr_t>(&runFiberFn)) continue;
         for (int k = 0; k < ncalls(); k++) {
-            call c = call_at(k);
+            call c = callAt(k);
             if (hidden(c.func, c.file, info.sym, o.level)) continue;
             if (printed == max_print) {
                 out.put("...additional frames elided...\n");
                 return;
             }
-            put_func(c.func[0] ? c.func : "?", true);
+            putFunc(c.func[0] ? c.func : "?", true);
             out.put('\n');
-            put_source(c, s.pc[i], lookup_pc(i));
+            putSource(c, s.pc[i], lookup_pc(i));
             printed++;
         }
     }
@@ -632,20 +632,20 @@ void print_frames(const stack_pcs& s, const frame_opts& o) noexcept {
 }
 
 // The function with the go statement, below gopp::go, at any level.
-void print_created_by(G* gp) noexcept {
+void printCreatedBy(G* gp) noexcept {
     if (!gp->gopc) return;
     lookup(gp->gopc - 1);
     for (int k = 0; k < ncalls(); k++) {
-        call c = call_at(k);
+        call c = callAt(k);
         if (hidden(c.func, c.file, info.sym, 1)) continue;
         out.put("created by ");
-        put_func(c.func[0] ? c.func : "?", false);
+        putFunc(c.func[0] ? c.func : "?", false);
         if (gp->parent_goid) {
             out.put(" in goroutine ");
             out.dec(gp->parent_goid);
         }
         out.put('\n');
-        put_source(c, gp->gopc, gp->gopc - 1);
+        putSource(c, gp->gopc, gp->gopc - 1);
         return;
     }
 }
@@ -653,11 +653,11 @@ void print_created_by(G* gp) noexcept {
 // ---------------------------------------------------------------------------
 // Goroutine headers
 
-std::string_view waitreason_string(waitreason w) noexcept {
+std::string_view waitreasonString(waitreason w) noexcept {
     switch (w) {
     case waitreason::none: return "waiting";
     case waitreason::chan_receive: return "chan receive";
-    case waitreason::chan_send: return "chan send";
+    case waitreason::chanSend: return "chan send";
     case waitreason::chan_receive_nil: return "chan receive (nil chan)";
     case waitreason::chan_send_nil: return "chan send (nil chan)";
     case waitreason::select: return "select";
@@ -674,26 +674,26 @@ std::string_view waitreason_string(waitreason w) noexcept {
     return "waiting";
 }
 
-std::string_view status_string(G* gp) noexcept {
+std::string_view statusString(G* gp) noexcept {
     switch (gp->status.load(std::memory_order_relaxed)) {
     case gstatus::idle: return "idle";
     case gstatus::runnable: return "runnable";
     case gstatus::running: return "running";
-    case gstatus::waiting: return waitreason_string(gp->wait);
+    case gstatus::waiting: return waitreasonString(gp->wait);
     case gstatus::dead: return "dead";
     }
     return "unknown";
 }
 
-void put_thread_name(pid_t tid) noexcept {
+void putThreadName(pid_t tid) noexcept {
     out.put("thread ");
     out.dec(static_cast<uint64_t>(tid));
-    if (is_main_thread(tid)) out.put(" (main)");
+    if (isMainThread(tid)) out.put(" (main)");
 }
 
-void put_header(G* gp, std::string_view status) noexcept {
+void putHeader(G* gp, std::string_view status) noexcept {
     if (gp->is_thread) {
-        put_thread_name(gp->tid);
+        putThreadName(gp->tid);
     } else {
         out.put("goroutine ");
         out.dec(gp->goid);
@@ -716,31 +716,31 @@ struct self_ctx {
 
 constinit stack_pcs self_pcs;
 
-self_ctx collect_self(skip_to kind, uintptr_t key, void* uc) noexcept {
-    self_ctx c{getm(), current_g(), gettid(), false, &self_pcs};
-    collect_here(self_pcs, kind, key);
+self_ctx collectSelf(skip_to kind, uintptr_t key, void* uc) noexcept {
+    self_ctx c{getm(), currentG(), gettid(), false, &self_pcs};
+    collectHere(self_pcs, kind, key);
     if (self_pcs.n == 0 && uc && c.gp && !c.gp->is_thread) {
         // The unwinder didn't get through the signal frame: walk the
         // fiber's frame pointers instead.
-        self_pcs.push(uc_pc(uc), false);
-        collect_fp(self_pcs, uc_fp(uc), c.gp->stack_lo, c.gp->stack_hi);
+        self_pcs.push(ucPc(uc), false);
+        collectFp(self_pcs, ucFp(uc), c.gp->stack_lo, c.gp->stack_hi);
     }
     return c;
 }
 
-void print_self(const self_ctx& c, int level) noexcept {
+void printSelf(const self_ctx& c, int level) noexcept {
     bool fiber = c.gp && !c.gp->is_thread;
     if (c.gp) {
-        put_header(c.gp, "running");
+        putHeader(c.gp, "running");
     } else if (c.m) {
         out.put("runtime stack:\n");
         level = 2;  // it's all runtime
     } else {
-        put_thread_name(c.tid);
+        putThreadName(c.tid);
         out.put(" [running]:\n");
     }
-    print_frames(*c.pcs, {level, fiber, c.skip_throw});
-    if (fiber) print_created_by(c.gp);
+    printFrames(*c.pcs, {level, fiber, c.skip_throw});
+    if (fiber) printCreatedBy(c.gp);
 }
 
 // ---------------------------------------------------------------------------
@@ -758,13 +758,13 @@ constinit stack_request req;
 // A thread took the request and didn't finish: it may still write.
 constinit bool req_broken = false;
 
-void sleep_ms(long ms) noexcept {
+void sleepMs(long ms) noexcept {
     struct timespec ts{0, ms * 1'000'000};
     ::nanosleep(&ts, nullptr);
 }
 
 // Asks thread tid, which runs gp, for its stack. Returns whether it answered.
-bool request_stack(pid_t tid, G* gp) noexcept {
+bool requestStack(pid_t tid, G* gp) noexcept {
     if (req_broken) return false;
     out.flush();
     req.gp = gp;
@@ -776,10 +776,10 @@ bool request_stack(pid_t tid, G* gp) noexcept {
         req.state.store(0);
         return false;
     }
-    for (int i = 0; i < 500 && req.state.load() == 1; i++) sleep_ms(1);
+    for (int i = 0; i < 500 && req.state.load() == 1; i++) sleepMs(1);
     int asked = 1;
     if (req.state.compare_exchange_strong(asked, 0)) return false;  // no answer
-    for (int i = 0; i < 5000 && req.state.load() != 3; i++) sleep_ms(1);
+    for (int i = 0; i < 5000 && req.state.load() != 3; i++) sleepMs(1);
     if (req.state.load() != 3) {
         req_broken = true;
         return false;
@@ -789,19 +789,19 @@ bool request_stack(pid_t tid, G* gp) noexcept {
 }
 
 // Answers a request for the calling thread's stack, if there is one.
-bool answer_request(skip_to kind, uintptr_t key, void* uc) noexcept {
+bool answerRequest(skip_to kind, uintptr_t key, void* uc) noexcept {
     if (req.state.load(std::memory_order_acquire) != 1) return false;
     if (req.tid.load(std::memory_order_relaxed) != gettid()) return false;
     int asked = 1;
     if (!req.state.compare_exchange_strong(asked, 2)) return false;
-    G* gp = current_g();
+    G* gp = currentG();
     if (gp != req.gp) {
         req.moved = true;
     } else {
-        collect_here(req.pcs, kind, key);
+        collectHere(req.pcs, kind, key);
         if (req.pcs.n == 0 && uc && gp && !gp->is_thread) {
-            req.pcs.push(uc_pc(uc), false);
-            collect_fp(req.pcs, uc_fp(uc), gp->stack_lo, gp->stack_hi);
+            req.pcs.push(ucPc(uc), false);
+            collectFp(req.pcs, ucFp(uc), gp->stack_lo, gp->stack_hi);
         }
     }
     req.state.store(3, std::memory_order_release);
@@ -812,12 +812,12 @@ constexpr std::string_view unavailable = "\tgoroutine running on other thread; s
 
 constinit stack_pcs other_pcs;
 
-void print_other(const self_ctx& c, G* gp, int level) noexcept {
+void printOther(const self_ctx& c, G* gp, int level) noexcept {
     gstatus st = gp->status.load(std::memory_order_relaxed);
     if (st == gstatus::dead || st == gstatus::idle) return;
     if (gp->is_thread && gp->tid == 0) return;
     out.put('\n');
-    put_header(gp, status_string(gp));
+    putHeader(gp, statusString(gp));
     bool fiber = !gp->is_thread;
     if (gp->is_thread || st == gstatus::running) {
         pid_t tid = gp->tid;
@@ -825,52 +825,52 @@ void print_other(const self_ctx& c, G* gp, int level) noexcept {
             M* m = __atomic_load_n(&gp->m, __ATOMIC_RELAXED);
             tid = m && m != c.m ? m->tid : 0;
         }
-        if (tid == 0 || tid == c.tid || !request_stack(tid, gp) || req.moved) {
+        if (tid == 0 || tid == c.tid || !requestStack(tid, gp) || req.moved) {
             out.put(unavailable);
         } else {
-            print_frames(req.pcs, {level, fiber, false});
+            printFrames(req.pcs, {level, fiber, false});
         }
     } else if (gp->sched_fp) {
         other_pcs.clear();
-        collect_fp(other_pcs, gp->sched_fp, gp->stack_lo, gp->stack_hi);
-        print_frames(other_pcs, {level, true, false});
+        collectFp(other_pcs, gp->sched_fp, gp->stack_lo, gp->stack_hi);
+        printFrames(other_pcs, {level, true, false});
     }
-    if (fiber) print_created_by(gp);
+    if (fiber) printCreatedBy(gp);
 }
 
 // main first, then goroutines by id, then other threads.
-bool print_order(G* a, G* b) noexcept {
-    auto rank = [](G* g) { return g->is_thread ? (is_main_thread(g->tid) ? 0 : 2) : 1; };
+bool printOrder(G* a, G* b) noexcept {
+    auto rank = [](G* g) { return g->is_thread ? (isMainThread(g->tid) ? 0 : 2) : 1; };
     int ra = rank(a), rb = rank(b);
     if (ra != rb) return ra < rb;
     return a->is_thread ? a->tid < b->tid : a->goid < b->goid;
 }
 
-void print_others(const self_ctx& c, int level) noexcept {
+void printOthers(const self_ctx& c, int level) noexcept {
     size_t n = 0;
     for (G* gp = allgs(); gp; gp = gp->alllink) n++;
     size_t bytes = (n * sizeof(G*) + 4095) & ~size_t{4095};
     void* mem = n ? ::mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) : MAP_FAILED;
     if (mem == MAP_FAILED) {
         for (G* gp = allgs(); gp; gp = gp->alllink)
-            if (gp != c.gp) print_other(c, gp, level);
+            if (gp != c.gp) printOther(c, gp, level);
         return;
     }
     G** v = static_cast<G**>(mem);
     size_t k = 0;
     for (G* gp = allgs(); gp && k < n; gp = gp->alllink) v[k++] = gp;
-    std::sort(v, v + k, print_order);
+    std::sort(v, v + k, printOrder);
     for (size_t i = 0; i < k; i++)
-        if (v[i] != c.gp) print_other(c, v[i], level);
+        if (v[i] != c.gp) printOther(c, v[i], level);
     ::munmap(mem, bytes);
 }
 
-void print_goroutines(const self_ctx& c, const traceback_settings& t, bool all, int self_level) noexcept {
+void printGoroutines(const self_ctx& c, const traceback_settings& t, bool all, int self_level) noexcept {
     if (t.level == 0) return;
-    find_runtime_dir();
+    findRuntimeDir();
     out.put('\n');
-    print_self(c, self_level);
-    if (all || t.all) print_others(c, t.level);
+    printSelf(c, self_level);
+    if (all || t.all) printOthers(c, t.level);
 }
 
 // ---------------------------------------------------------------------------
@@ -896,7 +896,7 @@ constinit std::atomic<pid_t> crashing{0};
 
 // Takes the right to report. A thread that crashes while another reports
 // waits for good, answering its requests for the waiting thread's stack.
-void crash_enter(skip_to kind, uintptr_t key, void* uc) noexcept {
+void crashEnter(skip_to kind, uintptr_t key, void* uc) noexcept {
     pid_t me = gettid();
     pid_t none = 0;
     if (crashing.compare_exchange_strong(none, me)) return;
@@ -906,8 +906,8 @@ void crash_enter(skip_to kind, uintptr_t key, void* uc) noexcept {
         die(gotraceback());
     }
     for (;;) {
-        answer_request(kind, key, uc);
-        sleep_ms(1);
+        answerRequest(kind, key, uc);
+        sleepMs(1);
     }
 }
 
@@ -927,7 +927,7 @@ struct crash_stack {
 };
 
 template <typename F>
-[[noreturn]] void on_crash_stack(F&& report) noexcept {
+[[noreturn]] void onCrashStack(F&& report) noexcept {
     constexpr std::size_t size = 1 << 20;
     void* p = ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
     if (p != MAP_FAILED) {
@@ -943,7 +943,7 @@ template <typename F>
     ::_exit(2);
 }
 
-std::string_view signal_name(int sig) noexcept {
+std::string_view signalName(int sig) noexcept {
     switch (sig) {
     case SIGSEGV: return "SIGSEGV: segmentation violation";
     case SIGBUS: return "SIGBUS: bus error";
@@ -958,9 +958,9 @@ std::string_view signal_name(int sig) noexcept {
 }
 
 // "[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x4011d6]"
-void put_signal_line(int sig, const siginfo_t* info, uintptr_t pc) noexcept {
+void putSignalLine(int sig, const siginfo_t* info, uintptr_t pc) noexcept {
     out.put("[signal ");
-    out.put(signal_name(sig));
+    out.put(signalName(sig));
     out.put(" code=");
     out.hex(static_cast<uint64_t>(static_cast<int64_t>(info->si_code)));
     out.put(" addr=");
@@ -970,7 +970,7 @@ void put_signal_line(int sig, const siginfo_t* info, uintptr_t pc) noexcept {
     out.put("]\n");
 }
 
-void put_reg(std::string_view name, uint64_t v) noexcept {
+void putReg(std::string_view name, uint64_t v) noexcept {
     out.put(name);
     for (size_t i = name.size(); i < 7; i++) out.put(' ');
     out.hex(v);
@@ -990,21 +990,21 @@ void dumpregs(void* uc) noexcept {
         {"r10", REG_R10}, {"r11", REG_R11}, {"r12", REG_R12}, {"r13", REG_R13}, {"r14", REG_R14},
         {"r15", REG_R15}, {"rip", REG_RIP}, {"rflags", REG_EFL},
     };
-    for (const auto& r : regs) put_reg(r.name, static_cast<uint64_t>(g[r.reg]));
+    for (const auto& r : regs) putReg(r.name, static_cast<uint64_t>(g[r.reg]));
     uint64_t csgsfs = static_cast<uint64_t>(g[REG_CSGSFS]);
-    put_reg("cs", csgsfs & 0xffff);
-    put_reg("fs", (csgsfs >> 32) & 0xffff);
-    put_reg("gs", (csgsfs >> 16) & 0xffff);
+    putReg("cs", csgsfs & 0xffff);
+    putReg("fs", (csgsfs >> 32) & 0xffff);
+    putReg("gs", (csgsfs >> 16) & 0xffff);
 #elif defined(__aarch64__)
     static constexpr std::string_view names[] = {
         "r0",  "r1",  "r2",  "r3",  "r4",  "r5",  "r6",  "r7",  "r8",  "r9",  "r10", "r11", "r12", "r13", "r14",
         "r15", "r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23", "r24", "r25", "r26", "r27", "r28", "r29",
     };
-    for (int i = 0; i < 30; i++) put_reg(names[i], u->uc_mcontext.regs[i]);
-    put_reg("lr", u->uc_mcontext.regs[30]);
-    put_reg("sp", u->uc_mcontext.sp);
-    put_reg("pc", u->uc_mcontext.pc);
-    put_reg("fault", u->uc_mcontext.fault_address);
+    for (int i = 0; i < 30; i++) putReg(names[i], u->uc_mcontext.regs[i]);
+    putReg("lr", u->uc_mcontext.regs[30]);
+    putReg("sp", u->uc_mcontext.sp);
+    putReg("pc", u->uc_mcontext.pc);
+    putReg("fault", u->uc_mcontext.fault_address);
 #endif
 }
 
@@ -1014,7 +1014,7 @@ struct exception_message {
     const char* what = nullptr;
 };
 
-exception_message current_exception_message() noexcept {
+exception_message currentExceptionMessage() noexcept {
     exception_message m;
     m.type = abi::__cxa_current_exception_type();
     try {
@@ -1026,18 +1026,18 @@ exception_message current_exception_message() noexcept {
     return m;
 }
 
-[[noreturn]] void report_exception() noexcept {
-    crash_enter(skip_to::none, 0, nullptr);
+[[noreturn]] void reportException() noexcept {
+    crashEnter(skip_to::none, 0, nullptr);
     traceback_settings t = gotraceback();
-    exception_message e = current_exception_message();
-    self_ctx c = collect_self(skip_to::none, 0, nullptr);
+    exception_message e = currentExceptionMessage();
+    self_ctx c = collectSelf(skip_to::none, 0, nullptr);
     c.skip_throw = true;
-    on_crash_stack([&] {
+    onCrashStack([&] {
         out.put("panic: ");
         if (e.type) {
             // A type's mangled name, unlike a function's, has no "_Z".
             demangled d{demangle_buf, 0, sizeof(demangle_buf), false};
-            if (__gcclibcxx_demangle_callback(e.type->name(), demangle_cb, &d) == 0 && !d.truncated)
+            if (__gcclibcxx_demangle_callback(e.type->name(), demangleCb, &d) == 0 && !d.truncated)
                 out.put(std::string_view(d.p, d.n));
             else
                 out.put(e.type->name());
@@ -1049,7 +1049,7 @@ exception_message current_exception_message() noexcept {
             out.put(e.what);
         }
         out.put('\n');
-        print_goroutines(c, t, false, t.level);
+        printGoroutines(c, t, false, t.level);
         die(t);
     });
 }
@@ -1061,39 +1061,39 @@ exception_message current_exception_message() noexcept {
 
 [[noreturn]] void dopanic(std::string_view msg) noexcept {
     uintptr_t fp = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
-    crash_enter(skip_to::cfa, fp, nullptr);
+    crashEnter(skip_to::cfa, fp, nullptr);
     traceback_settings t = gotraceback();
-    self_ctx c = collect_self(skip_to::cfa, fp, nullptr);
-    on_crash_stack([&] {
+    self_ctx c = collectSelf(skip_to::cfa, fp, nullptr);
+    onCrashStack([&] {
         out.put("panic: ");
         out.put(msg);
         out.put('\n');
-        print_goroutines(c, t, false, t.level);
+        printGoroutines(c, t, false, t.level);
         die(t);
     });
 }
 
 [[noreturn]] void dofatal(const char* msg) noexcept {
     uintptr_t fp = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
-    crash_enter(skip_to::cfa, fp, nullptr);
+    crashEnter(skip_to::cfa, fp, nullptr);
     traceback_settings t = gotraceback();
-    self_ctx c = collect_self(skip_to::cfa, fp, nullptr);
-    on_crash_stack([&] {
+    self_ctx c = collectSelf(skip_to::cfa, fp, nullptr);
+    onCrashStack([&] {
         out.put("fatal error: ");
         out.put(msg);
         out.put('\n');
         // The runtime's frames show for the thrower, as in Go's throw.
-        print_goroutines(c, t, true, std::max(t.level, 2));
+        printGoroutines(c, t, true, std::max(t.level, 2));
         die(t);
     });
 }
 
-[[noreturn]] void crash_signal(int sig, siginfo_t* info, void* uc) noexcept {
-    uintptr_t pc = uc_pc(uc);
-    crash_enter(skip_to::pc, pc, uc);
+[[noreturn]] void crashSignal(int sig, siginfo_t* info, void* uc) noexcept {
+    uintptr_t pc = ucPc(uc);
+    crashEnter(skip_to::pc, pc, uc);
     traceback_settings t = gotraceback();
-    self_ctx c = collect_self(skip_to::pc, pc, uc);
-    on_crash_stack([&] {
+    self_ctx c = collectSelf(skip_to::pc, pc, uc);
+    onCrashStack([&] {
         uintptr_t addr = reinterpret_cast<uintptr_t>(info->si_addr);
         bool fault = sig == SIGSEGV || sig == SIGBUS;
         bool all = true;
@@ -1103,7 +1103,7 @@ exception_message current_exception_message() noexcept {
             out.put("runtime: goroutine stack exceeds ");
             out.dec(gp->stack_hi - gp->stack_lo);
             out.put("-byte limit\nruntime: sp=");
-            out.hex(uc_sp(uc));
+            out.hex(ucSp(uc));
             out.put(" stack=[");
             out.hex(gp->stack_lo);
             out.put(", ");
@@ -1111,21 +1111,21 @@ exception_message current_exception_message() noexcept {
             out.put("]\nfatal error: stack overflow\n");
         } else if (fault && addr < 0x1000) {
             out.put("panic: runtime error: invalid memory address or nil pointer dereference\n");
-            put_signal_line(sig, info, pc);
+            putSignalLine(sig, info, pc);
             all = false;
         } else if (fault) {
             out.put("unexpected fault address ");
             out.hex(addr);
             out.put("\nfatal error: fault\n");
-            put_signal_line(sig, info, pc);
+            putSignalLine(sig, info, pc);
         } else if (sig == SIGFPE && info->si_code > 0) {
             out.put(info->si_code == FPE_INTDIV   ? "panic: runtime error: integer divide by zero\n"
                     : info->si_code == FPE_INTOVF ? "panic: runtime error: integer overflow\n"
                                                   : "panic: runtime error: floating point error\n");
-            put_signal_line(sig, info, pc);
+            putSignalLine(sig, info, pc);
             all = false;
         } else {
-            out.put(signal_name(sig));
+            out.put(signalName(sig));
             out.put("\nPC=");
             out.hex(pc);
             if (c.m) {
@@ -1137,7 +1137,7 @@ exception_message current_exception_message() noexcept {
             out.put('\n');
             regs = true;
         }
-        print_goroutines(c, t, all, t.level);
+        printGoroutines(c, t, all, t.level);
         if (regs && t.level > 0) {
             out.put('\n');
             dumpregs(uc);
@@ -1146,9 +1146,9 @@ exception_message current_exception_message() noexcept {
     });
 }
 
-void traceback_signal(void* uc) noexcept {
+void tracebackSignal(void* uc) noexcept {
     if (req.state.load(std::memory_order_relaxed) != 1) return;
-    if (!answer_request(skip_to::pc, uc_pc(uc), uc)) return;
+    if (!answerRequest(skip_to::pc, ucPc(uc), uc)) return;
     // The process exits once the report is done; this thread stays out of
     // its way. The handler blocks all signals, so pause doesn't return.
     for (;;) ::pause();
@@ -1160,16 +1160,16 @@ void traceback_signal(void* uc) noexcept {
 // noexcept frame would not do: GCC unwinds through cleanups to it before
 // calling std::terminate. The call isn't a tail call, so that this frame
 // stays on the stack.
-[[gnu::noinline]] void run_fiber_fn(G* gp) {
+[[gnu::noinline]] void runFiberFn(G* gp) {
     asm volatile(".cfi_personality 0x1b, gopp_fiber_personality");
     gp->fn();
     asm volatile("");
 }
 
-[[noreturn]] void terminate_handler() noexcept {
+[[noreturn]] void terminateHandler() noexcept {
     // __cxa_throw calls std::terminate without unwinding when no frame
     // handles the exception, so the stack is as it was at the throw.
-    if (std::current_exception()) report_exception();
+    if (std::current_exception()) reportException();
     dofatal("std::terminate called without an active exception");
 }
 
@@ -1181,7 +1181,7 @@ thread_local void* tls_altstack = nullptr;
 
 }  // namespace
 
-void ensure_sigaltstack() noexcept {
+void ensureSigaltstack() noexcept {
     stack_t old{};
     if (::sigaltstack(nullptr, &old) == 0 && !(old.ss_flags & SS_DISABLE)) return;
     void* p = ::mmap(nullptr, altstack_guard + altstack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -1197,7 +1197,7 @@ void ensure_sigaltstack() noexcept {
     tls_altstack = p;
 }
 
-void release_sigaltstack() noexcept {
+void releaseSigaltstack() noexcept {
     if (!tls_altstack) return;
     stack_t ss{};
     ss.ss_flags = SS_DISABLE;
@@ -1215,5 +1215,5 @@ extern "C" [[gnu::used]] _Unwind_Reason_Code gopp_fiber_personality(int, _Unwind
     // through.
     if (!(actions & _UA_SEARCH_PHASE) || (actions & _UA_FORCE_UNWIND)) return _URC_CONTINUE_UNWIND;
     __cxxabiv1::__cxa_begin_catch(ue);
-    gopp::runtime::report_exception();
+    gopp::runtime::reportException();
 }

@@ -14,14 +14,14 @@ namespace text = strings::text;
 
 namespace {
 
-std::string_view sv(std::span<const byte> b) noexcept { return as_string_view(b); }
+std::string_view sv(std::span<const byte> b) noexcept { return asStringView(b); }
 
 // The part v of s as a subslice sharing s's array, with its capacity up to
 // s's, or, if limit_cap, ending with it (Go's s[i:j:j]); nil for nil.
 slice<byte> sub(const slice<byte>& s, std::string_view v, bool limit_cap = false) {
     if (v.data() == nullptr) return {};
     auto i = std::size_t(reinterpret_cast<const byte*>(v.data()) - s.data());
-    if (v.empty() && s.is_nil()) return {};
+    if (v.empty() && s.isNil()) return {};
     return limit_cap ? s.Sub(i, i + v.size(), i + v.size()) : s.Sub(i, i + v.size());
 }
 
@@ -31,11 +31,11 @@ slice<slice<byte>> subs(const slice<byte>& s, const std::vector<std::string_view
     return out;
 }
 
-slice<byte> copy_of(std::string_view s) { return slice<byte>::of(as_bytes(s)); }
+slice<byte> copyOf(std::string_view s) { return slice<byte>::of(as_bytes(s)); }
 
 // The result r, or a copy of s if r is empty (the result equals s).
-slice<byte> or_copy(std::span<const byte> s, const std::optional<std::string>& r) {
-    return r ? copy_of(*r) : slice<byte>::of(s);
+slice<byte> orCopy(std::span<const byte> s, const std::optional<std::string>& r) {
+    return r ? copyOf(*r) : slice<byte>::of(s);
 }
 
 const error errNegativeRead = errors::New("bytes.Buffer: reader returned negative count from Read");
@@ -55,14 +55,14 @@ bool ContainsRune(std::span<const byte> b, rune r) noexcept { return IndexRune(b
 bool ContainsFunc(std::span<const byte> b, std::function_ref<bool(rune)> f) { return IndexFunc(b, f) >= 0; }
 
 isize Index(std::span<const byte> s, std::span<const byte> sep) noexcept { return text::index(sv(s), sv(sep)); }
-isize IndexByte(std::span<const byte> b, byte c) noexcept { return text::index_byte(sv(b), char(c)); }
-isize IndexRune(std::span<const byte> s, rune r) noexcept { return text::index_rune(sv(s), r); }
-isize IndexAny(std::span<const byte> s, std::string_view chars) noexcept { return text::index_any(sv(s), chars); }
-isize IndexFunc(std::span<const byte> s, std::function_ref<bool(rune)> f) { return text::index_func(sv(s), f); }
-isize LastIndex(std::span<const byte> s, std::span<const byte> sep) noexcept { return text::last_index(sv(s), sv(sep)); }
-isize LastIndexByte(std::span<const byte> s, byte c) noexcept { return text::last_index_byte(sv(s), char(c)); }
-isize LastIndexAny(std::span<const byte> s, std::string_view chars) noexcept { return text::last_index_any(sv(s), chars); }
-isize LastIndexFunc(std::span<const byte> s, std::function_ref<bool(rune)> f) { return text::last_index_func(sv(s), f); }
+isize IndexByte(std::span<const byte> b, byte c) noexcept { return text::indexByte(sv(b), char(c)); }
+isize IndexRune(std::span<const byte> s, rune r) noexcept { return text::indexRune(sv(s), r); }
+isize IndexAny(std::span<const byte> s, std::string_view chars) noexcept { return text::indexAny(sv(s), chars); }
+isize IndexFunc(std::span<const byte> s, std::function_ref<bool(rune)> f) { return text::indexFunc(sv(s), f); }
+isize LastIndex(std::span<const byte> s, std::span<const byte> sep) noexcept { return text::lastIndex(sv(s), sv(sep)); }
+isize LastIndexByte(std::span<const byte> s, byte c) noexcept { return text::lastIndexByte(sv(s), char(c)); }
+isize LastIndexAny(std::span<const byte> s, std::string_view chars) noexcept { return text::lastIndexAny(sv(s), chars); }
+isize LastIndexFunc(std::span<const byte> s, std::function_ref<bool(rune)> f) { return text::lastIndexFunc(sv(s), f); }
 isize Count(std::span<const byte> s, std::span<const byte> sep) noexcept { return text::count(sv(s), sv(sep)); }
 bool EqualFold(std::span<const byte> s, std::span<const byte> t) noexcept { return text::equal_fold(sv(s), sv(t)); }
 
@@ -72,7 +72,7 @@ std::tuple<slice<byte>, slice<byte>, bool> Cut(const slice<byte>& s, std::span<c
 }
 
 std::tuple<slice<byte>, slice<byte>, bool> CutLast(const slice<byte>& s, std::span<const byte> sep) {
-    auto r = text::cut_last(sv(s), sv(sep));
+    auto r = text::cutLast(sv(s), sv(sep));
     return {sub(s, r.before), sub(s, r.after), r.found};
 }
 
@@ -88,8 +88,8 @@ std::pair<slice<byte>, bool> CutSuffix(const slice<byte>& s, std::span<const byt
 
 slice<byte> TrimSpace(const slice<byte>& s) { return sub(s, text::trim_space(sv(s))); }
 slice<byte> Trim(const slice<byte>& s, std::string_view cutset) { return sub(s, text::trim(sv(s), cutset)); }
-slice<byte> TrimLeft(const slice<byte>& s, std::string_view cutset) { return sub(s, text::trim_left(sv(s), cutset)); }
-slice<byte> TrimRight(const slice<byte>& s, std::string_view cutset) { return sub(s, text::trim_right(sv(s), cutset)); }
+slice<byte> TrimLeft(const slice<byte>& s, std::string_view cutset) { return sub(s, text::trimLeft(sv(s), cutset)); }
+slice<byte> TrimRight(const slice<byte>& s, std::string_view cutset) { return sub(s, text::trimRight(sv(s), cutset)); }
 
 slice<byte> TrimPrefix(const slice<byte>& s, std::span<const byte> prefix) {
     return HasPrefix(s, prefix) ? s.Sub(prefix.size()) : s;
@@ -99,38 +99,38 @@ slice<byte> TrimSuffix(const slice<byte>& s, std::span<const byte> suffix) {
     return HasSuffix(s, suffix) ? s.Sub(0, s.len() - suffix.size()) : s;
 }
 
-slice<byte> TrimFunc(const slice<byte>& s, std::function_ref<bool(rune)> f) { return sub(s, text::trim_func(sv(s), f)); }
+slice<byte> TrimFunc(const slice<byte>& s, std::function_ref<bool(rune)> f) { return sub(s, text::trimFunc(sv(s), f)); }
 
 slice<byte> TrimLeftFunc(const slice<byte>& s, std::function_ref<bool(rune)> f) {
-    return sub(s, text::trim_left_func(sv(s), f));
+    return sub(s, text::trimLeftFunc(sv(s), f));
 }
 
 slice<byte> TrimRightFunc(const slice<byte>& s, std::function_ref<bool(rune)> f) {
-    return sub(s, text::trim_right_func(sv(s), f));
+    return sub(s, text::trimRightFunc(sv(s), f));
 }
 
 slice<slice<byte>> Split(const slice<byte>& s, std::span<const byte> sep) {
-    return subs(s, text::gen_split(sv(s), sv(sep), 0, -1));
+    return subs(s, text::genSplit(sv(s), sv(sep), 0, -1));
 }
 
 slice<slice<byte>> SplitN(const slice<byte>& s, std::span<const byte> sep, isize n) {
     if (n == 0) return {};
-    return subs(s, text::gen_split(sv(s), sv(sep), 0, n));
+    return subs(s, text::genSplit(sv(s), sv(sep), 0, n));
 }
 
 slice<slice<byte>> SplitAfter(const slice<byte>& s, std::span<const byte> sep) {
-    return subs(s, text::gen_split(sv(s), sv(sep), sep.size(), -1));
+    return subs(s, text::genSplit(sv(s), sv(sep), sep.size(), -1));
 }
 
 slice<slice<byte>> SplitAfterN(const slice<byte>& s, std::span<const byte> sep, isize n) {
     if (n == 0) return {};
-    return subs(s, text::gen_split(sv(s), sv(sep), sep.size(), n));
+    return subs(s, text::genSplit(sv(s), sv(sep), sep.size(), n));
 }
 
 slice<slice<byte>> Fields(const slice<byte>& s) { return subs(s, text::fields(sv(s))); }
 
 slice<slice<byte>> FieldsFunc(const slice<byte>& s, std::function_ref<bool(rune)> f) {
-    return subs(s, text::fields_func(sv(s), f));
+    return subs(s, text::fieldsFunc(sv(s), f));
 }
 
 std::generator<slice<byte>> Lines(slice<byte> s) {
@@ -144,7 +144,7 @@ std::generator<slice<byte>> Lines(slice<byte> s) {
 
 namespace {
 
-std::generator<slice<byte>> split_seq(slice<byte> s, std::string sep, std::size_t sep_save) {
+std::generator<slice<byte>> splitSeq(slice<byte> s, std::string sep, std::size_t sep_save) {
     if (sep.empty()) {
         while (!s.empty()) {
             auto [_, size] = utf8::DecodeRune(s);
@@ -166,11 +166,11 @@ std::generator<slice<byte>> split_seq(slice<byte> s, std::string sep, std::size_
 }  // namespace
 
 std::generator<slice<byte>> SplitSeq(slice<byte> s, std::span<const byte> sep) {
-    return split_seq(std::move(s), std::string(sv(sep)), 0);
+    return splitSeq(std::move(s), std::string(sv(sep)), 0);
 }
 
 std::generator<slice<byte>> SplitAfterSeq(slice<byte> s, std::span<const byte> sep) {
-    return split_seq(std::move(s), std::string(sv(sep)), sep.size());
+    return splitSeq(std::move(s), std::string(sv(sep)), sep.size());
 }
 
 std::generator<slice<byte>> FieldsSeq(slice<byte> s) {
@@ -178,7 +178,7 @@ std::generator<slice<byte>> FieldsSeq(slice<byte> s) {
     for (std::size_t i = 0; i < s.len();) {
         int size = 1;
         rune r = s[i];
-        bool isSpace = text::ascii_space(s[i]);
+        bool isSpace = text::asciiSpace(s[i]);
         if (r >= utf8::RuneSelf) {
             std::tie(r, size) = utf8::DecodeRune(s.span().subspan(i));
             isSpace = unicode::IsSpace(r);
@@ -213,38 +213,38 @@ std::generator<slice<byte>> FieldsFuncSeq(slice<byte> s, std::function<bool(rune
     if (start >= 0) co_yield s.Sub(std::size_t(start), s.len(), s.len());
 }
 
-slice<byte> ToLower(std::span<const byte> s) { return or_copy(s, text::to_lower(sv(s))); }
-slice<byte> ToUpper(std::span<const byte> s) { return or_copy(s, text::to_upper(sv(s))); }
-slice<byte> ToTitle(std::span<const byte> s) { return copy_of(text::map(unicode::ToTitle, sv(s))); }
+slice<byte> ToLower(std::span<const byte> s) { return orCopy(s, text::toLower(sv(s))); }
+slice<byte> ToUpper(std::span<const byte> s) { return orCopy(s, text::toUpper(sv(s))); }
+slice<byte> ToTitle(std::span<const byte> s) { return copyOf(text::map(unicode::ToTitle, sv(s))); }
 
 slice<byte> ToLowerSpecial(const unicode::SpecialCase& c, std::span<const byte> s) {
-    return copy_of(text::map([&](rune r) { return c.ToLower(r); }, sv(s)));
+    return copyOf(text::map([&](rune r) { return c.ToLower(r); }, sv(s)));
 }
 
 slice<byte> ToUpperSpecial(const unicode::SpecialCase& c, std::span<const byte> s) {
-    return copy_of(text::map([&](rune r) { return c.ToUpper(r); }, sv(s)));
+    return copyOf(text::map([&](rune r) { return c.ToUpper(r); }, sv(s)));
 }
 
 slice<byte> ToTitleSpecial(const unicode::SpecialCase& c, std::span<const byte> s) {
-    return copy_of(text::map([&](rune r) { return c.ToTitle(r); }, sv(s)));
+    return copyOf(text::map([&](rune r) { return c.ToTitle(r); }, sv(s)));
 }
 
 slice<byte> ToValidUTF8(std::span<const byte> s, std::span<const byte> replacement) {
-    return or_copy(s, text::to_valid_utf8(sv(s), sv(replacement)));
+    return orCopy(s, text::toValidUtf8(sv(s), sv(replacement)));
 }
 
 slice<byte> Map(std::function_ref<rune(rune)> mapping, std::span<const byte> s) {
-    return copy_of(text::map(mapping, sv(s)));
+    return copyOf(text::map(mapping, sv(s)));
 }
 
-slice<byte> Repeat(std::span<const byte> b, isize count) { return copy_of(text::repeat(sv(b), count, "bytes")); }
+slice<byte> Repeat(std::span<const byte> b, isize count) { return copyOf(text::repeat(sv(b), count, "bytes")); }
 
 slice<byte> Replace(std::span<const byte> s, std::span<const byte> old, std::span<const byte> new_, isize n) {
     auto r = text::replace(sv(s), sv(old), sv(new_), n);
     // Go returns append([]byte(nil), s...) when nothing is replaced: nil
     // for an empty s.
     if (!r) return s.empty() ? slice<byte>() : slice<byte>::of(s);
-    return copy_of(*r);
+    return copyOf(*r);
 }
 
 slice<byte> ReplaceAll(std::span<const byte> s, std::span<const byte> old, std::span<const byte> new_) {
@@ -278,7 +278,7 @@ slice<rune> Runes(std::span<const byte> s) {
 }
 
 slice<byte> Clone(const slice<byte>& b) {
-    if (b.is_nil()) return {};
+    if (b.isNil()) return {};
     return slice<byte>::of(b);
 }
 
@@ -302,7 +302,7 @@ void Buffer::Truncate(isize n) {
 }
 
 void Buffer::Reset() noexcept {
-    if (!buf_.is_nil()) buf_ = buf_.Sub(0, 0);
+    if (!buf_.isNil()) buf_ = buf_.Sub(0, 0);
     off_ = 0;
     lastRead_ = opInvalid;
 }
@@ -326,7 +326,7 @@ std::size_t Buffer::grow(std::size_t n) {
     if (m == 0 && off_ != 0) Reset();
     // Try to grow by means of a reslice.
     if (auto [i, ok] = tryGrowByReslice(n); ok) return i;
-    if (buf_.is_nil() && n <= smallBufferSize) {
+    if (buf_.isNil() && n <= smallBufferSize) {
         buf_ = slice<byte>::make(n, smallBufferSize);
         return 0;
     }

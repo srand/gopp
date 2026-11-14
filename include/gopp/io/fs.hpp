@@ -134,13 +134,13 @@ struct ReadDirFile : public File {
 };
 
 // fs.PathError: an error and the operation and path that caused it.
-struct PathError : error_interface {
+struct PathError : errorInterface {
     PathError(string op, string path, gopp::error err) : Op(std::move(op)), Path(std::move(path)), Err(std::move(err)) {}
     string Op;
     string Path;
     gopp::error Err;
     string Error() const override;
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
     bool Timeout() const noexcept override { return Err && Err->Timeout(); }
 };
 

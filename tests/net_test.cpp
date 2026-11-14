@@ -70,7 +70,7 @@ TEST(Net, EchoServer) {
 TEST(Net, ReadDeadline) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    auto accepted = make_chan<ptr<net::Conn>>(1);
+    auto accepted = makeChan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
     auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
     ASSERT_FALSE(derr);
@@ -90,13 +90,13 @@ TEST(Net, ReadDeadline) {
 TEST(Net, CloseUnblocksReader) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    auto accepted = make_chan<ptr<net::Conn>>(1);
+    auto accepted = makeChan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
     auto [c, derr] = net::Dial("tcp", ln->Addr()->String());
     ASSERT_FALSE(derr);
     auto server_side = accepted.recv();
 
-    auto result = make_chan<error>(1);
+    auto result = makeChan<error>(1);
     go([c, result] {
         byte buf[16];
         result.send(c->Read(buf).second);
@@ -123,15 +123,15 @@ TEST(Net, PeerCloseGivesEOF) {
     ASSERT_FALSE(derr);
     auto [data, rerr] = io::ReadAll(*c);
     EXPECT_FALSE(rerr);
-    EXPECT_EQ(as_string_view(data), "bye");
+    EXPECT_EQ(asStringView(data), "bye");
     ln->Close();
 }
 
 namespace {
 
 // A connected pair: the dialed side and the accepted one.
-std::pair<ptr<net::Conn>, ptr<net::Conn>> tcp_pair(const ptr<net::Listener>& ln) {
-    auto accepted = make_chan<ptr<net::Conn>>(1);
+std::pair<ptr<net::Conn>, ptr<net::Conn>> tcpPair(const ptr<net::Listener>& ln) {
+    auto accepted = makeChan<ptr<net::Conn>>(1);
     go([ln, accepted] { accepted.send(ln->Accept().first); });
     auto [c, err] = net::Dial("tcp", ln->Addr()->String());
     EXPECT_FALSE(err) << err;
@@ -153,7 +153,7 @@ TEST(Net, UnreadDataOnManyConnections) {
     sync::WaitGroup wg;
     std::atomic<int> bad{0};
     for (int k = 0; k < nconns; k++) {
-        auto [c, s] = tcp_pair(ln);
+        auto [c, s] = tcpPair(ln);
         ASSERT_TRUE(c && s);
         wg.Go([c, k] {
             std::vector<byte> data(size);
@@ -187,7 +187,7 @@ TEST(Net, UnreadDataOnManyConnections) {
 TEST(Net, ReadDeadlineKeepsData) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    auto [c, s] = tcp_pair(ln);
+    auto [c, s] = tcpPair(ln);
     byte buf[16];
     io::WriteString(*s, "a");
     auto [n0, e0] = io::ReadFull(*c, std::span(buf).first(1));
@@ -211,7 +211,7 @@ TEST(Net, ReadDeadlineKeepsData) {
 TEST(Net, CloseAfterReadSendsEOF) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    auto [c, s] = tcp_pair(ln);
+    auto [c, s] = tcpPair(ln);
     io::WriteString(*c, "x");
     byte buf[1];
     auto [n, rerr] = io::ReadFull(*s, buf);
@@ -227,7 +227,7 @@ TEST(Net, CloseAfterReadSendsEOF) {
 TEST(Net, ZeroByteRead) {
     auto [ln, err] = net::Listen("tcp", "127.0.0.1:0");
     ASSERT_FALSE(err);
-    auto [c, s] = tcp_pair(ln);
+    auto [c, s] = tcpPair(ln);
     auto [n, rerr] = c->Read(std::span<byte>());
     EXPECT_EQ(n, 0);
     EXPECT_FALSE(rerr) << rerr;
@@ -291,7 +291,7 @@ TEST(Net, DialRefused) {
 // that hangs.
 namespace {
 
-const bool first_use_helper = go_helper::register_helper("net-first-use", [](const std::vector<std::string>&) {
+const bool first_use_helper = go_helper::registerHelper("net-first-use", [](const std::vector<std::string>&) {
     sync::WaitGroup wg;
     for (int i = 0; i < 16; i++) {
         wg.Go([i] {
@@ -311,7 +311,7 @@ const bool first_use_helper = go_helper::register_helper("net-first-use", [](con
 
 TEST(Net, ConcurrentFirstUse) {
     auto [ctx, cancel] = context::WithTimeout(context::Background(), 10 * time::Second);
-    auto cmd = go_helper::helper_command_context(ctx, "net-first-use");
+    auto cmd = go_helper::helperCommandContext(ctx, "net-first-use");
     cmd->Env = append(cmd->Environ(), string("GOMAXPROCS=1"), string("GODEBUG=asyncpreemptoff=1"));
     auto err = cmd->Run();
     EXPECT_FALSE(err) << err << ": the fibers deadlocked on first use";

@@ -46,10 +46,10 @@ struct caps {
 std::pair<caps, error> getCaps() {
     caps c{};
     // Get capability version
-    if (::syscall(SYS_capget, &c.hdr, nullptr) < 0) return {c, fmt::Errorf("SYS_CAPGET: {}", syscall::errno_error(errno))};
+    if (::syscall(SYS_capget, &c.hdr, nullptr) < 0) return {c, fmt::Errorf("SYS_CAPGET: {}", syscall::errnoError(errno))};
     // Get current capabilities
     if (::syscall(SYS_capget, &c.hdr, &c.data[0]) < 0) {
-        return {c, fmt::Errorf("SYS_CAPGET: {}", syscall::errno_error(errno))};
+        return {c, fmt::Errorf("SYS_CAPGET: {}", syscall::errnoError(errno))};
     }
     return {c, nullptr};
 }
@@ -84,7 +84,7 @@ bool syscallIsNotSupported(const error& err) {
 
 const bool helpers_registered = [] {
     // TestUnshareMountNameSpace's child: mount proc on its argument.
-    go_helper::register_helper("mountproc", [](const std::vector<std::string>& args) {
+    go_helper::registerHelper("mountproc", [](const std::vector<std::string>& args) {
         if (error err = syscall::Mount("none", args.at(0), "proc", 0, "")) {
             if (syscallIsNotSupported(err)) {
                 fmt::Print("{}{}", mountNotSupported, err);
@@ -95,28 +95,28 @@ const bool helpers_registered = [] {
         os::Exit(0);
     });
     // TestUnshareUidGidMapping's child: chroot, as root of its namespace.
-    go_helper::register_helper("chroottmp", [](const std::vector<std::string>&) {
+    go_helper::registerHelper("chroottmp", [](const std::vector<std::string>&) {
         if (error err = syscall::Chroot(str(os::TempDir()))) exitWith(2, str(err.Error()));
         os::Exit(0);
     });
     // TestUseCgroupFD's child: read and print own cgroup path.
-    go_helper::register_helper("selfcgroup", [](const std::vector<std::string>&) {
+    go_helper::registerHelper("selfcgroup", [](const std::vector<std::string>&) {
         auto [selfCg, err] = os::ReadFile("/proc/self/cgroup");
         if (err) exitWith(2, str(err.Error()));
-        fmt::Print("{}", as_string_view(selfCg));
+        fmt::Print("{}", asStringView(selfCg));
         os::Exit(0);
     });
     // TestCloneTimeNamespace's child: print its time namespace.
-    go_helper::register_helper("timens", [](const std::vector<std::string>&) {
+    go_helper::registerHelper("timens", [](const std::vector<std::string>&) {
         auto [timens, err] = os::Readlink("/proc/self/ns/time");
         if (err) exitWith(2, str(err.Error()));
         fmt::Print("{}", timens);
         os::Exit(0);
     });
     // testPidFD's child: wait for a signal.
-    go_helper::register_helper("waitsignal", [](const std::vector<std::string>&) { time::Sleep(time::Hour); });
+    go_helper::registerHelper("waitsignal", [](const std::vector<std::string>&) { time::Sleep(time::Hour); });
     // testAmbientCaps's child.
-    go_helper::register_helper("ambientcaps", [](const std::vector<std::string>&) {
+    go_helper::registerHelper("ambientcaps", [](const std::vector<std::string>&) {
         auto [c, err] = getCaps();
         if (err) exitWith(2, str(err.Error()));
         if ((c.data[0].effective & (1u << CAP_SYS_TIME)) == 0) {
@@ -136,7 +136,7 @@ std::string trimSpace(std::string_view s) {
     return std::string(s);
 }
 
-std::string out(const slice<byte>& b) { return std::string(as_string_view(b)); }
+std::string out(const slice<byte>& b) { return std::string(asStringView(b)); }
 
 // Go's testenv.MustHaveExecPath.
 bool haveExecPath(const std::string& name) { return !os::exec::LookPath(name).second; }
@@ -477,7 +477,7 @@ void prepareCgroupFD(cgroupFD& c) {
     }
     c.subCgroup = str(sub);
     c.fd = ::open(c.subCgroup.c_str(), O_PATH | O_CLOEXEC);
-    ASSERT_GE(c.fd, 0) << "open " << c.subCgroup << ": " << syscall::errno_error(errno);
+    ASSERT_GE(c.fd, 0) << "open " << c.subCgroup << ": " << syscall::errnoError(errno);
     c.suffix = "/" + str(path::Base(c.subCgroup));
 }
 
@@ -560,7 +560,7 @@ error testPidFD(bool userns, std::string& skip) {
     // Use pidfd to send a signal to the child.
     const syscall::Signal sig = syscall::SIGINT_;
     if (::syscall(SYS_pidfd_send_signal, pidfd, sig.value, nullptr, 0) < 0) {
-        error err = syscall::errno_error(errno);
+        error err = syscall::errnoError(errno);
         if (!errors::Is(err, syscall::EINVAL_) && syscallIsNotSupported(err)) {
             skip = "pidfd_send_signal syscall not supported: " + str(err.Error());
             return nullptr;

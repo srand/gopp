@@ -25,7 +25,7 @@ public:
     void lock() noexcept {
         int32_t z = 0;
         if (state_.compare_exchange_strong(z, locked, std::memory_order_acquire)) return;
-        lock_slow();
+        lockSlow();
     }
 
     bool try_lock() noexcept {
@@ -36,7 +36,7 @@ public:
 
     void unlock() noexcept {
         int32_t n = state_.fetch_sub(locked, std::memory_order_release) - locked;
-        if (n != 0) unlock_slow(n);
+        if (n != 0) unlockSlow(n);
     }
 
     // Go spelling.
@@ -50,8 +50,8 @@ private:
     static constexpr int32_t starving = 4;
     static constexpr int waiter_shift = 3;
 
-    void lock_slow() noexcept;
-    void unlock_slow(int32_t n) noexcept;
+    void lockSlow() noexcept;
+    void unlockSlow(int32_t n) noexcept;
 
     std::atomic<int32_t> state_{0};
     std::atomic<uint32_t> sema_{0};
@@ -138,12 +138,12 @@ public:
     // once.Do(f): calls f if Do hasn't been called before.
     template <typename F>
     void Do(F&& f) {
-        if (done_.load(std::memory_order_acquire) == 0) call_slow(std::forward<F>(f));
+        if (done_.load(std::memory_order_acquire) == 0) callSlow(std::forward<F>(f));
     }
 
 private:
     template <typename F>
-    void call_slow(F&& f) {
+    void callSlow(F&& f) {
         m_.lock();
         if (done_.load(std::memory_order_relaxed) == 0) {
             std::forward<F>(f)();

@@ -24,24 +24,24 @@ slice<string> subs(const string& s, const std::vector<std::string_view>& parts) 
 }
 
 // s itself if r is empty (the result equals s), else r.
-string or_same(const string& s, std::optional<std::string> r) { return r ? string(*r) : s; }
+string orSame(const string& s, std::optional<std::string> r) { return r ? string(*r) : s; }
 
 // s itself if the result r equals s, else r.
-string same_or(const string& s, std::string r) { return r == s.view() ? s : string(r); }
+string sameOr(const string& s, std::string r) { return r == s.view() ? s : string(r); }
 
 }  // namespace
 
-bool ContainsAny(std::string_view s, std::string_view chars) noexcept { return text::index_any(s, chars) >= 0; }
-bool ContainsRune(std::string_view s, rune r) noexcept { return text::index_rune(s, r) >= 0; }
-bool ContainsFunc(std::string_view s, std::function_ref<bool(rune)> f) { return text::index_func(s, f) >= 0; }
+bool ContainsAny(std::string_view s, std::string_view chars) noexcept { return text::indexAny(s, chars) >= 0; }
+bool ContainsRune(std::string_view s, rune r) noexcept { return text::indexRune(s, r) >= 0; }
+bool ContainsFunc(std::string_view s, std::function_ref<bool(rune)> f) { return text::indexFunc(s, f) >= 0; }
 
-isize LastIndex(std::string_view s, std::string_view substr) noexcept { return text::last_index(s, substr); }
-isize LastIndexByte(std::string_view s, char c) noexcept { return text::last_index_byte(s, c); }
-isize IndexRune(std::string_view s, rune r) noexcept { return text::index_rune(s, r); }
-isize IndexAny(std::string_view s, std::string_view chars) noexcept { return text::index_any(s, chars); }
-isize LastIndexAny(std::string_view s, std::string_view chars) noexcept { return text::last_index_any(s, chars); }
-isize IndexFunc(std::string_view s, std::function_ref<bool(rune)> f) { return text::index_func(s, f); }
-isize LastIndexFunc(std::string_view s, std::function_ref<bool(rune)> f) { return text::last_index_func(s, f); }
+isize LastIndex(std::string_view s, std::string_view substr) noexcept { return text::lastIndex(s, substr); }
+isize LastIndexByte(std::string_view s, char c) noexcept { return text::lastIndexByte(s, c); }
+isize IndexRune(std::string_view s, rune r) noexcept { return text::indexRune(s, r); }
+isize IndexAny(std::string_view s, std::string_view chars) noexcept { return text::indexAny(s, chars); }
+isize LastIndexAny(std::string_view s, std::string_view chars) noexcept { return text::lastIndexAny(s, chars); }
+isize IndexFunc(std::string_view s, std::function_ref<bool(rune)> f) { return text::indexFunc(s, f); }
+isize LastIndexFunc(std::string_view s, std::function_ref<bool(rune)> f) { return text::lastIndexFunc(s, f); }
 isize Count(std::string_view s, std::string_view substr) noexcept { return text::count(s, substr); }
 int Compare(std::string_view a, std::string_view b) noexcept { return text::compare(a, b); }
 bool EqualFold(std::string_view s, std::string_view t) noexcept { return text::equal_fold(s, t); }
@@ -52,7 +52,7 @@ std::tuple<string, string, bool> Cut(const string& s, std::string_view sep) {
 }
 
 std::tuple<string, string, bool> CutLast(const string& s, std::string_view sep) {
-    auto r = text::cut_last(s, sep);
+    auto r = text::cutLast(s, sep);
     return {sub(s, r.before), sub(s, r.after), r.found};
 }
 
@@ -68,8 +68,8 @@ std::pair<string, bool> CutSuffix(const string& s, std::string_view suffix) {
 
 string TrimSpace(const string& s) { return sub(s, text::trim_space(s)); }
 string Trim(const string& s, std::string_view cutset) { return sub(s, text::trim(s, cutset)); }
-string TrimLeft(const string& s, std::string_view cutset) { return sub(s, text::trim_left(s, cutset)); }
-string TrimRight(const string& s, std::string_view cutset) { return sub(s, text::trim_right(s, cutset)); }
+string TrimLeft(const string& s, std::string_view cutset) { return sub(s, text::trimLeft(s, cutset)); }
+string TrimRight(const string& s, std::string_view cutset) { return sub(s, text::trimRight(s, cutset)); }
 
 string TrimPrefix(const string& s, std::string_view prefix) {
     return s.starts_with(prefix) ? s.slice(prefix.size()) : s;
@@ -79,29 +79,29 @@ string TrimSuffix(const string& s, std::string_view suffix) {
     return s.ends_with(suffix) ? s.slice(0, s.size() - suffix.size()) : s;
 }
 
-string TrimFunc(const string& s, std::function_ref<bool(rune)> f) { return sub(s, text::trim_func(s, f)); }
-string TrimLeftFunc(const string& s, std::function_ref<bool(rune)> f) { return sub(s, text::trim_left_func(s, f)); }
-string TrimRightFunc(const string& s, std::function_ref<bool(rune)> f) { return sub(s, text::trim_right_func(s, f)); }
+string TrimFunc(const string& s, std::function_ref<bool(rune)> f) { return sub(s, text::trimFunc(s, f)); }
+string TrimLeftFunc(const string& s, std::function_ref<bool(rune)> f) { return sub(s, text::trimLeftFunc(s, f)); }
+string TrimRightFunc(const string& s, std::function_ref<bool(rune)> f) { return sub(s, text::trimRightFunc(s, f)); }
 
-slice<string> Split(const string& s, std::string_view sep) { return subs(s, text::gen_split(s, sep, 0, -1)); }
+slice<string> Split(const string& s, std::string_view sep) { return subs(s, text::genSplit(s, sep, 0, -1)); }
 
 slice<string> SplitN(const string& s, std::string_view sep, isize n) {
     if (n == 0) return {};
-    return subs(s, text::gen_split(s, sep, 0, n));
+    return subs(s, text::genSplit(s, sep, 0, n));
 }
 
 slice<string> SplitAfter(const string& s, std::string_view sep) {
-    return subs(s, text::gen_split(s, sep, sep.size(), -1));
+    return subs(s, text::genSplit(s, sep, sep.size(), -1));
 }
 
 slice<string> SplitAfterN(const string& s, std::string_view sep, isize n) {
     if (n == 0) return {};
-    return subs(s, text::gen_split(s, sep, sep.size(), n));
+    return subs(s, text::genSplit(s, sep, sep.size(), n));
 }
 
 slice<string> Fields(const string& s) { return subs(s, text::fields(s)); }
 
-slice<string> FieldsFunc(const string& s, std::function_ref<bool(rune)> f) { return subs(s, text::fields_func(s, f)); }
+slice<string> FieldsFunc(const string& s, std::function_ref<bool(rune)> f) { return subs(s, text::fieldsFunc(s, f)); }
 
 std::generator<string> Lines(string s) {
     while (!s.empty()) {
@@ -114,7 +114,7 @@ std::generator<string> Lines(string s) {
 
 namespace {
 
-std::generator<string> split_seq(string s, string sep, std::size_t sep_save) {
+std::generator<string> splitSeq(string s, string sep, std::size_t sep_save) {
     if (sep.empty()) {
         while (!s.empty()) {
             auto [_, size] = utf8::DecodeRuneInString(s);
@@ -134,11 +134,11 @@ std::generator<string> split_seq(string s, string sep, std::size_t sep_save) {
 
 }  // namespace
 
-std::generator<string> SplitSeq(string s, string sep) { return split_seq(std::move(s), std::move(sep), 0); }
+std::generator<string> SplitSeq(string s, string sep) { return splitSeq(std::move(s), std::move(sep), 0); }
 
 std::generator<string> SplitAfterSeq(string s, string sep) {
     std::size_t n = sep.size();
-    return split_seq(std::move(s), std::move(sep), n);
+    return splitSeq(std::move(s), std::move(sep), n);
 }
 
 std::generator<string> FieldsSeq(string s) {
@@ -146,7 +146,7 @@ std::generator<string> FieldsSeq(string s) {
     for (std::size_t i = 0; i < s.size();) {
         int size = 1;
         rune r = static_cast<byte>(s[i]);
-        bool isSpace = text::ascii_space(static_cast<byte>(s[i]));
+        bool isSpace = text::asciiSpace(static_cast<byte>(s[i]));
         if (r >= utf8::RuneSelf) {
             std::tie(r, size) = utf8::DecodeRuneInString(s.view().substr(i));
             isSpace = unicode::IsSpace(r);
@@ -181,32 +181,32 @@ std::generator<string> FieldsFuncSeq(string s, std::function<bool(rune)> f) {
     if (start >= 0) co_yield s.slice(std::size_t(start));
 }
 
-string ToLower(const string& s) { return or_same(s, text::to_lower(s)); }
-string ToUpper(const string& s) { return or_same(s, text::to_upper(s)); }
-string ToTitle(const string& s) { return same_or(s, text::map(unicode::ToTitle, s)); }
+string ToLower(const string& s) { return orSame(s, text::toLower(s)); }
+string ToUpper(const string& s) { return orSame(s, text::toUpper(s)); }
+string ToTitle(const string& s) { return sameOr(s, text::map(unicode::ToTitle, s)); }
 
 string ToLowerSpecial(const unicode::SpecialCase& c, const string& s) {
-    return same_or(s, text::map([&](rune r) { return c.ToLower(r); }, s));
+    return sameOr(s, text::map([&](rune r) { return c.ToLower(r); }, s));
 }
 
 string ToUpperSpecial(const unicode::SpecialCase& c, const string& s) {
-    return same_or(s, text::map([&](rune r) { return c.ToUpper(r); }, s));
+    return sameOr(s, text::map([&](rune r) { return c.ToUpper(r); }, s));
 }
 
 string ToTitleSpecial(const unicode::SpecialCase& c, const string& s) {
-    return same_or(s, text::map([&](rune r) { return c.ToTitle(r); }, s));
+    return sameOr(s, text::map([&](rune r) { return c.ToTitle(r); }, s));
 }
 
 string ToValidUTF8(const string& s, std::string_view replacement) {
-    return or_same(s, text::to_valid_utf8(s, replacement));
+    return orSame(s, text::toValidUtf8(s, replacement));
 }
 
-string Map(std::function_ref<rune(rune)> mapping, const string& s) { return same_or(s, text::map(mapping, s)); }
+string Map(std::function_ref<rune(rune)> mapping, const string& s) { return sameOr(s, text::map(mapping, s)); }
 
 string Repeat(std::string_view s, isize count) { return string(text::repeat(s, count, "strings")); }
 
 string Replace(const string& s, std::string_view old, std::string_view new_, isize n) {
-    return or_same(s, text::replace(s, old, new_, n));
+    return orSame(s, text::replace(s, old, new_, n));
 }
 
 string ReplaceAll(const string& s, std::string_view old, std::string_view new_) { return Replace(s, old, new_, -1); }

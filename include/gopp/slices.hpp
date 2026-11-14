@@ -50,16 +50,16 @@ template <typename S>
 using elem_t = std::remove_reference_t<std::ranges::range_reference_t<S>>;
 
 template <typename S>
-std::span<elem_t<S>> span_of(S& s) noexcept {
+std::span<elem_t<S>> spanOf(S& s) noexcept {
     return {std::ranges::data(s), std::ranges::size(s)};
 }
 
 // bits.Len(uint(n))
-inline int bits_len(isize n) noexcept { return std::bit_width(static_cast<std::size_t>(n)); }
+inline int bitsLen(isize n) noexcept { return std::bit_width(static_cast<std::size_t>(n)); }
 
 // Go's copy: the ranges may overlap.
 template <typename T>
-void go_copy(T* dst, const T* src, std::size_t n) {
+void goCopy(T* dst, const T* src, std::size_t n) {
     if (dst == src || n == 0) return;
     if (dst < src) {
         std::copy(src, src + n, dst);
@@ -79,7 +79,7 @@ bool overlaps(std::span<const T> a, std::span<const T> b) noexcept {
 
 // The index in haystack where needle, which lies within it, starts.
 template <typename T>
-std::size_t start_idx(std::span<const T> haystack, std::span<const T> needle) {
+std::size_t startIdx(std::span<const T> haystack, std::span<const T> needle) {
     for (std::size_t i = 0; i < haystack.size(); i++) {
         if (&haystack[i] == &needle[0]) return i;
     }
@@ -96,15 +96,15 @@ void reverse(std::span<T> s) noexcept {
 
 // s_final[i] = s_orig[i+r], wrapping around.
 template <typename T>
-void rotate_left(std::span<T> s, std::size_t r) {
+void rotateLeft(std::span<T> s, std::size_t r) {
     reverse(s.first(r));
     reverse(s.subspan(r));
     reverse(s);
 }
 
 template <typename T>
-void rotate_right(std::span<T> s, std::size_t r) {
-    rotate_left(s, s.size() - r);
+void rotateRight(std::span<T> s, std::size_t r) {
+    rotateLeft(s, s.size() - r);
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ struct xorshift {
     }
 };
 
-inline std::size_t next_power_of_two(isize length) noexcept {
+inline std::size_t nextPowerOfTwo(isize length) noexcept {
     return std::size_t(1) << std::bit_width(static_cast<std::size_t>(length));
 }
 
@@ -153,7 +153,7 @@ void sift_down(D& data, isize lo, isize hi, isize first) {
 }
 
 template <typename D>
-void heap_sort(D& data, isize a, isize b) {
+void heapSort(D& data, isize a, isize b) {
     isize first = a, lo = 0, hi = b - a;
     for (isize i = (hi - 1) / 2; i >= 0; i--) sift_down(data, i, hi, first);
     for (isize i = hi - 1; i >= 0; i--) {
@@ -188,7 +188,7 @@ std::pair<isize, bool> partition(D& data, isize a, isize b, isize pivot) {
 }
 
 template <typename D>
-isize partition_equal(D& data, isize a, isize b, isize pivot) {
+isize partitionEqual(D& data, isize a, isize b, isize pivot) {
     data.swap(a, pivot);
     isize i = a + 1, j = b - 1;
     for (;;) {
@@ -203,7 +203,7 @@ isize partition_equal(D& data, isize a, isize b, isize pivot) {
 }
 
 template <typename D>
-bool partial_insertion_sort(D& data, isize a, isize b) {
+bool partialInsertionSort(D& data, isize a, isize b) {
     constexpr int max_steps = 5;
     constexpr isize shortest_shifting = 50;
     isize i = a + 1;
@@ -233,7 +233,7 @@ void break_patterns(D& data, isize a, isize b) {
     isize length = b - a;
     if (length >= 8) {
         xorshift random{static_cast<uint64>(length)};
-        std::size_t modulus = next_power_of_two(length);
+        std::size_t modulus = nextPowerOfTwo(length);
         for (isize idx = a + (length / 4) * 2 - 1; idx <= a + (length / 4) * 2 + 1; idx++) {
             auto other = static_cast<isize>(static_cast<std::size_t>(random.next()) & (modulus - 1));
             if (other >= length) other -= length;
@@ -260,12 +260,12 @@ isize median(D& data, isize a, isize b, isize c, int& swaps) {
 }
 
 template <typename D>
-isize median_adjacent(D& data, isize a, int& swaps) {
+isize medianAdjacent(D& data, isize a, int& swaps) {
     return median(data, a - 1, a, a + 1, swaps);
 }
 
 template <typename D>
-std::pair<isize, sorted_hint> choose_pivot(D& data, isize a, isize b) {
+std::pair<isize, sorted_hint> choosePivot(D& data, isize a, isize b) {
     constexpr isize shortest_ninther = 50;
     constexpr int max_swaps = 4 * 3;
     isize l = b - a;
@@ -273,9 +273,9 @@ std::pair<isize, sorted_hint> choose_pivot(D& data, isize a, isize b) {
     isize i = a + l / 4 * 1, j = a + l / 4 * 2, k = a + l / 4 * 3;
     if (l >= 8) {
         if (l >= shortest_ninther) {
-            i = median_adjacent(data, i, swaps);
-            j = median_adjacent(data, j, swaps);
-            k = median_adjacent(data, k, swaps);
+            i = medianAdjacent(data, i, swaps);
+            j = medianAdjacent(data, j, swaps);
+            k = medianAdjacent(data, k, swaps);
         }
         j = median(data, i, j, k, swaps);
     }
@@ -304,24 +304,24 @@ void pdqsort(D& data, isize a, isize b, int limit) {
             return;
         }
         if (limit == 0) {
-            heap_sort(data, a, b);
+            heapSort(data, a, b);
             return;
         }
         if (!was_balanced) {
             break_patterns(data, a, b);
             limit--;
         }
-        auto [pivot, hint] = choose_pivot(data, a, b);
+        auto [pivot, hint] = choosePivot(data, a, b);
         if (hint == sorted_hint::decreasing) {
             reverse_range(data, a, b);
             pivot = (b - 1) - (pivot - a);
             hint = sorted_hint::increasing;
         }
         if (was_balanced && was_partitioned && hint == sorted_hint::increasing) {
-            if (partial_insertion_sort(data, a, b)) return;
+            if (partialInsertionSort(data, a, b)) return;
         }
         if (a > 0 && !data.less(a - 1, pivot)) {
-            a = partition_equal(data, a, b, pivot);
+            a = partitionEqual(data, a, b, pivot);
             continue;
         }
         auto [mid, already_partitioned] = partition(data, a, b, pivot);
@@ -341,7 +341,7 @@ void pdqsort(D& data, isize a, isize b, int limit) {
 }
 
 template <typename D>
-void swap_range(D& data, isize a, isize b, isize n) {
+void swapRange(D& data, isize a, isize b, isize n) {
     for (isize i = 0; i < n; i++) data.swap(a + i, b + i);
 }
 
@@ -351,14 +351,14 @@ void rotate(D& data, isize a, isize m, isize b) {
     isize i = m - a, j = b - m;
     while (i != j) {
         if (i > j) {
-            swap_range(data, m - i, m, j);
+            swapRange(data, m - i, m, j);
             i -= j;
         } else {
-            swap_range(data, m - i, m + j - i, i);
+            swapRange(data, m - i, m + j - i, i);
             j -= i;
         }
     }
-    swap_range(data, m - i, m, i);
+    swapRange(data, m - i, m, i);
 }
 
 // symMerge merges the sorted data[a:m] and data[m:b] (Kim and Kutzner's
@@ -452,7 +452,7 @@ struct elements {
 };
 
 template <typename T, typename Less>
-elements<T, Less> elements_of(std::span<T> s, Less less) {
+elements<T, Less> elementsOf(std::span<T> s, Less less) {
     return {s.data(), std::move(less)};
 }
 
@@ -474,11 +474,11 @@ struct cmp_less {
 
 // append(s, v...), where v may lie in s's array beyond its length.
 template <typename T>
-slice<T> append_overlapping(slice<T> s, std::span<const T> v) {
+slice<T> appendOverlapping(slice<T> s, std::span<const T> v) {
     std::size_t n = s.len();
-    if (n + v.size() > s.cap()) return append_span(std::move(s), v);
+    if (n + v.size() > s.cap()) return appendSpan(std::move(s), v);
     s = s.Sub(0, n + v.size());
-    go_copy(s.data() + n, v.data(), v.size());
+    goCopy(s.data() + n, v.data(), v.size());
     return s;
 }
 
@@ -571,7 +571,7 @@ bool ContainsFunc(const S& s, F f) {
 // slices.Reverse: reverses s in place.
 template <detail::contiguous S>
 void Reverse(S&& s) {
-    detail::reverse(detail::span_of(s));
+    detail::reverse(detail::spanOf(s));
 }
 
 // ---------------------------------------------------------------------------
@@ -581,26 +581,26 @@ void Reverse(S&& s) {
 template <detail::contiguous S>
     requires cmp::Ordered<detail::elem_t<S>>
 void Sort(S&& x) {
-    auto s = detail::span_of(x);
-    auto data = detail::elements_of(s, detail::ordered_less{});
+    auto s = detail::spanOf(x);
+    auto data = detail::elementsOf(s, detail::ordered_less{});
     auto n = static_cast<isize>(s.size());
-    detail::pdqsort(data, 0, n, detail::bits_len(n));
+    detail::pdqsort(data, 0, n, detail::bitsLen(n));
 }
 
 // slices.SortFunc: ascending by cmp(a, b), negative when a < b. Not stable.
 template <detail::contiguous S, typename F>
 void SortFunc(S&& x, F cmp) {
-    auto s = detail::span_of(x);
-    auto data = detail::elements_of(s, detail::cmp_less<F>{cmp});
+    auto s = detail::spanOf(x);
+    auto data = detail::elementsOf(s, detail::cmp_less<F>{cmp});
     auto n = static_cast<isize>(s.size());
-    detail::pdqsort(data, 0, n, detail::bits_len(n));
+    detail::pdqsort(data, 0, n, detail::bitsLen(n));
 }
 
 // slices.SortStableFunc: as SortFunc, keeping equal elements in order.
 template <detail::contiguous S, typename F>
 void SortStableFunc(S&& x, F cmp) {
-    auto s = detail::span_of(x);
-    auto data = detail::elements_of(s, detail::cmp_less<F>{cmp});
+    auto s = detail::spanOf(x);
+    auto data = detail::elementsOf(s, detail::cmp_less<F>{cmp});
     detail::stable(data, static_cast<isize>(s.size()));
 }
 
@@ -702,7 +702,7 @@ std::pair<isize, bool> BinarySearch(const S& x, const T& t) {
             j = h;
         }
     }
-    bool found = i < s.size() && (s[i] == target || (cmp::detail::is_nan(s[i]) && cmp::detail::is_nan(target)));
+    bool found = i < s.size() && (s[i] == target || (cmp::detail::isNan(s[i]) && cmp::detail::isNan(target)));
     return {static_cast<isize>(i), found};
 }
 
@@ -734,21 +734,21 @@ slice<T> Insert(slice<T> s, isize i, std::type_identity_t<std::span<const T>> v)
     std::size_t m = v.size();
     if (m == 0) return s;
     std::size_t n = s.len();
-    if (ui == n) return detail::append_overlapping(std::move(s), v);
+    if (ui == n) return detail::appendOverlapping(std::move(s), v);
     if (n + m > s.cap()) {
-        slice<T> s2 = append_span(s.Sub(0, ui), std::span<const T>(slice<T>::make(n + m - ui)));
+        slice<T> s2 = appendSpan(s.Sub(0, ui), std::span<const T>(slice<T>::make(n + m - ui)));
         std::copy(v.begin(), v.end(), s2.begin() + ui);
         std::copy(s.begin() + ui, s.end(), s2.begin() + ui + m);
         return s2;
     }
     s = s.Sub(0, n + m);
     if (!detail::overlaps<T>(v, s.Sub(ui + m).span())) {
-        detail::go_copy(s.data() + ui + m, s.data() + ui, n - ui);
-        detail::go_copy(s.data() + ui, v.data(), m);
+        detail::goCopy(s.data() + ui + m, s.data() + ui, n - ui);
+        detail::goCopy(s.data() + ui, v.data(), m);
         return s;
     }
-    detail::go_copy(s.data() + n, v.data(), m);
-    detail::rotate_right(s.Sub(ui).span(), m);
+    detail::goCopy(s.data() + n, v.data(), m);
+    detail::rotateRight(s.Sub(ui).span(), m);
     return s;
 }
 
@@ -767,7 +767,7 @@ slice<T> Delete(slice<T> s, isize i, isize j) {
     if (i == j) return s;
     auto ui = static_cast<std::size_t>(i), uj = static_cast<std::size_t>(j);
     std::size_t oldlen = s.len();
-    detail::go_copy(s.data() + ui, s.data() + uj, oldlen - uj);
+    detail::goCopy(s.data() + ui, s.data() + uj, oldlen - uj);
     std::size_t newlen = oldlen - (uj - ui);
     std::fill(s.data() + newlen, s.data() + oldlen, T{});
     return s.Sub(0, newlen);
@@ -796,45 +796,45 @@ slice<T> Replace(slice<T> s, isize i, isize j, std::type_identity_t<std::span<co
     if (i == j) return Insert(std::move(s), i, v);
     auto ui = static_cast<std::size_t>(i), uj = static_cast<std::size_t>(j);
     if (uj == s.len()) {
-        slice<T> s2 = detail::append_overlapping(s.Sub(0, ui), v);
+        slice<T> s2 = detail::appendOverlapping(s.Sub(0, ui), v);
         if (s2.len() < s.len()) std::fill(s.data() + s2.len(), s.data() + s.len(), T{});
         return s2;
     }
     std::size_t tot = ui + v.size() + (s.len() - uj);
     if (tot > s.cap()) {
-        slice<T> s2 = append_span(s.Sub(0, ui), std::span<const T>(slice<T>::make(tot - ui)));
+        slice<T> s2 = appendSpan(s.Sub(0, ui), std::span<const T>(slice<T>::make(tot - ui)));
         std::copy(v.begin(), v.end(), s2.begin() + ui);
         std::copy(s.begin() + uj, s.end(), s2.begin() + ui + v.size());
         return s2;
     }
     slice<T> r = s.Sub(0, tot);
     if (ui + v.size() <= uj) {
-        detail::go_copy(r.data() + ui, v.data(), v.size());
-        detail::go_copy(r.data() + ui + v.size(), s.data() + uj, s.len() - uj);
+        detail::goCopy(r.data() + ui, v.data(), v.size());
+        detail::goCopy(r.data() + ui + v.size(), s.data() + uj, s.len() - uj);
         if (tot < s.len()) std::fill(s.data() + tot, s.data() + s.len(), T{});
         return r;
     }
     if (!detail::overlaps<T>(r.Sub(ui + v.size()).span(), v)) {
-        detail::go_copy(r.data() + ui + v.size(), s.data() + uj, s.len() - uj);
-        detail::go_copy(r.data() + ui, v.data(), v.size());
+        detail::goCopy(r.data() + ui + v.size(), s.data() + uj, s.len() - uj);
+        detail::goCopy(r.data() + ui, v.data(), v.size());
         return r;
     }
     std::size_t y = v.size() - (uj - ui);
     if (!detail::overlaps<T>(r.Sub(ui, uj).span(), v)) {
-        detail::go_copy(r.data() + ui, v.data() + y, uj - ui);
-        detail::go_copy(r.data() + s.len(), v.data(), y);
-        detail::rotate_right(r.Sub(ui).span(), y);
+        detail::goCopy(r.data() + ui, v.data() + y, uj - ui);
+        detail::goCopy(r.data() + s.len(), v.data(), y);
+        detail::rotateRight(r.Sub(ui).span(), y);
         return r;
     }
     if (!detail::overlaps<T>(r.Sub(s.len()).span(), v)) {
-        detail::go_copy(r.data() + s.len(), v.data(), y);
-        detail::go_copy(r.data() + ui, v.data() + y, uj - ui);
-        detail::rotate_right(r.Sub(ui).span(), y);
+        detail::goCopy(r.data() + s.len(), v.data(), y);
+        detail::goCopy(r.data() + ui, v.data() + y, uj - ui);
+        detail::rotateRight(r.Sub(ui).span(), y);
         return r;
     }
-    std::size_t k = detail::start_idx<T>(v, s.Sub(uj).span());
-    detail::go_copy(r.data() + ui, v.data(), v.size());
-    detail::go_copy(r.data() + ui + v.size(), r.data() + ui + k, tot - ui - v.size());
+    std::size_t k = detail::startIdx<T>(v, s.Sub(uj).span());
+    detail::goCopy(r.data() + ui, v.data(), v.size());
+    detail::goCopy(r.data() + ui + v.size(), r.data() + ui + k, tot - ui - v.size());
     return r;
 }
 
@@ -849,7 +849,7 @@ slice<T> Replace(slice<T> s, isize i, isize j, V&&... v) {
 // slices.Clone: a shallow copy; nil stays nil.
 template <typename T>
 slice<T> Clone(const slice<T>& s) {
-    if (s.is_nil()) return {};
+    if (s.isNil()) return {};
     return slice<T>::of(s);
 }
 
@@ -906,7 +906,7 @@ slice<T> Grow(slice<T> s, isize n) {
     if (un > s.cap() - s.len()) {
         un -= s.cap() - s.len();
         std::size_t len = s.len();
-        s = append_span(s.Sub(0, s.cap()), std::span<const T>(slice<T>::make(un))).Sub(0, len);
+        s = appendSpan(s.Sub(0, s.cap()), std::span<const T>(slice<T>::make(un))).Sub(0, len);
     }
     return s;
 }
@@ -923,8 +923,8 @@ template <typename T, typename... S>
 slice<T> Concat(const slice<T>& first, const S&... rest) {
     std::size_t size = first.len() + (rest.len() + ... + 0);
     slice<T> r = Grow(slice<T>{}, static_cast<isize>(size));
-    r = append_span(r, std::span<const T>(first));
-    ((r = append_span(r, std::span<const T>(rest))), ...);
+    r = appendSpan(r, std::span<const T>(first));
+    ((r = appendSpan(r, std::span<const T>(rest))), ...);
     return r;
 }
 
@@ -1023,7 +1023,7 @@ auto Chunk(slice<T> s, isize n) {
 template <detail::contiguous S>
 auto Chunk(S& s, isize n) {
     if (n < 1) panic("cannot be less than 1");
-    auto sp = detail::span_of(s);
+    auto sp = detail::spanOf(s);
     auto un = static_cast<std::size_t>(n);
     std::size_t count = (sp.size() + un - 1) / un;
     return std::views::iota(std::size_t(0), count) | std::views::transform([sp, un](std::size_t c) {

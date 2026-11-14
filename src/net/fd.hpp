@@ -48,9 +48,9 @@ public:
     // writev(2) of the buffers, consuming what was written.
     std::pair<int64, error> writeBuffers(std::vector<slice<byte>>& v);
     // Go's RawControl, RawRead and RawWrite.
-    error raw_control(const std::function<void(uintptr)>& f);
-    error raw_read(const std::function<bool(uintptr)>& f);
-    error raw_write(const std::function<bool(uintptr)>& f);
+    error rawControl(const std::function<void(uintptr)>& f);
+    error rawRead(const std::function<bool(uintptr)>& f);
+    error rawWrite(const std::function<bool(uintptr)>& f);
     // For callers doing their own non-blocking calls (splice, sendfile),
     // as Go's pollDesc's prepare and wait: prepare ('r' or 'w') before
     // the first call, and wait until the socket is readable or writable
@@ -61,12 +61,12 @@ public:
     error wait(int mode);
     sync::Mutex& read_lock() noexcept { return rmu_; }
     sync::Mutex& write_lock() noexcept { return wmu_; }
-    error getsockopt_int(int level, int name, int* value);
-    error setsockopt_linger(int sec);
+    error getsockoptInt(int level, int name, int* value);
+    error setsockoptLinger(int sec);
     error Close();
     error shutdown(int how);
     error SetDeadline(time::Time t, int mode);
-    error setsockopt_int(int level, int name, int value);
+    error setsockoptInt(int level, int name, int value);
 
     int sysfd() const noexcept { return sysfd_; }
     int family() const noexcept { return family_; }
@@ -75,7 +75,7 @@ public:
 
     // Sets laddr from getsockname(2) and raddr from getpeername(2), or
     // from raddr_sa when it's given.
-    void set_addrs(const sockaddr_storage* raddr_sa = nullptr);
+    void setAddrs(const sockaddr_storage* raddr_sa = nullptr);
     // A copy of the descriptor as an os::File (Go's netFD.dup).
     std::pair<ptr<os::File>, error> dup();
     ptr<Addr> laddr;
@@ -102,16 +102,16 @@ private:
 // The Addr of a sockaddr for a socket of type sotype: a TCPAddr for
 // streams and a UDPAddr for datagrams; a UnixAddr; nullptr for AF_UNSPEC.
 // sa must have been zeroed before the kernel filled it in.
-ptr<Addr> sockaddr_to_addr(const sockaddr_storage& sa, int sotype);
+ptr<Addr> sockaddrToAddr(const sockaddr_storage& sa, int sotype);
 
 // Go's SockaddrUnix.sockaddr: name as a sockaddr_un. "@name" (or a name
 // starting with NUL) is in the abstract namespace; "" is unnamed, which
 // bind(2) gives an abstract name.
-error unix_sockaddr(std::string_view name, sockaddr_storage* sa, socklen_t* len);
+error unixSockaddr(std::string_view name, sockaddr_storage* sa, socklen_t* len);
 
 // The network of a Unix socket of type sotype: "unix", "unixgram" or
 // "unixpacket".
-string unix_net(int sotype);
+string unixNet(int sotype);
 
 // net.OpError for a failed operation, unless err is nil or io::EOF_.
 error op_error(std::string_view op, const string& network, ptr<Addr> source, ptr<Addr> addr, error err);
@@ -126,10 +126,10 @@ error mapErr(const error& err);
 
 // The sockaddr of a TCPAddr, UDPAddr, IPAddr or UnixAddr for family; len 0
 // for nullptr.
-error addr_sockaddr(const Addr* a, int family, sockaddr_storage* sa, socklen_t* len);
+error addrSockaddr(const Addr* a, int family, sockaddr_storage* sa, socklen_t* len);
 
 // The descriptor of a Conn of this package, or nullptr.
-netfd* netfd_of(const object* c);
+netfd* netfdOf(const object* c);
 
 // Go's ipToSockaddr: ip (nil for the wildcard), port and zone as a
 // sockaddr of family.

@@ -11,7 +11,7 @@ using namespace os_test;
 
 namespace {
 
-void check_named_size(std::string_view path, int64 size) {
+void checkNamedSize(std::string_view path, int64 size) {
     auto [dir, err] = os::Stat(path);
     ASSERT_FALSE(err) << "Stat " << path << " (looking for size " << size << "): " << err;
     EXPECT_EQ(dir->Size(), size) << "Stat " << path;
@@ -59,7 +59,7 @@ TEST(GoOs, ReadFile) {
     f->WriteString(data);
     auto [contents, rerr] = os::ReadFile(f->Name().view());
     ASSERT_FALSE(rerr) << "ReadFile " << f->Name() << ": " << rerr;
-    check_named_size(f->Name().view(), static_cast<int64>(contents.size()));
+    checkNamedSize(f->Name().view(), static_cast<int64>(contents.size()));
 }
 
 TEST(GoOs, WriteFile) {
@@ -92,7 +92,7 @@ TEST(GoOs, ReadDir) {
     std::string filename = join(tmp, "foo");
     touch(filename);
     auto [list, ferr] = os::ReadDir(filename);
-    ASSERT_TRUE(list.empty() && is_errno(errors::Unwrap(ferr), ENOTDIR))
+    ASSERT_TRUE(list.empty() && isErrno(errors::Unwrap(ferr), ENOTDIR))
         << "ReadDir " << filename << ": (nil, ENOTDIR) expected, got " << ferr;
 
     // Go reads its source directory, with read_test.go and exec/.
@@ -497,7 +497,7 @@ TEST(GoOs, RemoveAllSymlinkRemovalFailure) {
 
 namespace {
 
-void test_getwd_deep(bool set_pwd) {
+void testGetwdDeep(bool set_pwd) {
     TempDir tmp;
     std::string dir = tmp.path();
     Chdir cd(dir);
@@ -524,7 +524,7 @@ void test_getwd_deep(bool set_pwd) {
         // limit. For now, simply check if we can stat the returned path.
         auto [_, serr] = os::Stat(wd.view());
         if (serr || wd.size() > 4096) {
-            if (serr && !is_errno(errors::Unwrap(serr), ENAMETOOLONG)) FAIL() << "unexpected Stat error: " << serr;
+            if (serr && !isErrno(errors::Unwrap(serr), ENAMETOOLONG)) FAIL() << "unexpected Stat error: " << serr;
             break;
         }
     }
@@ -535,9 +535,9 @@ void test_getwd_deep(bool set_pwd) {
 
 }  // namespace
 
-TEST(GoOs, GetwdDeep) { test_getwd_deep(false); }
+TEST(GoOs, GetwdDeep) { testGetwdDeep(false); }
 
-TEST(GoOs, GetwdDeepWithPWDSet) { test_getwd_deep(true); }
+TEST(GoOs, GetwdDeepWithPWDSet) { testGetwdDeep(true); }
 
 // os_unix_test.go: TestSplitPath and TestMkdirStickyUmask
 

@@ -12,7 +12,7 @@ namespace gopp::time {
 
 namespace {
 // Go's parseDurationError quotes with the time package's quote.
-string strconv_quote(std::string_view s) { return string(quote(s)); }
+string strconvQuote(std::string_view s) { return string(quote(s)); }
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ string Duration::String() const {
     if (u < 1000000000) {
         int prec;
         buf[--w] = 's';
-        if (u == 0) return string::from_static("0s");
+        if (u == 0) return string::fromStatic("0s");
         if (u < 1000) {
             prec = 0;
             buf[--w] = 'n';
@@ -127,7 +127,7 @@ void leading_fraction(std::string_view& s, uint64& x, double& scale) {
 std::pair<Duration, error> ParseDuration(std::string_view s) {
     std::string_view orig = s;
     auto invalid = [&](std::string_view what) {
-        return std::pair<Duration, error>{Duration(), errors::New("time: " + string(what) + " " + strconv_quote(orig))};
+        return std::pair<Duration, error>{Duration(), errors::New("time: " + string(what) + " " + strconvQuote(orig))};
     };
     uint64 d = 0;
     bool neg = false;
@@ -164,7 +164,7 @@ std::pair<Duration, error> ParseDuration(std::string_view s) {
         else if (u == "s") unit = 1000000000;
         else if (u == "m") unit = 60 * uint64(1000000000);
         else if (u == "h") unit = 3600 * uint64(1000000000);
-        else return {Duration(), errors::New("time: unknown unit " + strconv_quote(u) + " in duration " + strconv_quote(orig))};
+        else return {Duration(), errors::New("time: unknown unit " + strconvQuote(u) + " in duration " + strconvQuote(orig))};
         if (v > (uint64(1) << 63) / unit) return invalid("invalid duration");
         v *= unit;
         if (f > 0) {
@@ -201,7 +201,7 @@ void Sleep(Duration d) {
     // be readied while still running.
     runtime::park(
         [](runtime::G*, void* arg) {
-            runtime::add_timer(static_cast<runtime::timer*>(arg));
+            runtime::addTimer(static_cast<runtime::timer*>(arg));
             return true;
         },
         &t, runtime::waitreason::sleep);
@@ -230,54 +230,54 @@ struct Timer::impl {
         im->mu.lock();
         if (seq != im->gen || !im->active) {
             im->mu.unlock();
-            im->owner->release_ref();
+            im->owner->releaseRef();
             return;
         }
         if (im->f) {
             gopp::go(im->f);
         } else {
             Time n = Now();
-            im->c.try_send(n);
+            im->c.trySend(n);
         }
         if (im->period > 0) {
             im->t.when = runtime::nanotime() + im->period;
-            runtime::add_timer(&im->t);  // keeps the reference
+            runtime::addTimer(&im->t);  // keeps the reference
             im->mu.unlock();
             return;
         }
         im->active = false;
         im->mu.unlock();
-        im->owner->release_ref();
+        im->owner->releaseRef();
     }
 
     // mu must be held.
     void arm(int64 d) {
         gen++;
         active = true;
-        owner->add_ref();
+        owner->addRef();
         t.when = runtime::nanotime() + (d > 0 ? d : 0);
         if (t.when <= 0) t.when = 1;
         t.period = 0;
         t.f = fire;
         t.arg = this;
         t.seq = gen;
-        runtime::add_timer(&t);
+        runtime::addTimer(&t);
     }
 
     bool stop() {
         mu.lock();
         gen++;
         active = false;
-        bool removed = runtime::del_timer(&t);
+        bool removed = runtime::delTimer(&t);
         mu.unlock();
-        if (removed) owner->release_ref();
+        if (removed) owner->releaseRef();
         return removed;
     }
 
     bool reset(int64 d) {
         mu.lock();
-        bool removed = runtime::del_timer(&t);
-        if (removed) owner->release_ref();
+        bool removed = runtime::delTimer(&t);
+        if (removed) owner->releaseRef();
         arm(d);
         mu.unlock();
         return removed;
@@ -294,7 +294,7 @@ bool Timer::Reset(Duration d) noexcept { return impl_->reset(d.ns); }
 
 ptr<Timer> NewTimer(Duration d) {
     ptr<Timer> t(new Timer());
-    t->C = make_chan<Time>(1);
+    t->C = makeChan<Time>(1);
     t->impl_->c = t->C;
     t->impl_->mu.lock();
     t->impl_->arm(d.ns);
@@ -330,7 +330,7 @@ void Ticker::Reset(Duration d) noexcept {
 ptr<Ticker> NewTicker(Duration d) {
     if (d.ns <= 0) panic("non-positive interval for NewTicker");
     ptr<Ticker> t(new Ticker());
-    t->C = make_chan<Time>(1);
+    t->C = makeChan<Time>(1);
     t->impl_->c = t->C;
     t->impl_->period = d.ns;
     t->impl_->mu.lock();

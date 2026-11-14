@@ -17,7 +17,7 @@ struct parse_error {
     gopp::error err;
 };
 
-bool is_rune_int(std::string_view s) { return !s.empty() && s[0] == '\''; }
+bool isRuneInt(std::string_view s) { return !s.empty() && s[0] == '\''; }
 
 constexpr int max_nest_depth = 200;
 
@@ -29,8 +29,8 @@ struct tree_access {
     static ptr<Node> new_number(Tree& t, std::string_view text, int typ) { return t.new_number(0, text, typ); }
 };
 
-std::pair<ptr<NumberNode>, gopp::error> new_number_for_test(std::string_view text, int typ) {
-    auto t = New(string::from_static("test"));
+std::pair<ptr<NumberNode>, gopp::error> newNumberForTest(std::string_view text, int typ) {
+    auto t = New(string::fromStatic("test"));
     try {
         return {dynamic_pointer_cast<NumberNode>(tree_access::new_number(*t, text, typ)), nullptr};
     } catch (parse_error& e) {
@@ -80,7 +80,7 @@ item Tree::next() {
     if (peek_count_ > 0) {
         peek_count_--;
     } else {
-        token_[0] = lex_->next_item();
+        token_[0] = lex_->nextItem();
     }
     return token_[peek_count_];
 }
@@ -101,19 +101,19 @@ void Tree::backup3(const item& t2, const item& t1) {
 item Tree::peek() {
     if (peek_count_ > 0) return token_[peek_count_ - 1];
     peek_count_ = 1;
-    token_[0] = lex_->next_item();
+    token_[0] = lex_->nextItem();
     return token_[0];
 }
 
-item Tree::next_non_space() {
+item Tree::nextNonSpace() {
     for (;;) {
         item token = next();
         if (token.typ != itemSpace) return token;
     }
 }
 
-item Tree::peek_non_space() {
-    item token = next_non_space();
+item Tree::peekNonSpace() {
+    item token = nextNonSpace();
     backup();
     return token;
 }
@@ -143,13 +143,13 @@ void Tree::errorf(const std::string& msg) {
 }
 
 item Tree::expect(int expected, std::string_view context) {
-    item token = next_non_space();
+    item token = nextNonSpace();
     if (token.typ != expected) unexpected(token, context);
     return token;
 }
 
-item Tree::expect_one_of(int expected1, int expected2, std::string_view context) {
-    item token = next_non_space();
+item Tree::expectOneOf(int expected1, int expected2, std::string_view context) {
+    item token = nextNonSpace();
     if (token.typ != expected1 && token.typ != expected2) unexpected(token, context);
     return token;
 }
@@ -169,22 +169,22 @@ void Tree::unexpected(const item& token, std::string_view context) {
 // ---------------------------------------------------------------------------
 // Parsing
 
-void Tree::start_parse(std::vector<const FuncNames*> funcs, std::shared_ptr<lexer> lex,
+void Tree::startParse(std::vector<const FuncNames*> funcs, std::shared_ptr<lexer> lex,
                        std::map<std::string, ptr<Tree>, std::less<>>* tree_set) {
     Root = nullptr;
     lex_ = std::move(lex);
-    vars_ = {string::from_static("$")};
+    vars_ = {string::fromStatic("$")};
     funcs_ = std::move(funcs);
     tree_set_ = tree_set;
     stack_depth_ = 0;
     lex_->options = lex_options{
         .emit_comment = (Mode & ParseComments) != 0,
-        .break_ok = !has_function("break"),
-        .continue_ok = !has_function("continue"),
+        .break_ok = !hasFunction("break"),
+        .continue_ok = !hasFunction("continue"),
     };
 }
 
-void Tree::stop_parse() {
+void Tree::stopParse() {
     lex_ = nullptr;
     vars_.clear();
     funcs_.clear();
@@ -201,12 +201,12 @@ std::pair<Tree*, gopp::error> Tree::Parse(std::string_view text_in, std::string_
     text = string(text_in);
     auto lex = std::make_shared<lexer>(Name, text, left_delim, right_delim);
     try {
-        start_parse(std::move(funcs), lex, &tree_set);
+        startParse(std::move(funcs), lex, &tree_set);
         parse();
         add();
-        stop_parse();
+        stopParse();
     } catch (parse_error& e) {
-        stop_parse();
+        stopParse();
         return {nullptr, e.err};
     }
     return {this, nullptr};
@@ -248,16 +248,16 @@ void Tree::parse() {
     while (peek().typ != itemEOF) {
         if (peek().typ == itemLeftDelim) {
             item delim = next();
-            if (next_non_space().typ == itemDefine) {
-                auto new_t = New(string::from_static("definition"));  // name will be updated once we know it
+            if (nextNonSpace().typ == itemDefine) {
+                auto new_t = New(string::fromStatic("definition"));  // name will be updated once we know it
                 new_t->text = text;
                 new_t->Mode = Mode;
                 new_t->left_delim = left_delim;
                 new_t->right_delim = right_delim;
                 new_t->ParseName = ParseName;
-                new_t->start_parse(funcs_, lex_, tree_set_);
+                new_t->startParse(funcs_, lex_, tree_set_);
                 try {
-                    new_t->parse_definition();
+                    new_t->parseDefinition();
                 } catch (parse_error&) {
                     token_[0] = new_t->token_[0];
                     throw;
@@ -266,44 +266,44 @@ void Tree::parse() {
             }
             backup2(delim);
         }
-        ptr<Node> n = text_or_action();
+        ptr<Node> n = textOrAction();
         if (n->Type() == nodeEnd || n->Type() == nodeElse) errorf("unexpected " + n->String().str());
         Root->Nodes.push_back(n);
     }
 }
 
-void Tree::parse_definition() {
+void Tree::parseDefinition() {
     constexpr std::string_view context = "define clause";
-    item name = expect_one_of(itemString, itemRawString, context);
+    item name = expectOneOf(itemString, itemRawString, context);
     auto [s, err] = detail::unquote(name.val);
     if (err) errorf(err.Error().str());
     Name = string(s);
     expect(itemRightDelim, context);
-    auto [list, end] = item_list();
+    auto [list, end] = itemList();
     Root = list;
     if (end->Type() != nodeEnd) errorf("unexpected " + end->String().str() + " in " + std::string(context));
     add();
-    stop_parse();
+    stopParse();
 }
 
-std::pair<ptr<ListNode>, ptr<Node>> Tree::item_list() {
+std::pair<ptr<ListNode>, ptr<Node>> Tree::itemList() {
     if (nest_depth_ >= max_nest_depth) errorf("max template nesting depth exceeded");
     nest_depth_++;
     struct guard {
         int& d;
         ~guard() { d--; }
     } g{nest_depth_};
-    auto list = make<ListNode>(NodeList, peek_non_space().pos);
-    while (peek_non_space().typ != itemEOF) {
-        ptr<Node> n = text_or_action();
+    auto list = make<ListNode>(NodeList, peekNonSpace().pos);
+    while (peekNonSpace().typ != itemEOF) {
+        ptr<Node> n = textOrAction();
         if (n->Type() == nodeEnd || n->Type() == nodeElse) return {list, n};
         list->Nodes.push_back(n);
     }
     errorf("unexpected EOF");
 }
 
-ptr<Node> Tree::text_or_action() {
-    item token = next_non_space();
+ptr<Node> Tree::textOrAction() {
+    item token = nextNonSpace();
     switch (token.typ) {
     case itemText: {
         auto n = make<TextNode>(NodeText, token.pos);
@@ -329,17 +329,17 @@ ptr<Node> Tree::text_or_action() {
 }
 
 ptr<Node> Tree::action() {
-    item token = next_non_space();
+    item token = nextNonSpace();
     switch (token.typ) {
-    case itemBlock: return block_control();
-    case itemBreak: return break_control(token.pos, token.line);
-    case itemContinue: return continue_control(token.pos, token.line);
+    case itemBlock: return blockControl();
+    case itemBreak: return breakControl(token.pos, token.line);
+    case itemContinue: return continueControl(token.pos, token.line);
     case itemElse: return else_control();
-    case itemEnd: return end_control();
-    case itemIf: return if_control();
-    case itemRange: return range_control();
-    case itemTemplate: return template_control();
-    case itemWith: return with_control();
+    case itemEnd: return endControl();
+    case itemIf: return ifControl();
+    case itemRange: return rangeControl();
+    case itemTemplate: return templateControl();
+    case itemWith: return withControl();
     }
     backup();
     item t = peek();
@@ -350,16 +350,16 @@ ptr<Node> Tree::action() {
     return n;
 }
 
-ptr<Node> Tree::break_control(parse::Pos pos, int line) {
-    if (item token = next_non_space(); token.typ != itemRightDelim) unexpected(token, "{{break}}");
+ptr<Node> Tree::breakControl(parse::Pos pos, int line) {
+    if (item token = nextNonSpace(); token.typ != itemRightDelim) unexpected(token, "{{break}}");
     if (range_depth_ == 0) errorf("{{break}} outside {{range}}");
     auto n = make<BreakNode>(NodeBreak, pos);
     n->Line = line;
     return n;
 }
 
-ptr<Node> Tree::continue_control(parse::Pos pos, int line) {
-    if (item token = next_non_space(); token.typ != itemRightDelim) unexpected(token, "{{continue}}");
+ptr<Node> Tree::continueControl(parse::Pos pos, int line) {
+    if (item token = nextNonSpace(); token.typ != itemRightDelim) unexpected(token, "{{continue}}");
     if (range_depth_ == 0) errorf("{{continue}} outside {{range}}");
     auto n = make<ContinueNode>(NodeContinue, pos);
     n->Line = line;
@@ -367,7 +367,7 @@ ptr<Node> Tree::continue_control(parse::Pos pos, int line) {
 }
 
 ptr<PipeNode> Tree::pipeline(std::string_view context, int end) {
-    item token = peek_non_space();
+    item token = peekNonSpace();
     auto pipe = make<PipeNode>(NodePipe, token.pos);
     pipe->Line = token.line;
     auto new_variable = [&](const item& v) {
@@ -377,7 +377,7 @@ ptr<PipeNode> Tree::pipeline(std::string_view context, int end) {
     };
     // Are there declarations or assignments?
     for (;;) {
-        item v = peek_non_space();
+        item v = peekNonSpace();
         if (v.typ != itemVariable) break;
         next();
         // Since space is a token, we need 3-token look-ahead here in the
@@ -386,18 +386,18 @@ ptr<PipeNode> Tree::pipeline(std::string_view context, int end) {
         // declaration. So remember the token adjacent to the variable so
         // we can push it back if necessary.
         item token_after_variable = peek();
-        item nx = peek_non_space();
+        item nx = peekNonSpace();
         if (nx.typ == itemAssign || nx.typ == itemDeclare) {
             pipe->IsAssign = nx.typ == itemAssign;
-            next_non_space();
+            nextNonSpace();
             pipe->Decl.push_back(new_variable(v));
             vars_.push_back(v.val);
         } else if (nx.typ == itemChar && nx.val == ",") {
-            next_non_space();
+            nextNonSpace();
             pipe->Decl.push_back(new_variable(v));
             vars_.push_back(v.val);
             if (context == "range" && pipe->Decl.size() < 2) {
-                int t = peek_non_space().typ;
+                int t = peekNonSpace().typ;
                 if (t == itemVariable || t == itemRightDelim || t == itemRightParen) {
                     continue;  // second initialized variable in a range pipeline
                 }
@@ -412,10 +412,10 @@ ptr<PipeNode> Tree::pipeline(std::string_view context, int end) {
         break;
     }
     for (;;) {
-        item tk = next_non_space();
+        item tk = nextNonSpace();
         if (tk.typ == end) {
             // At this point, the pipeline is complete.
-            check_pipeline(*pipe, context);
+            checkPipeline(*pipe, context);
             return pipe;
         }
         switch (tk.typ) {
@@ -430,7 +430,7 @@ ptr<PipeNode> Tree::pipeline(std::string_view context, int end) {
     }
 }
 
-void Tree::check_pipeline(const PipeNode& pipe, std::string_view context) {
+void Tree::checkPipeline(const PipeNode& pipe, std::string_view context) {
     // Reject empty pipelines.
     if (pipe.Cmds.empty()) errorf("missing value for " + std::string(context));
     // Only the first command of a pipeline can start with a non executable
@@ -446,7 +446,7 @@ void Tree::check_pipeline(const PipeNode& pipe, std::string_view context) {
     }
 }
 
-ptr<BranchNode> Tree::parse_control(std::string_view context, ptr<BranchNode> node) {
+ptr<BranchNode> Tree::parseControl(std::string_view context, ptr<BranchNode> node) {
     std::size_t nvars = vars_.size();
     struct pop {
         std::vector<string>& v;
@@ -455,7 +455,7 @@ ptr<BranchNode> Tree::parse_control(std::string_view context, ptr<BranchNode> no
     } popper{vars_, nvars};
     auto pipe = pipeline(context, itemRightDelim);
     if (context == "range") range_depth_++;
-    auto [list, nx] = item_list();
+    auto [list, nx] = itemList();
     if (context == "range") range_depth_--;
     ptr<ListNode> else_list;
     if (nx->Type() == nodeElse) {
@@ -473,13 +473,13 @@ ptr<BranchNode> Tree::parse_control(std::string_view context, ptr<BranchNode> no
         if (context == "if" && peek().typ == itemIf) {
             next();  // consume the "if" token
             else_list = make<ListNode>(NodeList, nx->Position());
-            else_list->Nodes.push_back(if_control());
+            else_list->Nodes.push_back(ifControl());
         } else if (context == "with" && peek().typ == itemWith) {
             next();
             else_list = make<ListNode>(NodeList, nx->Position());
-            else_list->Nodes.push_back(with_control());
+            else_list->Nodes.push_back(withControl());
         } else {
-            auto [l, nx2] = item_list();
+            auto [l, nx2] = itemList();
             else_list = l;
             if (nx2->Type() != nodeEnd) errorf("expected end; found " + nx2->String().str());
         }
@@ -493,28 +493,28 @@ ptr<BranchNode> Tree::parse_control(std::string_view context, ptr<BranchNode> no
     return node;
 }
 
-ptr<Node> Tree::if_control() {
+ptr<Node> Tree::ifControl() {
     auto n = make_ptr<IfNode>();
     n->NodeType = NodeIf;
-    return parse_control("if", n);
+    return parseControl("if", n);
 }
 
-ptr<Node> Tree::range_control() {
+ptr<Node> Tree::rangeControl() {
     auto n = make_ptr<RangeNode>();
     n->NodeType = NodeRange;
-    return parse_control("range", n);
+    return parseControl("range", n);
 }
 
-ptr<Node> Tree::with_control() {
+ptr<Node> Tree::withControl() {
     auto n = make_ptr<WithNode>();
     n->NodeType = NodeWith;
-    return parse_control("with", n);
+    return parseControl("with", n);
 }
 
-ptr<Node> Tree::end_control() { return make<EndNode>(nodeEnd, expect(itemRightDelim, "end").pos); }
+ptr<Node> Tree::endControl() { return make<EndNode>(nodeEnd, expect(itemRightDelim, "end").pos); }
 
 ptr<Node> Tree::else_control() {
-    item p = peek_non_space();
+    item p = peekNonSpace();
     // The "{{else if ... " and "{{else with ..." will be treated as
     // "{{else}}{{if ..." and "{{else}}{{with ...". So return the else
     // node here.
@@ -529,10 +529,10 @@ ptr<Node> Tree::else_control() {
     return n;
 }
 
-ptr<Node> Tree::block_control() {
+ptr<Node> Tree::blockControl() {
     constexpr std::string_view context = "block clause";
-    item token = next_non_space();
-    string name = parse_template_name(token, context);
+    item token = nextNonSpace();
+    string name = parseTemplateName(token, context);
     auto pipe = pipeline(context, itemRightDelim);
 
     auto block = New(name);  // name will be updated once we know it
@@ -541,9 +541,9 @@ ptr<Node> Tree::block_control() {
     block->left_delim = left_delim;
     block->right_delim = right_delim;
     block->ParseName = ParseName;
-    block->start_parse(funcs_, lex_, tree_set_);
+    block->startParse(funcs_, lex_, tree_set_);
     try {
-        auto [list, end] = block->item_list();
+        auto [list, end] = block->itemList();
         block->Root = list;
         if (end->Type() != nodeEnd) errorf("unexpected " + end->String().str() + " in " + std::string(context));
         block->add();
@@ -551,7 +551,7 @@ ptr<Node> Tree::block_control() {
         token_[0] = block->token_[0];
         throw;
     }
-    block->stop_parse();
+    block->stopParse();
 
     auto n = make<TemplateNode>(NodeTemplate, token.pos);
     n->Line = token.line;
@@ -560,12 +560,12 @@ ptr<Node> Tree::block_control() {
     return n;
 }
 
-ptr<Node> Tree::template_control() {
+ptr<Node> Tree::templateControl() {
     constexpr std::string_view context = "template clause";
-    item token = next_non_space();
-    string name = parse_template_name(token, context);
+    item token = nextNonSpace();
+    string name = parseTemplateName(token, context);
     ptr<PipeNode> pipe;
-    if (next_non_space().typ != itemRightDelim) {
+    if (nextNonSpace().typ != itemRightDelim) {
         backup();
         // Do not pop variables; they persist until "end".
         pipe = pipeline(context, itemRightDelim);
@@ -577,7 +577,7 @@ ptr<Node> Tree::template_control() {
     return n;
 }
 
-string Tree::parse_template_name(const item& token, std::string_view context) {
+string Tree::parseTemplateName(const item& token, std::string_view context) {
     if (token.typ == itemString || token.typ == itemRawString) {
         auto [s, err] = detail::unquote(token.val);
         if (err) errorf(err.Error().str());
@@ -587,9 +587,9 @@ string Tree::parse_template_name(const item& token, std::string_view context) {
 }
 
 ptr<CommandNode> Tree::command() {
-    auto cmd = make<CommandNode>(NodeCommand, peek_non_space().pos);
+    auto cmd = make<CommandNode>(NodeCommand, peekNonSpace().pos);
     for (;;) {
-        peek_non_space();  // skip leading spaces
+        peekNonSpace();  // skip leading spaces
         ptr<Node> op = operand();
         if (op) cmd->Args.push_back(op);
         item token = next();
@@ -640,18 +640,18 @@ ptr<Node> Tree::operand() {
 }
 
 ptr<Node> Tree::term() {
-    item token = next_non_space();
+    item token = nextNonSpace();
     switch (token.typ) {
     case itemIdentifier: {
         bool check_func = (Mode & SkipFuncCheck) == 0;
-        if (check_func && !has_function(token.val)) errorf("function " + detail::quote(token.val) + " not defined");
+        if (check_func && !hasFunction(token.val)) errorf("function " + detail::quote(token.val) + " not defined");
         auto n = NewIdentifier(token.val);
         n->SetTree(this)->SetPos(token.pos);
         return n;
     }
     case itemDot: return make<DotNode>(NodeDot, token.pos);
     case itemNil: return make<NilNode>(NodeNil, token.pos);
-    case itemVariable: return use_var(token.pos, token.val);
+    case itemVariable: return useVar(token.pos, token.val);
     case itemField: {
         auto f = make<FieldNode>(NodeField, token.pos);
         for (auto& part : strings::Split(token.val.slice(1), ".")) f->Ident.push_back(part);  // drop leading period
@@ -692,7 +692,7 @@ ptr<Node> Tree::new_number(parse::Pos pos, std::string_view text_in, int typ) {
     std::string_view text = text_in;
     if (typ == itemCharConstant) {
         // Character constant: a rune, so an integer.
-        auto [r, multibyte, tail, err] = detail::unquote_char(text.substr(1), text[0]);
+        auto [r, multibyte, tail, err] = detail::unquoteChar(text.substr(1), text[0]);
         if (err) errorf(err.Error().str());
         if (tail != "'") errorf("malformed character constant: " + std::string(text));
         n->Int64 = r;
@@ -711,21 +711,21 @@ ptr<Node> Tree::new_number(parse::Pos pos, std::string_view text_in, int typ) {
             split = text.find_first_of("+-", split + 1);
         }
         if (split == std::string_view::npos) errorf("expected integer");
-        auto [re, e1] = detail::parse_float(text.substr(0, split));
-        auto [im, e2] = detail::parse_float(text.substr(split, text.size() - split - 1));
+        auto [re, e1] = detail::parseFloat(text.substr(0, split));
+        auto [im, e2] = detail::parseFloat(text.substr(split, text.size() - split - 1));
         if (e1 || e2) errorf("expected integer");
         n->IsComplex = true;
         n->Complex128 = {re, im};
-        n->simplify_complex();
+        n->simplifyComplex();
         return n;
     }
     // Imaginary constants can only be complex unless they are zero.
     if (!text.empty() && text.back() == 'i') {
-        auto [f, err] = detail::parse_float(text.substr(0, text.size() - 1));
+        auto [f, err] = detail::parseFloat(text.substr(0, text.size() - 1));
         if (!err) {
             n->IsComplex = true;
             n->Complex128 = {0, f};
-            n->simplify_complex();
+            n->simplifyComplex();
             return n;
         }
     }
@@ -735,7 +735,7 @@ ptr<Node> Tree::new_number(parse::Pos pos, std::string_view text_in, int typ) {
         n->IsUint = true;
         n->Uint64 = u;
     }
-    auto [i, ierr] = detail::parse_int(text, 0, 64);
+    auto [i, ierr] = detail::parseInt(text, 0, 64);
     if (!ierr) {
         n->IsInt = true;
         n->Int64 = i;
@@ -752,7 +752,7 @@ ptr<Node> Tree::new_number(parse::Pos pos, std::string_view text_in, int typ) {
         n->IsFloat = true;
         n->Float64 = static_cast<double>(n->Uint64);
     } else {
-        auto [f, ferr] = detail::parse_float(text);
+        auto [f, ferr] = detail::parseFloat(text);
         if (!ferr) {
             // If we parsed it as a float but it looks like an integer,
             // it's a huge number too large to fit in an int. Reject it.
@@ -773,18 +773,18 @@ ptr<Node> Tree::new_number(parse::Pos pos, std::string_view text_in, int typ) {
         }
     }
     if (!n->IsInt && !n->IsUint && !n->IsFloat) errorf("illegal number syntax: " + detail::quote(text));
-    (void)is_rune_int;
+    (void)isRuneInt;
     return n;
 }
 
-bool Tree::has_function(std::string_view name) const {
+bool Tree::hasFunction(std::string_view name) const {
     for (const FuncNames* f : funcs_) {
         if (f && f->contains(name)) return true;
     }
     return false;
 }
 
-ptr<Node> Tree::use_var(parse::Pos pos, std::string_view name) {
+ptr<Node> Tree::useVar(parse::Pos pos, std::string_view name) {
     auto v = make<VariableNode>(NodeVariable, pos);
     for (auto& part : strings::Split(string(name), ".")) v->Ident.push_back(part);
     for (auto& var_name : vars_) {

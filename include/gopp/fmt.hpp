@@ -31,12 +31,12 @@ struct W {
 };
 
 namespace detail {
-void write_stdout(std::string_view s);
+void writeStdout(std::string_view s);
 // The error of Errorf: msg, wrapping the errors of its fmt::W arguments.
 error wrap_errors(string msg, std::vector<gopp::error> wrapped);
-inline void collect_wrapped(std::vector<gopp::error>& v, const W& w) { v.push_back(w.err); }
+inline void collectWrapped(std::vector<gopp::error>& v, const W& w) { v.push_back(w.err); }
 template <typename T>
-void collect_wrapped(std::vector<gopp::error>&, const T&) {}
+void collectWrapped(std::vector<gopp::error>&, const T&) {}
 }  // namespace detail
 
 // Arguments are forwarded, never moved from: formatting only reads them.
@@ -70,7 +70,7 @@ std::pair<isize, error> Println(io::Writer& w, std::format_string<A...> f, A&&..
 // Formats to standard output (fmt.Printf).
 template <typename... A>
 void Print(std::format_string<A...> f, A&&... a) {
-    detail::write_stdout(std::format(f, std::forward<A>(a)...));
+    detail::writeStdout(std::format(f, std::forward<A>(a)...));
 }
 
 // Formats to standard output and appends a newline.
@@ -78,7 +78,7 @@ template <typename... A>
 void Println(std::format_string<A...> f, A&&... a) {
     std::string s = std::format(f, std::forward<A>(a)...);
     s.push_back('\n');
-    detail::write_stdout(s);
+    detail::writeStdout(s);
 }
 
 // Formats into a string (fmt.Sprintf).
@@ -94,7 +94,7 @@ error Errorf(std::format_string<A...> f, A&&... a) {
     constexpr bool wraps = (std::is_same_v<std::remove_cvref_t<A>, W> || ...);
     if constexpr (wraps) {
         std::vector<gopp::error> wrapped;
-        (detail::collect_wrapped(wrapped, a), ...);
+        (detail::collectWrapped(wrapped, a), ...);
         return detail::wrap_errors(Sprint(f, std::forward<A>(a)...), std::move(wrapped));
     } else {
         return errors::New(Sprint(f, std::forward<A>(a)...));

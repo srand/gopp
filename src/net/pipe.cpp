@@ -12,14 +12,14 @@ namespace {
 
 bool isClosedChan(const chan<empty>& c) {
     bool closed = false;
-    select(recv(c, [&](empty) { closed = true; }), default_case([] {}));
+    select(recv(c, [&](empty) { closed = true; }), defaultCase([] {}));
     return closed;
 }
 
 // Go's pipeDeadline: a channel closed when the deadline passes.
 class pipeDeadline {
 public:
-    pipeDeadline() : cancel_(make_chan<empty>()) {}
+    pipeDeadline() : cancel_(makeChan<empty>()) {}
 
     void set(time::Time t) {
         std::lock_guard l(mu_);
@@ -30,12 +30,12 @@ public:
         bool closed = isClosedChan(cancel_);
         if (t.IsZero()) {
             // No deadline: an open channel.
-            if (closed) cancel_ = make_chan<empty>();
+            if (closed) cancel_ = makeChan<empty>();
             return;
         }
         if (time::Duration dur = time::Until(t); dur.ns > 0) {
             // A deadline in the future.
-            if (closed) cancel_ = make_chan<empty>();
+            if (closed) cancel_ = makeChan<empty>();
             auto c = cancel_;
             timer_ = time::AfterFunc(dur, [c] { c.close(); });
             return;
@@ -56,8 +56,8 @@ private:
 };
 
 struct pipeAddr final : Addr {
-    string Network() const override { return string::from_static("pipe"); }
-    string String() const override { return string::from_static("pipe"); }
+    string Network() const override { return string::fromStatic("pipe"); }
+    string String() const override { return string::fromStatic("pipe"); }
 };
 
 class pipe final : public Conn {
@@ -113,7 +113,7 @@ private:
     static error opError(std::string_view op, error err) {
         auto e = make_ptr<OpError>();
         e->Op = string(op);
-        e->Net = string::from_static("pipe");
+        e->Net = string::fromStatic("pipe");
         e->Err = std::move(err);
         return e;
     }
@@ -173,9 +173,9 @@ private:
 }  // namespace
 
 std::pair<ptr<Conn>, ptr<Conn>> Pipe() {
-    auto cb1 = make_chan<std::span<const byte>>(), cb2 = make_chan<std::span<const byte>>();
-    auto cn1 = make_chan<int>(), cn2 = make_chan<int>();
-    auto done1 = make_chan<empty>(), done2 = make_chan<empty>();
+    auto cb1 = makeChan<std::span<const byte>>(), cb2 = makeChan<std::span<const byte>>();
+    auto cn1 = makeChan<int>(), cn2 = makeChan<int>();
+    auto done1 = makeChan<empty>(), done2 = makeChan<empty>();
     auto p1 = make_ptr<pipe>(cb1, cn1, cb2, cn2, done1, done2);
     auto p2 = make_ptr<pipe>(cb2, cn2, cb1, cn1, done2, done1);
     return {p1, p2};

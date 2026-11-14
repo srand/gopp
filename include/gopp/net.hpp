@@ -129,7 +129,7 @@ struct IPNet final : Addr {
     IPNet() = default;
     IPNet(net::IP ip, IPMask mask) : IP(std::move(ip)), Mask(std::move(mask)) {}
     bool Contains(const net::IP& ip) const;
-    string Network() const override { return string::from_static("ip+net"); }
+    string Network() const override { return string::fromStatic("ip+net"); }
     string String() const override;
 };
 
@@ -143,7 +143,7 @@ struct TCPAddr final : Addr {
     string Zone;  // IPv6 scoped addressing zone
     TCPAddr() = default;
     TCPAddr(net::IP ip, int port, string zone = {}) : IP(std::move(ip)), Port(port), Zone(std::move(zone)) {}
-    string Network() const override { return string::from_static("tcp"); }
+    string Network() const override { return string::fromStatic("tcp"); }
     string String() const override;
     // The address as a netip::AddrPort; an invalid one if IP isn't 4 or 16
     // bytes.
@@ -160,7 +160,7 @@ struct UDPAddr final : Addr {
     string Zone;  // IPv6 scoped addressing zone
     UDPAddr() = default;
     UDPAddr(net::IP ip, int port, string zone = {}) : IP(std::move(ip)), Port(port), Zone(std::move(zone)) {}
-    string Network() const override { return string::from_static("udp"); }
+    string Network() const override { return string::fromStatic("udp"); }
     string String() const override;
     netip::AddrPort AddrPort() const;
 };
@@ -175,7 +175,7 @@ struct IPAddr final : Addr {
     string Zone;  // IPv6 scoped addressing zone
     IPAddr() = default;
     IPAddr(net::IP ip, string zone = {}) : IP(std::move(ip)), Zone(std::move(zone)) {}
-    string Network() const override { return string::from_static("ip"); }
+    string Network() const override { return string::fromStatic("ip"); }
     string String() const override;
 };
 
@@ -218,19 +218,19 @@ using os::ErrDeadlineExceeded;
 extern const error ErrWriteToConnected;
 
 // net.OpError: the operation, network and addresses of a failed call.
-struct OpError : error_interface {
+struct OpError : errorInterface {
     string Op;
     string Net;
     ptr<net::Addr> Source;
     ptr<net::Addr> Addr;
     gopp::error Err;
     string Error() const override;
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
     bool Timeout() const noexcept override { return Err && Err->Timeout(); }
 };
 
 // net.AddrError
-struct AddrError : error_interface {
+struct AddrError : errorInterface {
     string Err;
     string Addr;
     AddrError(string err, string addr) : Err(std::move(err)), Addr(std::move(addr)) {}
@@ -238,21 +238,21 @@ struct AddrError : error_interface {
 };
 
 // net.UnknownNetworkError
-struct UnknownNetworkError : error_interface {
+struct UnknownNetworkError : errorInterface {
     string Net;
     explicit UnknownNetworkError(string net) : Net(std::move(net)) {}
     string Error() const override { return "unknown network " + Net; }
 };
 
 // net.InvalidAddrError
-struct InvalidAddrError : error_interface {
+struct InvalidAddrError : errorInterface {
     string Msg;
     explicit InvalidAddrError(string msg) : Msg(std::move(msg)) {}
     string Error() const override { return Msg; }
 };
 
 // net.ParseError: a string that isn't the expected kind of address.
-struct ParseError : error_interface {
+struct ParseError : errorInterface {
     string Type;  // "IP address", "CIDR address"
     string Text;
     ParseError(string type, string text) : Type(std::move(type)), Text(std::move(text)) {}
@@ -260,7 +260,7 @@ struct ParseError : error_interface {
 };
 
 // net.DNSError
-struct DNSError : error_interface {
+struct DNSError : errorInterface {
     gopp::error UnwrapErr;  // the error behind it, if any
     string Err;
     string Name;
@@ -272,19 +272,19 @@ struct DNSError : error_interface {
     bool Timeout() const noexcept override { return IsTimeout; }
     // Whether the error is known to be temporary.
     bool Temporary() const noexcept { return IsTimeout || IsTemporary; }
-    const error_interface* Unwrap() const noexcept override { return UnwrapErr.get(); }
+    const errorInterface* Unwrap() const noexcept override { return UnwrapErr.get(); }
 };
 
 // net.DNSConfigError: no longer used, kept for compatibility.
-struct DNSConfigError : error_interface {
+struct DNSConfigError : errorInterface {
     gopp::error Err;
     string Error() const override { return "error reading DNS config: " + Err.Error(); }
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
 };
 
 // syscall.Errno, also known as net::Errno.
 using syscall::Errno;
-using syscall::errno_error;
+using syscall::errnoError;
 
 // ---------------------------------------------------------------------------
 // Connections
@@ -348,7 +348,7 @@ public:
 
     // Writes the buffers with writev(2) (Buffers::WriteTo uses it).
     std::pair<int64, error> writeBuffers(Buffers& v);
-    const ptr<netfd>& internal_fd() const noexcept { return fd_; }
+    const ptr<netfd>& internalFd() const noexcept { return fd_; }
 
 protected:
     ptr<netfd> fd_;

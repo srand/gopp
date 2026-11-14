@@ -24,7 +24,7 @@ struct io_uring_sqe;
 namespace gopp::runtime {
 
 // Whether io_uring is in use and supports the operation (an IORING_OP_).
-bool uring_has(int opcode) noexcept;
+bool uringHas(int opcode) noexcept;
 
 // Whether to make a call through io_uring: if it supports the operation
 // and the calling fiber's P has other fibers to run while the call is in
@@ -34,17 +34,17 @@ bool uring_has(int opcode) noexcept;
 // unlinkat, mkdirat, renameat, buffered writes, any read on tmpfs, ...)
 // to a worker thread, whose wakeup, and then the poller's, costs more
 // than most such calls.
-bool uring_worth(int opcode) noexcept;
+bool uringWorth(int opcode) noexcept;
 
 // Submits one request, which prep(sqe, arg) fills in, and waits for its
 // completion: parks a fiber, blocks a thread that isn't one. Returns the
 // result: >= 0, or -errno.
-int uring_call(void (*prep)(io_uring_sqe*, void*), void* arg) noexcept;
+int uringCall(void (*prep)(io_uring_sqe*, void*), void* arg) noexcept;
 
 // uring_call with a function object: prep(sqe).
 template <typename F>
 int uring(F&& prep) {
-    return uring_call([](io_uring_sqe* sqe, void* arg) { (*static_cast<std::remove_reference_t<F>*>(arg))(sqe); },
+    return uringCall([](io_uring_sqe* sqe, void* arg) { (*static_cast<std::remove_reference_t<F>*>(arg))(sqe); },
                       &prep);
 }
 
@@ -52,8 +52,8 @@ int uring(F&& prep) {
 // a blocking call: call() makes the system call, returning -1 and setting
 // errno on failure. Retries after EINTR. Returns the result, or -errno.
 template <typename Prep, typename Call>
-long uring_or_blocking(int opcode, Prep&& prep, Call&& call) {
-    if (uring_worth(opcode)) {
+long uringOrBlocking(int opcode, Prep&& prep, Call&& call) {
+    if (uringWorth(opcode)) {
         for (;;) {
             int r = uring(prep);
             if (r != -EINTR) return r;
@@ -63,7 +63,7 @@ long uring_or_blocking(int opcode, Prep&& prep, Call&& call) {
         long r;
         int e;
         {
-            blocking_call b;
+            blockingCall b;
             r = static_cast<long>(call());
             e = errno;
         }

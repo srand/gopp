@@ -31,21 +31,21 @@ namespace {
 // Storage that is constant-initialized and never destroyed: fibers may
 // still format times while the process exits.
 template <typename T>
-union never_destroyed {
+union neverDestroyed {
     T value;
-    constexpr never_destroyed() : value() {}
-    ~never_destroyed() {}
+    constexpr neverDestroyed() : value() {}
+    ~neverDestroyed() {}
 };
 
-constinit never_destroyed<Location> utc_storage;
-constinit never_destroyed<Location> local_storage;
+constinit neverDestroyed<Location> utc_storage;
+constinit neverDestroyed<Location> local_storage;
 
 Location& utcLoc() { return utc_storage.value; }
 Location& localLoc() { return local_storage.value; }
 
 // Go's localOnce, resettable for tests.
 std::atomic<bool> local_done{false};
-std::mutex& local_mu() {
+std::mutex& localMu() {
     static auto* m = new std::mutex;
     return *m;
 }
@@ -54,7 +54,7 @@ void initLocal();
 
 void ensureLocal() {
     if (local_done.load(std::memory_order_acquire)) return;
-    std::lock_guard l(local_mu());
+    std::lock_guard l(localMu());
     if (!local_done.load(std::memory_order_relaxed)) {
         initLocal();
         local_done.store(true, std::memory_order_release);
@@ -69,7 +69,7 @@ const Location* Local = &local_storage.value;
 namespace {
 // utcLoc's name, set before main; until then String() still says "UTC".
 const bool utc_named = [] {
-    utcLoc().name = string::from_static("UTC");
+    utcLoc().name = string::fromStatic("UTC");
     return true;
 }();
 }  // namespace
@@ -80,7 +80,7 @@ const Location* Location::get() const {
 }
 
 string Location::String() const {
-    if (this == UTC) return string::from_static("UTC");
+    if (this == UTC) return string::fromStatic("UTC");
     return get()->name;
 }
 
@@ -118,7 +118,7 @@ Location::lookup_result Location::lookup(int64 sec) const {
     const Location* l = get();
     lookup_result r;
     if (l->zones.empty()) {
-        r.name = string::from_static("UTC");
+        r.name = string::fromStatic("UTC");
         r.offset = 0;
         r.start = alpha;
         r.end = omega;
@@ -168,7 +168,7 @@ Location::lookup_result Location::lookup(int64 sec) const {
         auto e = tzset(l->extend, r.start, sec);
         if (e.ok) {
             // The name is a substring of extend, which lives as long as l.
-            r.name = string::from_static(e.name);
+            r.name = string::fromStatic(e.name);
             r.offset = e.offset;
             r.start = e.start;
             r.end = e.end;
@@ -434,7 +434,7 @@ tzset_result tzset(std::string_view s, int64 lastTxSec, int64 sec) {
 
 namespace {
 
-std::mutex& tables_mu() {
+std::mutex& tablesMu() {
     static auto* m = new std::mutex;
     return *m;
 }
@@ -456,7 +456,7 @@ Location* fixedZone(std::string_view name, int offset) {
 
 const Location* FixedZone(std::string_view name, int offset) {
     static auto* table = new std::map<std::pair<std::string, int>, Location*>;
-    std::lock_guard g(tables_mu());
+    std::lock_guard g(tablesMu());
     auto [it, inserted] = table->try_emplace({std::string(name), offset}, nullptr);
     if (inserted) it->second = fixedZone(name, offset);
     return it->second;
@@ -693,7 +693,7 @@ std::pair<Location*, error> parseTZData(std::string_view name, std::span<const b
                     if (int zi = findZone(l->zones, e.name, e.offset, e.isDST); zi != -1) {
                         l->cacheZone = l->zones[zi];
                     } else {
-                        l->cacheZone = Location::zone{string::from_static(e.name), e.offset, e.isDST};
+                        l->cacheZone = Location::zone{string::fromStatic(e.name), e.offset, e.isDST};
                     }
                 }
             }
@@ -712,7 +712,7 @@ std::pair<Location*, error> parseTZData(std::string_view name, std::span<const b
 // data: loading the same zone again returns the same Location.
 const Location* internTZData(std::string_view name, std::span<const byte> data, Location* fresh) {
     static auto* table = new std::map<std::pair<std::string, std::string>, Location*>;
-    std::lock_guard g(tables_mu());
+    std::lock_guard g(tablesMu());
     auto key = std::pair(std::string(name), std::string(reinterpret_cast<const char*>(data.data()), data.size()));
     auto [it, inserted] = table->try_emplace(std::move(key), fresh);
     if (!inserted) delete fresh;
@@ -727,11 +727,11 @@ struct file_data {
     int errnum = 0;  // the errno, for ENOENT checks
 };
 
-file_data fail_errno(int e) { return {{}, syscall::errno_error(e), e}; }
+file_data failErrno(int e) { return {{}, syscall::errnoError(e), e}; }
 
 file_data readFile(const std::string& name) {
     int fd = ::open(name.c_str(), O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return fail_errno(errno);
+    if (fd < 0) return failErrno(errno);
     file_data r;
     char buf[4096];
     for (;;) {
@@ -740,7 +740,7 @@ file_data readFile(const std::string& name) {
             if (errno == EINTR) continue;
             int e = errno;
             ::close(fd);
-            return fail_errno(e);
+            return failErrno(e);
         }
         if (n == 0) break;
         r.data.append(buf, static_cast<std::size_t>(n));
@@ -784,7 +784,7 @@ int get2(std::span<const char> b) {
 // Go's loadTzinfoFromZip: the uncompressed file name in zipfile.
 file_data loadTzinfoFromZip(const std::string& zipfile, const std::string& name) {
     int fd = ::open(zipfile.c_str(), O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return fail_errno(errno);
+    if (fd < 0) return failErrno(errno);
     struct closer {
         int fd;
         ~closer() { ::close(fd); }
@@ -869,7 +869,7 @@ file_data loadTzinfoFromZip(const std::string& zipfile, const std::string& name)
         if (!preadn(fd, r.data, foff + 30 + namelen + xlen)) return corrupt();
         return r;
     }
-    return fail_errno(ENOENT);
+    return failErrno(ENOENT);
 }
 
 file_data loadTzinfoFromDirOrZip(const std::string& dir, std::string name) {
@@ -911,14 +911,14 @@ const std::vector<std::string>& platformZoneSources() {
 }
 
 // ForceZipFileForTesting's zip file; empty for the system's sources.
-std::string& forced_zip() {
+std::string& forcedZip() {
     static auto* s = new std::string;
     return *s;
 }
 
 std::vector<std::string> zoneSources() {
-    std::lock_guard g(tables_mu());
-    if (!forced_zip().empty()) return {forced_zip()};
+    std::lock_guard g(tablesMu());
+    if (!forcedZip().empty()) return {forcedZip()};
     return platformZoneSources();
 }
 
@@ -936,7 +936,7 @@ void initLocal() {
         auto [z, err] = loadLocation("localtime", {"/etc"});
         if (!err) {
             local = *z;
-            local.name = string::from_static("Local");
+            local.name = string::fromStatic("Local");
             return;
         }
     } else if (*env) {
@@ -946,7 +946,7 @@ void initLocal() {
             auto [z, err] = loadLocation(tz, {""});
             if (!err) {
                 local = *z;
-                local.name = tz == "/etc/localtime" ? string::from_static("Local") : string(tz);
+                local.name = tz == "/etc/localtime" ? string::fromStatic("Local") : string(tz);
                 return;
             }
         } else if (!tz.empty() && tz != "UTC") {
@@ -959,7 +959,7 @@ void initLocal() {
     }
     // Fall back to UTC.
     local = Location();
-    local.name = string::from_static("UTC");
+    local.name = string::fromStatic("UTC");
 }
 
 bool containsDotDot(std::string_view s) { return s.find("..") != s.npos; }
@@ -1005,23 +1005,23 @@ std::pair<const Location*, error> LoadLocation(std::string_view name) {
 namespace testing_hooks {
 
 void ForceUSPacificForTesting() {
-    std::lock_guard l(local_mu());
+    std::lock_guard l(localMu());
     auto [z, err] = loadLocation("America/Los_Angeles", zoneSources());
     if (err) panic("cannot load America/Los_Angeles for testing: " + err.Error());
     localLoc() = *z;
-    localLoc().name = string::from_static("Local");
+    localLoc().name = string::fromStatic("Local");
     local_done.store(true, std::memory_order_release);
 }
 
 void ResetLocalOnceForTest() {
-    std::lock_guard l(local_mu());
+    std::lock_guard l(localMu());
     localLoc() = Location();
     local_done.store(false, std::memory_order_release);
 }
 
 void ForceZipFileForTesting(std::string_view zip) {
-    std::lock_guard g(tables_mu());
-    forced_zip() = std::string(zip);
+    std::lock_guard g(tablesMu());
+    forcedZip() = std::string(zip);
 }
 
 TzsetResult Tzset(std::string_view s, int64 lastTxSec, int64 sec) {

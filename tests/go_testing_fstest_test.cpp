@@ -12,8 +12,8 @@ using namespace gopp;
 
 TEST(GoTestingFstest, MapFS) {
     auto m = fstest::MakeMapFS({
-        {"hello", {.Data = to_bytes("hello, world\n")}},
-        {"fortune/k/ken.txt", {.Data = to_bytes("If a program is too slow, it must have a loop.\n")}},
+        {"hello", {.Data = toBytes("hello, world\n")}},
+        {"fortune/k/ken.txt", {.Data = toBytes("If a program is too slow, it must have a loop.\n")}},
     });
     if (error err = fstest::TestFS(m, {"hello", "fortune", "fortune/k", "fortune/k/ken.txt"})) FAIL() << err;
 }
@@ -44,16 +44,16 @@ TEST(GoTestingFstest, MapFSFileInfoName) {
 TEST(GoTestingFstest, MapFSSymlink) {
     const std::string fileContent = "If a program is too slow, it must have a loop.\n";
     auto m = fstest::MakeMapFS({
-        {"fortune/k/ken.txt", {.Data = to_bytes(fileContent)}},
-        {"dirlink", {.Data = to_bytes("fortune/k"), .Mode = fs::ModeSymlink}},
-        {"linklink", {.Data = to_bytes("dirlink"), .Mode = fs::ModeSymlink}},
-        {"ken.txt", {.Data = to_bytes("dirlink/ken.txt"), .Mode = fs::ModeSymlink}},
+        {"fortune/k/ken.txt", {.Data = toBytes(fileContent)}},
+        {"dirlink", {.Data = toBytes("fortune/k"), .Mode = fs::ModeSymlink}},
+        {"linklink", {.Data = toBytes("dirlink"), .Mode = fs::ModeSymlink}},
+        {"ken.txt", {.Data = toBytes("dirlink/ken.txt"), .Mode = fs::ModeSymlink}},
     });
     if (error err = fstest::TestFS(m, {"fortune/k/ken.txt", "dirlink", "ken.txt", "linklink"})) ADD_FAILURE() << err;
 
     auto [gotData, err] = fs::ReadFile(*m, "ken.txt");
-    EXPECT_TRUE(as_string_view(gotData) == fileContent && !err)
-        << "fs.ReadFile(m, \"ken.txt\") = " << as_string_view(gotData) << ", " << err;
+    EXPECT_TRUE(asStringView(gotData) == fileContent && !err)
+        << "fs.ReadFile(m, \"ken.txt\") = " << asStringView(gotData) << ", " << err;
     auto [gotLink, lerr] = fs::ReadLink(*m, "dirlink");
     EXPECT_TRUE(gotLink.view() == "fortune/k" && !lerr)
         << "fs.ReadLink(m, \"dirlink\") = " << gotLink.view() << ", " << lerr;
@@ -89,7 +89,7 @@ TEST(GoTestingFstest, Symlink) {
 }
 
 TEST(GoTestingFstest, Dash) {
-    auto m = fstest::MakeMapFS({{"a-b/a", {.Data = to_bytes("a-b/a")}}});
+    auto m = fstest::MakeMapFS({{"a-b/a", {.Data = toBytes("a-b/a")}}});
     if (error err = fstest::TestFS(m, {"a-b/a"})) ADD_FAILURE() << err;
 }
 
@@ -139,9 +139,9 @@ struct failPermFS final : fs::FS {
 
 TEST(GoTestingFstest, ShuffledFS) {
     auto fsys = make_ptr<shuffledFS>(fstest::MakeMapFS({
-        {"tmp/one", {.Data = to_bytes("1")}},
-        {"tmp/two", {.Data = to_bytes("2")}},
-        {"tmp/three", {.Data = to_bytes("3")}},
+        {"tmp/one", {.Data = toBytes("1")}},
+        {"tmp/two", {.Data = toBytes("2")}},
+        {"tmp/three", {.Data = toBytes("3")}},
     }));
     if (error err = fstest::TestFS(fsys, {"tmp/one", "tmp/two", "tmp/three"})) ADD_FAILURE() << err;
 }
@@ -154,8 +154,8 @@ TEST(GoTestingFstest, TestFSWrappedErrors) {
 
     // TestFS is expected to return a list of errors. Enforce that the list
     // can be extracted for browsing.
-    const error_interface* list = nullptr;
-    for (const error_interface* e = err.get(); e && !list; e = e->Unwrap()) {
+    const errorInterface* list = nullptr;
+    for (const errorInterface* e = err.get(); e && !list; e = e->Unwrap()) {
         if (!e->UnwrapList().empty()) list = e;
     }
     ASSERT_TRUE(list) << "caller should be able to extract the errors as a list: " << err;

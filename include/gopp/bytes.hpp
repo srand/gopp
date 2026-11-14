@@ -240,7 +240,7 @@ private:
 // bytes.NewBuffer: a Buffer that starts with buf's contents and array.
 inline ptr<Buffer> NewBuffer(slice<byte> buf) { return make_ptr<Buffer>(std::move(buf)); }
 // bytes.NewBufferString: a Buffer that starts with a copy of s.
-inline ptr<Buffer> NewBufferString(std::string_view s) { return make_ptr<Buffer>(to_bytes(s)); }
+inline ptr<Buffer> NewBufferString(std::string_view s) { return make_ptr<Buffer>(toBytes(s)); }
 
 // bytes.Reader: reads from a byte slice.
 class Reader : public io::Reader, public io::Seeker, public io::ReaderAt, public io::WriterTo {

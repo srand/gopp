@@ -29,7 +29,7 @@ const std::vector<encDecTest> encDecTests = {
     {"e3a1", {0xe3, 0xa1}},
 };
 
-std::string str(std::span<const byte> b) { return std::string(as_string_view(b)); }
+std::string str(std::span<const byte> b) { return std::string(asStringView(b)); }
 std::string str(const std::vector<byte>& b) { return std::string(b.begin(), b.end()); }
 
 TEST(GoHex, Encode) {
@@ -39,7 +39,7 @@ TEST(GoHex, Encode) {
         auto n = hex::Encode(dst, test.dec);
         EXPECT_EQ(n, static_cast<isize>(dst.len())) << "#" << i << ": bad return value";
         EXPECT_EQ(str(dst), test.enc) << "#" << i;
-        dst = hex::AppendEncode(to_bytes("lead"), test.dec);
+        dst = hex::AppendEncode(toBytes("lead"), test.dec);
         EXPECT_EQ(str(dst), "lead" + test.enc) << "#" << i;
         i++;
     }
@@ -56,7 +56,7 @@ TEST(GoHex, Decode) {
         auto [n, err] = hex::Decode(dst, as_bytes(test.enc));
         EXPECT_FALSE(err) << "#" << i;
         EXPECT_EQ(str(dst), str(test.dec)) << "#" << i;
-        auto [dst2, err2] = hex::AppendDecode(to_bytes("lead"), as_bytes(test.enc));
+        auto [dst2, err2] = hex::AppendDecode(toBytes("lead"), as_bytes(test.enc));
         EXPECT_FALSE(err2) << "#" << i << ": AppendDecode error: " << err2;
         EXPECT_EQ(str(dst2), "lead" + str(test.dec)) << "#" << i;
         i++;

@@ -9,26 +9,26 @@
 namespace gopp::http::internal {
 
 // RFC 7230 token characters.
-bool is_token_char(unsigned char c) noexcept;
-bool valid_header_field_name(std::string_view s) noexcept;
-bool valid_header_field_value(std::string_view s) noexcept;
-bool valid_method(std::string_view m) noexcept;
+bool isTokenChar(unsigned char c) noexcept;
+bool validHeaderFieldName(std::string_view s) noexcept;
+bool validHeaderFieldValue(std::string_view s) noexcept;
+bool validMethod(std::string_view m) noexcept;
 // Whether the comma-separated header value v contains token (ignoring case).
-bool has_token(std::string_view v, std::string_view token) noexcept;
+bool hasToken(std::string_view v, std::string_view token) noexcept;
 
 // A request-reading failure that the server answers with a status.
-struct status_error : error_interface {
+struct statusError : errorInterface {
     int code;
     string text;
-    status_error(int c, string t) : code(c), text(std::move(t)) {}
+    statusError(int c, string t) : code(c), text(std::move(t)) {}
     string Error() const override { return text; }
 };
 
 extern const gopp::error err_header_too_large;
 
 // Reads a first line and header fields up to the empty line.
-gopp::error read_header_block(const ptr<bufio::Reader>& br, int64 max_header_bytes, string& first_line, Header& header);
-bool parse_http_version(std::string_view v, int& major, int& minor);
+gopp::error readHeaderBlock(const ptr<bufio::Reader>& br, int64 max_header_bytes, string& first_line, Header& header);
+bool parseHttpVersion(std::string_view v, int& major, int& minor);
 
 // Reads a request from br. Its body reads from br too.
 std::pair<ptr<Request>, gopp::error> read_request(const ptr<bufio::Reader>& br, int64 max_header_bytes);
@@ -38,13 +38,13 @@ void logf(std::string_view msg);
 
 // scanETag (fs.cpp): the syntactically valid ETag at the start of s and
 // the text after it, or "", "".
-std::pair<std::string_view, std::string_view> scan_etag(std::string_view s);
+std::pair<std::string_view, std::string_view> scanEtag(std::string_view s);
 
 // Path cleaning, after path.Clean, keeping a trailing slash.
-string clean_path(const string& p);
+string cleanPath(const string& p);
 
 // Appends an RFC 1123 date for now, cached per second.
-void append_date(std::string& out);
+void appendDate(std::string& out);
 
 // The request body as the server provides it.
 class body_reader final : public io::ReadCloser {
@@ -59,7 +59,7 @@ public:
     bool saw_eof() const noexcept { return saw_eof_; }
     bool closed() const noexcept { return closed_; }
     // Bytes left for a Content-Length body; -1 if unknown (chunked).
-    int64 unread_size() const noexcept;
+    int64 unreadSize() const noexcept;
     bool close_failed() const noexcept { return close_failed_; }
 
 private:
@@ -77,7 +77,7 @@ public:
     std::pair<isize, gopp::error> Read(std::span<byte> p) override;
 
 private:
-    gopp::error begin_chunk();
+    gopp::error beginChunk();
     ptr<bufio::Reader> r_;
     uint64 n_ = 0;          // bytes left in the current chunk
     bool check_end_ = false;  // expect CRLF after the chunk data
@@ -86,7 +86,7 @@ private:
 };
 
 // An empty body (http.NoBody).
-ptr<io::ReadCloser> no_body();
+ptr<io::ReadCloser> noBody();
 
 // ---------------------------------------------------------------------------
 // HTTP/2 (http2_server.cpp, http2_transport.cpp)
@@ -107,7 +107,7 @@ struct server_options {
     bool DisableKeepAlives = false;
     std::shared_ptr<detail::server_state> state;
     // Reports whether the connection has open streams, for shutdown().
-    std::function<void(bool active)> set_active;
+    std::function<void(bool active)> setActive;
     // Registers a function that starts a graceful shutdown (GOAWAY) when
     // the server shuts down; nullptr unregisters it.
     std::function<void(std::function<void()>)> on_shutdown;
@@ -137,11 +137,11 @@ extern const gopp::error err_http2_conn_unusable;
 
 // Starts HTTP/2 on c (after ALPN h2, or h2c with prior knowledge): writes
 // the preface and SETTINGS and starts the read loop.
-ptr<http2_client_conn> new_http2_client_conn(ptr<net::Conn> c, std::optional<tls::ConnectionState> tls_state,
+ptr<http2_client_conn> newHttp2ClientConn(ptr<net::Conn> c, std::optional<tls::ConnectionState> tls_state,
                                              const http2_client_options& opts);
 
 // Serves HTTP/2 on c, whose reads go through br.
-void serve_http2(const ptr<net::Conn>& c, const ptr<bufio::Reader>& br, const ptr<Handler>& handler,
+void serveHttp2(const ptr<net::Conn>& c, const ptr<bufio::Reader>& br, const ptr<Handler>& handler,
                  const server_options& opts, std::optional<tls::ConnectionState> tls_state);
 
 }  // namespace gopp::http::internal

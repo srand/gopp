@@ -31,9 +31,9 @@ struct common_handler : std::enable_shared_from_this<common_handler> {
 
     bool enabled(Level l) const;
     std::shared_ptr<const common_handler> with_attrs(std::span<const Attr> as) const;
-    std::shared_ptr<const common_handler> with_group(std::string_view name) const;
+    std::shared_ptr<const common_handler> withGroup(std::string_view name) const;
     error handle(const Record& r) const;
-    std::string_view attr_sep() const noexcept { return json ? "," : " "; }
+    std::string_view attrSep() const noexcept { return json ? "," : " "; }
 
     std::shared_ptr<common_handler> clone() const;
 };
@@ -42,21 +42,21 @@ struct common_handler : std::enable_shared_from_this<common_handler> {
 struct handle_state {
     handle_state(const common_handler* h, std::string* buf, std::string_view sep);
 
-    void append_non_builtins(const Record& r);
-    void open_groups();
-    void open_group(const string& name);
-    void close_group(const string& name);
-    bool append_attrs(std::span<const Attr> as);
+    void appendNonBuiltins(const Record& r);
+    void openGroups();
+    void openGroup(const string& name);
+    void closeGroup(const string& name);
+    bool appendAttrs(std::span<const Attr> as);
     bool append_attr(Attr a);
-    void append_error(const error& err);
-    void append_key(std::string_view key);
-    void append_two_strings(std::string_view x, std::string_view y);
-    void append_string(std::string_view s);
-    void append_value(const Value& v);
-    void append_time(const time::Time& t);
+    void appendError(const error& err);
+    void appendKey(std::string_view key);
+    void appendTwoStrings(std::string_view x, std::string_view y);
+    void appendString(std::string_view s);
+    void appendValue(const Value& v);
+    void appendTime(const time::Time& t);
 
     error append_text_value(const Value& v);
-    error append_json_value(const Value& v);
+    error appendJsonValue(const Value& v);
 
     const common_handler* h;
     std::string* buf;
@@ -69,12 +69,12 @@ struct handle_state {
 
 // Go's defaultHandler, writing with output; the default Logger's writes
 // through log's standard logger.
-ptr<Handler> new_default_handler(std::function<error(const std::source_location&, std::string_view)> output);
+ptr<Handler> newDefaultHandler(std::function<error(const std::source_location&, std::string_view)> output);
 
 // Go's needsQuoting: whether the text handler quotes s.
 bool needs_quoting(std::string_view s);
 
 // Go's appendRFC3339Millis: RFC 3339 with exactly three fractional digits.
-void append_rfc3339_millis(std::string& b, time::Time t);
+void appendRfc3339Millis(std::string& b, time::Time t);
 
 }  // namespace gopp::slog::detail

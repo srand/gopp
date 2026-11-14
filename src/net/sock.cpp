@@ -34,7 +34,7 @@ int listenerBacklog() {
 // Go's sysSocket: a non-blocking, close-on-exec socket.
 std::pair<int, error> sysSocket(int family, int sotype, int proto) {
     int s = ::socket(family, sotype | SOCK_NONBLOCK | SOCK_CLOEXEC, proto);
-    if (s < 0) return {-1, os::NewSyscallError("socket", errno_error(errno))};
+    if (s < 0) return {-1, os::NewSyscallError("socket", errnoError(errno))};
     return {s, nullptr};
 }
 
@@ -78,7 +78,7 @@ const ipStackCapabilities& ipStack() {
 
 // The sockaddr interface of Go's IP addresses: family and isWildcard.
 int addrFamily(const Addr* a) {
-    ip_port ip = ip_port_of(a);
+    ip_port ip = ipPortOf(a);
     if (!a || ip.ip.size() <= IPv4len) return AF_INET;
     if (!ip.ip.To4().empty()) return AF_INET;
     return AF_INET6;
@@ -87,7 +87,7 @@ int addrFamily(const Addr* a) {
 bool isWildcard(const Addr* a) {
     if (!a) return true;
     if (auto* u = dynamic_cast<const UnixAddr*>(a)) return u->Name.empty();
-    ip_port ip = ip_port_of(a);
+    ip_port ip = ipPortOf(a);
     return ip.ip.empty() || ip.ip.IsUnspecified();
 }
 
@@ -118,7 +118,7 @@ error setDefaultSockopts(int s, int family, int sotype, bool ipv6only) {
         // Allow broadcast.
         int one = 1;
         if (::setsockopt(s, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)) < 0) {
-            return os::NewSyscallError("setsockopt", errno_error(errno));
+            return os::NewSyscallError("setsockopt", errnoError(errno));
         }
     }
     return nullptr;
@@ -126,7 +126,7 @@ error setDefaultSockopts(int s, int family, int sotype, bool ipv6only) {
 
 error setsockoptOne(int s, int level, int name) {
     int one = 1;
-    if (::setsockopt(s, level, name, &one, sizeof(one)) < 0) return os::NewSyscallError("setsockopt", errno_error(errno));
+    if (::setsockopt(s, level, name, &one, sizeof(one)) < 0) return os::NewSyscallError("setsockopt", errnoError(errno));
     return nullptr;
 }
 
@@ -140,7 +140,7 @@ string ctrlNetwork(const netfd& fd) {
 
 error bindAddr(netfd& fd, const sockaddr_storage& sa, socklen_t len) {
     if (::bind(fd.sysfd(), reinterpret_cast<const sockaddr*>(&sa), len) < 0) {
-        return os::NewSyscallError("bind", errno_error(errno));
+        return os::NewSyscallError("bind", errnoError(errno));
     }
     return nullptr;
 }
@@ -156,23 +156,23 @@ error dial(netfd& fd, const ptr<context::Context>& ctx, const Addr* laddr, const
     sockaddr_storage lsa, rsa;
     socklen_t llen = 0, rlen = 0;
     if (laddr) {
-        if (error err = addr_sockaddr(laddr, fd.family(), &lsa, &llen)) return err;
+        if (error err = addrSockaddr(laddr, fd.family(), &lsa, &llen)) return err;
         if (llen != 0) {
             if (error err = bindAddr(fd, lsa, llen)) return err;
         }
     }
     if (error err = fd.init()) return err;
     if (raddr) {
-        if (error err = addr_sockaddr(raddr, fd.family(), &rsa, &rlen)) return err;
+        if (error err = addrSockaddr(raddr, fd.family(), &rsa, &rlen)) return err;
         sockaddr_storage crsa;
         bool connected;
         if (error err = fd.connect(ctx, &rsa, rlen, &crsa, &connected)) return err;
         // The address actually connected to, when the kernel says.
-        fd.set_addrs(connected ? &crsa : nullptr);
+        fd.setAddrs(connected ? &crsa : nullptr);
         if (!fd.raddr) fd.raddr = ptr<Addr>(const_cast<Addr*>(raddr));
         return nullptr;
     }
-    fd.set_addrs();
+    fd.setAddrs();
     return nullptr;
 }
 
@@ -182,15 +182,15 @@ error listenStream(netfd& fd, const ptr<context::Context>& ctx, const Addr* ladd
     if (error err = setsockoptOne(fd.sysfd(), SOL_SOCKET, SO_REUSEADDR)) return err;
     sockaddr_storage lsa;
     socklen_t llen;
-    if (error err = addr_sockaddr(laddr, fd.family(), &lsa, &llen)) return err;
+    if (error err = addrSockaddr(laddr, fd.family(), &lsa, &llen)) return err;
     if (ctrlCtxFn) {
         auto c = newRawConn(ptr<netfd>(&fd));
         if (error err = ctrlCtxFn(ctx, ctrlNetwork(fd).view(), laddr->String().view(), *c)) return err;
     }
     if (error err = bindAddr(fd, lsa, llen)) return err;
-    if (::listen(fd.sysfd(), backlog) < 0) return os::NewSyscallError("listen", errno_error(errno));
+    if (::listen(fd.sysfd(), backlog) < 0) return os::NewSyscallError("listen", errnoError(errno));
     if (error err = fd.init()) return err;
-    fd.set_addrs();
+    fd.setAddrs();
     fd.raddr = nullptr;
     return nullptr;
 }
@@ -208,14 +208,14 @@ error listenDatagram(netfd& fd, const ptr<context::Context>& ctx, const Addr* la
     }
     sockaddr_storage lsa;
     socklen_t llen;
-    if (error err = addr_sockaddr(laddr, fd.family(), &lsa, &llen)) return err;
+    if (error err = addrSockaddr(laddr, fd.family(), &lsa, &llen)) return err;
     if (ctrlCtxFn) {
         auto c = newRawConn(ptr<netfd>(&fd));
         if (error err = ctrlCtxFn(ctx, ctrlNetwork(fd).view(), laddr->String().view(), *c)) return err;
     }
     if (error err = bindAddr(fd, lsa, llen)) return err;
     if (error err = fd.init()) return err;
-    fd.set_addrs();
+    fd.setAddrs();
     fd.raddr = nullptr;
     return nullptr;
 }
@@ -226,17 +226,17 @@ public:
     rawConn(ptr<netfd> fd, bool listener) : fd_(std::move(fd)), listener_(listener) {}
 
     error Control(std::function<void(uintptr)> f) override {
-        if (error err = fd_->raw_control(f)) return op_error("raw-control", fd_->network(), nullptr, fd_->laddr, err);
+        if (error err = fd_->rawControl(f)) return op_error("raw-control", fd_->network(), nullptr, fd_->laddr, err);
         return nullptr;
     }
     error Read(std::function<bool(uintptr)> f) override {
-        if (listener_) return errno_error(EINVAL);
-        if (error err = fd_->raw_read(f)) return op_error("raw-read", fd_->network(), fd_->laddr, fd_->raddr, err);
+        if (listener_) return errnoError(EINVAL);
+        if (error err = fd_->rawRead(f)) return op_error("raw-read", fd_->network(), fd_->laddr, fd_->raddr, err);
         return nullptr;
     }
     error Write(std::function<bool(uintptr)> f) override {
-        if (listener_) return errno_error(EINVAL);
-        if (error err = fd_->raw_write(f)) return op_error("raw-write", fd_->network(), fd_->laddr, fd_->raddr, err);
+        if (listener_) return errnoError(EINVAL);
+        if (error err = fd_->rawWrite(f)) return op_error("raw-write", fd_->network(), fd_->laddr, fd_->raddr, err);
         return nullptr;
     }
 
@@ -290,12 +290,12 @@ bool isUsingMultipathTCP(netfd& fd) {
     if (mptcp().hasSOLMPTCP) {
         // A connection that fell back to TCP has no MPTCP_INFO.
         int v;
-        error err = fd.getsockopt_int(_SOL_MPTCP, _MPTCP_INFO, &v);
+        error err = fd.getsockoptInt(_SOL_MPTCP, _MPTCP_INFO, &v);
         auto* e = errors::As<Errno>(err);
         return !(e && (e->Code == EOPNOTSUPP || e->Code == ENOPROTOOPT));
     }
     int proto = 0;
-    fd.getsockopt_int(SOL_SOCKET, SO_PROTOCOL, &proto);
+    fd.getsockoptInt(SOL_SOCKET, SO_PROTOCOL, &proto);
     return proto == _IPPROTO_MPTCP;
 }
 

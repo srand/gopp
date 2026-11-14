@@ -105,14 +105,14 @@ string Quote(std::string_view s) {
 
 string FormatFloat(double f, char fmt, int prec, int bitSize) {
     if (bitSize != 64) panic("strconv: illegal FormatFloat bitSize");
-    return string(text::tmpl::detail::format_float(f, fmt, prec));
+    return string(text::tmpl::detail::formatFloat(f, fmt, prec));
 }
 
 }  // namespace gopp::strconv
 
 namespace gopp::fmt::detail {
 
-void write_stdout(std::string_view s) {
+void writeStdout(std::string_view s) {
     std::fwrite(s.data(), 1, s.size(), stdout);
     std::fflush(stdout);
 }
@@ -120,10 +120,10 @@ void write_stdout(std::string_view s) {
 namespace {
 
 // Go's fmt.wrapError and wrapErrors.
-struct wrap_error final : error_interface {
+struct wrap_error final : errorInterface {
     wrap_error(string m, std::vector<gopp::error> e) : msg(std::move(m)), errs(std::move(e)) {}
     string Error() const override { return msg; }
-    const error_interface* Unwrap() const noexcept override { return errs.size() == 1 ? errs[0].get() : nullptr; }
+    const errorInterface* Unwrap() const noexcept override { return errs.size() == 1 ? errs[0].get() : nullptr; }
     std::span<const gopp::error> UnwrapList() const noexcept override {
         if (errs.size() == 1) return {};
         return errs;

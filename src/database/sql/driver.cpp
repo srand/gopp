@@ -20,7 +20,7 @@ std::string_view TypeName(const Value& v) noexcept {
 namespace {
 
 // Go's Time.String: "2006-01-02 15:04:05.999999999 +0000 UTC".
-std::string time_string(const time::Time& t) {
+std::string timeString(const time::Time& t) {
     int64 ns = t.UnixNano();
     int64 sec = ns >= 0 ? ns / 1000000000 : -((-ns + 999999999) / 1000000000);
     int64 frac = ns - sec * 1000000000;
@@ -44,10 +44,10 @@ std::string time_string(const time::Time& t) {
 
 string Format(const Value& v) {
     switch (v.index()) {
-    case 0: return string::from_static("<nil>");
+    case 0: return string::fromStatic("<nil>");
     case 1: return strconv::Itoa(std::get<int64>(v));
-    case 2: return string(sql::detail::format_float_g(std::get<double>(v), 64));
-    case 3: return string::from_static(std::get<bool>(v) ? "true" : "false");
+    case 2: return string(sql::detail::formatFloatG(std::get<double>(v), 64));
+    case 3: return string::fromStatic(std::get<bool>(v) ? "true" : "false");
     case 4: {
         // Go's %v of a []byte: [104 105]
         std::string s = "[";
@@ -60,7 +60,7 @@ string Format(const Value& v) {
         return string(s + "]");
     }
     case 5: return std::get<string>(v);
-    default: return string(time_string(std::get<time::Time>(v)));
+    default: return string(timeString(std::get<time::Time>(v)));
     }
 }
 
@@ -71,7 +71,7 @@ bool Equal(const Value& a, const Value& b) noexcept {
     case 1: return std::get<int64>(a) == std::get<int64>(b);
     case 2: return std::get<double>(a) == std::get<double>(b);
     case 3: return std::get<bool>(a) == std::get<bool>(b);
-    case 4: return as_string_view(std::get<slice<byte>>(a).span()) == as_string_view(std::get<slice<byte>>(b).span());
+    case 4: return asStringView(std::get<slice<byte>>(a).span()) == asStringView(std::get<slice<byte>>(b).span());
     case 5: return std::get<string>(a) == std::get<string>(b);
     default: return std::get<time::Time>(a).Equal(std::get<time::Time>(b));
     }
@@ -118,7 +118,7 @@ struct bool_type final : ValueConverter {
         case 3: return {src, nullptr};
         case 5:
         case 4: {
-            std::string_view s = src.index() == 5 ? std::get<string>(src).view() : as_string_view(std::get<slice<byte>>(src).span());
+            std::string_view s = src.index() == 5 ? std::get<string>(src).view() : asStringView(std::get<slice<byte>>(src).span());
             auto [b, err] = strconv::ParseBool(s);
             if (err) return {nullptr, errorf("sql/driver: couldn't convert " + sql::detail::quote(s).str() + " into type bool")};
             return {b, nullptr};

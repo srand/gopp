@@ -61,7 +61,7 @@ entry* find(std::vector<entry>& v, const chan<os::Signal>& c) {
 
 // Go's signum: the number of a syscall::Signal, or -1.
 int signum(const os::Signal& sig) {
-    auto [s, ok] = sig.as_syscall();
+    auto [s, ok] = sig.asSyscall();
     if (!ok || s.value < 0 || s.value >= num_sig) return -1;
     return s.value;
 }
@@ -73,17 +73,17 @@ void process(os::Signal sig) {
     std::lock_guard l(hs.mu);
     for (auto& e : hs.m) {
         // Send, but don't block for it.
-        if (e.h.want(n)) e.c.try_send(os::Signal(sig));
+        if (e.h.want(n)) e.c.trySend(os::Signal(sig));
     }
     // Avoid the race mentioned in Stop.
     for (auto& d : hs.stopping) {
-        if (d.h.want(n)) d.c.try_send(os::Signal(sig));
+        if (d.h.want(n)) d.c.trySend(os::Signal(sig));
     }
 }
 
 // Go's loop: the fiber that delivers the signals.
 void loop() {
-    for (;;) process(syscall::Signal(static_cast<int>(runtime::signal_recv())));
+    for (;;) process(syscall::Signal(static_cast<int>(runtime::signalRecv())));
 }
 
 // Stops relaying the signals, all if none, to any channel, and either
@@ -115,10 +115,10 @@ void cancel(std::span<const os::Signal> sigs, void (*action)(uint32_t) noexcept)
 
 // The cause of a NotifyContext context: "interrupt signal received". It
 // is context::Canceled too, for errors::Is.
-struct signal_error final : error_interface {
+struct signal_error final : errorInterface {
     explicit signal_error(string s) : s(std::move(s)) {}
     string Error() const override { return s; }
-    bool Is(const error_interface* target) const noexcept override { return target == context::Canceled.get(); }
+    bool Is(const errorInterface* target) const noexcept override { return target == context::Canceled.get(); }
     string s;
 };
 
@@ -140,7 +140,7 @@ void notify(const chan<os::Signal>& c, std::span<const os::Signal> sigs) {
         if (!e->h.want(n)) {
             e->h.set(n);
             if (hs.ref[n] == 0) {
-                runtime::signal_enable(static_cast<uint32_t>(n));
+                runtime::signalEnable(static_cast<uint32_t>(n));
                 // The runtime wants a signal enabled before the watcher
                 // starts.
                 watch_signal_loop_once.Do([] { go(loop); });
@@ -155,14 +155,14 @@ void notify(const chan<os::Signal>& c, std::span<const os::Signal> sigs) {
     }
 }
 
-void ignore(std::span<const os::Signal> sigs) { cancel(sigs, runtime::signal_ignore); }
+void ignore(std::span<const os::Signal> sigs) { cancel(sigs, runtime::signalIgnore); }
 
-void reset(std::span<const os::Signal> sigs) { cancel(sigs, runtime::signal_disable); }
+void reset(std::span<const os::Signal> sigs) { cancel(sigs, runtime::signalDisable); }
 
-std::pair<ptr<context::Context>, context::CancelFunc> notify_context(ptr<context::Context> parent,
+std::pair<ptr<context::Context>, context::CancelFunc> notifyContext(ptr<context::Context> parent,
                                                                     std::span<const os::Signal> sigs) {
     auto [ctx, cancel] = context::WithCancelCause(std::move(parent));
-    auto ch = make_chan<os::Signal>(1);
+    auto ch = makeChan<os::Signal>(1);
     notify(ch, sigs);
     if (!ctx->Err()) {
         // Watch for a signal until the context is done: by the signal,
@@ -195,7 +195,7 @@ void Stop(const chan<os::Signal>& c) {
         for (int n = 0; n < num_sig; n++) {
             if (stopped.h.want(n)) {
                 hs.ref[n]--;
-                if (hs.ref[n] == 0) runtime::signal_disable(static_cast<uint32_t>(n));
+                if (hs.ref[n] == 0) runtime::signalDisable(static_cast<uint32_t>(n));
             }
         }
         // Signals that arrived before are still delivered to c: either c
@@ -213,7 +213,7 @@ void Stop(const chan<os::Signal>& c) {
 
 bool Ignored(const os::Signal& sig) {
     int n = signum(sig);
-    return n >= 0 && runtime::signal_ignored(static_cast<uint32_t>(n));
+    return n >= 0 && runtime::signalIgnored(static_cast<uint32_t>(n));
 }
 
 }  // namespace gopp::os::signal

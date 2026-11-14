@@ -34,9 +34,9 @@ int main(int argc, char** argv) {
 
     std::array<byte, 65535> packet{};
     for (;;) {
-        auto [n, peer, read_err] = conn->ReadFromUDPAddrPort(packet);
-        if (read_err) {
-            fmt::Println(os::Stderr, "udp-echo: {}", read_err);
+        auto [n, peer, readErr] = conn->ReadFromUDPAddrPort(packet);
+        if (readErr) {
+            fmt::Println(os::Stderr, "udp-echo: {}", readErr);
             return 1;
         }
         auto payload = std::span<const byte>(packet.data(), static_cast<std::size_t>(n));

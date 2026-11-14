@@ -11,19 +11,19 @@ namespace gopp::net {
 
 namespace {
 
-int unix_sotype(std::string_view net) {
+int unixSotype(std::string_view net) {
     if (net == "unix") return SOCK_STREAM;
     if (net == "unixgram") return SOCK_DGRAM;
     if (net == "unixpacket") return SOCK_SEQPACKET;
     return -1;
 }
 
-ptr<UnixAddr> as_unix(const ptr<Addr>& a) { return ptr<UnixAddr>(dynamic_cast<UnixAddr*>(a.get())); }
+ptr<UnixAddr> asUnix(const ptr<Addr>& a) { return ptr<UnixAddr>(dynamic_cast<UnixAddr*>(a.get())); }
 
 }  // namespace
 
 std::pair<ptr<UnixAddr>, error> ResolveUnixAddr(std::string_view network, std::string_view address) {
-    if (unix_sotype(network) < 0) return {nullptr, make_ptr<UnknownNetworkError>(string(network))};
+    if (unixSotype(network) < 0) return {nullptr, make_ptr<UnknownNetworkError>(string(network))};
     return {make_ptr<UnixAddr>(string(address), string(network)), nullptr};
 }
 
@@ -52,7 +52,7 @@ std::tuple<isize, isize, int, ptr<UnixAddr>, error> UnixConn::ReadMsgUnix(std::s
     sockaddr_storage from;
     auto [n, oobn, flags, err] = fd_->readMsg(b, oob, 0, &from);
     // An unnamed sender has no address.
-    ptr<UnixAddr> addr = as_unix(sockaddr_to_addr(from, fd_->sotype()));
+    ptr<UnixAddr> addr = asUnix(sockaddrToAddr(from, fd_->sotype()));
     if (addr && addr->Name.empty()) addr = nullptr;
     return {n, oobn, flags, addr, op_error("read", fd_->network(), fd_->laddr, fd_->raddr, err)};
 }
@@ -63,18 +63,18 @@ std::pair<isize, error> UnixConn::WriteToUnix(std::span<const byte> b, const ptr
     };
     if (fd_->raddr) return fail(ErrWriteToConnected);
     if (!addr) return fail(errMissingAddress);
-    if (addr->Net != unix_net(fd_->sotype())) return fail(errno_error(EAFNOSUPPORT));
+    if (addr->Net != unixNet(fd_->sotype())) return fail(errnoError(EAFNOSUPPORT));
     sockaddr_storage sa;
     socklen_t len;
-    if (error err = unix_sockaddr(addr->Name.view(), &sa, &len)) return fail(err);
+    if (error err = unixSockaddr(addr->Name.view(), &sa, &len)) return fail(err);
     auto [n, oobn, err] = fd_->writeMsg(b, {}, &sa, len);
     if (err) return {n, op_error("write", fd_->network(), fd_->laddr, addr, err)};
     return {n, nullptr};
 }
 
 std::pair<isize, error> UnixConn::WriteTo(std::span<const byte> b, const ptr<net::Addr>& addr) {
-    auto a = as_unix(addr);
-    if (!a) return {0, op_error("write", fd_->network(), fd_->laddr, addr, errno_error(EINVAL))};
+    auto a = asUnix(addr);
+    if (!a) return {0, op_error("write", fd_->network(), fd_->laddr, addr, errnoError(EINVAL))};
     return WriteToUnix(b, a);
 }
 
@@ -87,8 +87,8 @@ std::tuple<isize, isize, error> UnixConn::WriteMsgUnix(std::span<const byte> b, 
     sockaddr_storage sa;
     socklen_t len = 0;
     if (addr) {
-        if (addr->Net != unix_net(fd_->sotype())) return fail(errno_error(EAFNOSUPPORT));
-        if (error err = unix_sockaddr(addr->Name.view(), &sa, &len)) return fail(err);
+        if (addr->Net != unixNet(fd_->sotype())) return fail(errnoError(EAFNOSUPPORT));
+        if (error err = unixSockaddr(addr->Name.view(), &sa, &len)) return fail(err);
     }
     auto [n, oobn, err] = fd_->writeMsg(b, oob, addr ? &sa : nullptr, len);
     if (err) return {n, oobn, op_error("write", fd_->network(), fd_->laddr, addr, err)};
@@ -185,7 +185,7 @@ std::pair<ptr<UnixConn>, error> ListenUnixgram(std::string_view network, const p
 std::pair<ptr<UnixConn>, error> DialUnix(std::string_view network, const ptr<UnixAddr>& laddr,
                                          const ptr<UnixAddr>& raddr) {
     string net(network);
-    if (unix_sotype(network) < 0) return {nullptr, op_error("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
+    if (unixSotype(network) < 0) return {nullptr, op_error("dial", net, laddr, raddr, make_ptr<UnknownNetworkError>(net))};
     sysDialer sd{.d = {}, .network = net, .address = raddr ? raddr->String() : string()};
     auto [c, err] = sd.dialUnix(context::Background(), laddr.get(), raddr.get());
     if (err) return {nullptr, op_error("dial", net, laddr, raddr, err)};

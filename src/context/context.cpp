@@ -10,8 +10,8 @@ namespace gopp::context {
 
 namespace {
 
-struct deadline_exceeded_error final : error_interface {
-    string Error() const override { return string::from_static("context deadline exceeded"); }
+struct deadline_exceeded_error final : errorInterface {
+    string Error() const override { return string::fromStatic("context deadline exceeded"); }
     bool Timeout() const noexcept override { return true; }
 };
 
@@ -30,7 +30,7 @@ struct empty_ctx final : Context {
 class cancel_ctx;
 
 // Finds the nearest cancel_ctx among parent and its ancestors.
-cancel_ctx* parent_cancel_ctx(const ptr<Context>& parent);
+cancel_ctx* parentCancelCtx(const ptr<Context>& parent);
 
 class cancel_ctx : public Context {
 public:
@@ -41,7 +41,7 @@ public:
 
     chan<empty> Done() const override {
         std::lock_guard l(mu_);
-        if (!done_) done_ = make_chan<empty>();
+        if (!done_) done_ = makeChan<empty>();
         return done_;
     }
 
@@ -50,7 +50,7 @@ public:
         return err_;
     }
 
-    error cause_err() const {
+    error causeErr() const {
         std::lock_guard l(mu_);
         return cause_;
     }
@@ -65,38 +65,38 @@ public:
             if (err_) return;  // already canceled
             err_ = err;
             cause_ = cause;
-            if (!done_) done_ = make_chan<empty>();
+            if (!done_) done_ = makeChan<empty>();
             done_.close();
             children.swap(children_);
         }
         for (cancel_ctx* c : children) {
             c->cancel(false, err, cause);
-            c->release_ref();
+            c->releaseRef();
         }
         if (remove_from_parent) detach();
-        on_cancel();
+        onCancel();
     }
 
     // Arranges for this context to be canceled when parent is.
-    void propagate_cancel() {
+    void propagateCancel() {
         chan<empty> pd = parent_->Done();
         if (!pd) return;  // the parent is never canceled
 
         bool closed = false;
         empty e;
-        if (pd.try_recv(e, &closed) || closed) {
+        if (pd.tryRecv(e, &closed) || closed) {
             cancel(false, parent_->Err(), Cause(parent_));
             return;
         }
 
-        if (cancel_ctx* p = parent_cancel_ctx(parent_)) {
+        if (cancel_ctx* p = parentCancelCtx(parent_)) {
             std::unique_lock l(p->mu_);
             if (p->err_) {
                 error perr = p->err_, pcause = p->cause_;
                 l.unlock();
                 cancel(false, perr, pcause);
             } else {
-                add_ref();  // the parent holds its children
+                addRef();  // the parent holds its children
                 p->children_.insert(this);
                 parent_cc_ = p;
             }
@@ -113,7 +113,7 @@ public:
     }
 
 protected:
-    virtual void on_cancel() {}
+    virtual void onCancel() {}
 
 private:
     void detach() {
@@ -124,10 +124,10 @@ private:
             std::lock_guard l(p->mu_);
             removed = p->children_.erase(this) > 0;
         }
-        if (removed) release_ref();
+        if (removed) releaseRef();
     }
 
-    friend cancel_ctx* parent_cancel_ctx(const ptr<Context>& parent);
+    friend cancel_ctx* parentCancelCtx(const ptr<Context>& parent);
 
     ptr<Context> parent_;
     cancel_ctx* parent_cc_ = nullptr;
@@ -138,7 +138,7 @@ private:
     error cause_;
 };
 
-cancel_ctx* parent_cancel_ctx(const ptr<Context>& parent) {
+cancel_ctx* parentCancelCtx(const ptr<Context>& parent) {
     // Go compares the done channels to tell whether the parent's done is
     // that of its cancel_ctx; a dynamic_cast serves the same purpose for
     // the context types defined here.
@@ -158,7 +158,7 @@ public:
     }
 
 protected:
-    void on_cancel() override {
+    void onCancel() override {
         ptr<time::Timer> t;
         {
             std::lock_guard l(tmu_);
@@ -190,7 +190,7 @@ struct value_ctx final : Context {
 ptr<Context> Background() {
     static Context* bg = [] {
         auto* c = new empty_ctx();
-        c->add_ref();  // never freed
+        c->addRef();  // never freed
         return c;
     }();
     return ptr<Context>(bg);
@@ -201,14 +201,14 @@ ptr<Context> TODO() { return Background(); }
 std::pair<ptr<Context>, CancelFunc> WithCancel(ptr<Context> parent) {
     if (!parent) panic("cannot create context from nil parent");
     ptr<cancel_ctx> c = make_ptr<cancel_ctx>(std::move(parent));
-    c->propagate_cancel();
+    c->propagateCancel();
     return {c, [c] { c->cancel(true, Canceled, nullptr); }};
 }
 
 std::pair<ptr<Context>, CancelCauseFunc> WithCancelCause(ptr<Context> parent) {
     if (!parent) panic("cannot create context from nil parent");
     ptr<cancel_ctx> c = make_ptr<cancel_ctx>(std::move(parent));
-    c->propagate_cancel();
+    c->propagateCancel();
     return {c, [c](error cause) { c->cancel(true, Canceled, std::move(cause)); }};
 }
 
@@ -216,7 +216,7 @@ std::pair<ptr<Context>, CancelFunc> WithDeadline(ptr<Context> parent, time::Time
     if (!parent) panic("cannot create context from nil parent");
     if (auto cur = parent->Deadline(); cur && cur->Before(d)) return WithCancel(std::move(parent));
     ptr<timer_ctx> c = make_ptr<timer_ctx>(std::move(parent), d);
-    c->propagate_cancel();
+    c->propagateCancel();
     time::Duration dur = time::Until(d);
     if (dur.ns <= 0) {
         c->cancel(true, DeadlineExceeded, nullptr);
@@ -236,7 +236,7 @@ ptr<Context> WithValue(ptr<Context> parent, const void* key, ptr<object> val) {
 }
 
 error Cause(const ptr<Context>& ctx) {
-    if (auto* c = dynamic_cast<cancel_ctx*>(ctx.get())) return c->cause_err();
+    if (auto* c = dynamic_cast<cancel_ctx*>(ctx.get())) return c->causeErr();
     return ctx->Err();
 }
 

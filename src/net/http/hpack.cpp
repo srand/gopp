@@ -17,12 +17,12 @@ namespace {
 constexpr uint32 uint32_max = ~uint32(0);
 constexpr uint32 initial_header_table_size = 4096;
 
-gopp::error decoding_error(std::string_view msg) { return make_ptr<DecodingError>(errors::New(string(msg))); }
+gopp::error decodingError(std::string_view msg) { return make_ptr<DecodingError>(errors::New(string(msg))); }
 
-const detail::header_field_table& static_table() {
+const detail::header_field_table& staticTable() {
     static const detail::header_field_table* t = [] {
         auto* t = new detail::header_field_table(true);
-        for (auto& [n, v] : static_table_entries) t->add_entry(HeaderField{string::from_static(n), string::from_static(v)});
+        for (auto& [n, v] : static_table_entries) t->addEntry(HeaderField{string::fromStatic(n), string::fromStatic(v)});
         return t;
     }();
     return *t;
@@ -36,16 +36,16 @@ struct node {
     byte sym = 0;
 };
 
-node* new_internal_node() {
+node* newInternalNode() {
     auto* n = new node;
     n->children.reset(new std::array<node*, 256>());
     n->children->fill(nullptr);
     return n;
 }
 
-const node* root_huffman_node() {
+const node* rootHuffmanNode() {
     static const node* root = [] {
-        node* root = new_internal_node();
+        node* root = newInternalNode();
         static node leaves[256];
         for (int sym = 0; sym < 256; sym++) {
             uint32 code = huffman_codes[sym];
@@ -54,7 +54,7 @@ const node* root_huffman_node() {
             while (code_len > 8) {
                 code_len -= 8;
                 uint8 i = static_cast<uint8>(code >> code_len);
-                if (!(*cur->children)[i]) (*cur->children)[i] = new_internal_node();
+                if (!(*cur->children)[i]) (*cur->children)[i] = newInternalNode();
                 cur = (*cur->children)[i];
             }
             uint8 shift = 8 - code_len;
@@ -70,8 +70,8 @@ const node* root_huffman_node() {
 
 }  // namespace
 
-gopp::error huffman_decode(std::string& buf, int max_len, std::span<const byte> v) {
-    const node* root = root_huffman_node();
+gopp::error huffmanDecode(std::string& buf, int max_len, std::span<const byte> v) {
+    const node* root = rootHuffmanNode();
     const node* n = root;
     // cur is the bit buffer of unconsumed input, cbits how many bits it
     // holds, and sbits the bits since the last symbol (to detect padding
@@ -115,47 +115,47 @@ gopp::error huffman_decode(std::string& buf, int max_len, std::span<const byte> 
 
 namespace {
 
-void append_indexed(std::string& dst, uint64 i) {
+void appendIndexed(std::string& dst, uint64 i) {
     std::size_t first = dst.size();
-    append_var_int(dst, 7, i);
+    appendVarInt(dst, 7, i);
     dst[first] = static_cast<char>(dst[first] | 0x80);
 }
 
-void append_hpack_string(std::string& dst, std::string_view s) {
-    uint64 huffman_length = huffman_encode_length(s);
+void appendHpackString(std::string& dst, std::string_view s) {
+    uint64 huffman_length = huffmanEncodeLength(s);
     if (huffman_length < s.size()) {
         std::size_t first = dst.size();
-        append_var_int(dst, 7, huffman_length);
-        append_huffman_string(dst, s);
+        appendVarInt(dst, 7, huffman_length);
+        appendHuffmanString(dst, s);
         dst[first] = static_cast<char>(dst[first] | 0x80);
     } else {
-        append_var_int(dst, 7, s.size());
+        appendVarInt(dst, 7, s.size());
         dst.append(s);
     }
 }
 
-byte encode_type_byte(bool indexing, bool sensitive) {
+byte encodeTypeByte(bool indexing, bool sensitive) {
     if (sensitive) return 0x10;
     if (indexing) return 0x40;
     return 0;
 }
 
-void append_new_name(std::string& dst, const HeaderField& f, bool indexing) {
-    dst.push_back(static_cast<char>(encode_type_byte(indexing, f.sensitive)));
-    append_hpack_string(dst, f.name);
-    append_hpack_string(dst, f.value);
+void appendNewName(std::string& dst, const HeaderField& f, bool indexing) {
+    dst.push_back(static_cast<char>(encodeTypeByte(indexing, f.sensitive)));
+    appendHpackString(dst, f.name);
+    appendHpackString(dst, f.value);
 }
 
-void append_indexed_name(std::string& dst, const HeaderField& f, uint64 i, bool indexing) {
+void appendIndexedName(std::string& dst, const HeaderField& f, uint64 i, bool indexing) {
     std::size_t first = dst.size();
-    append_var_int(dst, indexing ? 6 : 4, i);
-    dst[first] = static_cast<char>(dst[first] | encode_type_byte(indexing, f.sensitive));
-    append_hpack_string(dst, f.value);
+    appendVarInt(dst, indexing ? 6 : 4, i);
+    dst[first] = static_cast<char>(dst[first] | encodeTypeByte(indexing, f.sensitive));
+    appendHpackString(dst, f.value);
 }
 
-void append_table_size(std::string& dst, uint32 v) {
+void appendTableSize(std::string& dst, uint32 v) {
     std::size_t first = dst.size();
-    append_var_int(dst, 5, v);
+    appendVarInt(dst, 5, v);
     dst[first] = static_cast<char>(dst[first] | 0x20);
 }
 
@@ -164,7 +164,7 @@ enum index_type { indexed_true, indexed_false, indexed_never };
 }  // namespace
 
 const gopp::error err_need_more = errors::New("need more data");
-const gopp::error err_varint_overflow = decoding_error("varint integer overflow");
+const gopp::error err_varint_overflow = decodingError("varint integer overflow");
 const gopp::error err_string_length = errors::New("hpack: string too long");
 const gopp::error err_invalid_huffman = errors::New("hpack: invalid Huffman-encoded data");
 
@@ -181,7 +181,7 @@ string InvalidIndexError::Error() const { return "invalid indexed representation
 
 namespace detail {
 
-void header_field_table::add_entry(HeaderField f) {
+void header_field_table::addEntry(HeaderField f) {
     uint64 id = ents_.size() + evict_count_ + 1;
     by_name_[f.name.str()] = id;
     by_name_value_[{f.name.str(), f.value.str()}] = id;
@@ -205,32 +205,32 @@ void header_field_table::evict_oldest(std::size_t n) {
 std::pair<uint64, bool> header_field_table::search(const HeaderField& f) const {
     if (!f.sensitive) {
         if (auto it = by_name_value_.find({f.name.str(), f.value.str()}); it != by_name_value_.end()) {
-            return {id_to_index(it->second), true};
+            return {idToIndex(it->second), true};
         }
     }
-    if (auto it = by_name_.find(f.name.str()); it != by_name_.end()) return {id_to_index(it->second), false};
+    if (auto it = by_name_.find(f.name.str()); it != by_name_.end()) return {idToIndex(it->second), false};
     return {0, false};
 }
 
-uint64 header_field_table::id_to_index(uint64 id) const {
+uint64 header_field_table::idToIndex(uint64 id) const {
     if (id <= evict_count_) panic("hpack: id <= evictCount");
     uint64 k = id - evict_count_ - 1;  // the index in ents_
     if (!static_) return ents_.size() - k;  // the dynamic table counts from the newest
     return k + 1;
 }
 
-void dynamic_table::set_max_size(uint32 v) {
+void dynamicTable::setMaxSize(uint32 v) {
     max_size = v;
     evict();
 }
 
-void dynamic_table::add(HeaderField f) {
+void dynamicTable::add(HeaderField f) {
     size += f.size();
-    table.add_entry(std::move(f));
+    table.addEntry(std::move(f));
     evict();
 }
 
-void dynamic_table::evict() {
+void dynamicTable::evict() {
     std::size_t n = 0;
     while (size > max_size && n < table.len()) {
         size -= table.at(n).size();
@@ -244,22 +244,22 @@ void dynamic_table::evict() {
 // ---------------------------------------------------------------------------
 // Decoder
 
-Decoder::Decoder(uint32 max_dynamic_table_size, emit_func emit) : emit_(std::move(emit)) {
-    dyn_.allowed_max_size = max_dynamic_table_size;
-    dyn_.set_max_size(max_dynamic_table_size);
+Decoder::Decoder(uint32 maxDynamicTableSize, emit_func emit) : emit_(std::move(emit)) {
+    dyn_.allowed_max_size = maxDynamicTableSize;
+    dyn_.setMaxSize(maxDynamicTableSize);
 }
 
-std::size_t Decoder::max_table_index() const noexcept { return dyn_.table.len() + static_table().len(); }
+std::size_t Decoder::maxTableIndex() const noexcept { return dyn_.table.len() + staticTable().len(); }
 
 const HeaderField* Decoder::at(uint64 i) const noexcept {
     if (i == 0) return nullptr;
-    if (i <= static_table().len()) return &static_table().at(i - 1);
-    if (i > max_table_index()) return nullptr;
+    if (i <= staticTable().len()) return &staticTable().at(i - 1);
+    if (i > maxTableIndex()) return nullptr;
     // The dynamic table's index 1 is its newest entry, at the end.
-    return &dyn_.table.at(dyn_.table.len() - (i - static_table().len()));
+    return &dyn_.table.at(dyn_.table.len() - (i - staticTable().len()));
 }
 
-std::pair<std::vector<HeaderField>, gopp::error> Decoder::decode_full(std::span<const byte> p) {
+std::pair<std::vector<HeaderField>, gopp::error> Decoder::decodeFull(std::span<const byte> p) {
     std::vector<HeaderField> hf;
     emit_func save = std::move(emit_);
     emit_ = [&](const HeaderField& f) { hf.push_back(f); };
@@ -273,7 +273,7 @@ std::pair<std::vector<HeaderField>, gopp::error> Decoder::decode_full(std::span<
 gopp::error Decoder::Close() {
     if (!save_buf_.empty()) {
         save_buf_.clear();
-        return decoding_error("truncated headers");
+        return decodingError("truncated headers");
     }
     first_field_ = true;
     return nullptr;
@@ -292,7 +292,7 @@ std::pair<isize, gopp::error> Decoder::Write(std::span<const byte> p) {
     }
     gopp::error err;
     while (!buf_.empty()) {
-        err = parse_header_field_repr();
+        err = parseHeaderFieldRepr();
         if (err == err_need_more) {
             // Keep the partial field for the next write, unless it is
             // already longer than any field could be.
@@ -311,30 +311,30 @@ std::pair<isize, gopp::error> Decoder::Write(std::span<const byte> p) {
     return {static_cast<isize>(p.size()), err};
 }
 
-gopp::error Decoder::parse_header_field_repr() {
+gopp::error Decoder::parseHeaderFieldRepr() {
     byte b = buf_[0];
-    if (b & 128) return parse_field_indexed();                         // 6.1 indexed
-    if ((b & 192) == 64) return parse_field_literal(6, indexed_true);  // 6.2.1 with indexing
-    if ((b & 240) == 0) return parse_field_literal(4, indexed_false);  // 6.2.2 without indexing
-    if ((b & 240) == 16) return parse_field_literal(4, indexed_never); // 6.2.3 never indexed
-    if ((b & 224) == 32) return parse_dynamic_table_size_update();     // 6.3
-    return decoding_error("invalid encoding");
+    if (b & 128) return parseFieldIndexed();                         // 6.1 indexed
+    if ((b & 192) == 64) return parseFieldLiteral(6, indexed_true);  // 6.2.1 with indexing
+    if ((b & 240) == 0) return parseFieldLiteral(4, indexed_false);  // 6.2.2 without indexing
+    if ((b & 240) == 16) return parseFieldLiteral(4, indexed_never); // 6.2.3 never indexed
+    if ((b & 224) == 32) return parseDynamicTableSizeUpdate();     // 6.3
+    return decodingError("invalid encoding");
 }
 
-gopp::error Decoder::parse_field_indexed() {
+gopp::error Decoder::parseFieldIndexed() {
     std::span<const byte> buf = buf_;
     uint64 idx;
-    if (gopp::error err = read_var_int(7, buf, idx)) return err;
+    if (gopp::error err = readVarInt(7, buf, idx)) return err;
     const HeaderField* hf = at(idx);
     if (!hf) return make_ptr<DecodingError>(make_ptr<InvalidIndexError>(idx));
     buf_ = buf;
-    return call_emit(HeaderField{hf->name, hf->value});
+    return callEmit(HeaderField{hf->name, hf->value});
 }
 
-gopp::error Decoder::parse_field_literal(uint8 n, int it) {
+gopp::error Decoder::parseFieldLiteral(uint8 n, int it) {
     std::span<const byte> buf = buf_;
     uint64 name_idx;
-    if (gopp::error err = read_var_int(n, buf, name_idx)) return err;
+    if (gopp::error err = readVarInt(n, buf, name_idx)) return err;
 
     HeaderField hf;
     bool want_str = emit_enabled_ || it == indexed_true;
@@ -350,17 +350,17 @@ gopp::error Decoder::parse_field_literal(uint8 n, int it) {
     if (gopp::error err = ReadString(buf, undecoded_value)) return err;
     if (want_str) {
         if (name_idx == 0) {
-            if (gopp::error err = decode_string(undecoded_name, hf.name)) return err;
+            if (gopp::error err = decodeString(undecoded_name, hf.name)) return err;
         }
-        if (gopp::error err = decode_string(undecoded_value, hf.value)) return err;
+        if (gopp::error err = decodeString(undecoded_value, hf.value)) return err;
     }
     buf_ = buf;
     if (it == indexed_true) dyn_.add(hf);
     hf.sensitive = it == indexed_never;
-    return call_emit(hf);
+    return callEmit(hf);
 }
 
-gopp::error Decoder::call_emit(const HeaderField& hf) {
+gopp::error Decoder::callEmit(const HeaderField& hf) {
     if (max_str_len_ != 0) {
         if (static_cast<int>(hf.name.size()) > max_str_len_ || static_cast<int>(hf.value.size()) > max_str_len_) {
             return err_string_length;
@@ -370,17 +370,17 @@ gopp::error Decoder::call_emit(const HeaderField& hf) {
     return nullptr;
 }
 
-gopp::error Decoder::parse_dynamic_table_size_update() {
+gopp::error Decoder::parseDynamicTableSizeUpdate() {
     // RFC 7541 4.2: a size update must come first in a header block. Go
     // allows it later while the table is empty, as some peers send it so.
     if (!first_field_ && dyn_.size > 0) {
-        return decoding_error("dynamic table size update MUST occur at the beginning of a header block");
+        return decodingError("dynamic table size update MUST occur at the beginning of a header block");
     }
     std::span<const byte> buf = buf_;
     uint64 size;
-    if (gopp::error err = read_var_int(5, buf, size)) return err;
-    if (size > dyn_.allowed_max_size) return decoding_error("dynamic table size update too large");
-    dyn_.set_max_size(static_cast<uint32>(size));
+    if (gopp::error err = readVarInt(5, buf, size)) return err;
+    if (size > dyn_.allowed_max_size) return decodingError("dynamic table size update too large");
+    dyn_.setMaxSize(static_cast<uint32>(size));
     buf_ = buf;
     return nullptr;
 }
@@ -389,7 +389,7 @@ gopp::error Decoder::ReadString(std::span<const byte>& p, undecoded& u) {
     if (p.empty()) return err_need_more;
     bool is_huff = p[0] & 128;
     uint64 str_len;
-    if (gopp::error err = read_var_int(7, p, str_len)) return err;
+    if (gopp::error err = readVarInt(7, p, str_len)) return err;
     if (max_str_len_ != 0 && str_len > static_cast<uint64>(max_str_len_)) return err_string_length;
     if (p.size() < str_len) return err_need_more;
     u.huff = is_huff;
@@ -398,18 +398,18 @@ gopp::error Decoder::ReadString(std::span<const byte>& p, undecoded& u) {
     return nullptr;
 }
 
-gopp::error Decoder::decode_string(const undecoded& u, string& out) {
+gopp::error Decoder::decodeString(const undecoded& u, string& out) {
     if (!u.huff) {
-        out = string(as_string_view(u.b));
+        out = string(asStringView(u.b));
         return nullptr;
     }
     std::string buf;
-    if (gopp::error err = huffman_decode(buf, max_str_len_, u.b)) return err;
+    if (gopp::error err = huffmanDecode(buf, max_str_len_, u.b)) return err;
     out = string(buf);
     return nullptr;
 }
 
-gopp::error read_var_int(uint8 n, std::span<const byte>& p, uint64& out) {
+gopp::error readVarInt(uint8 n, std::span<const byte>& p, uint64& out) {
     if (n < 1 || n > 8) panic("bad n");
     if (p.empty()) return err_need_more;
     uint64 i = p[0];
@@ -441,53 +441,53 @@ gopp::error read_var_int(uint8 n, std::span<const byte>& p, uint64& out) {
 
 Encoder::Encoder(std::string* out)
     : min_size_(uint32_max), max_size_limit_(initial_header_table_size), out_(out) {
-    dyn_.set_max_size(initial_header_table_size);
+    dyn_.setMaxSize(initial_header_table_size);
 }
 
-gopp::error Encoder::write_field(const HeaderField& f) {
+gopp::error Encoder::writeField(const HeaderField& f) {
     std::string& dst = *out_;
     if (table_size_update_) {
         table_size_update_ = false;
-        if (min_size_ < dyn_.max_size) append_table_size(dst, min_size_);
+        if (min_size_ < dyn_.max_size) appendTableSize(dst, min_size_);
         min_size_ = uint32_max;
-        append_table_size(dst, dyn_.max_size);
+        appendTableSize(dst, dyn_.max_size);
     }
-    auto [idx, name_value_match] = search_table(f);
+    auto [idx, name_value_match] = searchTable(f);
     if (name_value_match) {
-        append_indexed(dst, idx);
+        appendIndexed(dst, idx);
     } else {
         bool indexing = !f.sensitive && f.size() <= dyn_.max_size;
         if (indexing) dyn_.add(f);
-        if (idx == 0) append_new_name(dst, f, indexing);
-        else append_indexed_name(dst, f, idx, indexing);
+        if (idx == 0) appendNewName(dst, f, indexing);
+        else appendIndexedName(dst, f, idx, indexing);
     }
     return nullptr;
 }
 
-std::pair<uint64, bool> Encoder::search_table(const HeaderField& f) const {
-    auto [i, match] = static_table().search(f);
+std::pair<uint64, bool> Encoder::searchTable(const HeaderField& f) const {
+    auto [i, match] = staticTable().search(f);
     if (match) return {i, true};
     auto [j, dmatch] = dyn_.table.search(f);
-    if (dmatch || (i == 0 && j != 0)) return {j + static_table().len(), dmatch};
+    if (dmatch || (i == 0 && j != 0)) return {j + staticTable().len(), dmatch};
     return {i, false};
 }
 
-void Encoder::set_max_dynamic_table_size(uint32 v) {
+void Encoder::setMaxDynamicTableSize(uint32 v) {
     if (v > max_size_limit_) v = max_size_limit_;
     if (v < min_size_) min_size_ = v;
     table_size_update_ = true;
-    dyn_.set_max_size(v);
+    dyn_.setMaxSize(v);
 }
 
-void Encoder::set_max_dynamic_table_size_limit(uint32 v) {
+void Encoder::setMaxDynamicTableSizeLimit(uint32 v) {
     max_size_limit_ = v;
     if (dyn_.max_size > v) {
         table_size_update_ = true;
-        dyn_.set_max_size(v);
+        dyn_.setMaxSize(v);
     }
 }
 
-void append_var_int(std::string& dst, uint8 n, uint64 i) {
+void appendVarInt(std::string& dst, uint8 n, uint64 i) {
     uint64 k = (uint64(1) << n) - 1;
     if (i < k) {
         dst.push_back(static_cast<char>(i));
@@ -502,13 +502,13 @@ void append_var_int(std::string& dst, uint8 n, uint64 i) {
 // ---------------------------------------------------------------------------
 // Huffman
 
-std::pair<string, gopp::error> huffman_decode_to_string(std::span<const byte> v) {
+std::pair<string, gopp::error> huffmanDecodeToString(std::span<const byte> v) {
     std::string buf;
-    if (gopp::error err = huffman_decode(buf, 0, v)) return {{}, err};
+    if (gopp::error err = huffmanDecode(buf, 0, v)) return {{}, err};
     return {string(buf), nullptr};
 }
 
-void append_huffman_string(std::string& dst, std::string_view s) {
+void appendHuffmanString(std::string& dst, std::string_view s) {
     uint64 x = 0;  // bit buffer
     unsigned n = 0;  // valid bits in x
     for (unsigned char c : s) {
@@ -534,7 +534,7 @@ void append_huffman_string(std::string& dst, std::string_view s) {
     for (unsigned k = n / 8; k > 0; k--) dst.push_back(static_cast<char>(x >> (8 * (k - 1))));
 }
 
-uint64 huffman_encode_length(std::string_view s) noexcept {
+uint64 huffmanEncodeLength(std::string_view s) noexcept {
     uint64 n = 0;
     for (unsigned char c : s) n += huffman_code_len[c];
     return (n + 7) / 8;

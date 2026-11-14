@@ -32,7 +32,7 @@ mime::Params m(std::initializer_list<std::pair<const char*, const char*>> kv) {
 
 std::string str(const string& s) { return std::string(s.view()); }
 
-std::string params_str(const mime::Params& p) {
+std::string paramsStr(const mime::Params& p) {
     std::string s = "{";
     for (const auto& [k, v] : p) s += str(k) + ":" + str(v) + " ";
     return s + "}";
@@ -40,12 +40,12 @@ std::string params_str(const mime::Params& p) {
 
 // setMimeInit: the next lookup runs fn instead of the usual
 // initialization; the cleanup restores it.
-struct mime_init_guard {
-    explicit mime_init_guard(std::function<void()> fn) { mi::set_mime_init(std::move(fn)); }
-    ~mime_init_guard() { mi::set_mime_init(nullptr); }
+struct mimeInitGuard {
+    explicit mimeInitGuard(std::function<void()> fn) { mi::set_mime_init(std::move(fn)); }
+    ~mimeInitGuard() { mi::set_mime_init(nullptr); }
 };
 
-void clear_mime_types() { mi::set_mime_types({}, {}); }
+void clearMimeTypes() { mi::set_mime_types({}, {}); }
 
 void set_type(std::string_view ext, std::string_view typ) {
     ASSERT_TRUE(ext.starts_with('.')) << "missing leading dot";
@@ -83,14 +83,14 @@ constexpr std::string_view test_types_globs2 =
     "10:example/glob-range:*.foo[1-3]\n";
 
 // Points initialization at testdata files, and back at the system's.
-struct system_files_guard {
+struct systemFilesGuard {
     std::pair<std::vector<string>, std::vector<string>> old;
-    system_files_guard(std::vector<string> globs, std::vector<string> types)
-        : old(mi::set_system_files(std::move(globs), std::move(types))) {
+    systemFilesGuard(std::vector<string> globs, std::vector<string> types)
+        : old(mi::setSystemFiles(std::move(globs), std::move(types))) {
         mi::set_mime_init(nullptr);
     }
-    ~system_files_guard() {
-        mi::set_system_files(std::move(old.first), std::move(old.second));
+    ~systemFilesGuard() {
+        mi::setSystemFiles(std::move(old.first), std::move(old.second));
         mi::set_mime_init(nullptr);
     }
 };
@@ -105,7 +105,7 @@ TEST(GoMime, TypeByExtension) {
     TempDir dir;
     std::string types = os_test::join(dir, "test.types");
     write_file(types, test_types);
-    system_files_guard files({string()}, {string(types)});
+    systemFilesGuard files({string()}, {string(types)});
 
     smap tests = {
         {".T1", "application/test"},
@@ -118,8 +118,8 @@ TEST(GoMime, TypeByExtension) {
 }
 
 TEST(GoMime, TypeByExtension_LocalData) {
-    mime_init_guard cleanup([] {
-        clear_mime_types();
+    mimeInitGuard cleanup([] {
+        clearMimeTypes();
         set_type(".foo", "x/foo");
         set_type(".bar", "x/bar");
         set_type(".Bar", "x/bar; capital=1");
@@ -139,8 +139,8 @@ TEST(GoMime, TypeByExtension_LocalData) {
 TEST(GoMime, TypeByExtensionCase) {
     constexpr std::string_view custom = "test/test; charset=iso-8859-1";
     constexpr std::string_view caps = "test/test; WAS=ALLCAPS";
-    mime_init_guard cleanup([&] {
-        clear_mime_types();
+    mimeInitGuard cleanup([&] {
+        clearMimeTypes();
         set_type(".TEST", caps);
         set_type(".tesT", custom);
     });
@@ -152,7 +152,7 @@ TEST(GoMime, TypeByExtensionCase) {
 }
 
 TEST(GoMime, AddExtensionType_TextMIMEWithParamsDefaultCharset) {
-    mime_init_guard cleanup([] { clear_mime_types(); });
+    mimeInitGuard cleanup([] { clearMimeTypes(); });
     constexpr std::string_view ext = ".regtxt";
     constexpr std::string_view in = "text/x-reg; myparam=myvalue";  // text/*, extra param, no charset
     ASSERT_FALSE(mime::AddExtensionType(ext, in));
@@ -169,8 +169,8 @@ TEST(GoMime, AddExtensionTypeMissingDot) {
 }
 
 TEST(GoMime, ExtensionsByType) {
-    mime_init_guard cleanup([] {
-        clear_mime_types();
+    mimeInitGuard cleanup([] {
+        clearMimeTypes();
         set_type(".gif", "image/gif");
         set_type(".a", "foo/letter");
         set_type(".b", "foo/letter");
@@ -196,8 +196,8 @@ TEST(GoMime, ExtensionsByType) {
 }
 
 TEST(GoMime, ExtensionsByType2) {
-    mime_init_guard cleanup([] {
-        clear_mime_types();
+    mimeInitGuard cleanup([] {
+        clearMimeTypes();
         // Initialize built-in types like in type.go before osInitMime.
         mi::set_mime_types(mi::builtin_types_lower(), mi::builtin_types_lower());
     });
@@ -271,9 +271,9 @@ TEST(GoMime, TypeByExtensionUNIX) {
     write_file(globs, test_types_globs2);
     write_file(types, test_types);
     // initMimeUnixTest: the usual initialization, then the testdata files.
-    system_files_guard files({string()}, {});
-    mi::ensure_init();
-    ASSERT_FALSE(mi::load_mime_globs_file(globs));
+    systemFilesGuard files({string()}, {});
+    mi::ensureInit();
+    ASSERT_FALSE(mi::loadMimeGlobsFile(globs));
     mi::load_mime_file(types);
 
     smap tests = {
@@ -375,7 +375,7 @@ struct media_type_test {
     mime::Params p;
 };
 
-std::vector<media_type_test> parse_media_type_tests() {
+std::vector<media_type_test> parseMediaTypeTests() {
     auto name_foo = m({{"name", "foo"}});
     return {
         {R"(form-data; name="foo")", "form-data", name_foo},
@@ -593,7 +593,7 @@ std::vector<media_type_test> parse_media_type_tests() {
 }  // namespace
 
 TEST(GoMime, ParseMediaType) {
-    for (const auto& test : parse_media_type_tests()) {
+    for (const auto& test : parseMediaTypeTests()) {
         auto [mt, params, err] = mime::ParseMediaType(test.in);
         if (err) {
             EXPECT_EQ(test.t, "") << "for input " << test.in << ", unexpected error: " << err;
@@ -602,8 +602,8 @@ TEST(GoMime, ParseMediaType) {
         EXPECT_EQ(mt, test.t) << "for input " << test.in;
         if (mt != test.t) continue;
         if (params.empty() && test.p.empty()) continue;
-        EXPECT_EQ(params, test.p) << "for input " << test.in << ", wrong params: expected " << params_str(test.p)
-                                  << ", got " << params_str(params);
+        EXPECT_EQ(params, test.p) << "for input " << test.in << ", wrong params: expected " << paramsStr(test.p)
+                                  << ", got " << paramsStr(params);
     }
 }
 
@@ -671,7 +671,7 @@ TEST(GoMime, FormatMediaType) {
         {"foo/BAR", m({{"bad attribute", "baz"}}), ""},
         {"foo/BAR", m({{"nonascii", "not an ascii character: ä"}}),
          "foo/bar; nonascii*=utf-8''not%20an%20ascii%20character%3A%20%C3%A4"},
-        {"foo/BAR", {{string::from_static("ctl"), string(std::string_view("newline: \n nil: \0", 17))}},
+        {"foo/BAR", {{string::fromStatic("ctl"), string(std::string_view("newline: \n nil: \0", 17))}},
          "foo/bar; ctl*=utf-8''newline%3A%20%0A%20nil%3A%20%00"},
         {"foo/bar", m({{"a", "av"}, {"b", "bv"}, {"c", "cv"}}), "foo/bar; a=av; b=bv; c=cv"},
         {"foo/bar", m({{"0", "'"}, {"9", "'"}}), "foo/bar; 0='; 9='"},
@@ -680,7 +680,7 @@ TEST(GoMime, FormatMediaType) {
     int i = 0;
     for (const auto& tt : tests) {
         string got = mime::FormatMediaType(tt.typ, tt.params);
-        EXPECT_EQ(got, tt.want) << i << ". FormatMediaType(" << tt.typ << ", " << params_str(tt.params) << ")";
+        EXPECT_EQ(got, tt.want) << i << ". FormatMediaType(" << tt.typ << ", " << paramsStr(tt.params) << ")";
         i++;
         if (got.empty()) continue;
         auto [typ, params, err] = mime::ParseMediaType(got);

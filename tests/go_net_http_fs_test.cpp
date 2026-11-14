@@ -45,7 +45,7 @@ namespace {
 
 using test_mode = http_fs_test_mode;
 
-std::string mode_name(const testing::TestParamInfo<test_mode>& info) {
+std::string modeName(const testing::TestParamInfo<test_mode>& info) {
     switch (info.param) {
     case test_mode::http1: return "h1";
     case test_mode::https1: return "https1";
@@ -152,10 +152,10 @@ protected:
 };
 
 INSTANTIATE_TEST_SUITE_P(Modes, GoNetHttpFSModes,
-                         testing::Values(test_mode::http1, test_mode::https1, test_mode::http2), mode_name);
+                         testing::Values(test_mode::http1, test_mode::https1, test_mode::http2), modeName);
 
 // The body of a response, read to the end and closed.
-std::string read_body(const ptr<http::Response>& res) {
+std::string readBody(const ptr<http::Response>& res) {
     auto [b, err] = io::ReadAll(*res->Body);
     EXPECT_FALSE(err) << "reading Body: " << err;
     res->Body->Close();
@@ -173,16 +173,16 @@ get_result get(http::Client& c, std::string_view url) {
         ADD_FAILURE() << "Get " << url << ": " << err;
         return {};
     }
-    return {res, read_body(res)};
+    return {res, readBody(res)};
 }
 
-get_result do_request(http::Client& c, const ptr<http::Request>& req) {
+get_result doRequest(http::Client& c, const ptr<http::Request>& req) {
     auto [res, err] = c.Do(req);
     if (err) {
         ADD_FAILURE() << req->Method << " " << req->URL.String() << ": " << err;
         return {};
     }
-    return {res, read_body(res)};
+    return {res, readBody(res)};
 }
 
 ptr<http::Request> new_request(std::string_view method, std::string_view url) {
@@ -205,7 +205,7 @@ struct part {
 
 // The parts of a multipart body with the boundary; nothing if it's
 // malformed.
-std::optional<std::vector<part>> read_multipart(std::string_view body, std::string_view boundary) {
+std::optional<std::vector<part>> readMultipart(std::string_view body, std::string_view boundary) {
     std::string delim = "--" + std::string(boundary);
     if (!body.starts_with(delim)) return std::nullopt;
     std::vector<part> parts;
@@ -303,7 +303,7 @@ private:
     std::function<std::pair<ptr<http::File>, gopp::error>(std::string_view)> open_;
 };
 
-ptr<fake_file_info> fake_info(std::string basename, time::Time modtime = {}, std::string contents = {},
+ptr<fake_file_info> fakeInfo(std::string basename, time::Time modtime = {}, std::string contents = {},
                               bool dir = false, std::vector<ptr<fake_file_info>> ents = {}) {
     auto fi = make_ptr<fake_file_info>();
     fi->basename = std::move(basename);
@@ -328,13 +328,13 @@ TEST_P(GoNetHttpFSModes, ServeFile) {
     // historical behavior.
     for (std::string_view method : {http::MethodGet, http::MethodPost, http::MethodPut, http::MethodPatch,
                                     http::MethodDelete, http::MethodOptions, http::MethodTrace}) {
-        auto [resp, body] = do_request(c, new_request(method, ts.URL));
+        auto [resp, body] = doRequest(c, new_request(method, ts.URL));
         ASSERT_EQ(body, file) << "body mismatch for " << method << " request";
     }
 
     // HEAD request.
     {
-        auto [resp, body] = do_request(c, new_request(http::MethodHead, ts.URL));
+        auto [resp, body] = doRequest(c, new_request(http::MethodHead, ts.URL));
         ASSERT_EQ(body, "") << "body mismatch for HEAD request";
         ASSERT_EQ(resp->Header.Get("Content-Length"), fmt::Sprint("{}", file.size()));
     }
@@ -374,7 +374,7 @@ TEST_P(GoNetHttpFSModes, ServeFile) {
     for (const auto& rt : tests) {
         auto req = new_request(http::MethodGet, ts.URL);
         if (!rt.r.empty()) req->Header.Set("Range", string(rt.r));
-        auto [resp, body] = do_request(c, req);
+        auto [resp, body] = doRequest(c, req);
         EXPECT_EQ(resp->StatusCode, rt.code) << "range=" << rt.r;
         if (rt.code == http::StatusRequestedRangeNotSatisfiable) continue;
         std::string want_content_range;
@@ -395,13 +395,13 @@ TEST_P(GoNetHttpFSModes, ServeFile) {
                 continue;
             }
             EXPECT_EQ(typ, "multipart/byteranges") << "range=" << rt.r;
-            string boundary = params[string::from_static("boundary")];
+            string boundary = params[string::fromStatic("boundary")];
             if (boundary.empty()) {
                 ADD_FAILURE() << "range=" << rt.r << " content-type = " << ct << "; lacks boundary";
                 continue;
             }
             EXPECT_EQ(resp->ContentLength, static_cast<int64>(body.size())) << "range=" << rt.r;
-            auto parts = read_multipart(body, boundary);
+            auto parts = readMultipart(body, boundary);
             if (!parts) {
                 ADD_FAILURE() << "range=" << rt.r << ": malformed multipart body " << testing::PrintToString(body);
                 continue;
@@ -464,7 +464,7 @@ TEST_F(GoNetHttpFS, ServeContentWithEmptyContentIgnoreRanges) {
 }
 
 TEST_P(GoNetHttpFSModes, FSRedirect) {
-    auto& ts = serve(http::StripPrefix(string::from_static("/test"), http::FileServer(http::Dir("."))));
+    auto& ts = serve(http::StripPrefix(string::fromStatic("/test"), http::FileServer(http::Dir("."))));
     struct {
         std::string original, redirect;
         int status;
@@ -531,8 +531,8 @@ TEST_P(GoNetHttpFSModes, FileServerEscapesNames) {
     // look at it in isolation.
     auto fsys = make_ptr<fake_fs>();
     for (std::size_t i = 0; i < std::size(tests); i++) {
-        auto test_file = fake_info(tests[i].name);
-        fsys->files[fmt::Sprint("/{}", i).str()] = fake_info("", time::Time::Unix(1000000000, 0), "", true, {test_file});
+        auto test_file = fakeInfo(tests[i].name);
+        fsys->files[fmt::Sprint("/{}", i).str()] = fakeInfo("", time::Time::Unix(1000000000, 0), "", true, {test_file});
         fsys->files[fmt::Sprint("/{}/{}", i, tests[i].name).str()] = test_file;
     }
 
@@ -554,9 +554,9 @@ TEST_P(GoNetHttpFSModes, FileServerSortsNames) {
     auto dir_mod = time::Time::Unix(123, 0);
     auto file_mod = time::Time::Unix(1000000000, 0);
     auto fsys = make_ptr<fake_fs>();
-    fsys->files["/"] = fake_info("", dir_mod, "", true,
-                                 {fake_info("b", file_mod, std::string(contents)),
-                                  fake_info("a", file_mod, std::string(contents))});
+    fsys->files["/"] = fakeInfo("", dir_mod, "", true,
+                                 {fakeInfo("b", file_mod, std::string(contents)),
+                                  fakeInfo("a", file_mod, std::string(contents))});
 
     auto& ts = serve(http::FileServer(fsys));
     auto [res, s] = get(ts.Client(), ts.URL);
@@ -566,7 +566,7 @@ TEST_P(GoNetHttpFSModes, FileServerSortsNames) {
 TEST_P(GoNetHttpFSModes, FileServerImplicitLeadingSlash) {
     TempDir temp_dir;
     ASSERT_FALSE(os::WriteFile(os_test::join(temp_dir, "foo.txt"), "Hello world", 0644));
-    auto& ts = serve(http::StripPrefix(string::from_static("/bar/"), http::FileServer(http::Dir(string(temp_dir.path())))));
+    auto& ts = serve(http::StripPrefix(string::fromStatic("/bar/"), http::FileServer(http::Dir(string(temp_dir.path())))));
     auto get_body = [&](std::string_view suffix) { return get(ts.Client(), str(ts.URL + suffix)).body; };
     std::string s = get_body("/bar/");
     EXPECT_NE(s.find(">foo.txt<"), s.npos) << "expected a directory listing with foo.txt, got " << s;
@@ -652,7 +652,7 @@ TEST_P(GoNetHttpFSModes, ServeDirWithoutTrailingSlash) {
 // is specified.
 TEST_P(GoNetHttpFSModes, ServeFileWithContentEncoding) {
     auto& ts = serve([](http::ResponseWriter& w, http::Request& r) {
-        w.Header().Set("Content-Encoding", string::from_static("foo"));
+        w.Header().Set("Content-Encoding", string::fromStatic("foo"));
         http::ServeFile(w, r, "testdata/file");
         // The testdata is so small that the server would buffer all of it
         // and add its own Content-Length. To test ServeFile only, flush.
@@ -667,15 +667,15 @@ TEST_P(GoNetHttpFSModes, ServeFileWithContentEncoding) {
 // file has not been modified, as per RFC 7232 section 4.1.
 TEST_P(GoNetHttpFSModes, ServeFileNotModified) {
     auto& ts = serve([](http::ResponseWriter& w, http::Request& r) {
-        w.Header().Set("Content-Type", string::from_static("application/json"));
-        w.Header().Set("Content-Encoding", string::from_static("foo"));
-        w.Header().Set("Etag", string::from_static(R"("123")"));
+        w.Header().Set("Content-Type", string::fromStatic("application/json"));
+        w.Header().Set("Content-Encoding", string::fromStatic("foo"));
+        w.Header().Set("Etag", string::fromStatic(R"("123")"));
         http::ServeFile(w, r, "testdata/file");
         dynamic_cast<http::Flusher&>(w).Flush();
     });
     auto req = new_request("GET", ts.URL);
-    req->Header.Set("If-None-Match", string::from_static(R"("123")"));
-    auto [res, body] = do_request(ts.Client(), req);
+    req->Header.Set("If-None-Match", string::fromStatic(R"("123")"));
+    auto [res, body] = doRequest(ts.Client(), req);
     ASSERT_TRUE(res);
     EXPECT_EQ(body, "") << "non-empty body";
     EXPECT_EQ(res->StatusCode, http::StatusNotModified);
@@ -700,7 +700,7 @@ TEST_P(GoNetHttpFSModes, FileServerZeroByte) {
     auto& ts = serve(http::FileServer(http::Dir(".")));
     auto req = new_request("GET", ts.URL);
     req->URL.Path = string(std::string_view("/..\0", 4));
-    auto [res, body] = do_request(ts.Client(), req);
+    auto [res, body] = doRequest(ts.Client(), req);
     ASSERT_TRUE(res);
     EXPECT_NE(res->StatusCode, 200) << "got status 200; want an error";
 }
@@ -729,12 +729,12 @@ TEST_P(GoNetHttpFSModes, DirectoryIfNotModified) {
     auto file_mod = time::Time::Unix(1000000000, 0);
     string file_mod_str = file_mod.FormatHTTP();
     auto dir_mod = time::Time::Unix(123, 0);
-    auto index_file = fake_info("index.html", file_mod, std::string(index_contents));
+    auto index_file = fakeInfo("index.html", file_mod, std::string(index_contents));
     auto fsys = make_ptr<fake_fs>();
-    fsys->files["/"] = fake_info("", dir_mod, "", true, {index_file});
+    fsys->files["/"] = fakeInfo("", dir_mod, "", true, {index_file});
     fsys->files["/index.html"] = index_file;
 
-    auto mod_done = make_chan<empty>();
+    auto mod_done = makeChan<empty>();
     auto fs_handler = http::FileServer(fsys);
     auto& ts = serve([&](http::ResponseWriter& w, http::Request& r) {
         fs_handler->ServeHTTP(w, r);
@@ -756,13 +756,13 @@ TEST_P(GoNetHttpFSModes, DirectoryIfNotModified) {
     // Fetch /index.html when it has not been modified.
     auto req = new_request("GET", ts.URL);
     req->Header.Set("If-Modified-Since", last_mod);
-    auto r2 = do_request(ts.Client(), req);
+    auto r2 = doRequest(ts.Client(), req);
     ASSERT_TRUE(r2.resp);
     ASSERT_EQ(r2.resp->StatusCode, 304) << "Code after If-Modified-Since request";
 
     // Fetch /index.html after it has been modified.
     mod_done.recv();
-    auto r3 = do_request(ts.Client(), req);
+    auto r3 = doRequest(ts.Client(), req);
     ASSERT_TRUE(r3.resp);
     ASSERT_EQ(r3.resp->StatusCode, 200) << "Code after second If-Modified-Since request";
 }
@@ -783,7 +783,7 @@ struct read_seeker final : public io::ReadSeeker {
     }
 };
 
-ptr<read_seeker> rs_of_file(ptr<os::File> f) {
+ptr<read_seeker> rsOfFile(ptr<os::File> f) {
     auto rs = make_ptr<read_seeker>();
     rs->r = f;
     rs->s = f.get();
@@ -791,7 +791,7 @@ ptr<read_seeker> rs_of_file(ptr<os::File> f) {
     return rs;
 }
 
-ptr<read_seeker> rs_of_string(std::string_view s) {
+ptr<read_seeker> rsOfString(std::string_view s) {
     auto sr = strings::NewReader(string(s));
     auto rs = make_ptr<read_seeker>();
     rs->r = sr;
@@ -810,7 +810,7 @@ TEST_P(GoNetHttpFSModes, ServeContent) {
         std::string content_type;
         std::string etag;
     };
-    auto servec = make_chan<serve_param>(1);
+    auto servec = makeChan<serve_param>(1);
     auto& ts = serve([servec](http::ResponseWriter& w, http::Request& r) {
         serve_param p = servec.recv();
         if (!p.etag.empty()) w.Header().Set("ETag", string(p.etag));
@@ -920,9 +920,9 @@ TEST_P(GoNetHttpFSModes, ServeContent) {
             if (!tt.file.empty()) {
                 auto [f, err] = os::Open(tt.file);
                 ASSERT_FALSE(err) << "test " << test_name << ": " << err;
-                content = rs_of_file(f);
+                content = rsOfFile(f);
             } else {
-                content = rs_of_string(*tt.content);
+                content = rsOfString(*tt.content);
             }
             content->panic_on_seek = tt.panic_on_seek;
             servec.send(serve_param{
@@ -934,7 +934,7 @@ TEST_P(GoNetHttpFSModes, ServeContent) {
             });
             auto req = new_request(method, ts.URL);
             for (const auto& [k, v] : tt.req_header) req->Header.Set(k, string(v));
-            auto [res, body] = do_request(ts.Client(), req);
+            auto [res, body] = doRequest(ts.Client(), req);
             if (auto* f = dynamic_cast<os::File*>(content->keep.get())) f->Close();
             ASSERT_TRUE(res);
             EXPECT_EQ(res->StatusCode, tt.want_status) << "test " << test_name << " using " << method;
@@ -983,10 +983,10 @@ TEST_P(GoNetHttpFSModes, FileServerErrorMessages) {
     fsys->files["/403"] = e403;
     auto server = http::FileServer(fsys);
     auto& ts = serve([server](http::ResponseWriter& w, http::Request& r) {
-        w.Header().Set("Etag", string::from_static("étude"));
-        w.Header().Set("Cache-Control", string::from_static("yes"));
-        w.Header().Set("Content-Type", string::from_static("awesome"));
-        w.Header().Set("Last-Modified", string::from_static("yesterday"));
+        w.Header().Set("Etag", string::fromStatic("étude"));
+        w.Header().Set("Cache-Control", string::fromStatic("yes"));
+        w.Header().Set("Content-Type", string::fromStatic("awesome"));
+        w.Header().Set("Last-Modified", string::fromStatic("yesterday"));
         server->ServeHTTP(w, r);
     });
     for (int code : {403, 404, 500}) {
@@ -1080,7 +1080,7 @@ TEST(GoNetHttp, ScanETag) {
         {R"("spaced etag")", "", ""},
     };
     for (const auto& test : tests) {
-        auto [etag, remain] = http::internal::scan_etag(test.in);
+        auto [etag, remain] = http::internal::scanEtag(test.in);
         EXPECT_EQ(etag, test.want_etag) << "scanETag(" << test.in << ")";
         EXPECT_EQ(remain, test.want_remain) << "scanETag(" << test.in << ")";
     }
@@ -1093,7 +1093,7 @@ TEST_P(GoNetHttpFSModes, ServeFileRejectsInvalidSuffixLengths) {
     struct {
         std::string r;
         int want_code;
-        std::string want_body;
+        std::string wantBody;
     } tests[] = {
         {"bytes=--6", 416, "invalid range\n"},
         {"bytes=--0", 416, "invalid range\n"},
@@ -1107,10 +1107,10 @@ TEST_P(GoNetHttpFSModes, ServeFileRejectsInvalidSuffixLengths) {
     for (const auto& tt : tests) {
         auto req = new_request("GET", str(ts.URL + "/index.html"));
         req->Header.Set("Range", string(tt.r));
-        auto [res, body] = do_request(ts.Client(), req);
+        auto [res, body] = doRequest(ts.Client(), req);
         ASSERT_TRUE(res);
         EXPECT_EQ(res->StatusCode, tt.want_code) << tt.r;
-        EXPECT_EQ(body, tt.want_body) << tt.r;
+        EXPECT_EQ(body, tt.wantBody) << tt.r;
     }
 }
 
@@ -1122,7 +1122,7 @@ TEST_P(GoNetHttpFSModes, FileServerMethods) {
     // historical behavior.
     for (std::string_view method : {http::MethodGet, http::MethodHead, http::MethodPost, http::MethodPut,
                                     http::MethodPatch, http::MethodDelete, http::MethodOptions, http::MethodTrace}) {
-        auto [res, body] = do_request(ts.Client(), new_request(method, str(ts.URL + "/file")));
+        auto [res, body] = doRequest(ts.Client(), new_request(method, str(ts.URL + "/file")));
         ASSERT_TRUE(res);
         ASSERT_EQ(body, method == http::MethodHead ? "" : file) << method;
         ASSERT_EQ(res->Header.Get("Content-Length"), fmt::Sprint("{}", file.size())) << method;
@@ -1133,7 +1133,7 @@ TEST_F(GoNetHttpFS, FileServerFS) {
     constexpr std::string_view filename = "index.html";
     constexpr std::string_view contents = "index.html says hello";
     auto fsys = make_ptr<fstest::MapFS>();
-    (*fsys)[filename].Data = to_bytes(contents);
+    (*fsys)[filename].Data = toBytes(contents);
     auto ts = httptest::NewServer(http::FileServerFS(fsys));
     auto [res, body] = get(ts->Client(), str(ts->URL + "/" + filename));
     EXPECT_EQ(body, contents) << "for path " << filename;
@@ -1144,7 +1144,7 @@ TEST_F(GoNetHttpFS, ServeFileFS) {
     constexpr std::string_view filename = "index.html";
     constexpr std::string_view contents = "index.html says hello";
     auto fsys = make_ptr<fstest::MapFS>();
-    (*fsys)[filename].Data = to_bytes(contents);
+    (*fsys)[filename].Data = toBytes(contents);
     auto ts = httptest::NewServer(make_ptr<http::HandlerFunc>(
         [fsys, filename](http::ResponseWriter& w, http::Request& r) { http::ServeFileFS(w, r, fsys, filename); }));
     auto [res, body] = get(ts->Client(), str(ts->URL + "/" + filename));
@@ -1168,19 +1168,19 @@ TEST_P(GoNetHttpFSModes, FileServerDirWithRootFile) {
 TEST_F(GoNetHttpFS, ServeContentHeadersWithError) {
     constexpr std::string_view contents = "content";
     auto ts = httptest::NewServer(make_ptr<http::HandlerFunc>([&](http::ResponseWriter& w, http::Request& r) {
-        w.Header().Set("Content-Type", string::from_static("application/octet-stream"));
+        w.Header().Set("Content-Type", string::fromStatic("application/octet-stream"));
         w.Header().Set("Content-Length", strconv::Itoa(static_cast<int64>(contents.size())));
-        w.Header().Set("Content-Encoding", string::from_static("gzip"));
-        w.Header().Set("Etag", string::from_static(R"("abcdefgh")"));
-        w.Header().Set("Last-Modified", string::from_static("Wed, 21 Oct 2015 07:28:00 GMT"));
-        w.Header().Set("Cache-Control", string::from_static("immutable"));
-        w.Header().Set("Other-Header", string::from_static("test"));
+        w.Header().Set("Content-Encoding", string::fromStatic("gzip"));
+        w.Header().Set("Etag", string::fromStatic(R"("abcdefgh")"));
+        w.Header().Set("Last-Modified", string::fromStatic("Wed, 21 Oct 2015 07:28:00 GMT"));
+        w.Header().Set("Cache-Control", string::fromStatic("immutable"));
+        w.Header().Set("Other-Header", string::fromStatic("test"));
         auto content = strings::NewReader(string(contents));
         http::ServeContent(w, r, "", time::Time{}, *content);
     }));
     auto req = new_request("GET", ts->URL);
-    req->Header.Set("Range", string::from_static("bytes=100-10000"));
-    auto [res, out] = do_request(ts->Client(), req);
+    req->Header.Set("Range", string::fromStatic("bytes=100-10000"));
+    auto [res, out] = doRequest(ts->Client(), req);
     ts->Close();
     ASSERT_TRUE(res);
 
@@ -1219,7 +1219,7 @@ namespace {
 // TestLinuxSendfileChild: serves os::TempDir() on the listener at
 // descriptor 3, until a request for /quit.
 void sendfile_child(const std::vector<std::string>&) {
-    auto [ln, err] = net::FileListener(os::NewFile(3, string::from_static("ephemeral-port-listener")));
+    auto [ln, err] = net::FileListener(os::NewFile(3, string::fromStatic("ephemeral-port-listener")));
     if (err) panic(err.Error());
     auto mux = make_ptr<http::ServeMux>();
     mux->Handle("/", http::FileServer(http::Dir(os::TempDir())));
@@ -1229,7 +1229,7 @@ void sendfile_child(const std::vector<std::string>&) {
     if (auto serr = s.Serve(ln)) panic(serr.Error());
 }
 
-const bool sendfile_child_registered = go_helper::register_helper("sendfilechild", sendfile_child);
+const bool sendfile_child_registered = go_helper::registerHelper("sendfilechild", sendfile_child);
 
 }  // namespace
 
@@ -1252,11 +1252,11 @@ TEST(GoNetHttp, LinuxSendfile) {
 
     string filename = fmt::Sprint("1kb-{}", os::Getpid());
     string filepath = path::Join(os::TempDir(), filename);
-    ASSERT_FALSE(os::WriteFile(filepath, to_bytes(std::string(1 << 10, 'a')), 0755));
+    ASSERT_FALSE(os::WriteFile(filepath, toBytes(std::string(1 << 10, 'a')), 0755));
 
     auto child = go_helper::helper_command("sendfilechild");
-    child->Args = {strace, string::from_static("-f"), string::from_static("-q"), child->Path,
-                   string::from_static("sendfilechild")};
+    child->Args = {strace, string::fromStatic("-f"), string::fromStatic("-q"), child->Path,
+                   string::fromStatic("sendfilechild")};
     child->Path = strace;
     child->ExtraFiles = {lnf};
     auto buf = make_ptr<strings::Builder>();

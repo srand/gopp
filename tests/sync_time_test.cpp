@@ -33,12 +33,12 @@ TEST(Sync, MutexParksWhileHeld) {
     // need it.
     sync::Mutex mu;
     mu.lock();
-    auto got = make_chan<int>();
+    auto got = makeChan<int>();
     go([&] {
         std::lock_guard l(mu);
         got.send(1);
     });
-    auto other = make_chan<int>();
+    auto other = makeChan<int>();
     go([other] { other.send(2); });
     EXPECT_EQ(other.recv(), 2);
     time::Sleep(5ms);
@@ -93,8 +93,8 @@ TEST(Sync, CondSignal) {
     sync::Mutex m;
     sync::Cond c(&m);
     constexpr int n = 2;
-    auto running = make_chan<bool>(n);
-    auto awake = make_chan<bool>(n);
+    auto running = makeChan<bool>(n);
+    auto awake = makeChan<bool>(n);
     for (int i = 0; i < n; i++) {
         go([&] {
             m.lock();
@@ -107,12 +107,12 @@ TEST(Sync, CondSignal) {
     for (int i = 0; i < n; i++) running.recv();  // wait for everyone to run
     for (int left = n; left > 0; left--) {
         bool b;
-        EXPECT_FALSE(awake.try_recv(b)) << "fiber not asleep";
+        EXPECT_FALSE(awake.tryRecv(b)) << "fiber not asleep";
         m.lock();
         c.Signal();
         m.unlock();
         awake.recv();  // will deadlock if no fiber wakes up
-        EXPECT_FALSE(awake.try_recv(b)) << "too many fibers awake";
+        EXPECT_FALSE(awake.tryRecv(b)) << "too many fibers awake";
     }
     c.Signal();
 }
@@ -124,7 +124,7 @@ TEST(Sync, CondBroadcast) {
     constexpr int n = 100;
     int generation = 0;
     sync::WaitGroup wg;
-    auto running = make_chan<bool>(n);
+    auto running = makeChan<bool>(n);
     for (int i = 0; i < n; i++) {
         wg.Go([&] {
             m.lock();
@@ -143,7 +143,7 @@ TEST(Sync, CondBroadcast) {
 }
 
 TEST(Time, SleepInFiber) {
-    auto done = make_chan<time::Duration>();
+    auto done = makeChan<time::Duration>();
     go([done] {
         auto start = time::Now();
         time::Sleep(20ms);
@@ -173,11 +173,11 @@ TEST(Time, TimerStop) {
     EXPECT_TRUE(t->Stop());
     EXPECT_FALSE(t->Stop());
     time::Time v;
-    EXPECT_FALSE(t->C.try_recv(v));
+    EXPECT_FALSE(t->C.tryRecv(v));
 }
 
 TEST(Time, AfterFunc) {
-    auto done = make_chan<int>();
+    auto done = makeChan<int>();
     auto t = time::AfterFunc(5ms, [done] { done.send(1); });
     EXPECT_EQ(done.recv(), 1);
 }
@@ -200,7 +200,7 @@ TEST(Context, Cancel) {
     auto [ctx, cancel] = context::WithCancel(context::Background());
     EXPECT_FALSE(ctx->Err());
     auto [child, cancel_child] = context::WithCancel(ctx);
-    auto woke = make_chan<bool>();
+    auto woke = makeChan<bool>();
     go([child, woke] {
         child->Done().recv();
         woke.send(true);

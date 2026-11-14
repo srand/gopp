@@ -34,7 +34,7 @@ std::pair<string, error> Getwd() {
         std::string buf(PATH_MAX, '\0');
         int e = detail::sys([&] { return ::getcwd(buf.data(), buf.size()) ? 0 : -1; });
         if (e != ENAMETOOLONG && e != EINVAL && e != ERANGE && e != ENOMEM) {
-            if (e) return {{}, NewSyscallError("getwd", detail::errno_error(e))};
+            if (e) return {{}, NewSyscallError("getwd", detail::errnoError(e))};
             buf.resize(buf.find('\0'));
             return {string(buf), nullptr};
         }
@@ -56,14 +56,14 @@ std::pair<string, error> Getwd() {
     }
     auto [root, rerr] = Stat("/");
     if (rerr) return {{}, rerr};
-    if (SameFile(root, dot)) return {string::from_static("/"), nullptr};
+    if (SameFile(root, dot)) return {string::fromStatic("/"), nullptr};
 
     // General algorithm: find the name in the parent and then find the
     // name of the parent. Each iteration adds /name to the beginning of
     // dir.
     std::string dir;
     for (std::string parent = "..";; parent = "../" + parent) {
-        if (parent.size() >= 1024) return {{}, NewSyscallError("getwd", detail::errno_error(ENAMETOOLONG))};
+        if (parent.size() >= 1024) return {{}, NewSyscallError("getwd", detail::errnoError(ENAMETOOLONG))};
         auto [fd, err] = Open(parent);
         if (err) return {{}, err};
         bool found = false;
@@ -71,7 +71,7 @@ std::pair<string, error> Getwd() {
             auto [names, nerr] = fd->Readdirnames(100);
             if (nerr) {
                 fd->Close();
-                return {{}, NewSyscallError("getwd", detail::errno_error(ENAMETOOLONG))};
+                return {{}, NewSyscallError("getwd", detail::errnoError(ENAMETOOLONG))};
             }
             for (auto& name : names) {
                 auto [d, lerr] = Lstat(parent + "/" + std::string(name.view()));

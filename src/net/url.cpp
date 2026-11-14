@@ -19,7 +19,7 @@ int unhex(char c) noexcept {
     return c - 'A' + 10;
 }
 
-bool should_escape(unsigned char c, encoding mode) noexcept {
+bool shouldEscape(unsigned char c, encoding mode) noexcept {
     if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) return false;
     switch (c) {
     case '-': case '_': case '.': case '~': return false;
@@ -75,7 +75,7 @@ std::pair<string, error> unescape(std::string_view s, encoding mode) {
 string escape(std::string_view s, encoding mode) {
     std::size_t hex = 0, spaces = 0;
     for (unsigned char c : s) {
-        if (should_escape(c, mode)) {
+        if (shouldEscape(c, mode)) {
             if (c == ' ' && mode == encoding::query_component) spaces++;
             else hex++;
         }
@@ -87,7 +87,7 @@ string escape(std::string_view s, encoding mode) {
     for (unsigned char c : s) {
         if (c == ' ' && mode == encoding::query_component) {
             out.push_back('+');
-        } else if (should_escape(c, mode)) {
+        } else if (shouldEscape(c, mode)) {
             out.push_back('%');
             out.push_back(digits[c >> 4]);
             out.push_back(digits[c & 15]);
@@ -99,7 +99,7 @@ string escape(std::string_view s, encoding mode) {
 }
 
 // Splits "scheme:rest" off rawurl if it has a valid scheme.
-std::pair<std::string_view, std::string_view> get_scheme(std::string_view raw) {
+std::pair<std::string_view, std::string_view> getScheme(std::string_view raw) {
     for (std::size_t i = 0; i < raw.size(); i++) {
         char c = raw[i];
         if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) continue;
@@ -116,7 +116,7 @@ std::pair<std::string_view, std::string_view> get_scheme(std::string_view raw) {
     return {{}, raw};
 }
 
-std::pair<URL, error> parse_impl(std::string_view rawurl, bool via_request) {
+std::pair<URL, error> parseImpl(std::string_view rawurl, bool via_request) {
     URL u;
     auto fail = [&](string msg) {
         auto e = make_ptr<Error>();
@@ -130,11 +130,11 @@ std::pair<URL, error> parse_impl(std::string_view rawurl, bool via_request) {
     }
     if (rawurl.empty() && via_request) return fail("empty url");
     if (rawurl == "*") {
-        u.Path = string::from_static("*");
+        u.Path = string::fromStatic("*");
         return {u, nullptr};
     }
 
-    auto [scheme, rest] = get_scheme(rawurl);
+    auto [scheme, rest] = getScheme(rawurl);
     u.Scheme = strings::ToLower(scheme);
 
     if (auto q = rest.find('?'); q != rest.npos) {
@@ -186,7 +186,7 @@ std::pair<URL, error> Parse(std::string_view rawurl) {
         frag = rawurl.substr(h + 1);
         rawurl = rawurl.substr(0, h);
     }
-    auto [u, err] = parse_impl(rawurl, false);
+    auto [u, err] = parseImpl(rawurl, false);
     if (err) return {u, err};
     if (!frag.empty()) {
         auto [f, ferr] = unescape(frag, encoding::fragment);
@@ -196,7 +196,7 @@ std::pair<URL, error> Parse(std::string_view rawurl) {
     return {u, nullptr};
 }
 
-std::pair<URL, error> ParseRequestURI(std::string_view rawurl) { return parse_impl(rawurl, true); }
+std::pair<URL, error> ParseRequestURI(std::string_view rawurl) { return parseImpl(rawurl, true); }
 
 string URL::EscapedPath() const {
     if (!RawPath.empty()) return RawPath;
@@ -208,7 +208,7 @@ string URL::RequestURI() const {
     string result = Opaque;
     if (result.empty()) {
         result = EscapedPath();
-        if (result.empty()) result = string::from_static("/");
+        if (result.empty()) result = string::fromStatic("/");
     } else if (result.starts_with("//")) {
         result = Scheme + ":" + result;
     }

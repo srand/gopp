@@ -37,7 +37,7 @@ string zone_name(uint32_t index) {
     return string(std::to_string(index));
 }
 
-uint32_t zone_index(std::string_view zone) {
+uint32_t zoneIndex(std::string_view zone) {
     if (zone.empty()) return 0;
     std::string z(zone);
     if (unsigned idx = if_nametoindex(z.c_str())) return idx;
@@ -51,21 +51,21 @@ uint32_t zone_index(std::string_view zone) {
 
 }  // namespace
 
-string unix_net(int sotype) {
+string unixNet(int sotype) {
     switch (sotype) {
-    case SOCK_DGRAM: return string::from_static("unixgram");
-    case SOCK_SEQPACKET: return string::from_static("unixpacket");
-    default: return string::from_static("unix");
+    case SOCK_DGRAM: return string::fromStatic("unixgram");
+    case SOCK_SEQPACKET: return string::fromStatic("unixpacket");
+    default: return string::fromStatic("unix");
     }
 }
 
-error unix_sockaddr(std::string_view name, sockaddr_storage* sa, socklen_t* len) {
+error unixSockaddr(std::string_view name, sockaddr_storage* sa, socklen_t* len) {
     std::memset(sa, 0, sizeof(*sa));
     auto* un = reinterpret_cast<sockaddr_un*>(sa);
     std::size_t n = name.size();
-    if (n > sizeof(un->sun_path)) return errno_error(EINVAL);
+    if (n > sizeof(un->sun_path)) return errnoError(EINVAL);
     // A path needs room for its NUL; an abstract name doesn't.
-    if (n == sizeof(un->sun_path) && name[0] != '@' && name[0] != '\0') return errno_error(EINVAL);
+    if (n == sizeof(un->sun_path) && name[0] != '@' && name[0] != '\0') return errnoError(EINVAL);
     un->sun_family = AF_UNIX;
     std::memcpy(un->sun_path, name.data(), n);
     socklen_t sl = sizeof(sa_family_t);
@@ -78,7 +78,7 @@ error unix_sockaddr(std::string_view name, sockaddr_storage* sa, socklen_t* len)
     return nullptr;
 }
 
-ptr<Addr> sockaddr_to_addr(const sockaddr_storage& sa, int sotype) {
+ptr<Addr> sockaddrToAddr(const sockaddr_storage& sa, int sotype) {
     if (sa.ss_family == AF_UNIX) {
         // An abstract name shows with '@' for its leading NUL, and ends at
         // the next NUL, as in Go.
@@ -88,7 +88,7 @@ ptr<Addr> sockaddr_to_addr(const sockaddr_storage& sa, int sotype) {
         if (path[0] == 0) path[0] = '@';
         std::size_t n = 0;
         while (n < sizeof(path) && path[n] != 0) n++;
-        return make_ptr<UnixAddr>(string(std::string_view(path, n)), unix_net(sotype));
+        return make_ptr<UnixAddr>(string(std::string_view(path, n)), unixNet(sotype));
     }
     IP ip;
     int port = 0;
@@ -117,7 +117,7 @@ error ip_to_sockaddr(int family, const IP& ip0, int port, std::string_view zone,
     if (family == AF_INET) {
         if (ip.empty()) ip = IPv4zero;
         IP ip4 = ip.To4();
-        if (ip4.empty()) return make_ptr<AddrError>(string::from_static("non-IPv4 address"), ip.String());
+        if (ip4.empty()) return make_ptr<AddrError>(string::fromStatic("non-IPv4 address"), ip.String());
         auto* in = reinterpret_cast<sockaddr_in*>(sa);
         in->sin_family = AF_INET;
         in->sin_port = htons(static_cast<uint16_t>(port));
@@ -130,24 +130,24 @@ error ip_to_sockaddr(int family, const IP& ip0, int port, std::string_view zone,
         // listens on both.
         if (ip.empty() || ip.Equal(IPv4zero)) ip = IPv6zero;
         IP ip6 = ip.To16();
-        if (ip6.empty()) return make_ptr<AddrError>(string::from_static("non-IPv6 address"), ip.String());
+        if (ip6.empty()) return make_ptr<AddrError>(string::fromStatic("non-IPv6 address"), ip.String());
         auto* in6 = reinterpret_cast<sockaddr_in6*>(sa);
         in6->sin6_family = AF_INET6;
         in6->sin6_port = htons(static_cast<uint16_t>(port));
-        in6->sin6_scope_id = zone_index(zone);
+        in6->sin6_scope_id = zoneIndex(zone);
         std::memcpy(&in6->sin6_addr, ip6.data(), 16);
         *len = sizeof(sockaddr_in6);
         return nullptr;
     }
-    return make_ptr<InvalidAddrError>(string::from_static("unexpected socket family"));
+    return make_ptr<InvalidAddrError>(string::fromStatic("unexpected socket family"));
 }
 
 netfd::~netfd() {
     // Normally closed through Close(); this handles an fd that never was.
     if (sysfd_ >= 0) {
         if (pd_) {
-            runtime::poll_unblock(pd_);
-            runtime::poll_close(pd_);
+            runtime::pollUnblock(pd_);
+            runtime::pollClose(pd_);
         }
         ::close(sysfd_);
     }
@@ -155,22 +155,22 @@ netfd::~netfd() {
 
 error netfd::init() {
     int err = 0;
-    pd_ = runtime::poll_open(sysfd_, &err);
-    if (!pd_) return errno_error(err);
+    pd_ = runtime::pollOpen(sysfd_, &err);
+    if (!pd_) return errnoError(err);
     return nullptr;
 }
 
-void netfd::set_addrs(const sockaddr_storage* raddr_sa) {
+void netfd::setAddrs(const sockaddr_storage* raddr_sa) {
     sockaddr_storage sa{};
     socklen_t len = sizeof(sa);
-    if (getsockname(sysfd_, reinterpret_cast<sockaddr*>(&sa), &len) == 0) laddr = sockaddr_to_addr(sa, sotype_);
+    if (getsockname(sysfd_, reinterpret_cast<sockaddr*>(&sa), &len) == 0) laddr = sockaddrToAddr(sa, sotype_);
     if (raddr_sa) {
-        raddr = sockaddr_to_addr(*raddr_sa, sotype_);
+        raddr = sockaddrToAddr(*raddr_sa, sotype_);
         return;
     }
     sockaddr_storage pa{};
     len = sizeof(pa);
-    if (getpeername(sysfd_, reinterpret_cast<sockaddr*>(&pa), &len) == 0) raddr = sockaddr_to_addr(pa, sotype_);
+    if (getpeername(sysfd_, reinterpret_cast<sockaddr*>(&pa), &len) == 0) raddr = sockaddrToAddr(pa, sotype_);
 }
 
 std::pair<ptr<os::File>, error> netfd::dup() {
@@ -178,7 +178,7 @@ std::pair<ptr<os::File>, error> netfd::dup() {
     int ns = ::fcntl(sysfd_, F_DUPFD_CLOEXEC, 0);
     int e = errno;
     decref();
-    if (ns < 0) return {nullptr, os::NewSyscallError("dup", errno_error(e))};
+    if (ns < 0) return {nullptr, os::NewSyscallError("dup", errnoError(e))};
     string name = net_ + ":" + (laddr ? laddr->String() : string()) + "->" + (raddr ? raddr->String() : string());
     return {os::NewFile(static_cast<uintptr>(ns), name), nullptr};
 }
@@ -195,7 +195,7 @@ void netfd::decref() noexcept {
     uint64_t s = state_.fetch_sub(1, std::memory_order_acq_rel) - 1;
     if (s == closed_bit) {
         // Closed and the last operation finished: release the descriptor.
-        if (pd_) runtime::poll_close(pd_);
+        if (pd_) runtime::pollClose(pd_);
         pd_ = nullptr;
         ::close(sysfd_);
         sysfd_ = -1;
@@ -209,7 +209,7 @@ error netfd::Close() {
         if (state_.compare_exchange_weak(s, s | closed_bit, std::memory_order_acq_rel)) break;
     }
     // Wake fibers blocked on the descriptor; they fail with ErrClosed.
-    if (pd_) runtime::poll_unblock(pd_);
+    if (pd_) runtime::pollUnblock(pd_);
     decref();  // the reference held while open
     return nullptr;
 }
@@ -231,7 +231,7 @@ std::pair<isize, error> netfd::Read(std::span<byte> p) {
         decref();
         return {0, nullptr};
     }
-    if (int pe = runtime::poll_reset(pd_, 'r')) {
+    if (int pe = runtime::pollReset(pd_, 'r')) {
         decref();
         return {0, op_error(pe)};
     }
@@ -249,21 +249,21 @@ std::pair<isize, error> netfd::Read(std::span<byte> p) {
         if (e == EINTR) continue;
         if (e == EAGAIN) {
             GOPP_STAT(read_eagain);
-            if (int pe = runtime::poll_wait(pd_, 'r')) {
+            if (int pe = runtime::pollWait(pd_, 'r')) {
                 decref();
                 return {0, op_error(pe)};
             }
             continue;
         }
         decref();
-        return {0, errno_error(e)};
+        return {0, errnoError(e)};
     }
 }
 
 std::pair<isize, error> netfd::Write(std::span<const byte> p) {
     std::lock_guard l(wmu_);
     if (!incref()) return {0, ErrClosed};
-    if (int pe = runtime::poll_reset(pd_, 'w')) {
+    if (int pe = runtime::pollReset(pd_, 'w')) {
         decref();
         return {0, op_error(pe)};
     }
@@ -284,14 +284,14 @@ std::pair<isize, error> netfd::Write(std::span<const byte> p) {
         if (n < 0 && e == EINTR) continue;
         if (n < 0 && e == EAGAIN) {
             GOPP_STAT(write_eagain);
-            if (int pe = runtime::poll_wait(pd_, 'w')) {
+            if (int pe = runtime::pollWait(pd_, 'w')) {
                 decref();
                 return {nn, op_error(pe)};
             }
             continue;
         }
         decref();
-        return {nn, n == 0 ? io::ErrUnexpectedEOF : errno_error(e)};
+        return {nn, n == 0 ? io::ErrUnexpectedEOF : errnoError(e)};
     } while (!p.empty());
     decref();
     return {nn, nullptr};
@@ -302,7 +302,7 @@ std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span
     std::lock_guard l(rmu_);
     std::memset(from, 0, sizeof(*from));
     if (!incref()) return {0, 0, 0, ErrClosed};
-    if (int pe = runtime::poll_reset(pd_, 'r')) {
+    if (int pe = runtime::pollReset(pd_, 'r')) {
         decref();
         return {0, 0, 0, op_error(pe)};
     }
@@ -332,14 +332,14 @@ std::tuple<isize, isize, int, error> netfd::readMsg(std::span<byte> p, std::span
         int e = errno;
         if (e == EINTR) continue;
         if (e == EAGAIN) {
-            if (int pe = runtime::poll_wait(pd_, 'r')) {
+            if (int pe = runtime::pollWait(pd_, 'r')) {
                 decref();
                 return {0, 0, 0, op_error(pe)};
             }
             continue;
         }
         decref();
-        return {0, 0, 0, errno_error(e)};
+        return {0, 0, 0, errnoError(e)};
     }
 }
 
@@ -347,7 +347,7 @@ std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::sp
                                                 unsigned salen) {
     std::lock_guard l(wmu_);
     if (!incref()) return {0, 0, ErrClosed};
-    if (int pe = runtime::poll_reset(pd_, 'w')) {
+    if (int pe = runtime::pollReset(pd_, 'w')) {
         decref();
         return {0, 0, op_error(pe)};
     }
@@ -375,21 +375,21 @@ std::tuple<isize, isize, error> netfd::writeMsg(std::span<const byte> p, std::sp
         int e = errno;
         if (e == EINTR) continue;
         if (e == EAGAIN) {
-            if (int pe = runtime::poll_wait(pd_, 'w')) {
+            if (int pe = runtime::pollWait(pd_, 'w')) {
                 decref();
                 return {0, 0, op_error(pe)};
             }
             continue;
         }
         decref();
-        return {0, 0, errno_error(e)};
+        return {0, 0, errnoError(e)};
     }
 }
 
 std::pair<ptr<netfd>, error> netfd::accept() {
     std::lock_guard l(rmu_);
     if (!incref()) return {nullptr, ErrClosed};
-    if (int pe = runtime::poll_reset(pd_, 'r')) {
+    if (int pe = runtime::pollReset(pd_, 'r')) {
         decref();
         return {nullptr, op_error(pe)};
     }
@@ -401,20 +401,20 @@ std::pair<ptr<netfd>, error> netfd::accept() {
             decref();
             auto nfd = make_ptr<netfd>(s, family_, sotype_, net_);
             if (error err = nfd->init()) return {nullptr, err};
-            nfd->set_addrs(&sa);
+            nfd->setAddrs(&sa);
             return {nfd, nullptr};
         }
         int e = errno;
         if (e == EINTR || e == ECONNABORTED) continue;
         if (e == EAGAIN) {
-            if (int pe = runtime::poll_wait(pd_, 'r')) {
+            if (int pe = runtime::pollWait(pd_, 'r')) {
                 decref();
                 return {nullptr, op_error(pe)};
             }
             continue;
         }
         decref();
-        return {nullptr, errno_error(e)};
+        return {nullptr, errnoError(e)};
     }
 }
 
@@ -432,20 +432,20 @@ error netfd::connect(const void* sa, unsigned salen, int64 deadline) {
         if (e == EINTR) continue;
         if (e == EINPROGRESS || e == EALREADY) break;
         if (e == EISCONN) return nullptr;
-        return errno_error(e);
+        return errnoError(e);
     }
-    if (deadline != 0) runtime::poll_set_deadline(pd_, deadline, 'w');
+    if (deadline != 0) runtime::pollSetDeadline(pd_, deadline, 'w');
     for (;;) {
-        if (int pe = runtime::poll_wait(pd_, 'w')) {
-            if (deadline != 0) runtime::poll_set_deadline(pd_, 0, 'w');
+        if (int pe = runtime::pollWait(pd_, 'w')) {
+            if (deadline != 0) runtime::pollSetDeadline(pd_, 0, 'w');
             return op_error(pe);
         }
         int soerr = 0;
         socklen_t len = sizeof(soerr);
-        if (getsockopt(sysfd_, SOL_SOCKET, SO_ERROR, &soerr, &len) < 0) return errno_error(errno);
+        if (getsockopt(sysfd_, SOL_SOCKET, SO_ERROR, &soerr, &len) < 0) return errnoError(errno);
         if (soerr == EINPROGRESS || soerr == EALREADY || soerr == EINTR) continue;
-        if (deadline != 0) runtime::poll_set_deadline(pd_, 0, 'w');
-        if (soerr != 0 && soerr != EISCONN) return errno_error(soerr);
+        if (deadline != 0) runtime::pollSetDeadline(pd_, 0, 'w');
+        if (soerr != 0 && soerr != EISCONN) return errnoError(soerr);
         return nullptr;
     }
 }
@@ -455,15 +455,15 @@ error netfd::shutdown(int how) {
     int r = ::shutdown(sysfd_, how);
     int e = errno;
     decref();
-    return r < 0 ? errno_error(e) : nullptr;
+    return r < 0 ? errnoError(e) : nullptr;
 }
 
-error netfd::setsockopt_int(int level, int name, int value) {
+error netfd::setsockoptInt(int level, int name, int value) {
     if (!incref()) return ErrClosed;
     int r = ::setsockopt(sysfd_, level, name, &value, sizeof(value));
     int e = errno;
     decref();
-    return r < 0 ? os::NewSyscallError("setsockopt", errno_error(e)) : nullptr;
+    return r < 0 ? os::NewSyscallError("setsockopt", errnoError(e)) : nullptr;
 }
 
 error netfd::SetDeadline(time::Time t, int mode) {
@@ -473,7 +473,7 @@ error netfd::SetDeadline(time::Time t, int mode) {
         int64 dur = time::Until(t).ns;
         d = dur <= 0 ? -1 : runtime::nanotime() + dur;
     }
-    runtime::poll_set_deadline(pd_, d, mode);
+    runtime::pollSetDeadline(pd_, d, mode);
     decref();
     return nullptr;
 }
@@ -501,7 +501,7 @@ error netfd::connect(const ptr<context::Context>& ctx, const void* sa, unsigned 
         if (ctx->Err()) return mapErr(ctx->Err());
         return nullptr;
     default:
-        return os::NewSyscallError("connect", errno_error(e));
+        return os::NewSyscallError("connect", errnoError(e));
     }
 
     // Done when ctx is: a write deadline in the past wakes the wait (Go's
@@ -511,12 +511,12 @@ error netfd::connect(const ptr<context::Context>& ctx, const void* sa, unsigned 
     chan<empty> stop;
     if (done) {
         if (auto d = ctx->Deadline()) SetDeadline(*d, 'w');
-        stop = make_chan<empty>();
+        stop = makeChan<empty>();
         ptr<netfd> self(this);
         go([done, stop, state, self] {
             select(recv(done, [&](empty) {
                        int want = 0;
-                       if (state->compare_exchange_strong(want, 1)) runtime::poll_set_deadline(self->pd_, -1, 'w');
+                       if (state->compare_exchange_strong(want, 1)) runtime::pollSetDeadline(self->pd_, -1, 'w');
                    }),
                    recv(stop, [](empty) {}));
         });
@@ -526,21 +526,21 @@ error netfd::connect(const ptr<context::Context>& ctx, const void* sa, unsigned 
             int want = 0;
             bool stopped = state->compare_exchange_strong(want, 2);
             stop.close();
-            runtime::poll_set_deadline(pd_, 0, 'w');
+            runtime::pollSetDeadline(pd_, 0, 'w');
             if (!stopped && !ret) ret = mapErr(ctx->Err());
         }
         return ret;
     };
 
     for (;;) {
-        if (int pe = runtime::poll_wait(pd_, 'w')) {
+        if (int pe = runtime::pollWait(pd_, 'w')) {
             if (done && ctx->Err()) return finish(mapErr(ctx->Err()));
             return finish(op_error(pe));
         }
         int soerr = 0;
         socklen_t len = sizeof(soerr);
         if (getsockopt(sysfd_, SOL_SOCKET, SO_ERROR, &soerr, &len) < 0) {
-            return finish(os::NewSyscallError("getsockopt", errno_error(errno)));
+            return finish(os::NewSyscallError("getsockopt", errnoError(errno)));
         }
         switch (soerr) {
         case EINPROGRESS:
@@ -561,7 +561,7 @@ error netfd::connect(const ptr<context::Context>& ctx, const void* sa, unsigned 
             continue;
         }
         default:
-            return finish(os::NewSyscallError("connect", errno_error(soerr)));
+            return finish(os::NewSyscallError("connect", errnoError(soerr)));
         }
     }
 }
@@ -569,7 +569,7 @@ error netfd::connect(const ptr<context::Context>& ctx, const void* sa, unsigned 
 std::pair<int64, error> netfd::writeBuffers(std::vector<slice<byte>>& v) {
     std::lock_guard l(wmu_);
     if (!incref()) return {0, ErrClosed};
-    if (int pe = runtime::poll_reset(pd_, 'w')) {
+    if (int pe = runtime::pollReset(pd_, 'w')) {
         decref();
         return {0, op_error(pe)};
     }
@@ -597,13 +597,13 @@ std::pair<int64, error> netfd::writeBuffers(std::vector<slice<byte>>& v) {
             int e = errno;
             if (e == EINTR) continue;
             if (e == EAGAIN) {
-                if (int pe = runtime::poll_wait(pd_, 'w')) {
+                if (int pe = runtime::pollWait(pd_, 'w')) {
                     err = op_error(pe);
                     break;
                 }
                 continue;
             }
-            err = os::NewSyscallError("writev", errno_error(e));
+            err = os::NewSyscallError("writev", errnoError(e));
             break;
         }
         total += n;
@@ -629,23 +629,23 @@ std::pair<int64, error> netfd::writeBuffers(std::vector<slice<byte>>& v) {
     return {total, err};
 }
 
-error netfd::raw_control(const std::function<void(uintptr)>& f) {
+error netfd::rawControl(const std::function<void(uintptr)>& f) {
     if (!incref()) return ErrClosed;
     f(static_cast<uintptr>(sysfd_));
     decref();
     return nullptr;
 }
 
-error netfd::raw_read(const std::function<bool(uintptr)>& f) {
+error netfd::rawRead(const std::function<bool(uintptr)>& f) {
     std::lock_guard l(rmu_);
     if (!incref()) return ErrClosed;
-    if (int pe = runtime::poll_reset(pd_, 'r')) {
+    if (int pe = runtime::pollReset(pd_, 'r')) {
         decref();
         return op_error(pe);
     }
     for (;;) {
         if (f(static_cast<uintptr>(sysfd_))) break;
-        if (int pe = runtime::poll_wait(pd_, 'r')) {
+        if (int pe = runtime::pollWait(pd_, 'r')) {
             decref();
             return op_error(pe);
         }
@@ -654,16 +654,16 @@ error netfd::raw_read(const std::function<bool(uintptr)>& f) {
     return nullptr;
 }
 
-error netfd::raw_write(const std::function<bool(uintptr)>& f) {
+error netfd::rawWrite(const std::function<bool(uintptr)>& f) {
     std::lock_guard l(wmu_);
     if (!incref()) return ErrClosed;
-    if (int pe = runtime::poll_reset(pd_, 'w')) {
+    if (int pe = runtime::pollReset(pd_, 'w')) {
         decref();
         return op_error(pe);
     }
     for (;;) {
         if (f(static_cast<uintptr>(sysfd_))) break;
-        if (int pe = runtime::poll_wait(pd_, 'w')) {
+        if (int pe = runtime::pollWait(pd_, 'w')) {
             decref();
             return op_error(pe);
         }
@@ -674,28 +674,28 @@ error netfd::raw_write(const std::function<bool(uintptr)>& f) {
 
 error netfd::prepare(int mode) {
     if (!incref()) return ErrClosed;
-    int pe = runtime::poll_reset(pd_, mode);
+    int pe = runtime::pollReset(pd_, mode);
     decref();
     return pe ? op_error(pe) : nullptr;
 }
 
 error netfd::wait(int mode) {
     if (!incref()) return ErrClosed;
-    int pe = runtime::poll_wait(pd_, mode);
+    int pe = runtime::pollWait(pd_, mode);
     decref();
     return pe ? op_error(pe) : nullptr;
 }
 
-error netfd::getsockopt_int(int level, int name, int* value) {
+error netfd::getsockoptInt(int level, int name, int* value) {
     if (!incref()) return ErrClosed;
     socklen_t len = sizeof(*value);
     int r = ::getsockopt(sysfd_, level, name, value, &len);
     int e = errno;
     decref();
-    return r < 0 ? errno_error(e) : nullptr;
+    return r < 0 ? errnoError(e) : nullptr;
 }
 
-error netfd::setsockopt_linger(int sec) {
+error netfd::setsockoptLinger(int sec) {
     if (!incref()) return ErrClosed;
     linger l{};
     if (sec >= 0) {
@@ -705,7 +705,7 @@ error netfd::setsockopt_linger(int sec) {
     int r = ::setsockopt(sysfd_, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
     int e = errno;
     decref();
-    return r < 0 ? os::NewSyscallError("setsockopt", errno_error(e)) : nullptr;
+    return r < 0 ? os::NewSyscallError("setsockopt", errnoError(e)) : nullptr;
 }
 
 }  // namespace gopp::net

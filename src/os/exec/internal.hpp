@@ -17,6 +17,6 @@ namespace gopp::os::exec::detail {
 std::pair<slice<string>, error> dedup_env_case(bool case_insensitive, bool nul_ok, const slice<string>& env);
 
 // Go's filepath.Clean.
-std::string clean_path(std::string_view path);
+std::string cleanPath(std::string_view path);
 
 }  // namespace gopp::os::exec::detail

@@ -14,7 +14,7 @@ namespace {
 using utf8::RuneError;
 using utf8::RuneSelf;
 
-constexpr isize npos_to_isize(std::size_t i) noexcept { return i == sv::npos ? -1 : static_cast<isize>(i); }
+constexpr isize nposToIsize(std::size_t i) noexcept { return i == sv::npos ? -1 : static_cast<isize>(i); }
 
 byte at(sv s, std::size_t i) noexcept { return static_cast<byte>(s[i]); }
 
@@ -119,19 +119,19 @@ std::vector<sv> explode(sv s, isize n) {
 
 }  // namespace
 
-isize index(sv s, sv sep) noexcept { return npos_to_isize(s.find(sep)); }
+isize index(sv s, sv sep) noexcept { return nposToIsize(s.find(sep)); }
 
-isize last_index(sv s, sv sep) noexcept {
+isize lastIndex(sv s, sv sep) noexcept {
     if (sep.empty()) return isize(s.size());
-    return npos_to_isize(s.rfind(sep));
+    return nposToIsize(s.rfind(sep));
 }
 
-isize index_byte(sv s, char c) noexcept { return npos_to_isize(s.find(c)); }
+isize indexByte(sv s, char c) noexcept { return nposToIsize(s.find(c)); }
 
-isize last_index_byte(sv s, char c) noexcept { return npos_to_isize(s.rfind(c)); }
+isize lastIndexByte(sv s, char c) noexcept { return nposToIsize(s.rfind(c)); }
 
-isize index_rune(sv s, rune r) noexcept {
-    if (0 <= r && r < RuneSelf) return index_byte(s, char(r));
+isize indexRune(sv s, rune r) noexcept {
+    if (0 <= r && r < RuneSelf) return indexByte(s, char(r));
     if (r == RuneError) {
         for (std::size_t i = 0; i < s.size();) {
             auto [r1, n] = utf8::DecodeRuneInString(s.substr(i));
@@ -146,7 +146,7 @@ isize index_rune(sv s, rune r) noexcept {
     return index(s, sv(reinterpret_cast<const char*>(b), std::size_t(n)));
 }
 
-isize index_any(sv s, sv chars) noexcept {
+isize indexAny(sv s, sv chars) noexcept {
     if (chars.empty()) {
         // Avoid scanning all of s.
         return -1;
@@ -162,7 +162,7 @@ isize index_any(sv s, sv chars) noexcept {
     if (chars.size() == 1) {
         rune r = static_cast<byte>(chars[0]);
         if (r >= RuneSelf) r = RuneError;
-        return index_rune(s, r);
+        return indexRune(s, r);
     }
     if (shouldUseASCIISet(s.size())) {
         if (auto as = makeASCIISet(chars)) {
@@ -195,7 +195,7 @@ isize index_any(sv s, sv chars) noexcept {
     return -1;
 }
 
-isize last_index_any(sv s, sv chars) noexcept {
+isize lastIndexAny(sv s, sv chars) noexcept {
     if (chars.empty()) {
         // Avoid scanning all of s.
         return -1;
@@ -246,7 +246,7 @@ isize last_index_any(sv s, sv chars) noexcept {
     return -1;
 }
 
-isize index_func(sv s, pred f, bool truth) {
+isize indexFunc(sv s, pred f, bool truth) {
     for (std::size_t start = 0; start < s.size();) {
         auto [r, wid] = utf8::DecodeRuneInString(s.substr(start));
         if (f(r) == truth) return isize(start);
@@ -255,7 +255,7 @@ isize index_func(sv s, pred f, bool truth) {
     return -1;
 }
 
-isize last_index_func(sv s, pred f, bool truth) {
+isize lastIndexFunc(sv s, pred f, bool truth) {
     for (std::size_t i = s.size(); i > 0;) {
         rune r = at(s, i - 1);
         int size = 1;
@@ -347,7 +347,7 @@ sv trim(sv s, sv cutset) noexcept {
     return trimLeftUnicode(trimRightUnicode(s, cutset), cutset);
 }
 
-sv trim_left(sv s, sv cutset) noexcept {
+sv trimLeft(sv s, sv cutset) noexcept {
     if (s.empty()) {
         // This is what we've historically done.
         return nil;
@@ -358,7 +358,7 @@ sv trim_left(sv s, sv cutset) noexcept {
     return trimLeftUnicode(s, cutset);
 }
 
-sv trim_right(sv s, sv cutset) noexcept {
+sv trimRight(sv s, sv cutset) noexcept {
     if (s.empty() || cutset.empty()) return s;
     if (cutset.size() == 1 && static_cast<byte>(cutset[0]) < RuneSelf) return trimRightByte(s, cutset[0]);
     if (auto as = makeASCIISet(cutset)) return trimRightASCII(s, *as);
@@ -372,15 +372,15 @@ sv trim_space(sv s) noexcept {
         if (c >= RuneSelf) {
             // If we run into a non-ASCII byte, fall back to the slower
             // unicode-aware method on the remaining bytes.
-            return trim_func(s.substr(lo), unicode::IsSpace);
+            return trimFunc(s.substr(lo), unicode::IsSpace);
         }
-        if (ascii_space(c)) continue;
+        if (asciiSpace(c)) continue;
         s.remove_prefix(lo);
         // Now look for the first ASCII non-space byte from the end.
         for (std::size_t hi = s.size(); hi-- > 0;) {
             byte c2 = at(s, hi);
-            if (c2 >= RuneSelf) return trim_func(s.substr(0, hi + 1), unicode::IsSpace);
-            if (!ascii_space(c2)) {
+            if (c2 >= RuneSelf) return trimFunc(s.substr(0, hi + 1), unicode::IsSpace);
+            if (!asciiSpace(c2)) {
                 // At this point, s[:hi+1] starts and ends with ASCII
                 // non-space bytes, so we're done. Non-ASCII cases have
                 // already been handled above.
@@ -393,14 +393,14 @@ sv trim_space(sv s) noexcept {
     return nil;
 }
 
-sv trim_left_func(sv s, pred f) {
-    isize i = index_func(s, f, false);
+sv trimLeftFunc(sv s, pred f) {
+    isize i = indexFunc(s, f, false);
     if (i == -1) return nil;
     return s.substr(std::size_t(i));
 }
 
-sv trim_right_func(sv s, pred f) {
-    isize i = last_index_func(s, f, false);
+sv trimRightFunc(sv s, pred f) {
+    isize i = lastIndexFunc(s, f, false);
     if (i >= 0 && at(s, std::size_t(i)) >= RuneSelf) {
         auto [_, wid] = utf8::DecodeRuneInString(s.substr(std::size_t(i)));
         i += wid;
@@ -410,19 +410,19 @@ sv trim_right_func(sv s, pred f) {
     return s.substr(0, std::size_t(i));
 }
 
-sv trim_func(sv s, pred f) { return trim_right_func(trim_left_func(s, f), f); }
+sv trimFunc(sv s, pred f) { return trimRightFunc(trimLeftFunc(s, f), f); }
 
 cut_result cut(sv s, sv sep) noexcept {
     if (auto i = s.find(sep); i != sv::npos) return {s.substr(0, i), s.substr(i + sep.size()), true};
     return {s, nil, false};
 }
 
-cut_result cut_last(sv s, sv sep) noexcept {
-    if (auto i = last_index(s, sep); i >= 0) return {s.substr(0, std::size_t(i)), s.substr(std::size_t(i) + sep.size()), true};
+cut_result cutLast(sv s, sv sep) noexcept {
+    if (auto i = lastIndex(s, sep); i >= 0) return {s.substr(0, std::size_t(i)), s.substr(std::size_t(i) + sep.size()), true};
     return {s, nil, false};
 }
 
-std::vector<sv> gen_split(sv s, sv sep, std::size_t sep_save, isize n) {
+std::vector<sv> genSplit(sv s, sv sep, std::size_t sep_save, isize n) {
     if (sep.empty()) return explode(s, n);
     if (n < 0) n = count(s, sep) + 1;
     n = std::min(n, isize(s.size()) + 1);
@@ -449,30 +449,30 @@ std::vector<sv> fields(sv s) {
     for (std::size_t i = 0; i < s.size(); i++) {
         byte r = at(s, i);
         setBits |= r;
-        bool isSpace = ascii_space(r);
+        bool isSpace = asciiSpace(r);
         n += wasSpace && !isSpace;
         wasSpace = isSpace;
     }
     if (setBits >= RuneSelf) {
         // Some runes in the input slice are not ASCII.
-        return fields_func(s, unicode::IsSpace);
+        return fieldsFunc(s, unicode::IsSpace);
     }
     // ASCII fast path
     std::vector<sv> a;
     a.reserve(n);
     std::size_t i = 0;
     // Skip spaces in the front of the input.
-    while (i < s.size() && ascii_space(at(s, i))) i++;
+    while (i < s.size() && asciiSpace(at(s, i))) i++;
     std::size_t fieldStart = i;
     while (i < s.size()) {
-        if (!ascii_space(at(s, i))) {
+        if (!asciiSpace(at(s, i))) {
             i++;
             continue;
         }
         a.push_back(s.substr(fieldStart, i - fieldStart));
         i++;
         // Skip spaces in between fields.
-        while (i < s.size() && ascii_space(at(s, i))) i++;
+        while (i < s.size() && asciiSpace(at(s, i))) i++;
         fieldStart = i;
     }
     if (fieldStart < s.size()) {
@@ -482,7 +482,7 @@ std::vector<sv> fields(sv s) {
     return a;
 }
 
-std::vector<sv> fields_func(sv s, pred f) {
+std::vector<sv> fieldsFunc(sv s, pred f) {
     std::vector<sv> a;
     isize start = -1;  // valid span start if >= 0
     for (std::size_t i = 0; i < s.size();) {
@@ -518,7 +518,7 @@ std::string map(mapping f, sv s) {
     return b;
 }
 
-std::optional<std::string> to_upper(sv s) {
+std::optional<std::string> toUpper(sv s) {
     bool isASCII = true, hasLower = false;
     for (unsigned char c : s) {
         if (c >= RuneSelf) {
@@ -539,7 +539,7 @@ std::optional<std::string> to_upper(sv s) {
     return map(unicode::ToUpper, s);
 }
 
-std::optional<std::string> to_lower(sv s) {
+std::optional<std::string> toLower(sv s) {
     bool isASCII = true, hasUpper = false;
     for (unsigned char c : s) {
         if (c >= RuneSelf) {
@@ -627,7 +627,7 @@ std::optional<std::string> replace(sv s, sv old, sv new_, isize n) {
     return t;
 }
 
-std::optional<std::string> to_valid_utf8(sv s, sv replacement) {
+std::optional<std::string> toValidUtf8(sv s, sv replacement) {
     if (utf8::ValidString(s)) return std::nullopt;
     std::string b;
     b.reserve(s.size() + replacement.size());

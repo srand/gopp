@@ -27,7 +27,7 @@ using strs_t = slice<string>;
 const double nan_ = std::numeric_limits<double>::quiet_NaN();
 const double inf = std::numeric_limits<double>::infinity();
 
-ints empty_ints() { return ints::make(0); }
+ints emptyInts() { return ints::make(0); }
 
 std::mt19937_64 rng(2);
 isize rand_intn(isize n) { return std::uniform_int_distribution<isize>(0, n - 1)(rng); }
@@ -57,7 +57,7 @@ struct equalIntTest {
 std::vector<equalIntTest> equalIntTests() {
     return {
         {{1}, {}, false},
-        {empty_ints(), {}, true},
+        {emptyInts(), {}, true},
         {{1, 2, 3}, {1, 2, 3}, true},
         {{1, 2, 3}, {1, 2, 3, 4}, false},
     };
@@ -112,9 +112,9 @@ struct compareIntTest {
 std::vector<compareIntTest> compareIntTests() {
     return {
         {{1}, {1}, 0},
-        {{1}, empty_ints(), 1},
-        {empty_ints(), {1}, -1},
-        {empty_ints(), empty_ints(), 0},
+        {{1}, emptyInts(), 1},
+        {emptyInts(), {1}, -1},
+        {emptyInts(), emptyInts(), 0},
         {{1, 2, 3}, {1, 2, 3}, 0},
         {{1, 2, 3}, {1, 2, 3, 4}, -1},
         {{1, 2, 3, 4}, {1, 2, 3}, +1},
@@ -200,7 +200,7 @@ struct indexTest {
 std::vector<indexTest> indexTests() {
     return {
         {{}, 0, -1},
-        {empty_ints(), 0, -1},
+        {emptyInts(), 0, -1},
         {{1, 2, 3}, 2, 1},
         {{1, 2, 2, 3}, 2, 1},
         {{1, 2, 3, 2}, 2, 1},
@@ -271,9 +271,9 @@ TEST(GoSlices, InsertOverlap) {
                 for (isize y = x; y <= N; y++) {      // end of inserted data
                     for (isize k = 0; k < N; k++) a[k] = k;
                     ints want;
-                    want = append_span(want, std::span<const isize>(a.Sub(0, i)));
-                    want = append_span(want, std::span<const isize>(a.Sub(x, y)));
-                    want = append_span(want, std::span<const isize>(a.Sub(i, n)));
+                    want = appendSpan(want, std::span<const isize>(a.Sub(0, i)));
+                    want = appendSpan(want, std::span<const isize>(a.Sub(x, y)));
+                    want = appendSpan(want, std::span<const isize>(a.Sub(i, n)));
                     auto got = slices::Insert(a.Sub(0, n), i, a.Sub(x, y));
                     EXPECT_TRUE(slices::Equal(got, want))
                         << "Insert with overlap failed n=" << n << " i=" << i << " x=" << x << " y=" << y;
@@ -318,7 +318,7 @@ TEST(GoSlices, Delete) {
         {{1, 2, 3}, 0, 1, {2, 3}},
         {{1, 2, 3}, 3, 3, {1, 2, 3}},
         {{1, 2, 3}, 0, 2, {3}},
-        {{1, 2, 3}, 0, 3, empty_ints()},
+        {{1, 2, 3}, 0, 3, emptyInts()},
     };
     for (auto& test : deleteTests) {
         auto copy = slices::Clone(test.s);
@@ -398,9 +398,9 @@ TEST(GoSlices, Clone) {
     EXPECT_TRUE(slices::Equal(s1, s2));
     s1[0] = 4;
     EXPECT_TRUE(slices::Equal(s2, ints{1, 2, 3})) << "Clone changed unexpectedly";
-    EXPECT_TRUE(slices::Clone(ints()).is_nil()) << "Clone(nil) != nil";
+    EXPECT_TRUE(slices::Clone(ints()).isNil()) << "Clone(nil) != nil";
     auto got = slices::Clone(s1.Sub(0, 0));
-    EXPECT_TRUE(!got.is_nil() && got.len() == 0);
+    EXPECT_TRUE(!got.isNil() && got.len() == 0);
 }
 
 namespace {
@@ -606,9 +606,9 @@ TEST(GoSlices, ReplaceOverlap) {
                     for (isize y = x; y <= N; y++) {      // end of inserted data
                         for (isize k = 0; k < N; k++) a[k] = k;
                         ints want;
-                        want = append_span(want, std::span<const isize>(a.Sub(0, i)));
-                        want = append_span(want, std::span<const isize>(a.Sub(x, y)));
-                        want = append_span(want, std::span<const isize>(a.Sub(j, n)));
+                        want = appendSpan(want, std::span<const isize>(a.Sub(0, i)));
+                        want = appendSpan(want, std::span<const isize>(a.Sub(x, y)));
+                        want = appendSpan(want, std::span<const isize>(a.Sub(j, n)));
                         auto got = slices::Replace(a.Sub(0, n), i, j, a.Sub(x, y));
                         ASSERT_TRUE(slices::Equal(got, want)) << "Insert with overlap failed n=" << n << " i=" << i
                                                               << " j=" << j << " x=" << x << " y=" << y;
@@ -686,23 +686,23 @@ TEST(GoSlices, Repeat) {
         isize count;
         ints want;
     } cases[] = {
-        {{}, 0, empty_ints()},
-        {{}, 1, empty_ints()},
-        {{}, std::numeric_limits<isize>::max(), empty_ints()},
-        {empty_ints(), 0, empty_ints()},
-        {empty_ints(), 1, empty_ints()},
-        {empty_ints(), std::numeric_limits<isize>::max(), empty_ints()},
-        {{0}, 0, empty_ints()},
+        {{}, 0, emptyInts()},
+        {{}, 1, emptyInts()},
+        {{}, std::numeric_limits<isize>::max(), emptyInts()},
+        {emptyInts(), 0, emptyInts()},
+        {emptyInts(), 1, emptyInts()},
+        {emptyInts(), std::numeric_limits<isize>::max(), emptyInts()},
+        {{0}, 0, emptyInts()},
         {{0}, 1, {0}},
         {{0}, 2, {0, 0}},
         {{0}, 3, {0, 0, 0}},
         {{0}, 4, {0, 0, 0, 0}},
-        {{0, 1}, 0, empty_ints()},
+        {{0, 1}, 0, emptyInts()},
         {{0, 1}, 1, {0, 1}},
         {{0, 1}, 2, {0, 1, 0, 1}},
         {{0, 1}, 3, {0, 1, 0, 1, 0, 1}},
         {{0, 1}, 4, {0, 1, 0, 1, 0, 1, 0, 1}},
-        {{0, 1, 2}, 0, empty_ints()},
+        {{0, 1, 2}, 0, emptyInts()},
         {{0, 1, 2}, 1, {0, 1, 2}},
         {{0, 1, 2}, 2, {0, 1, 2, 0, 1, 2}},
         {{0, 1, 2}, 3, {0, 1, 2, 0, 1, 2, 0, 1, 2}},
@@ -710,7 +710,7 @@ TEST(GoSlices, Repeat) {
     };
     for (auto& tc : cases) {
         auto got = slices::Repeat(tc.x, tc.count);
-        EXPECT_TRUE(!got.is_nil() && got.cap() == tc.want.cap() && slices::Equal(got, tc.want))
+        EXPECT_TRUE(!got.isNil() && got.cap() == tc.want.cap() && slices::Equal(got, tc.want))
             << "Repeat(" << tc.x.len() << ", " << tc.count << ")";
     }
 }
@@ -730,62 +730,62 @@ TEST(GoSlices, Issue68488) {
 
 // The behavior when the primary slice operand is nil.
 TEST(GoSlices, Nilness) {
-    ints emptySlice = empty_ints();
+    ints emptySlice = emptyInts();
     ints nilSlice;
     auto emptySeq = std::views::empty<isize>;
     auto truth = [](isize) { return true; };
     auto equal = [](isize, isize) -> bool { ADD_FAILURE() << "unreachable"; return false; };
 
     // The update functions preserve nilness, like s[i:j].
-    EXPECT_TRUE(slices::AppendSeq(nilSlice, emptySeq).is_nil()) << "AppendSeq(nil, empty)";
-    EXPECT_FALSE(slices::AppendSeq(emptySlice, emptySeq).is_nil()) << "AppendSeq(nil, empty)";
+    EXPECT_TRUE(slices::AppendSeq(nilSlice, emptySeq).isNil()) << "AppendSeq(nil, empty)";
+    EXPECT_FALSE(slices::AppendSeq(emptySlice, emptySeq).isNil()) << "AppendSeq(nil, empty)";
 
-    EXPECT_TRUE(slices::Insert(nilSlice, 0).is_nil()) << "Insert(nil, 0)";
-    EXPECT_FALSE(slices::Insert(emptySlice, 0).is_nil()) << "Insert(empty, 0)";
+    EXPECT_TRUE(slices::Insert(nilSlice, 0).isNil()) << "Insert(nil, 0)";
+    EXPECT_FALSE(slices::Insert(emptySlice, 0).isNil()) << "Insert(empty, 0)";
 
-    EXPECT_TRUE(slices::Delete(nilSlice, 0, 0).is_nil()) << "Delete(nil, 0, 0)";
-    EXPECT_FALSE(slices::Delete(emptySlice, 0, 0).is_nil()) << "Delete(empty, 0, 0)";
-    EXPECT_FALSE(slices::Delete(ints{1}, 0, 1).is_nil()) << "Delete([]int{1}, 0, 1)";
+    EXPECT_TRUE(slices::Delete(nilSlice, 0, 0).isNil()) << "Delete(nil, 0, 0)";
+    EXPECT_FALSE(slices::Delete(emptySlice, 0, 0).isNil()) << "Delete(empty, 0, 0)";
+    EXPECT_FALSE(slices::Delete(ints{1}, 0, 1).isNil()) << "Delete([]int{1}, 0, 1)";
 
-    EXPECT_TRUE(slices::DeleteFunc(nilSlice, truth).is_nil()) << "DeleteFunc(nil, f)";
-    EXPECT_FALSE(slices::DeleteFunc(emptySlice, truth).is_nil()) << "DeleteFunc(empty, f)";
-    EXPECT_FALSE(slices::DeleteFunc(ints{1}, truth).is_nil()) << "DeleteFunc([]int{1}, truth)";
+    EXPECT_TRUE(slices::DeleteFunc(nilSlice, truth).isNil()) << "DeleteFunc(nil, f)";
+    EXPECT_FALSE(slices::DeleteFunc(emptySlice, truth).isNil()) << "DeleteFunc(empty, f)";
+    EXPECT_FALSE(slices::DeleteFunc(ints{1}, truth).isNil()) << "DeleteFunc([]int{1}, truth)";
 
-    EXPECT_TRUE(slices::Replace(nilSlice, 0, 0).is_nil()) << "Replace(nil, 0, 0)";
-    EXPECT_FALSE(slices::Replace(emptySlice, 0, 0).is_nil()) << "Replace(empty, 0, 0)";
-    EXPECT_FALSE(slices::Replace(ints{1}, 0, 1).is_nil()) << "Replace([]int{1}, 0, 1)";
+    EXPECT_TRUE(slices::Replace(nilSlice, 0, 0).isNil()) << "Replace(nil, 0, 0)";
+    EXPECT_FALSE(slices::Replace(emptySlice, 0, 0).isNil()) << "Replace(empty, 0, 0)";
+    EXPECT_FALSE(slices::Replace(ints{1}, 0, 1).isNil()) << "Replace([]int{1}, 0, 1)";
 
-    EXPECT_TRUE(slices::Clone(nilSlice).is_nil()) << "Clone(nil)";
-    EXPECT_FALSE(slices::Clone(emptySlice).is_nil()) << "Clone(empty)";
+    EXPECT_TRUE(slices::Clone(nilSlice).isNil()) << "Clone(nil)";
+    EXPECT_FALSE(slices::Clone(emptySlice).isNil()) << "Clone(empty)";
 
-    EXPECT_TRUE(slices::Compact(nilSlice).is_nil()) << "Compact(nil)";
-    EXPECT_FALSE(slices::Compact(emptySlice).is_nil()) << "Compact(empty)";
+    EXPECT_TRUE(slices::Compact(nilSlice).isNil()) << "Compact(nil)";
+    EXPECT_FALSE(slices::Compact(emptySlice).isNil()) << "Compact(empty)";
 
-    EXPECT_TRUE(slices::CompactFunc(nilSlice, equal).is_nil()) << "CompactFunc(nil)";
-    EXPECT_FALSE(slices::CompactFunc(emptySlice, equal).is_nil()) << "CompactFunc(empty)";
+    EXPECT_TRUE(slices::CompactFunc(nilSlice, equal).isNil()) << "CompactFunc(nil)";
+    EXPECT_FALSE(slices::CompactFunc(emptySlice, equal).isNil()) << "CompactFunc(empty)";
 
-    EXPECT_TRUE(slices::Grow(nilSlice, 0).is_nil()) << "Grow(nil, 0)";
-    EXPECT_FALSE(slices::Grow(emptySlice, 0).is_nil()) << "Grow(empty, 0)";
+    EXPECT_TRUE(slices::Grow(nilSlice, 0).isNil()) << "Grow(nil, 0)";
+    EXPECT_FALSE(slices::Grow(emptySlice, 0).isNil()) << "Grow(empty, 0)";
 
-    EXPECT_TRUE(slices::Clip(nilSlice).is_nil()) << "Clip(nil)";
-    EXPECT_FALSE(slices::Clip(emptySlice).is_nil()) << "Clip(empty)";
-    EXPECT_FALSE(slices::Clip(ints{1}.Sub(0, 0, 0)).is_nil()) << "Clip([]int{1}[:0:0])";
+    EXPECT_TRUE(slices::Clip(nilSlice).isNil()) << "Clip(nil)";
+    EXPECT_FALSE(slices::Clip(emptySlice).isNil()) << "Clip(empty)";
+    EXPECT_FALSE(slices::Clip(ints{1}.Sub(0, 0, 0)).isNil()) << "Clip([]int{1}[:0:0])";
 
     // Concat returns nil iff the result is empty.
-    EXPECT_TRUE(slices::Concat(nilSlice, emptySlice, nilSlice, emptySlice).is_nil()) << "Concat(nil, ...empty...)";
-    EXPECT_TRUE(slices::Concat(emptySlice, emptySlice, nilSlice, emptySlice).is_nil()) << "Concat(empty, ...empty...)";
+    EXPECT_TRUE(slices::Concat(nilSlice, emptySlice, nilSlice, emptySlice).isNil()) << "Concat(nil, ...empty...)";
+    EXPECT_TRUE(slices::Concat(emptySlice, emptySlice, nilSlice, emptySlice).isNil()) << "Concat(empty, ...empty...)";
 
     // Repeat never returns nil.
-    EXPECT_FALSE(slices::Repeat(nilSlice, 0).is_nil()) << "Repeat(nil, 0)";
-    EXPECT_FALSE(slices::Repeat(emptySlice, 0).is_nil()) << "Repeat(empty, 0)";
-    EXPECT_FALSE(slices::Repeat(nilSlice, 2).is_nil()) << "Repeat(nil, 2)";
-    EXPECT_FALSE(slices::Repeat(emptySlice, 2).is_nil()) << "Repeat(empty, 2)";
+    EXPECT_FALSE(slices::Repeat(nilSlice, 0).isNil()) << "Repeat(nil, 0)";
+    EXPECT_FALSE(slices::Repeat(emptySlice, 0).isNil()) << "Repeat(empty, 0)";
+    EXPECT_FALSE(slices::Repeat(nilSlice, 2).isNil()) << "Repeat(nil, 2)";
+    EXPECT_FALSE(slices::Repeat(emptySlice, 2).isNil()) << "Repeat(empty, 2)";
 
     // The collection functions return nil given an empty sequence.
-    EXPECT_TRUE(slices::Collect(emptySeq).is_nil()) << "Collect(empty)";
-    EXPECT_TRUE(slices::Sorted(emptySeq).is_nil()) << "Sorted(empty)";
-    EXPECT_TRUE(slices::SortedFunc(emptySeq, cmp::Compare<isize>).is_nil()) << "SortedFunc(empty)";
-    EXPECT_TRUE(slices::SortedStableFunc(emptySeq, cmp::Compare<isize>).is_nil()) << "SortedStableFunc(empty)";
+    EXPECT_TRUE(slices::Collect(emptySeq).isNil()) << "Collect(empty)";
+    EXPECT_TRUE(slices::Sorted(emptySeq).isNil()) << "Sorted(empty)";
+    EXPECT_TRUE(slices::SortedFunc(emptySeq, cmp::Compare<isize>).isNil()) << "SortedFunc(empty)";
+    EXPECT_TRUE(slices::SortedStableFunc(emptySeq, cmp::Compare<isize>).isNil()) << "SortedStableFunc(empty)";
 }
 
 // ---------------------------------------------------------------------------
@@ -793,12 +793,12 @@ TEST(GoSlices, Nilness) {
 
 namespace {
 
-ints sort_ints() { return {74, 59, 238, -784, 9845, 959, 905, 0, 0, 42, 7586, -5467984, 7586}; }
-floats sort_float64s() {
+ints sortInts() { return {74, 59, 238, -784, 9845, 959, 905, 0, 0, 42, 7586, -5467984, 7586}; }
+floats sortFloat64s() {
     return {74.3, 59.0, inf, 238.2, -784.0, 2.3, -inf, 9845.768, -959.7485, 905, 7.8, 7.8,
             74.3, 59.0, inf, 238.2, -784.0, 2.3};
 }
-strs_t sort_strs() { return {"", "Hello", "foo", "bar", "foo", "f00", "%*&^*&^&", "***"}; }
+strs_t sortStrs() { return {"", "Hello", "foo", "bar", "foo", "f00", "%*&^*&^&", "***"}; }
 
 struct intPair {
     isize a, b;
@@ -832,25 +832,25 @@ bool inOrder(const intPairs& d, bool reversed) {
 }  // namespace
 
 TEST(GoSlices, SortIntSlice) {
-    auto data = slices::Clone(sort_ints());
+    auto data = slices::Clone(sortInts());
     slices::Sort(data);
     EXPECT_TRUE(slices::IsSorted(data));
 }
 
 TEST(GoSlices, SortFuncIntSlice) {
-    auto data = slices::Clone(sort_ints());
+    auto data = slices::Clone(sortInts());
     slices::SortFunc(data, [](isize a, isize b) { return a < b ? -1 : a > b ? 1 : 0; });
     EXPECT_TRUE(slices::IsSorted(data));
 }
 
 TEST(GoSlices, SortFloat64Slice) {
-    auto data = slices::Clone(sort_float64s());
+    auto data = slices::Clone(sortFloat64s());
     slices::Sort(data);
     EXPECT_TRUE(slices::IsSorted(data));
 }
 
 TEST(GoSlices, SortStringSlice) {
-    auto data = slices::Clone(sort_strs());
+    auto data = slices::Clone(sortStrs());
     slices::Sort(data);
     EXPECT_TRUE(slices::IsSorted(data));
 }
@@ -942,7 +942,7 @@ TEST(GoSlices, MinMaxNaNs) {
 
 TEST(GoSlicesDeathTest, MinMaxPanics) {
     auto intCmp = [](isize a, isize b) { return static_cast<int>(a - b); };
-    auto emptySlice = empty_ints();
+    auto emptySlice = emptyInts();
     EXPECT_DEATH((void)slices::Min(emptySlice), "empty list");
     EXPECT_DEATH((void)slices::Max(emptySlice), "empty list");
     EXPECT_DEATH((void)slices::MinFunc(emptySlice, intCmp), "empty list");
@@ -1126,12 +1126,12 @@ namespace {
 auto testSeq() { return std::views::iota(isize(0), isize(10)) | std::views::stride(2); }
 const ints testSeqResult{0, 2, 4, 6, 8};
 
-std::vector<strs_t> iterTests() { return {{}, {"a"}, {"a", "b"}, {"b", "a"}, sort_strs()}; }
+std::vector<strs_t> iterTests() { return {{}, {"a"}, {"a", "b"}, {"b", "a"}, sortStrs()}; }
 }  // namespace
 
 TEST(GoSlices, AppendSeq) {
     auto s = slices::AppendSeq(ints{1, 2}, testSeq());
-    auto want = append_span(ints{1, 2}, std::span<const isize>(testSeqResult));
+    auto want = appendSpan(ints{1, 2}, std::span<const isize>(testSeqResult));
     EXPECT_TRUE(slices::Equal(s, want));
 }
 
@@ -1143,7 +1143,7 @@ TEST(GoSlices, ValuesAppendSeq) {
     for (auto& prefix : iterTests()) {
         for (auto& s : iterTests()) {
             auto got = slices::AppendSeq(slices::Clone(prefix), slices::Values(s));
-            auto want = append_span(slices::Clone(prefix), std::span<const string>(s));
+            auto want = appendSpan(slices::Clone(prefix), std::span<const string>(s));
             EXPECT_TRUE(slices::Equal(got, want));
         }
     }
@@ -1154,12 +1154,12 @@ TEST(GoSlices, ValuesCollect) {
 }
 
 TEST(GoSlices, Sorted) {
-    auto s = slices::Sorted(slices::Values(sort_ints()));
+    auto s = slices::Sorted(slices::Values(sortInts()));
     EXPECT_TRUE(slices::IsSorted(s));
 }
 
 TEST(GoSlices, SortedFunc) {
-    auto s = slices::SortedFunc(slices::Values(sort_ints()), [](isize a, isize b) { return static_cast<int>(a - b); });
+    auto s = slices::SortedFunc(slices::Values(sortInts()), [](isize a, isize b) { return static_cast<int>(a - b); });
     EXPECT_TRUE(slices::IsSorted(s));
 }
 
@@ -1194,7 +1194,7 @@ TEST(GoSlices, Chunk) {
         std::vector<ints> chunks;
     } cases[] = {
         {"nil", {}, 1, {}},
-        {"empty", empty_ints(), 1, {}},
+        {"empty", emptyInts(), 1, {}},
         {"short", {1, 2}, 3, {{1, 2}}},
         {"one", {1, 2}, 2, {{1, 2}}},
         {"even", {1, 2, 3, 4}, 2, {{1, 2}, {3, 4}}},

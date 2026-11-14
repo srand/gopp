@@ -33,15 +33,15 @@ const gopp::error err_request_canceled = errors::New("net/http: request canceled
 const gopp::error err_timeout_headers = errors::New("http2: timeout awaiting response headers");
 const gopp::error err_closed_body = errors::New("http2: response body closed");
 
-struct wrapped_unusable : error_interface {
+struct wrappedUnusable : errorInterface {
     gopp::error cause;
-    explicit wrapped_unusable(gopp::error c) : cause(std::move(c)) {}
+    explicit wrappedUnusable(gopp::error c) : cause(std::move(c)) {}
     string Error() const override { return cause.Error(); }
-    const error_interface* Unwrap() const noexcept override { return internal::err_http2_conn_unusable.get(); }
+    const errorInterface* Unwrap() const noexcept override { return internal::err_http2_conn_unusable.get(); }
 };
 
 // An error that marks the request as not processed by the server.
-gopp::error unusable(gopp::error cause) { return make_ptr<wrapped_unusable>(std::move(cause)); }
+gopp::error unusable(gopp::error cause) { return make_ptr<wrappedUnusable>(std::move(cause)); }
 
 class client_conn;
 
@@ -51,12 +51,12 @@ struct client_stream final : object {
     inflow in;     // what the server may send
     ptr<pipe> body = make_ptr<pipe>();
     // The response header, or the error that ends the request first.
-    chan<std::pair<ptr<Response>, gopp::error>> resp = make_chan<std::pair<ptr<Response>, gopp::error>>(1);
+    chan<std::pair<ptr<Response>, gopp::error>> resp = makeChan<std::pair<ptr<Response>, gopp::error>>(1);
     bool got_headers = false;
     bool peer_done = false;  // END_STREAM or RST_STREAM received
     bool sent_end = false;   // we sent END_STREAM or RST_STREAM
     gopp::error abort_err;   // why the stream ended early
-    chan<empty> done = make_chan<empty>();  // closed when the stream is forgotten
+    chan<empty> done = makeChan<empty>();  // closed when the stream is forgotten
     bool head = false;
 };
 
@@ -102,25 +102,25 @@ public:
     void close() override { conn_->Close(); }
 
     // Response body side.
-    void body_read(const ptr<client_stream>& cs, int n);
-    void body_closed(const ptr<client_stream>& cs);
+    void bodyRead(const ptr<client_stream>& cs, int n);
+    void bodyClosed(const ptr<client_stream>& cs);
 
 private:
     bool can_take_locked() const {
         return !closed_ && !go_away_ && streams_.size() + reserved_ < max_concurrent_ && next_id_ < 0x7fffffff;
     }
-    gopp::error write_frames(const std::string& frames);
-    gopp::error write_headers(Request& req, client_stream& cs, bool end_stream);
-    gopp::error write_body(Request& req, const ptr<client_stream>& cs);
-    void forget_stream(const ptr<client_stream>& cs);
-    void reset_stream(const ptr<client_stream>& cs, ErrCode code);
-    void read_loop();
-    gopp::error process_frame(Frame& f);
-    gopp::error process_headers(Frame& f);
-    gopp::error process_data(Frame& f);
-    void process_settings(const Frame& f);
-    void abort_stream(const ptr<client_stream>& cs, gopp::error err);
-    void conn_failed(gopp::error err);
+    gopp::error writeFrames(const std::string& frames);
+    gopp::error writeHeaders(Request& req, client_stream& cs, bool endStream);
+    gopp::error writeBody(Request& req, const ptr<client_stream>& cs);
+    void forgetStream(const ptr<client_stream>& cs);
+    void resetStream(const ptr<client_stream>& cs, ErrCode code);
+    void readLoop();
+    gopp::error processFrame(Frame& f);
+    gopp::error processHeaders(Frame& f);
+    gopp::error processData(Frame& f);
+    void processSettings(const Frame& f);
+    void abortStream(const ptr<client_stream>& cs, gopp::error err);
+    void connFailed(gopp::error err);
 
     ptr<net::Conn> conn_;
     ptr<bufio::Reader> br_;
@@ -162,14 +162,14 @@ public:
     std::pair<isize, gopp::error> Read(std::span<byte> p) override {
         if (closed_) return {0, ErrBodyReadAfterClose};
         auto [n, err] = cs_->body->Read(p);
-        if (n > 0) cc_->body_read(cs_, static_cast<int>(n));
+        if (n > 0) cc_->bodyRead(cs_, static_cast<int>(n));
         return {n, err};
     }
 
     gopp::error Close() override {
         if (closed_) return nullptr;
         closed_ = true;
-        cc_->body_closed(cs_);
+        cc_->bodyClosed(cs_);
         return nullptr;
     }
 
@@ -186,29 +186,29 @@ void client_conn::start() {
         {SettingID::initial_window_size, uint32(transport_default_stream_flow)},
         {SettingID::max_header_list_size, default_max_header_list_size},
     };
-    append_settings(out, settings);
-    append_window_update(out, 0, uint32(transport_default_conn_flow - int32(initial_window_size)));
-    if (gopp::error err = write_frames(out)) {
-        conn_failed(err);
+    appendSettings(out, settings);
+    appendWindowUpdate(out, 0, uint32(transport_default_conn_flow - int32(initial_window_size)));
+    if (gopp::error err = writeFrames(out)) {
+        connFailed(err);
         return;
     }
     ptr<client_conn> self(this);
-    go([self] { self->read_loop(); });
+    go([self] { self->readLoop(); });
 }
 
-gopp::error client_conn::write_frames(const std::string& frames) {
+gopp::error client_conn::writeFrames(const std::string& frames) {
     auto [n, err] = io::WriteString(*conn_, frames);
     if (err) conn_->Close();
     return err;
 }
 
 // encodeHeaders: the request's pseudo headers and fields.
-gopp::error client_conn::write_headers(Request& req, client_stream& cs, bool end_stream) {
+gopp::error client_conn::writeHeaders(Request& req, client_stream& cs, bool endStream) {
     string host = req.Host.empty() ? req.URL.Host : req.Host;
-    string method = req.Method.empty() ? string::from_static("GET") : req.Method;
+    string method = req.Method.empty() ? string::fromStatic("GET") : req.Method;
     // The caller holds wmu_.
     hbuf_.clear();
-    auto field = [&](std::string_view k, std::string_view v) { henc_.write_field({string(k), string(v)}); };
+    auto field = [&](std::string_view k, std::string_view v) { henc_.writeField({string(k), string(v)}); };
     field(":authority", host);
     field(":method", method);
     if (method != "CONNECT") {
@@ -217,15 +217,15 @@ gopp::error client_conn::write_headers(Request& req, client_stream& cs, bool end
     }
     bool did_ua = false;
     for (auto& e : req.Header) {
-        string k = lower_header(e.key);
+        string k = lowerHeader(e.key);
         if (k == "host" || k == "content-length" || k == "connection" || k == "proxy-connection" ||
             k == "transfer-encoding" || k == "upgrade" || k == "keep-alive") {
             continue;
         }
         if (k == "te" && e.value != "trailers") continue;
-        if (!valid_wire_header_field_name(k) || !internal::valid_header_field_value(e.value)) continue;
+        if (!validWireHeaderFieldName(k) || !internal::validHeaderFieldValue(e.value)) continue;
         if (k == "user-agent") did_ua = true;
-        henc_.write_field({k, e.value});
+        henc_.writeField({k, e.value});
     }
     int64 cl = req.Body ? req.ContentLength : 0;
     if (cl > 0 || (cl == 0 && (method == "POST" || method == "PUT" || method == "PATCH"))) {
@@ -236,14 +236,14 @@ gopp::error client_conn::write_headers(Request& req, client_stream& cs, bool end
     std::string out;
     {
         std::lock_guard l2(mu_);
-        append_headers(out, cs.id, hbuf_, end_stream, peer_max_frame_size_);
+        appendHeaders(out, cs.id, hbuf_, endStream, peer_max_frame_size_);
     }
     auto [n, err] = io::WriteString(*conn_, out);
     if (err) conn_->Close();
     return err;
 }
 
-gopp::error client_conn::write_body(Request& req, const ptr<client_stream>& cs) {
+gopp::error client_conn::writeBody(Request& req, const ptr<client_stream>& cs) {
     std::vector<byte> buf(max_body_chunk);
     for (;;) {
         auto [n, rerr] = req.Body->Read(buf);
@@ -264,7 +264,7 @@ gopp::error client_conn::write_body(Request& req, const ptr<client_stream>& cs) 
             }
             bool last = eof && off + k == static_cast<std::size_t>(n);
             std::string out;
-            append_data(out, cs->id, last, as_string_view(std::span<const byte>(buf.data() + off, k)));
+            appendData(out, cs->id, last, asStringView(std::span<const byte>(buf.data() + off, k)));
             {
                 std::lock_guard l(wmu_);
                 if (auto [w, err] = io::WriteString(*conn_, out); err) {
@@ -323,10 +323,10 @@ std::pair<ptr<Response>, gopp::error> client_conn::round_trip(Request& req, cons
             cs->sent_end = !has_body;
             streams_[cs->id] = cs;
         }
-        werr = write_headers(req, *cs, !has_body);
+        werr = writeHeaders(req, *cs, !has_body);
     }
     if (werr) {
-        forget_stream(cs);
+        forgetStream(cs);
         return {nullptr, unusable(werr)};
     }
     if (has_body) {
@@ -335,11 +335,11 @@ std::pair<ptr<Response>, gopp::error> client_conn::round_trip(Request& req, cons
         ptr<client_conn> self(this);
         ptr<io::ReadCloser> body = req.Body;
         Request* r = &req;
-        auto body_done = make_chan<gopp::error>(1);
+        auto body_done = makeChan<gopp::error>(1);
         go([self, cs, r, body, body_done] {
-            gopp::error err = self->write_body(*r, cs);
+            gopp::error err = self->writeBody(*r, cs);
             body->Close();
-            if (err && err != cs->abort_err) self->reset_stream(cs, ErrCode::cancel);
+            if (err && err != cs->abort_err) self->resetStream(cs, ErrCode::cancel);
             body_done.send(err);
         });
         // Wait for the body while waiting for the response: the request
@@ -348,11 +348,11 @@ std::pair<ptr<Response>, gopp::error> client_conn::round_trip(Request& req, cons
         gopp::error berr;
         bool got_res = false, got_body = false;
         while (!got_res || !got_body) {
-            chan<empty> ctx_done = ctx ? ctx->Done() : chan<empty>();
+            chan<empty> ctxDone = ctx ? ctx->Done() : chan<empty>();
             select(recv(cs->resp, [&](std::pair<ptr<Response>, gopp::error> r2) { res = std::move(r2); got_res = true; }),
                    recv(got_body ? chan<gopp::error>() : body_done, [&](gopp::error e) { berr = std::move(e); got_body = true; }),
-                   recv(got_res ? chan<empty>() : ctx_done, [&] {
-                       reset_stream(cs, ErrCode::cancel);
+                   recv(got_res ? chan<empty>() : ctxDone, [&] {
+                       resetStream(cs, ErrCode::cancel);
                        res = {nullptr, ctx->Err()};
                        got_res = true;
                    }));
@@ -376,31 +376,31 @@ std::pair<ptr<Response>, gopp::error> client_conn::round_trip(Request& req, cons
         timer = time::NewTimer(opts_.response_header_timeout);
         timeout = timer->C;
     }
-    chan<empty> ctx_done = ctx ? ctx->Done() : chan<empty>();
+    chan<empty> ctxDone = ctx ? ctx->Done() : chan<empty>();
     select(recv(cs->resp, [&](std::pair<ptr<Response>, gopp::error> r2) { res = std::move(r2); }),
-           recv(ctx_done, [&] {
-               reset_stream(cs, ErrCode::cancel);
+           recv(ctxDone, [&] {
+               resetStream(cs, ErrCode::cancel);
                res = {nullptr, ctx->Err()};
            }),
            recv(timeout, [&] {
-               reset_stream(cs, ErrCode::cancel);
+               resetStream(cs, ErrCode::cancel);
                res = {nullptr, err_timeout_headers};
            }));
     if (timer) timer->Stop();
     return res;
 }
 
-void client_conn::forget_stream(const ptr<client_stream>& cs) {
+void client_conn::forgetStream(const ptr<client_stream>& cs) {
     std::lock_guard l(mu_);
     if (streams_.erase(cs->id)) {
         // Unread data still counts for the connection's window.
         if (int32 add = inflow_.add(static_cast<int32>(cs->body->len())); add > 0) {
             std::string out;
-            append_window_update(out, 0, static_cast<uint32>(add));
+            appendWindowUpdate(out, 0, static_cast<uint32>(add));
             ptr<client_conn> self(this);
             go([self, out] {
                 std::lock_guard l(self->wmu_);
-                self->write_frames(out);
+                self->writeFrames(out);
             });
         }
         cs->done.close();
@@ -408,65 +408,65 @@ void client_conn::forget_stream(const ptr<client_stream>& cs) {
     cond_.Broadcast();
 }
 
-void client_conn::reset_stream(const ptr<client_stream>& cs, ErrCode code) {
+void client_conn::resetStream(const ptr<client_stream>& cs, ErrCode code) {
     bool send = false;
     {
         std::lock_guard l(mu_);
         if (!cs->sent_end || !cs->peer_done) send = streams_.contains(cs->id) && !closed_;
         cs->sent_end = true;
-        if (!cs->abort_err) cs->abort_err = stream_error(cs->id, code);
+        if (!cs->abort_err) cs->abort_err = streamError(cs->id, code);
         cond_.Broadcast();
     }
     if (send) {
         std::string out;
-        append_rst_stream(out, cs->id, code);
+        appendRstStream(out, cs->id, code);
         std::lock_guard l(wmu_);
-        write_frames(out);
+        writeFrames(out);
     }
-    cs->body->break_with_error(err_request_canceled);
-    forget_stream(cs);
+    cs->body->breakWithError(err_request_canceled);
+    forgetStream(cs);
 }
 
-void client_conn::body_read(const ptr<client_stream>& cs, int n) {
+void client_conn::bodyRead(const ptr<client_stream>& cs, int n) {
     std::string out;
     {
         std::lock_guard l(mu_);
-        if (int32 add = inflow_.add(n); add > 0) append_window_update(out, 0, static_cast<uint32>(add));
+        if (int32 add = inflow_.add(n); add > 0) appendWindowUpdate(out, 0, static_cast<uint32>(add));
         if (!cs->peer_done && streams_.contains(cs->id)) {
-            if (int32 add = cs->in.add(n); add > 0) append_window_update(out, cs->id, static_cast<uint32>(add));
+            if (int32 add = cs->in.add(n); add > 0) appendWindowUpdate(out, cs->id, static_cast<uint32>(add));
         }
     }
     if (!out.empty()) {
         std::lock_guard l(wmu_);
-        write_frames(out);
+        writeFrames(out);
     }
 }
 
-void client_conn::body_closed(const ptr<client_stream>& cs) {
+void client_conn::bodyClosed(const ptr<client_stream>& cs) {
     bool done;
     {
         std::lock_guard l(mu_);
         done = cs->peer_done && cs->sent_end;
     }
     if (done) {
-        forget_stream(cs);
+        forgetStream(cs);
         return;
     }
     // Closing early cancels the stream, as in Go.
-    reset_stream(cs, ErrCode::cancel);
+    resetStream(cs, ErrCode::cancel);
 }
 
-void client_conn::abort_stream(const ptr<client_stream>& cs, gopp::error err) {
+void client_conn::abortStream(const ptr<client_stream>& cs, gopp::error err) {
     cs->peer_done = true;
     if (!cs->abort_err) cs->abort_err = err;
     if (!cs->got_headers) {
-        cs->resp.try_send(std::pair<ptr<Response>, gopp::error>{nullptr, err});
+        cs->resp.trySend(std::pair<ptr<Response>, gopp::error>{nullptr, err});
     } else {
-        cs->body->break_with_error(err);
+        cs->body->breakWithError(err);
     }
 }
 
-void client_conn::conn_failed(gopp::error err) {
+void client_conn::connFailed(gopp::error err) {
     std::lock_guard l(mu_);
     closed_ = true;
     if (!read_err_) read_err_ = err;
@@ -474,10 +474,10 @@ void client_conn::conn_failed(gopp::error err) {
         // Streams the server never saw, after a GOAWAY, may be retried.
         gopp::error e = go_away_ && id > go_away_last_ ? unusable(go_away_err_) : err;
         if (!cs->got_headers) {
-            abort_stream(cs, e);
+            abortStream(cs, e);
         } else {
             cs->peer_done = true;
-            cs->body->break_with_error(err == io::EOF_ ? io::ErrUnexpectedEOF : err);
+            cs->body->breakWithError(err == io::EOF_ ? io::ErrUnexpectedEOF : err);
         }
         cs->done.close();
     }
@@ -485,38 +485,38 @@ void client_conn::conn_failed(gopp::error err) {
     cond_.Broadcast();
 }
 
-void client_conn::read_loop() {
+void client_conn::readLoop() {
     ptr<client_conn> self(this);
     gopp::error err;
     for (;;) {
-        auto [f, rerr] = fr_.read_frame();
+        auto [f, rerr] = fr_.readFrame();
         if (rerr) {
             if (auto* se = errors::As<StreamError>(rerr)) {
                 // A malformed response: end the stream, keep the connection.
                 ptr<client_stream> cs;
                 {
                     std::lock_guard l(mu_);
-                    if (auto it = streams_.find(se->stream_id); it != streams_.end()) cs = it->second;
+                    if (auto it = streams_.find(se->streamId); it != streams_.end()) cs = it->second;
                 }
                 if (cs) {
                     {
                         std::lock_guard l(mu_);
-                        abort_stream(cs, rerr);
+                        abortStream(cs, rerr);
                     }
-                    reset_stream(cs, se->code);
+                    resetStream(cs, se->code);
                 }
                 continue;
             }
             err = rerr;
             break;
         }
-        if (gopp::error perr = process_frame(f)) {
+        if (gopp::error perr = processFrame(f)) {
             err = perr;
             if (auto* ce = errors::As<ConnectionError>(perr)) {
                 std::string out;
-                append_goaway(out, 0, ce->code);
+                appendGoaway(out, 0, ce->code);
                 std::lock_guard l(wmu_);
-                write_frames(out);
+                writeFrames(out);
             }
             break;
         }
@@ -526,22 +526,22 @@ void client_conn::read_loop() {
         if (go_away_ && go_away_err_ && (err == io::EOF_ || errors::Is(err, net::ErrClosed))) err = go_away_err_;
     }
     conn_->Close();
-    conn_failed(err ? err : err_client_conn_closed);
+    connFailed(err ? err : err_client_conn_closed);
 }
 
-gopp::error client_conn::process_frame(Frame& f) {
+gopp::error client_conn::processFrame(Frame& f) {
     switch (f.type()) {
-    case FrameType::headers: return process_headers(f);
-    case FrameType::data: return process_data(f);
+    case FrameType::headers: return processHeaders(f);
+    case FrameType::data: return processData(f);
     case FrameType::settings:
-        if (!f.is_ack()) process_settings(f);
+        if (!f.isAck()) processSettings(f);
         return nullptr;
     case FrameType::window_update: {
         std::lock_guard l(mu_);
-        if (f.stream_id() == 0) {
-            if (!flow_.add(static_cast<int32>(f.increment))) return connection_error(ErrCode::flow_control);
-        } else if (auto it = streams_.find(f.stream_id()); it != streams_.end()) {
-            if (!it->second->flow.add(static_cast<int32>(f.increment))) return connection_error(ErrCode::flow_control);
+        if (f.streamId() == 0) {
+            if (!flow_.add(static_cast<int32>(f.increment))) return connectionError(ErrCode::flow_control);
+        } else if (auto it = streams_.find(f.streamId()); it != streams_.end()) {
+            if (!it->second->flow.add(static_cast<int32>(f.increment))) return connectionError(ErrCode::flow_control);
         }
         cond_.Broadcast();
         return nullptr;
@@ -550,22 +550,22 @@ gopp::error client_conn::process_frame(Frame& f) {
         ptr<client_stream> cs;
         {
             std::lock_guard l(mu_);
-            auto it = streams_.find(f.stream_id());
+            auto it = streams_.find(f.streamId());
             if (it == streams_.end()) return nullptr;
             cs = it->second;
             cs->sent_end = true;
-            abort_stream(cs, make_ptr<StreamError>(f.stream_id(), f.err_code, err_from_peer));
+            abortStream(cs, make_ptr<StreamError>(f.streamId(), f.err_code, err_from_peer));
             cond_.Broadcast();
         }
-        forget_stream(cs);
+        forgetStream(cs);
         return nullptr;
     }
     case FrameType::ping:
-        if (!f.is_ack()) {
+        if (!f.isAck()) {
             std::string out;
-            append_ping(out, true, f.data);
+            appendPing(out, true, f.data);
             std::lock_guard l(wmu_);
-            write_frames(out);
+            writeFrames(out);
         }
         return nullptr;
     case FrameType::goaway: {
@@ -579,7 +579,7 @@ gopp::error client_conn::process_frame(Frame& f) {
                 if (id > f.last_stream_id) unprocessed.push_back(cs);
             }
             for (auto& cs : unprocessed) {
-                abort_stream(cs, unusable(go_away_err_));
+                abortStream(cs, unusable(go_away_err_));
                 streams_.erase(cs->id);
                 cs->done.close();
             }
@@ -590,13 +590,13 @@ gopp::error client_conn::process_frame(Frame& f) {
         return nullptr;
     }
     case FrameType::push_promise:
-        return connection_error(ErrCode::protocol, "server sent PUSH_PROMISE with push disabled");
+        return connectionError(ErrCode::protocol, "server sent PUSH_PROMISE with push disabled");
     default:
         return nullptr;
     }
 }
 
-void client_conn::process_settings(const Frame& f) {
+void client_conn::processSettings(const Frame& f) {
     {
         std::lock_guard l(mu_);
         for (auto& s : f.settings) {
@@ -616,30 +616,30 @@ void client_conn::process_settings(const Frame& f) {
     }
     std::lock_guard l(wmu_);
     for (auto& s : f.settings) {
-        if (s.id == SettingID::header_table_size) henc_.set_max_dynamic_table_size_limit(s.val);
+        if (s.id == SettingID::header_table_size) henc_.setMaxDynamicTableSizeLimit(s.val);
     }
     std::string out;
-    append_settings_ack(out);
-    write_frames(out);
+    appendSettingsAck(out);
+    writeFrames(out);
 }
 
-gopp::error client_conn::process_headers(Frame& f) {
+gopp::error client_conn::processHeaders(Frame& f) {
     ptr<client_stream> cs;
     {
         std::lock_guard l(mu_);
-        auto it = streams_.find(f.stream_id());
+        auto it = streams_.find(f.streamId());
         if (it == streams_.end()) return nullptr;  // a canceled stream
         cs = it->second;
     }
     if (cs->got_headers) {
         // Trailers: must end the stream.
-        if (!f.stream_ended()) {
-            reset_stream(cs, ErrCode::protocol);
+        if (!f.streamEnded()) {
+            resetStream(cs, ErrCode::protocol);
             return nullptr;
         }
         std::lock_guard l(mu_);
         cs->peer_done = true;
-        cs->body->close_with_error(io::EOF_);
+        cs->body->closeWithError(io::EOF_);
         if (cs->sent_end) {
             streams_.erase(cs->id);
             cs->done.close();
@@ -647,14 +647,14 @@ gopp::error client_conn::process_headers(Frame& f) {
         }
         return nullptr;
     }
-    string status = f.pseudo_value("status");
+    string status = f.pseudoValue("status");
     auto [code, cerr] = strconv::Atoi(status);
     if (status.empty() || cerr || code < 100 || code > 999) {
         {
             std::lock_guard l(mu_);
-            abort_stream(cs, errors::New("malformed response from server: missing or invalid status"));
+            abortStream(cs, errors::New("malformed response from server: missing or invalid status"));
         }
-        reset_stream(cs, ErrCode::protocol);
+        resetStream(cs, ErrCode::protocol);
         return nullptr;
     }
     if (code >= 100 && code <= 199) return nullptr;  // informational; the response follows
@@ -662,26 +662,26 @@ gopp::error client_conn::process_headers(Frame& f) {
     auto resp = make_ptr<Response>();
     resp->StatusCode = static_cast<int>(code);
     resp->Status = status + " " + string(StatusText(static_cast<int>(code)));
-    resp->Proto = string::from_static("HTTP/2.0");
+    resp->Proto = string::fromStatic("HTTP/2.0");
     resp->ProtoMajor = 2;
     resp->ProtoMinor = 0;
     resp->TLS = tls_;
-    for (auto& hf : f.regular_fields()) resp->Header.AddCanonical(CanonicalHeaderKey(hf.name), hf.value);
+    for (auto& hf : f.regularFields()) resp->Header.AddCanonical(CanonicalHeaderKey(hf.name), hf.value);
     resp->ContentLength = -1;
     if (string cl = resp->Header.Get("Content-Length"); !cl.empty()) {
         auto [n, err] = strconv::ParseInt(cl, 10, 63);
         if (!err && n >= 0) resp->ContentLength = n;
-    } else if (f.stream_ended()) {
+    } else if (f.streamEnded()) {
         resp->ContentLength = 0;
     }
     std::lock_guard l(mu_);
     cs->got_headers = true;
-    if (f.stream_ended() || cs->head) {
-        resp->Body = internal::no_body();
+    if (f.streamEnded() || cs->head) {
+        resp->Body = internal::noBody();
         if (cs->head && !resp->Header.Get("Content-Length").empty()) {
             // Keep the advertised length of a HEAD response.
         }
-        if (f.stream_ended()) {
+        if (f.streamEnded()) {
             cs->peer_done = true;
             if (cs->sent_end) {
                 streams_.erase(cs->id);
@@ -692,39 +692,39 @@ gopp::error client_conn::process_headers(Frame& f) {
     } else {
         resp->Body = make_ptr<client_body>(ptr<client_conn>(this), cs);
     }
-    cs->resp.try_send(std::pair<ptr<Response>, gopp::error>{resp, nullptr});
+    cs->resp.trySend(std::pair<ptr<Response>, gopp::error>{resp, nullptr});
     return nullptr;
 }
 
-gopp::error client_conn::process_data(Frame& f) {
+gopp::error client_conn::processData(Frame& f) {
     ptr<client_stream> cs;
     std::string out;
     {
         std::lock_guard l(mu_);
-        auto it = streams_.find(f.stream_id());
+        auto it = streams_.find(f.streamId());
         if (it == streams_.end() || !it->second->got_headers || it->second->peer_done) {
             // A stream we're done with: keep the connection's window.
-            if (!inflow_.take(f.header.length)) return connection_error(ErrCode::flow_control);
+            if (!inflow_.take(f.header.length)) return connectionError(ErrCode::flow_control);
             if (int32 add = inflow_.add(static_cast<int32>(f.header.length)); add > 0) {
-                append_window_update(out, 0, static_cast<uint32>(add));
+                appendWindowUpdate(out, 0, static_cast<uint32>(add));
             }
         } else {
             cs = it->second;
-            if (!take_inflows(inflow_, cs->in, f.header.length)) return connection_error(ErrCode::flow_control);
+            if (!takeInflows(inflow_, cs->in, f.header.length)) return connectionError(ErrCode::flow_control);
             std::size_t len = f.data.size();
             if (len > 0 && cs->body->write(std::move(f.data))) {
                 // The body was closed: return the connection's window.
                 if (int32 add = inflow_.add(static_cast<int32>(len)); add > 0) {
-                    append_window_update(out, 0, static_cast<uint32>(add));
+                    appendWindowUpdate(out, 0, static_cast<uint32>(add));
                 }
             }
             if (int32 pad = static_cast<int32>(f.header.length - len); pad > 0) {
-                if (int32 add = inflow_.add(pad); add > 0) append_window_update(out, 0, static_cast<uint32>(add));
-                if (int32 add = cs->in.add(pad); add > 0) append_window_update(out, cs->id, static_cast<uint32>(add));
+                if (int32 add = inflow_.add(pad); add > 0) appendWindowUpdate(out, 0, static_cast<uint32>(add));
+                if (int32 add = cs->in.add(pad); add > 0) appendWindowUpdate(out, cs->id, static_cast<uint32>(add));
             }
-            if (f.stream_ended()) {
+            if (f.streamEnded()) {
                 cs->peer_done = true;
-                cs->body->close_with_error(io::EOF_);
+                cs->body->closeWithError(io::EOF_);
                 if (cs->sent_end) {
                     streams_.erase(cs->id);
                     cs->done.close();
@@ -735,7 +735,7 @@ gopp::error client_conn::process_data(Frame& f) {
     }
     if (!out.empty()) {
         std::lock_guard l(wmu_);
-        write_frames(out);
+        writeFrames(out);
     }
     return nullptr;
 }
@@ -744,7 +744,7 @@ gopp::error client_conn::process_data(Frame& f) {
 
 }  // namespace http2
 
-ptr<internal::http2_client_conn> internal::new_http2_client_conn(ptr<net::Conn> c, std::optional<tls::ConnectionState> tls_state,
+ptr<internal::http2_client_conn> internal::newHttp2ClientConn(ptr<net::Conn> c, std::optional<tls::ConnectionState> tls_state,
                                                                  const http2_client_options& opts) {
     auto cc = make_ptr<http2::client_conn>(std::move(c), std::move(tls_state), opts);
     cc->start();

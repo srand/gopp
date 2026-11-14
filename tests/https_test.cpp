@@ -10,7 +10,7 @@ using namespace gopp;
 
 namespace {
 
-ptr<http::ServeMux> tls_mux() {
+ptr<http::ServeMux> tlsMux() {
     auto mux = http::NewServeMux();
     mux->HandleFunc("GET /info", [](http::ResponseWriter& w, http::Request& r) {
         fmt::Print(w, "{} tls={} alpn={} addr={}", r.Proto, r.TLS.has_value(),
@@ -18,7 +18,7 @@ ptr<http::ServeMux> tls_mux() {
     });
     mux->HandleFunc("POST /echo", [](http::ResponseWriter& w, http::Request& r) {
         auto [data, err] = io::ReadAll(*r.Body);
-        fmt::Print(w, "{}", as_string_view(data));
+        fmt::Print(w, "{}", asStringView(data));
     });
     return mux;
 }
@@ -27,10 +27,10 @@ std::string body(const ptr<http::Response>& resp) {
     auto [data, err] = io::ReadAll(*resp->Body);
     EXPECT_FALSE(err) << err;
     resp->Body->Close();
-    return std::string(as_string_view(data));
+    return std::string(asStringView(data));
 }
 
-http::Protocols http1_only() {
+http::Protocols http1Only() {
     http::Protocols p;
     p.SetHTTP1(true);
     return p;
@@ -39,7 +39,7 @@ http::Protocols http1_only() {
 }  // namespace
 
 TEST(Https, GetOverTLS) {
-    auto ts = httptest::NewTLSServer(tls_mux(), http1_only());
+    auto ts = httptest::NewTLSServer(tlsMux(), http1Only());
     EXPECT_TRUE(ts->URL.starts_with("https://127.0.0.1:"));
     auto [resp, err] = ts->Client().Get(std::string(ts->URL.view()) + "/info");
     ASSERT_FALSE(err) << err;
@@ -52,7 +52,7 @@ TEST(Https, GetOverTLS) {
 }
 
 TEST(Https, KeepAliveAndPost) {
-    auto ts = httptest::NewTLSServer(tls_mux(), http1_only());
+    auto ts = httptest::NewTLSServer(tlsMux(), http1Only());
     std::string first;
     for (int i = 0; i < 3; i++) {
         auto [resp, err] = ts->Client().Get(std::string(ts->URL.view()) + "/info");
@@ -68,7 +68,7 @@ TEST(Https, KeepAliveAndPost) {
 }
 
 TEST(Https, UntrustedCertificate) {
-    auto ts = httptest::NewTLSServer(tls_mux(), http1_only());
+    auto ts = httptest::NewTLSServer(tlsMux(), http1Only());
     // The default client uses the system roots.
     auto [resp, err] = http::Get(std::string(ts->URL.view()) + "/info");
     ASSERT_TRUE(err);

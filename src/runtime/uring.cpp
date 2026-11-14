@@ -44,7 +44,7 @@ constexpr unsigned ring_entries = 64;
 
 void init() noexcept {
     if (const char* s = std::getenv("GOPP_IOURING"); s && std::strcmp(s, "0") == 0) return;
-    ensure_init();  // the poller, which takes the completions
+    ensureInit();  // the poller, which takes the completions
     io_uring probe_ring;
     io_uring_params p{};
     if (io_uring_queue_init_params(1, &probe_ring, &p) < 0) return;
@@ -62,14 +62,14 @@ void init() noexcept {
     state.store(2, std::memory_order_release);
 }
 
-ring* new_ring() noexcept {
+ring* newRing() noexcept {
     pool_lock.lock();
     ring* rg = pool;
     if (rg) pool = rg->link;
     pool_lock.unlock();
     if (rg) return rg;
     rg = new ring();
-    if (io_uring_queue_init(ring_entries, &rg->r, 0) < 0 || !netpoll_add_uring(rg->r.ring_fd, rg)) {
+    if (io_uring_queue_init(ring_entries, &rg->r, 0) < 0 || !netpollAddUring(rg->r.ring_fd, rg)) {
         // Out of locked memory, or descriptors: this thread does without.
         delete rg;
         return nullptr;
@@ -91,9 +91,9 @@ struct thread_ring {
 };
 thread_local thread_ring tl_ring;
 
-ring* get_ring() noexcept {
+ring* getRing() noexcept {
     if (!tl_ring.rg && !tl_ring.failed) {
-        tl_ring.rg = new_ring();
+        tl_ring.rg = newRing();
         tl_ring.failed = !tl_ring.rg;
     }
     return tl_ring.rg;
@@ -105,7 +105,7 @@ G* complete(request* req, int res) noexcept {
     uintptr_t old = req->g.exchange(req_done, std::memory_order_acq_rel);
     // req may be gone now: its submitter may have seen req_done.
     if (old <= req_done) return nullptr;
-    netpoll_waiter_add(-1);
+    netpollWaiterAdd(-1);
     return reinterpret_cast<G*>(old);
 }
 
@@ -144,15 +144,15 @@ bool commit(G* gp, void* arg) noexcept {
     if (!req->g.compare_exchange_strong(expected, reinterpret_cast<uintptr_t>(gp), std::memory_order_acq_rel)) {
         return false;  // completed meanwhile
     }
-    netpoll_waiter_add(1);
+    netpollWaiterAdd(1);
     // A fiber's M goes on to poll when idle; a thread has no M.
-    if (gp->is_thread) ensure_poller();
+    if (gp->is_thread) ensurePoller();
     return true;
 }
 
 }  // namespace
 
-bool uring_has(int opcode) noexcept {
+bool uringHas(int opcode) noexcept {
     int s = state.load(std::memory_order_acquire);
     if (s == 0) {
         static std::once_flag once;
@@ -162,13 +162,13 @@ bool uring_has(int opcode) noexcept {
         });
         s = state.load(std::memory_order_acquire);
     }
-    return s == 2 && opcode >= 0 && opcode < IORING_OP_LAST && supported[opcode] && get_ring();
+    return s == 2 && opcode >= 0 && opcode < IORING_OP_LAST && supported[opcode] && getRing();
 }
 
-bool uring_worth(int opcode) noexcept { return has_runnable() && uring_has(opcode); }
+bool uringWorth(int opcode) noexcept { return hasRunnable() && uringHas(opcode); }
 
-int uring_call(void (*prep)(io_uring_sqe*, void*), void* arg) noexcept {
-    ring* rg = get_ring();
+int uringCall(void (*prep)(io_uring_sqe*, void*), void* arg) noexcept {
+    ring* rg = getRing();
     request req;
     io_uring_sqe* sqe;
     while (!(sqe = io_uring_get_sqe(&rg->r))) {
@@ -202,6 +202,6 @@ int uring_call(void (*prep)(io_uring_sqe*, void*), void* arg) noexcept {
     return req.res;
 }
 
-void uring_reap(void* rg, glist& list) noexcept { reap(static_cast<ring*>(rg), &list); }
+void uringReap(void* rg, glist& list) noexcept { reap(static_cast<ring*>(rg), &list); }
 
 }  // namespace gopp::runtime

@@ -53,7 +53,7 @@ std::atomic<int32_t> waiters{0};
 lock_t cache_lock;
 poll_desc* cache_first = nullptr;
 
-poll_desc* alloc_pd() noexcept {
+poll_desc* allocPd() noexcept {
     cache_lock.lock();
     poll_desc* pd = cache_first;
     if (pd) cache_first = pd->link;
@@ -62,7 +62,7 @@ poll_desc* alloc_pd() noexcept {
     return pd;
 }
 
-void free_pd(poll_desc* pd) noexcept {
+void freePd(poll_desc* pd) noexcept {
     cache_lock.lock();
     pd->link = cache_first;
     cache_first = pd;
@@ -84,7 +84,7 @@ bool blockcommit(G* gp, void* arg) noexcept {
     if (ok) {
         waiters.fetch_add(1, std::memory_order_relaxed);
         // A fiber's M goes on to poll when idle; a thread has no M.
-        if (gp->is_thread) ensure_poller();
+        if (gp->is_thread) ensurePoller();
     }
     return ok;
 }
@@ -124,7 +124,7 @@ G* netpollunblock(poll_desc* pd, int mode, bool ioready) noexcept {
     }
 }
 
-void deadline_fired(poll_desc* pd, uint64_t seq, bool read) noexcept {
+void deadlineFired(poll_desc* pd, uint64_t seq, bool read) noexcept {
     pd->lock.lock();
     if (read) {
         if (seq != pd->rseq || pd->rd <= 0) {
@@ -148,22 +148,22 @@ void deadline_fired(poll_desc* pd, uint64_t seq, bool read) noexcept {
 
 }  // namespace
 
-void netpoll_init() noexcept {
+void netpollInit() noexcept {
     epfd = epoll_create1(EPOLL_CLOEXEC);
-    if (epfd < 0) fatal("netpoll_init: epoll_create1 failed");
+    if (epfd < 0) fatal("netpollInit: epoll_create1 failed");
     wakefd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-    if (wakefd < 0) fatal("netpoll_init: eventfd failed");
+    if (wakefd < 0) fatal("netpollInit: eventfd failed");
     epoll_event ev{};
     ev.events = EPOLLIN;
     ev.data.ptr = &wakefd;
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakefd, &ev) < 0) fatal("netpoll_init: epoll_ctl failed");
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakefd, &ev) < 0) fatal("netpollInit: epoll_ctl failed");
 }
 
-bool netpoll_any_waiters() noexcept { return waiters.load(std::memory_order_relaxed) > 0; }
+bool netpollAnyWaiters() noexcept { return waiters.load(std::memory_order_relaxed) > 0; }
 
-int32_t netpoll_waiters() noexcept { return waiters.load(std::memory_order_relaxed); }
+int32_t netpollWaiters() noexcept { return waiters.load(std::memory_order_relaxed); }
 
-bool netpoll_add_uring(int fd, void* ring) noexcept {
+bool netpollAddUring(int fd, void* ring) noexcept {
     // Tagged with the low bit, to tell rings from poll_descs. Edge
     // triggered: uring_reap drains the ring.
     epoll_event ev{};
@@ -172,16 +172,16 @@ bool netpoll_add_uring(int fd, void* ring) noexcept {
     return epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) == 0;
 }
 
-void netpoll_waiter_add(int32_t delta) noexcept { waiters.fetch_add(delta, std::memory_order_relaxed); }
+void netpollWaiterAdd(int32_t delta) noexcept { waiters.fetch_add(delta, std::memory_order_relaxed); }
 
-void netpoll_break() noexcept {
+void netpollBreak() noexcept {
     uint32_t z = 0;
     if (!wake_sig.compare_exchange_strong(z, 1)) return;
     uint64_t one = 1;
     for (;;) {
         ssize_t n = write(wakefd, &one, sizeof(one));
         if (n == sizeof(one) || errno == EAGAIN) return;
-        if (errno != EINTR) fatal("netpoll_break: write failed");
+        if (errno != EINTR) fatal("netpollBreak: write failed");
     }
 }
 
@@ -217,7 +217,7 @@ glist netpoll(int64_t delay) noexcept {
             continue;
         }
         if (auto tag = reinterpret_cast<uintptr_t>(ev.data.ptr); tag & 1) {
-            uring_reap(reinterpret_cast<void*>(tag & ~uintptr_t(1)), list);
+            uringReap(reinterpret_cast<void*>(tag & ~uintptr_t(1)), list);
             continue;
         }
         auto* pd = static_cast<poll_desc*>(ev.data.ptr);
@@ -235,9 +235,9 @@ glist netpoll(int64_t delay) noexcept {
     return list;
 }
 
-poll_desc* poll_open(int fd, int* err) noexcept {
-    ensure_init();
-    poll_desc* pd = alloc_pd();
+poll_desc* pollOpen(int fd, int* err) noexcept {
+    ensureInit();
+    poll_desc* pd = allocPd();
     pd->lock.lock();
     pd->fd = fd;
     pd->closing.store(false);
@@ -255,23 +255,23 @@ poll_desc* poll_open(int fd, int* err) noexcept {
     ev.data.ptr = pd;
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
         *err = errno;
-        free_pd(pd);
+        freePd(pd);
         return nullptr;
     }
     *err = 0;
     return pd;
 }
 
-void poll_close(poll_desc* pd) noexcept {
+void pollClose(poll_desc* pd) noexcept {
     if (!pd->closing.load()) fatal("poll_close: close without unblock");
     uintptr_t wg = pd->wg.load(), rg = pd->rg.load();
     if ((wg != pd_nil && wg != pd_ready) || (rg != pd_nil && rg != pd_ready)) fatal("poll_close: blocked read or write");
     epoll_event ev{};
     epoll_ctl(epfd, EPOLL_CTL_DEL, pd->fd, &ev);
-    free_pd(pd);
+    freePd(pd);
 }
 
-int poll_reset(poll_desc* pd, int mode) noexcept {
+int pollReset(poll_desc* pd, int mode) noexcept {
     int err = checkerr(pd, mode);
     if (err != poll_no_error) return err;
     if (mode == 'r') pd->rg.store(pd_nil);
@@ -279,7 +279,7 @@ int poll_reset(poll_desc* pd, int mode) noexcept {
     return poll_no_error;
 }
 
-int poll_wait(poll_desc* pd, int mode) noexcept {
+int pollWait(poll_desc* pd, int mode) noexcept {
     int err = checkerr(pd, mode);
     if (err != poll_no_error) return err;
     while (!netpollblock(pd, mode, false)) {
@@ -290,22 +290,22 @@ int poll_wait(poll_desc* pd, int mode) noexcept {
     return poll_no_error;
 }
 
-void poll_set_deadline(poll_desc* pd, int64_t d, int mode) noexcept {
+void pollSetDeadline(poll_desc* pd, int64_t d, int mode) noexcept {
     pd->lock.lock();
     if (pd->closing.load()) {
         pd->lock.unlock();
         return;
     }
     auto arm = [pd](timer& t, uint64_t seq, int64_t when, bool read) {
-        del_timer(&t);
+        delTimer(&t);
         if (when > 0) {
             t.when = when;
             t.period = 0;
             t.arg = pd;
             t.seq = seq;
-            t.f = read ? +[](void* arg, uint64_t s) { deadline_fired(static_cast<poll_desc*>(arg), s, true); }
-                       : +[](void* arg, uint64_t s) { deadline_fired(static_cast<poll_desc*>(arg), s, false); };
-            add_timer(&t);
+            t.f = read ? +[](void* arg, uint64_t s) { deadlineFired(static_cast<poll_desc*>(arg), s, true); }
+                       : +[](void* arg, uint64_t s) { deadlineFired(static_cast<poll_desc*>(arg), s, false); };
+            addTimer(&t);
         }
     };
     if (mode == 'r' || mode == 'r' + 'w') {
@@ -327,7 +327,7 @@ void poll_set_deadline(poll_desc* pd, int64_t d, int mode) noexcept {
     if (wg) ready(wg);
 }
 
-void poll_unblock(poll_desc* pd) noexcept {
+void pollUnblock(poll_desc* pd) noexcept {
     pd->lock.lock();
     if (pd->closing.load()) fatal("poll_unblock: already closing");
     pd->closing.store(true, std::memory_order_release);
@@ -335,8 +335,8 @@ void poll_unblock(poll_desc* pd) noexcept {
     pd->wseq++;
     G* rg = netpollunblock(pd, 'r', false);
     G* wg = netpollunblock(pd, 'w', false);
-    del_timer(&pd->rt);
-    del_timer(&pd->wt);
+    delTimer(&pd->rt);
+    delTimer(&pd->wt);
     pd->lock.unlock();
     if (rg) ready(rg);
     if (wg) ready(wg);

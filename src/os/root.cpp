@@ -18,9 +18,9 @@ namespace detail {
 
 // Go's root: the directory's descriptor, closed when the Root is closed and
 // no operation is using it.
-struct root_impl {
-    root_impl(int fd_, string name_) : name(std::move(name_)), fd(fd_) {}
-    ~root_impl() {
+struct rootImpl {
+    rootImpl(int fd_, string name_) : name(std::move(name_)), fd(fd_) {}
+    ~rootImpl() {
         if (!closed && refs == 0) ::close(fd);
     }
 
@@ -56,8 +56,8 @@ const error errPathEscapes = errors::New("path escapes from parent");
 
 namespace {
 
-using detail::errno_error;
-using detail::errno_of;
+using detail::errnoError;
+using detail::errnoOf;
 using detail::path_error;
 
 constexpr int rootMaxSymlinks = 8;
@@ -66,7 +66,7 @@ using detail::errPathEscapes;
 
 // Go's errSymlink: an operation found a symbolic link to target, which
 // doInRoot follows. Never seen outside this file.
-struct errSymlink final : error_interface {
+struct errSymlink final : errorInterface {
     explicit errSymlink(std::string t) : target(std::move(t)) {}
     string Error() const override { panic("errSymlink is not user-visible"); }
     std::string target;
@@ -74,7 +74,7 @@ struct errSymlink final : error_interface {
 
 const errSymlink* asSymlink(const error& err) { return dynamic_cast<const errSymlink*>(err.get()); }
 
-error errnoOr(int e) { return e ? errno_error(e) : nullptr; }
+error errnoOr(int e) { return e ? errnoError(e) : nullptr; }
 
 bool isNoFollowErr(int e) { return e == ELOOP || e == EMLINK; }
 
@@ -94,7 +94,7 @@ std::pair<std::string, error> readlinkat(int fd, const std::string& name) {
         ssize_t n = 0;
         int e = detail::sys([&] { return n = ::readlinkat(fd, name.c_str(), b.data(), len); });
         if (e == ERANGE) continue;
-        if (e) return {{}, errno_error(e)};
+        if (e) return {{}, errnoError(e)};
         n = std::max<ssize_t>(n, 0);
         if (std::size_t(n) < len) {
             b.resize(std::size_t(n));
@@ -113,9 +113,9 @@ error checkSymlink(int parent, const std::string& name, error origError) {
 std::pair<ptr<FileInfo>, error> lstatatWithName(int parent, std::string_view origName, const std::string& name) {
     auto fs = make_ptr<detail::file_stat>();
     if (int e = detail::sys([&] { return ::fstatat(parent, name.c_str(), &fs->sys, AT_SYMLINK_NOFOLLOW); })) {
-        return {nullptr, errno_error(e)};
+        return {nullptr, errnoError(e)};
     }
-    detail::fill_file_stat(*fs, origName);
+    detail::fillFileStat(*fs, origName);
     return {fs, nullptr};
 }
 
@@ -134,9 +134,9 @@ std::pair<FileMode, error> modeAt(int parent, const std::string& name) {
 std::pair<int, error> rootOpenDir(int parent, const std::string& name) {
     int e;
     int fd = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_DIRECTORY, 0, &e);
-    if (isNoFollowErr(e) || e == ENOTDIR) return {-1, checkSymlink(parent, name, errno_error(e))};
-    if (e == ENOTSUP || e == EOPNOTSUPP) return {-1, errno_error(ENOTDIR)};
-    if (e) return {-1, errno_error(e)};
+    if (isNoFollowErr(e) || e == ENOTDIR) return {-1, checkSymlink(parent, name, errnoError(e))};
+    if (e == ENOTSUP || e == EOPNOTSUPP) return {-1, errnoError(ENOTDIR)};
+    if (e) return {-1, errnoError(e)};
     return {fd, nullptr};
 }
 
@@ -180,14 +180,14 @@ error mkdirat(int fd, const std::string& name, FileMode perm) {
 error removeat(int fd, const std::string& name) {
     // The system call interface forces us to know whether name is a file or
     // directory. Try both.
-    int e = detail::unlink_at(fd, name.c_str(), 0);
+    int e = detail::unlinkAt(fd, name.c_str(), 0);
     if (e == 0) return nullptr;
-    int e1 = detail::unlink_at(fd, name.c_str(), AT_REMOVEDIR);
+    int e1 = detail::unlinkAt(fd, name.c_str(), AT_REMOVEDIR);
     if (e1 == 0) return nullptr;
     // Both failed. See RemoveAll's comments: report the more interesting
     // error.
-    if (e1 != ENOTDIR) return errno_error(e1);
-    return errno_error(e);
+    if (e1 != ENOTDIR) return errnoError(e1);
+    return errnoError(e);
 }
 
 error renameat(int oldfd, const std::string& oldname, int newfd, const std::string& newname) {
@@ -200,7 +200,7 @@ error linkat(int oldfd, const std::string& oldname, int newfd, const std::string
 
 error symlinkat(std::string_view oldname, int newfd, const std::string& newname) {
     std::string old;
-    if (!detail::cpath(oldname, old)) return errno_error(EINVAL);
+    if (!detail::cpath(oldname, old)) return errnoError(EINVAL);
     return errnoOr(detail::sys([&] { return ::symlinkat(old.c_str(), newfd, newname.c_str()); }));
 }
 
@@ -300,11 +300,11 @@ using OpenDirFunc = std::function<std::pair<int, error>(int parent, const std::s
 // If openDirFunc is set, it is called to open intermediate directories
 // (rootOpenDir otherwise).
 template <typename T, typename F>
-std::pair<T, error> doInRoot(detail::root_impl& root, std::string_view name, unsigned flags,
+std::pair<T, error> doInRoot(detail::rootImpl& root, std::string_view name, unsigned flags,
                              const OpenDirFunc& openDirFunc, F&& f) {
     if (error err = root.incref()) return {T{}, err};
     struct unref {
-        detail::root_impl& r;
+        detail::rootImpl& r;
         ~unref() { r.decref(); }
     } unref_{root};
 
@@ -337,7 +337,7 @@ std::pair<T, error> doInRoot(detail::root_impl& root, std::string_view name, uns
     int symlinks = 0;
     for (;;) {
         steps++;
-        if (steps > maxSteps && restarts > maxRestarts) return {T{}, errno_error(ENAMETOOLONG)};
+        if (steps > maxSteps && restarts > maxRestarts) return {T{}, errnoError(ENAMETOOLONG)};
 
         if (parts[i] == "..") {
             // Resolve one or more parent ("..") path components.
@@ -360,7 +360,7 @@ std::pair<T, error> doInRoot(detail::root_impl& root, std::string_view name, uns
         error err;
         if (parts[i].find('\0') != std::string::npos) {
             // Go's system calls refuse a name with a NUL byte.
-            return {T{}, errno_error(EINVAL)};
+            return {T{}, errnoError(EINVAL)};
         }
         if (i == parts.size() - 1) {
             // This is the last path element. Call f to perform the
@@ -378,9 +378,9 @@ std::pair<T, error> doInRoot(detail::root_impl& root, std::string_view name, uns
                 } else if (fi->Mode().Type() == ModeDir) {
                     // OK
                 } else if (isLink(*fi)) {
-                    err = checkSymlink(dirfd, parts[i], errno_error(ENOTDIR));
+                    err = checkSymlink(dirfd, parts[i], errnoError(ENOTDIR));
                 } else {
-                    return {T{}, errno_error(ENOTDIR)};
+                    return {T{}, errnoError(ENOTDIR)};
                 }
             }
             if (!err) {
@@ -404,7 +404,7 @@ std::pair<T, error> doInRoot(detail::root_impl& root, std::string_view name, uns
         }
         if (auto* e = asSymlink(err)) {
             symlinks++;
-            if (symlinks > rootMaxSymlinks) return {T{}, errno_error(ELOOP)};
+            if (symlinks > rootMaxSymlinks) return {T{}, errnoError(ELOOP)};
             bool lastPart = i == parts.size() - 1;
             auto split = splitPathInRoot(e->target, std::span(parts).first(i), std::span(parts).subspan(i + 1));
             if (split.err) return {T{}, split.err};
@@ -435,14 +435,14 @@ std::pair<T, error> doInRoot(detail::root_impl& root, std::string_view name, uns
 ptr<Root> newRoot(int fd, string name, error* err) {
     detail::file_stat fs;
     int e = detail::sys([&] { return ::fstat(fd, &fs.sys); });
-    detail::fill_file_stat(fs, name.view());
+    detail::fillFileStat(fs, name.view());
     if (e == 0 && !fs.IsDir()) {
         ::close(fd);
         *err = path_error("open", name.view(), errors::New("not a directory"));
         return nullptr;
     }
     *err = nullptr;
-    return make_ptr<Root>(std::make_unique<detail::root_impl>(fd, std::move(name)));
+    return make_ptr<Root>(std::make_unique<detail::rootImpl>(fd, std::move(name)));
 }
 
 // Go's rootFS: a Root as an fs.FS.
@@ -499,7 +499,7 @@ error unsupportedMode(std::string_view op, std::string_view name) {
 
 }  // namespace
 
-Root::Root(std::unique_ptr<detail::root_impl> impl) noexcept : r_(std::move(impl)) {}
+Root::Root(std::unique_ptr<detail::rootImpl> impl) noexcept : r_(std::move(impl)) {}
 
 Root::~Root() = default;
 
@@ -509,10 +509,10 @@ error Root::Close() { return r_->close(); }
 
 std::pair<ptr<Root>, error> OpenRoot(std::string_view name) {
     std::string p;
-    if (!detail::cpath(name, p)) return {nullptr, path_error("open", name, errno_error(EINVAL))};
+    if (!detail::cpath(name, p)) return {nullptr, path_error("open", name, errnoError(EINVAL))};
     int e;
     int fd = openat(AT_FDCWD, p, O_RDONLY | O_CLOEXEC, 0, &e);
-    if (e) return {nullptr, path_error("open", name, errno_error(e))};
+    if (e) return {nullptr, path_error("open", name, errnoError(e))};
     error err;
     auto r = newRoot(fd, string(name), &err);
     return {r, err};
@@ -539,18 +539,18 @@ std::pair<ptr<File>, error> Root::OpenFile(std::string_view name, int flag, File
         int openFlag = O_NOFOLLOW | O_CLOEXEC | flag;
         int fd = openat(parent, n, openFlag, mode_t(uint32(perm)), &e);
         if (!e) return {fd, nullptr};
-        error err = errno_error(e);
+        error err = errnoError(e);
         bool isCreateExcl = (flag & (O_CREATE_ | O_EXCL_)) == (O_CREATE_ | O_EXCL_);
         if (!isCreateExcl && (isNoFollowErr(e) || e == ENOTDIR)) err = checkSymlink(parent, n, err);
         // When an O_CREAT|O_EXCL file creation fails with ELOOP, the file
         // being created is a symlink: report that it exists.
-        if (isCreateExcl && e == ELOOP) err = errno_error(EEXIST);
+        if (isCreateExcl && e == ELOOP) err = errnoError(EEXIST);
         return {-1, err};
     });
     if (err) return {nullptr, path_error("openat", name, err)};
     ptr<File> f = detail::new_file(fd, string(detail::join_path(r_->name.view(), name)), detail::file_kind::open_file,
                                    flag & O_NONBLOCK, flag & O_APPEND_);
-    detail::file_impl::of(*f).in_root = true;
+    detail::fileImpl::of(*f).in_root = true;
     return {f, nullptr};
 }
 
@@ -559,7 +559,7 @@ std::pair<ptr<Root>, error> Root::OpenRoot(std::string_view name) {
         int e;
         int fd = openat(parent, n, O_RDONLY | O_NOFOLLOW | O_CLOEXEC, 0, &e);
         if (!e) return {fd, nullptr};
-        error err = errno_error(e);
+        error err = errnoError(e);
         if (isNoFollowErr(e)) err = checkSymlink(parent, n, err);
         return {-1, err};
     });
@@ -621,7 +621,7 @@ error Root::MkdirAll(std::string_view fullname, FileMode perm) {
             auto [fd, err] = rootOpenDir(parent, name);
             if (!err || asSymlink(err)) return {fd, err};
             if (attempt > 0 || !IsNotExist(err)) return {-1, path_error("openat", "", err)};
-            if (error merr = mkdirat(parent, name, perm); merr && errno_of(merr) != EEXIST) {
+            if (error merr = mkdirat(parent, name, perm); merr && errnoOf(merr) != EEXIST) {
                 return {-1, path_error("mkdirat", "", merr)};
             }
         }
@@ -630,7 +630,7 @@ error Root::MkdirAll(std::string_view fullname, FileMode perm) {
     // openLastComponentFunc opens or creates the last path component.
     auto openLastComponentFunc = [&](int parent, const std::string& name, bool) -> std::pair<int, error> {
         error err = mkdirat(parent, name, perm);
-        if (errno_of(err) == EEXIST) {
+        if (errnoOf(err) == EEXIST) {
             auto [fi, e] = lstatat(parent, name);
             if (!e) {
                 if (fi->Mode().IsDir()) {
@@ -644,7 +644,7 @@ error Root::MkdirAll(std::string_view fullname, FileMode perm) {
                     // target if it doesn't exist.
                     auto [fi2, e2] = Stat(fullname);
                     if (!e2 && fi2->Mode().IsDir()) err = nullptr;
-                    else if (!e2) err = errno_error(ENOTDIR);
+                    else if (!e2) err = errnoError(ENOTDIR);
                     else if (!IsNotExist(e2)) err = e2;
                 }
             }
@@ -681,7 +681,7 @@ error Root::RemoveAll(std::string_view name) {
     if (endsWithDot(name)) {
         // Consistency with os.RemoveAll: Return EINVAL when trying to
         // remove .
-        return path_error("RemoveAll", name, errno_error(EINVAL));
+        return path_error("RemoveAll", name, errnoError(EINVAL));
     }
     auto [_, err] = doInRoot<int>(*r_, name, 0, nullptr, [&](int parent, const std::string& n, bool) {
         return std::pair<int, error>{0, detail::remove_all_from(parent, n)};
@@ -697,7 +697,7 @@ std::pair<ptr<FileInfo>, error> Root::Stat(std::string_view name) {
                                                  auto [fi, err] = lstatatWithName(parent, name, n);
                                                  if (err) return {nullptr, err};
                                                  if (fi->Mode() & ModeSymlink) {
-                                                     return {nullptr, checkSymlink(parent, n, errno_error(ELOOP))};
+                                                     return {nullptr, checkSymlink(parent, n, errnoError(ELOOP))};
                                                  }
                                                  return {fi, nullptr};
                                              });
@@ -723,7 +723,7 @@ error Root::Rename(std::string_view oldname, std::string_view newname) {
                     // destination unless the source is a directory.
                     auto [oldMode, merr] = modeAt(oldparent, oldn);
                     if (merr) return {0, merr};
-                    if (oldMode.Type() != ModeDir) return {0, errno_error(ENOTDIR)};
+                    if (oldMode.Type() != ModeDir) return {0, errnoError(ENOTDIR)};
                 }
                 // On most platforms, renaming a file to an existing
                 // directory fails, but some replace an empty directory.
@@ -734,7 +734,7 @@ error Root::Rename(std::string_view oldname, std::string_view newname) {
                     // of it) is not an error.
                     auto [ofi, oerr] = lstatat(oldparent, oldn);
                     if (oerr) return {0, oerr};
-                    if (newn == oldn || !SameFile(fi, ofi)) return {0, errno_error(EEXIST)};
+                    if (newn == oldn || !SameFile(fi, ofi)) return {0, errnoError(EEXIST)};
                 }
                 return {0, renameat(oldparent, oldn, newparent, newn)};
             });

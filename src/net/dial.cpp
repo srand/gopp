@@ -95,7 +95,7 @@ bool matchAddrFamily(const IP& ip, const IP& x) {
 }
 
 bool isWildcardIP(const Addr* a) {
-    ip_port ip = ip_port_of(a);
+    ip_port ip = ipPortOf(a);
     return ip.ip.empty() || ip.ip.IsUnspecified();
 }
 
@@ -117,7 +117,7 @@ std::pair<time::Time, error> partialDeadline(time::Time now, time::Time deadline
 }
 
 bool isIPv4(const Addr* a) {
-    ip_port ip = ip_port_of(a);
+    ip_port ip = ipPortOf(a);
     return ip.ok && !ip.ip.To4().empty();
 }
 
@@ -188,7 +188,7 @@ std::pair<addrList, error> resolveAddrList(Resolver* r, const ptr<context::Conte
         auto [ua, err] = ResolveUnixAddr(af, addr);
         if (err) return {{}, err};
         if (op == "dial" && hint && ua->Network() != hint->Network()) {
-            return {{}, make_ptr<AddrError>(string::from_static("mismatched local address type"), hint->String())};
+            return {{}, make_ptr<AddrError>(string::fromStatic("mismatched local address type"), hint->String())};
         }
         return {{ua}, nullptr};
     }
@@ -198,17 +198,17 @@ std::pair<addrList, error> resolveAddrList(Resolver* r, const ptr<context::Conte
     // Only the addresses of the local address's family, unless one of
     // them is a wildcard.
     bool wildcard = isWildcardIP(hint);
-    IP hintIP = ip_port_of(hint).ip;
+    IP hintIP = ipPortOf(hint).ip;
     addrList naddrs;
     for (auto& a : addrs) {
         if (a->Network() != hint->Network()) {
-            return {{}, make_ptr<AddrError>(string::from_static("mismatched local address type"), hint->String())};
+            return {{}, make_ptr<AddrError>(string::fromStatic("mismatched local address type"), hint->String())};
         }
-        if (!wildcard && !isWildcardIP(a.get()) && !matchAddrFamily(ip_port_of(a.get()).ip, hintIP)) continue;
+        if (!wildcard && !isWildcardIP(a.get()) && !matchAddrFamily(ipPortOf(a.get()).ip, hintIP)) continue;
         naddrs.push_back(a);
     }
     if (naddrs.empty()) {
-        return {{}, make_ptr<AddrError>(string::from_static("no suitable address found"), hint->String())};
+        return {{}, make_ptr<AddrError>(string::fromStatic("no suitable address found"), hint->String())};
     }
     return {naddrs, nullptr};
 }
@@ -244,7 +244,7 @@ std::pair<ptr<Conn>, error> sysDialer::dialParallel(const ptr<context::Context>&
                                                     const addrList& fallbacks) {
     if (fallbacks.empty()) return dialSerial(ctx, primaries);
 
-    auto returned = make_chan<empty>();
+    auto returned = makeChan<empty>();
     defer_t closeReturned{[&] { returned.close(); }};
 
     struct dialResult {
@@ -253,7 +253,7 @@ std::pair<ptr<Conn>, error> sysDialer::dialParallel(const ptr<context::Context>&
         bool primary = false;
         bool done = false;
     };
-    auto results = make_chan<dialResult>();  // unbuffered
+    auto results = makeChan<dialResult>();  // unbuffered
 
     // The racers share the dialer through a copy.
     auto self = std::make_shared<sysDialer>(*this);
@@ -353,7 +353,7 @@ std::pair<ptr<Conn>, error> sysDialer::dialSingle(const ptr<context::Context>& c
         std::tie(c, err) = dialUnix(ctx, dynamic_cast<const UnixAddr*>(la), x);
     } else {
         return {nullptr, op_error("dial", network, d.LocalAddr, ra,
-                                  make_ptr<AddrError>(string::from_static("unexpected address type"), address))};
+                                  make_ptr<AddrError>(string::fromStatic("unexpected address type"), address))};
     }
     if (err) return {nullptr, op_error("dial", network, d.LocalAddr, ra, err)};
     return {c, nullptr};
@@ -485,7 +485,7 @@ std::pair<ptr<net::Listener>, error> ListenConfig::Listen(const ptr<context::Con
         std::tie(l, err) = sl.listenUnix(ctx, u);
     } else {
         return {nullptr, op_error("listen", net, nullptr, la,
-                                  make_ptr<AddrError>(string::from_static("unexpected address type"), string(address)))};
+                                  make_ptr<AddrError>(string::fromStatic("unexpected address type"), string(address)))};
     }
     if (err) return {nullptr, op_error("listen", net, nullptr, la, err)};
     return {l, nullptr};
@@ -507,7 +507,7 @@ std::pair<ptr<net::PacketConn>, error> ListenConfig::ListenPacket(const ptr<cont
         std::tie(c, err) = sl.listenUnixgram(ctx, x);
     } else {
         return {nullptr, op_error("listen", net, nullptr, la,
-                                  make_ptr<AddrError>(string::from_static("unexpected address type"), string(address)))};
+                                  make_ptr<AddrError>(string::fromStatic("unexpected address type"), string(address)))};
     }
     if (err) return {nullptr, op_error("listen", net, nullptr, la, err)};
     return {c, nullptr};

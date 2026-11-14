@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
     // One fiber per name and type; the answers come back on a channel.
     auto [ctx, cancel] = context::WithTimeout(context::Background(), timeout);
     auto resolver = make_ptr<net::Resolver>();
-    auto answers = make_chan<answer>(names.size() * wanted.size());
+    auto answers = makeChan<answer>(names.size() * wanted.size());
     time::Time start = time::Now();
     for (std::size_t i = 0; i < names.size(); i++) {
         for (const auto* q : wanted) {
@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
                 failed++;
                 // A name without records of the type isn't much of an error.
                 auto* dns = errors::As<net::DNSError>(a.err);
-                fmt::Println("  {:<6} {}", a.type, dns && dns->IsNotFound ? string::from_static("-") : a.err.Error());
+                fmt::Println("  {:<6} {}", a.type, dns && dns->IsNotFound ? string::fromStatic("-") : a.err.Error());
                 continue;
             }
             for (std::size_t r = 0; r < a.records.size(); r++) {

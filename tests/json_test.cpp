@@ -19,10 +19,10 @@ using namespace std::chrono_literals;
 namespace {
 
 template <typename T>
-std::string marshal_str(const T& v) {
+std::string marshalStr(const T& v) {
     auto [data, err] = json::Marshal(v);
     EXPECT_FALSE(err) << err;
-    return std::string(as_string_view(data));
+    return std::string(asStringView(data));
 }
 
 struct point {
@@ -62,40 +62,40 @@ struct with_box {
 // A type that encodes itself, like a json.Marshaler.
 struct celsius {
     double deg;
-    std::pair<slice<byte>, error> MarshalJSON() const { return {to_bytes(fmt_deg()), nullptr}; }
+    std::pair<slice<byte>, error> MarshalJSON() const { return {toBytes(fmtDeg()), nullptr}; }
     error UnmarshalJSON(std::span<const byte> d) {
-        std::string_view s = as_string_view(d);
+        std::string_view s = asStringView(d);
         if (s.size() < 3 || s.front() != '"' || !s.ends_with("C\"")) return errors::New("bad temperature");
         deg = std::stod(std::string(s.substr(1, s.size() - 3)));
         return nullptr;
     }
-    std::string fmt_deg() const { return "\"" + std::to_string(static_cast<int>(deg)) + "C\""; }
+    std::string fmtDeg() const { return "\"" + std::to_string(static_cast<int>(deg)) + "C\""; }
 };
 
 }  // namespace
 
 TEST(Json, Primitives) {
-    EXPECT_EQ(marshal_str(true), "true");
-    EXPECT_EQ(marshal_str(42), "42");
-    EXPECT_EQ(marshal_str(-7L), "-7");
-    EXPECT_EQ(marshal_str(uint64(18446744073709551615ULL)), "18446744073709551615");
-    EXPECT_EQ(marshal_str(string("hi")), "\"hi\"");
-    EXPECT_EQ(marshal_str(std::string("hi")), "\"hi\"");
-    EXPECT_EQ(marshal_str(nullptr), "null");
+    EXPECT_EQ(marshalStr(true), "true");
+    EXPECT_EQ(marshalStr(42), "42");
+    EXPECT_EQ(marshalStr(-7L), "-7");
+    EXPECT_EQ(marshalStr(uint64(18446744073709551615ULL)), "18446744073709551615");
+    EXPECT_EQ(marshalStr(string("hi")), "\"hi\"");
+    EXPECT_EQ(marshalStr(std::string("hi")), "\"hi\"");
+    EXPECT_EQ(marshalStr(nullptr), "null");
 }
 
 TEST(Json, Floats) {
     // The same output as Go's float encoder.
-    EXPECT_EQ(marshal_str(1.0), "1");
-    EXPECT_EQ(marshal_str(1.5), "1.5");
-    EXPECT_EQ(marshal_str(0.1), "0.1");
-    EXPECT_EQ(marshal_str(1e21), "1e+21");
-    EXPECT_EQ(marshal_str(1e20), "100000000000000000000");
-    EXPECT_EQ(marshal_str(0.000001), "0.000001");
-    EXPECT_EQ(marshal_str(1e-7), "1e-7");
-    EXPECT_EQ(marshal_str(-2.5e-10), "-2.5e-10");
-    EXPECT_EQ(marshal_str(3.0f), "3");
-    EXPECT_EQ(marshal_str(0.1f), "0.1");
+    EXPECT_EQ(marshalStr(1.0), "1");
+    EXPECT_EQ(marshalStr(1.5), "1.5");
+    EXPECT_EQ(marshalStr(0.1), "0.1");
+    EXPECT_EQ(marshalStr(1e21), "1e+21");
+    EXPECT_EQ(marshalStr(1e20), "100000000000000000000");
+    EXPECT_EQ(marshalStr(0.000001), "0.000001");
+    EXPECT_EQ(marshalStr(1e-7), "1e-7");
+    EXPECT_EQ(marshalStr(-2.5e-10), "-2.5e-10");
+    EXPECT_EQ(marshalStr(3.0f), "3");
+    EXPECT_EQ(marshalStr(0.1f), "0.1");
     auto [d, err] = json::Marshal(std::nan(""));
     ASSERT_TRUE(err);
     EXPECT_EQ(err.Error(), "json: unsupported value: NaN");
@@ -103,47 +103,47 @@ TEST(Json, Floats) {
 }
 
 TEST(Json, StringEscapes) {
-    EXPECT_EQ(marshal_str(std::string("a\"b\\c")), R"("a\"b\\c")");
-    EXPECT_EQ(marshal_str(std::string("\n\r\t\b\f")), R"("\n\r\t\b\f")");
-    EXPECT_EQ(marshal_str(std::string("\x01")), "\"\\u0001\"");
-    EXPECT_EQ(marshal_str(std::string("<a&b>")), "\"\\u003ca\\u0026b\\u003e\"");
-    EXPECT_EQ(marshal_str(std::string("caf\xc3\xa9")), "\"caf\xc3\xa9\"");
-    EXPECT_EQ(marshal_str(std::string("\xe2\x80\xa8")), "\"\\u2028\"");
-    EXPECT_EQ(marshal_str(std::string("bad\xff")), "\"bad\\ufffd\"");
+    EXPECT_EQ(marshalStr(std::string("a\"b\\c")), R"("a\"b\\c")");
+    EXPECT_EQ(marshalStr(std::string("\n\r\t\b\f")), R"("\n\r\t\b\f")");
+    EXPECT_EQ(marshalStr(std::string("\x01")), "\"\\u0001\"");
+    EXPECT_EQ(marshalStr(std::string("<a&b>")), "\"\\u003ca\\u0026b\\u003e\"");
+    EXPECT_EQ(marshalStr(std::string("caf\xc3\xa9")), "\"caf\xc3\xa9\"");
+    EXPECT_EQ(marshalStr(std::string("\xe2\x80\xa8")), "\"\\u2028\"");
+    EXPECT_EQ(marshalStr(std::string("bad\xff")), "\"bad\\ufffd\"");
 }
 
 TEST(Json, Structs) {
     item it{.name = "x", .count = 3, .secret = "s", .labels = {}, .where = std::nullopt, .ok = true};
-    EXPECT_EQ(marshal_str(it), R"({"name":"x","n":3,"where":null,"ok":true})");
+    EXPECT_EQ(marshalStr(it), R"({"name":"x","n":3,"where":null,"ok":true})");
     it.count = 0;
     it.labels = {"a", "b"};
     it.where = point{1, 2};
-    EXPECT_EQ(marshal_str(it), R"({"name":"x","labels":["a","b"],"where":{"x":1,"y":2},"ok":true})");
-    EXPECT_EQ(marshal_str(quoted{12, true}), R"({"id":"12","flag":"true"})");
+    EXPECT_EQ(marshalStr(it), R"({"name":"x","labels":["a","b"],"where":{"x":1,"y":2},"ok":true})");
+    EXPECT_EQ(marshalStr(quoted{12, true}), R"({"id":"12","flag":"true"})");
 }
 
 TEST(Json, Containers) {
-    EXPECT_EQ(marshal_str(std::vector<int>{1, 2, 3}), "[1,2,3]");
-    EXPECT_EQ(marshal_str(std::vector<int>{}), "[]");
-    EXPECT_EQ(marshal_str(slice<int>()), "null");  // nil slice
-    EXPECT_EQ(marshal_str(slice<int>::make(0)), "[]");
-    EXPECT_EQ(marshal_str(std::array<int, 2>{4, 5}), "[4,5]");
-    EXPECT_EQ(marshal_str(to_bytes("hello")), R"("aGVsbG8=")");  // []byte is base64
+    EXPECT_EQ(marshalStr(std::vector<int>{1, 2, 3}), "[1,2,3]");
+    EXPECT_EQ(marshalStr(std::vector<int>{}), "[]");
+    EXPECT_EQ(marshalStr(slice<int>()), "null");  // nil slice
+    EXPECT_EQ(marshalStr(slice<int>::make(0)), "[]");
+    EXPECT_EQ(marshalStr(std::array<int, 2>{4, 5}), "[4,5]");
+    EXPECT_EQ(marshalStr(toBytes("hello")), R"("aGVsbG8=")");  // []byte is base64
     std::map<string, int> m{{"b", 2}, {"a", 1}};
-    EXPECT_EQ(marshal_str(m), R"({"a":1,"b":2})");
+    EXPECT_EQ(marshalStr(m), R"({"a":1,"b":2})");
     std::unordered_map<int, string> im{{10, "ten"}, {9, "nine"}};
-    EXPECT_EQ(marshal_str(im), R"({"10":"ten","9":"nine"})");  // sorted as strings, like Go
-    EXPECT_EQ(marshal_str(std::optional<int>()), "null");
-    EXPECT_EQ(marshal_str(ptr<boxed>()), "null");
+    EXPECT_EQ(marshalStr(im), R"({"10":"ten","9":"nine"})");  // sorted as strings, like Go
+    EXPECT_EQ(marshalStr(std::optional<int>()), "null");
+    EXPECT_EQ(marshalStr(ptr<boxed>()), "null");
     auto b = make_ptr<boxed>();
     b->v = 5;
-    EXPECT_EQ(marshal_str(with_box{b}), R"({"box":{"v":5}})");
+    EXPECT_EQ(marshalStr(with_box{b}), R"({"box":{"v":5}})");
 }
 
 TEST(Json, TimeAndDuration) {
-    EXPECT_EQ(marshal_str(time::Time::Unix(1700000000, 500000000).UTC()), R"("2023-11-14T22:13:20.5Z")");
-    EXPECT_EQ(marshal_str(time::Time::Unix(1700000000, 0).In(time::FixedZone("", 3600))), R"("2023-11-14T23:13:20+01:00")");
-    EXPECT_EQ(marshal_str(1500 * time::Millisecond), "1500000000");
+    EXPECT_EQ(marshalStr(time::Time::Unix(1700000000, 500000000).UTC()), R"("2023-11-14T22:13:20.5Z")");
+    EXPECT_EQ(marshalStr(time::Time::Unix(1700000000, 0).In(time::FixedZone("", 3600))), R"("2023-11-14T23:13:20+01:00")");
+    EXPECT_EQ(marshalStr(1500 * time::Millisecond), "1500000000");
     time::Time t;
     ASSERT_FALSE(json::Unmarshal(R"("2023-11-14T23:13:20.25+01:00")", &t));
     EXPECT_EQ(t.Unix(), 1700000000);
@@ -151,26 +151,26 @@ TEST(Json, TimeAndDuration) {
 }
 
 TEST(Json, MarshalerAndRawMessage) {
-    EXPECT_EQ(marshal_str(celsius{21}), R"("21C")");
+    EXPECT_EQ(marshalStr(celsius{21}), R"("21C")");
     celsius c{};
     ASSERT_FALSE(json::Unmarshal(R"("30C")", &c));
     EXPECT_EQ(c.deg, 30);
     EXPECT_TRUE(json::Unmarshal(R"("hot")", &c));
 
-    json::RawMessage raw{to_bytes(R"({ "a" : [1, 2] })")};
-    EXPECT_EQ(marshal_str(raw), R"({"a":[1,2]})");  // compacted
+    json::RawMessage raw{toBytes(R"({ "a" : [1, 2] })")};
+    EXPECT_EQ(marshalStr(raw), R"({"a":[1,2]})");  // compacted
     struct holder {
         json::RawMessage payload;
     } h;
     ASSERT_FALSE(json::Unmarshal(R"({"payload": {"x": true}})", &h));
-    EXPECT_EQ(as_string_view(h.payload.data), R"({"x": true})");
+    EXPECT_EQ(asStringView(h.payload.data), R"({"x": true})");
 }
 
 TEST(Json, MarshalIndent) {
     nested n{"t", {{1, 2}}, {{"a", 1}}, nullptr};
     auto [data, err] = json::MarshalIndent(n, "", "  ");
     ASSERT_FALSE(err);
-    EXPECT_EQ(as_string_view(data), R"({
+    EXPECT_EQ(asStringView(data), R"({
   "title": "t",
   "points": [
     {
@@ -183,7 +183,7 @@ TEST(Json, MarshalIndent) {
   },
   "extra": null
 })");
-    EXPECT_EQ(as_string_view(json::MarshalIndent(std::vector<int>{}, ">", "\t").first), "[]");
+    EXPECT_EQ(asStringView(json::MarshalIndent(std::vector<int>{}, ">", "\t").first), "[]");
 }
 
 TEST(Json, UnmarshalStruct) {
@@ -221,7 +221,7 @@ TEST(Json, UnmarshalValues) {
     EXPECT_EQ(s, "a\xc3\xa9\xf0\x9f\x98\x80\n");
     slice<byte> b;
     ASSERT_FALSE(json::Unmarshal(R"("aGVsbG8=")", &b));
-    EXPECT_EQ(as_string_view(b), "hello");
+    EXPECT_EQ(asStringView(b), "hello");
     std::map<int, bool> m;
     ASSERT_FALSE(json::Unmarshal(R"({"1":true,"2":false})", &m));
     EXPECT_TRUE(m[1]);
@@ -243,12 +243,12 @@ TEST(Json, DynamicValue) {
     EXPECT_EQ(cv["b"][1].AsString(), "two");
     EXPECT_TRUE(cv["b"][3].IsNull());
     EXPECT_TRUE(cv["missing"].IsNull());
-    EXPECT_EQ(marshal_str(v), R"({"a":{"x":1.5},"b":[1,"two",true,null]})");
+    EXPECT_EQ(marshalStr(v), R"({"a":{"x":1.5},"b":[1,"two",true,null]})");
 
     json::Value built;
     built["name"] = "go++";
     built["tags"] = json::Value::array{1, "x"};
-    EXPECT_EQ(marshal_str(built), R"({"name":"go++","tags":[1,"x"]})");
+    EXPECT_EQ(marshalStr(built), R"({"name":"go++","tags":[1,"x"]})");
 }
 
 TEST(Json, Errors) {
@@ -323,7 +323,7 @@ TEST(Json, DeepNestingOnFiberStack) {
     // destroying it are iterative.
     std::string deep = strings::Repeat("[", 9999).str() + strings::Repeat("]", 9999).str();
     std::string too_deep = strings::Repeat("[", 3000000).str() + strings::Repeat("]", 3000000).str();
-    auto done = make_chan<std::pair<error, error>>(1);
+    auto done = makeChan<std::pair<error, error>>(1);
     go([&] {
         json::Value v;
         error e1 = json::Unmarshal(deep, &v);

@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
 
     // Sends the request body back.
     mux->HandleFunc("POST /echo", [](http::ResponseWriter& w, http::Request& r) {
-        w.Header().Set("Content-Type", string::from_static("application/octet-stream"));
+        w.Header().Set("Content-Type", string::fromStatic("application/octet-stream"));
         io::Copy(w, *r.Body);
     });
 
@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     protocols.SetUnencryptedHTTP2(h2c);
     http::Server srv{.Addr = addr, .Handler = mux, .Protocols = protocols};
 
-    auto served = make_chan<error>(1);
+    auto served = makeChan<error>(1);
     go([&] { served.send(cert.empty() ? srv.ListenAndServe() : srv.ListenAndServeTLS(cert, key)); });
     fmt::Println("listening on {}{}", srv.Addr, !cert.empty() ? " (HTTPS)" : h2c ? " (h2c too)" : "");
 

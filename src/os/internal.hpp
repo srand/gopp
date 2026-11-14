@@ -36,10 +36,10 @@ struct dir_info {
 // How a File came to be (Go's newFileKind).
 enum class file_kind { new_file, open_file, pipe, no_poll };
 
-struct file_impl {
-    file_impl(int fd, string name) : pfd(fd), name(std::move(name)) {}
+struct fileImpl {
+    fileImpl(int fd, string name) : pfd(fd), name(std::move(name)) {}
     // The insides of f.
-    static file_impl& of(File& f) noexcept { return *f.f_; }
+    static fileImpl& of(File& f) noexcept { return *f.f_; }
 
     poll::FD pfd;
     string name;
@@ -86,7 +86,7 @@ public:
 };
 
 // Go's fillFileStatFromSys: fills fs from fs->sys; the name is name's base.
-void fill_file_stat(file_stat& fs, std::string_view name);
+void fillFileStat(file_stat& fs, std::string_view name);
 
 // The C string of a path; false if it holds a NUL, which Go reports as
 // EINVAL.
@@ -103,7 +103,7 @@ int sys(F&& f) {
     for (;;) {
         int r, e;
         {
-            runtime::blocking_call b;
+            runtime::blockingCall b;
             r = static_cast<int>(f());
             e = errno;
         }
@@ -115,14 +115,14 @@ int sys(F&& f) {
 // Runs a file system call through io_uring if it supports opcode, or as
 // a blocking call (see sys); returns 0 or the errno.
 template <typename Prep, typename Call>
-int sys_io(int opcode, Prep&& prep, Call&& call) {
-    long r = runtime::uring_or_blocking(opcode, prep, call);
+int sysIo(int opcode, Prep&& prep, Call&& call) {
+    long r = runtime::uringOrBlocking(opcode, prep, call);
     return r < 0 ? static_cast<int>(-r) : 0;
 }
 
 // openat(2) through sys_io: the descriptor, or -1 and the errno in *err.
-inline int open_at(int dirfd, const char* path, int flags, mode_t mode, int* err) {
-    long r = runtime::uring_or_blocking(
+inline int openAt(int dirfd, const char* path, int flags, mode_t mode, int* err) {
+    long r = runtime::uringOrBlocking(
         IORING_OP_OPENAT, [&](io_uring_sqe* sqe) { io_uring_prep_openat(sqe, dirfd, path, flags, mode); },
         [&] { return ::openat(dirfd, path, flags, mode); });
     *err = r < 0 ? static_cast<int>(-r) : 0;
@@ -130,16 +130,16 @@ inline int open_at(int dirfd, const char* path, int flags, mode_t mode, int* err
 }
 
 // unlinkat(2) through sys_io; returns 0 or the errno.
-inline int unlink_at(int dirfd, const char* path, int flags) {
-    return sys_io(
+inline int unlinkAt(int dirfd, const char* path, int flags) {
+    return sysIo(
         IORING_OP_UNLINKAT, [&](io_uring_sqe* sqe) { io_uring_prep_unlinkat(sqe, dirfd, path, flags); },
         [&] { return ::unlinkat(dirfd, path, flags); });
 }
 
-inline error errno_error(int e) { return syscall::errno_error(e); }
+inline error errnoError(int e) { return syscall::errnoError(e); }
 
 // The errno of err if it's a syscall::Errno, otherwise 0.
-inline int errno_of(const error& err) {
+inline int errnoOf(const error& err) {
     auto* e = dynamic_cast<const syscall::Errno*>(err.get());
     return e ? e->Code : 0;
 }
@@ -177,7 +177,7 @@ void chtimes_utimes(time::Time atime, time::Time mtime, timespec ts[2]);
 std::string join_path(std::string_view dir, std::string_view name);
 
 // Go's lstatat: the Lstat of name in the directory f.
-std::pair<ptr<FileInfo>, error> lstatat(File& f, file_impl& fi, std::string_view name);
+std::pair<ptr<FileInfo>, error> lstatat(File& f, fileImpl& fi, std::string_view name);
 
 // Go's pidfdWorks: whether pidfd_open, pidfd_send_signal, waitid(P_PIDFD)
 // and clone(CLONE_PIDFD) work, checked once.

@@ -40,14 +40,14 @@ std::string S(const string& s) { return std::string(s.view()); }
 std::string S(const error& e) { return e ? std::string(e.Error().view()) : "<nil>"; }
 
 // t.Setenv: sets an environment variable for the rest of the test.
-class scoped_env {
+class scopedEnv {
 public:
-    scoped_env(const char* name, const char* value) : name_(name) {
+    scopedEnv(const char* name, const char* value) : name_(name) {
         if (const char* old = std::getenv(name)) old_ = old, had_ = true;
         if (value) ::setenv(name, value, 1);
         else ::unsetenv(name);
     }
-    ~scoped_env() {
+    ~scopedEnv() {
         if (had_) ::setenv(name_, old_.c_str(), 1);
         else ::unsetenv(name_);
     }
@@ -66,14 +66,14 @@ bool exists(const char* path) {
 }  // namespace
 
 TEST_F(GoTimeZoneinfo, BadLocationErrMsg) {
-    scoped_env env("ZONEINFO", nullptr);
+    scopedEnv env("ZONEINFO", nullptr);
     std::string loc = "Asia/SomethingNotExist";
     auto [_, err] = time::LoadLocation(loc);
     EXPECT_EQ(S(err), "unknown time zone " + loc);
 }
 
 TEST_F(GoTimeZoneinfo, LoadLocationValidatesNames) {
-    scoped_env env("ZONEINFO", "");
+    scopedEnv env("ZONEINFO", "");
     const char* bad[] = {
         "/usr/foo/Foo",
         "\\UNC\foo",
@@ -291,7 +291,7 @@ TEST_F(GoTimeZoneinfo, TzsetRule) {
 }
 
 TEST_F(GoTimeZoneinfo, EnvTZUsage) {
-    scoped_env restore("TZ", std::getenv("TZ"));
+    scopedEnv restore("TZ", std::getenv("TZ"));
     struct reset_after {
         ~reset_after() { hooks::ForceUSPacificForTesting(); }
     } reset;

@@ -32,7 +32,7 @@ inline constexpr rune NoPadding = -1;
 
 // base64.CorruptInputError: the input of Decode isn't valid base64 at the
 // byte Offset.
-struct CorruptInputError : error_interface {
+struct CorruptInputError : errorInterface {
     explicit CorruptInputError(int64 offset) noexcept : Offset(offset) {}
     string Error() const override;
     int64 Offset;
@@ -80,7 +80,7 @@ public:
         return (n + 2) / 3 * 4;  // minimum # 4-char quanta, 3 bytes each
     }
     // The most bytes n characters decode to.
-    constexpr isize DecodedLen(isize n) const noexcept { return decoded_len(n, pad_char_); }
+    constexpr isize DecodedLen(isize n) const noexcept { return decodedLen(n, pad_char_); }
 
     // Writes the EncodedLen(len(src)) characters of src into dst.
     void Encode(std::span<byte> dst, std::span<const byte> src) const noexcept;
@@ -95,13 +95,13 @@ public:
     std::pair<slice<byte>, error> DecodeString(std::string_view s) const;
 
     // The padding character, or NoPadding.
-    constexpr rune pad_char() const noexcept { return pad_char_; }
+    constexpr rune padChar() const noexcept { return pad_char_; }
 
 private:
     static constexpr byte invalid_index = 0xff;
 
-    static constexpr isize decoded_len(isize n, rune pad_char) noexcept {
-        if (pad_char == NoPadding) return n / 4 * 3 + n % 4 * 6 / 8;  // unpadded data may end with partial block of 2-3 characters
+    static constexpr isize decodedLen(isize n, rune padChar) noexcept {
+        if (padChar == NoPadding) return n / 4 * 3 + n % 4 * 6 / 8;  // unpadded data may end with partial block of 2-3 characters
         return n / 4 * 3;  // padded base64 should always be a multiple of 4 characters in length
     }
     std::tuple<isize, isize, error> decode_quantum(std::span<byte> dst, std::span<const byte> src, isize si) const;

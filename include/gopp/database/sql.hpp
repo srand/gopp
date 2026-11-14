@@ -150,7 +150,7 @@ struct NamedArg {
 
 // The Value of a C++ argument, as database/sql passes it to drivers.
 template <typename T>
-detail::arg to_arg(const T& v) {
+detail::arg toArg(const T& v) {
     using U = std::remove_cvref_t<T>;
     if constexpr (std::is_same_v<U, NamedArg>) {
         detail::arg a = v.Arg;
@@ -168,14 +168,14 @@ detail::arg to_arg(const T& v) {
         return {};
     } else if constexpr (detail::is_optional<U>::value) {
         if (!v) return {};
-        return to_arg(*v);
+        return toArg(*v);
     } else if constexpr (std::is_array_v<U> && std::is_same_v<std::remove_cv_t<std::remove_extent_t<U>>, char>) {
         return {{}, string(std::string_view(v)), nullptr};
     } else if constexpr (detail::is_string_like<U>) {
         return {{}, string(std::string_view(v)), nullptr};
     } else if constexpr (std::is_pointer_v<U>) {
         if (!v) return {};
-        return to_arg(*v);
+        return toArg(*v);
     } else if constexpr (std::is_same_v<U, bool>) {
         return {{}, v, nullptr};
     } else if constexpr (std::is_enum_v<U>) {
@@ -205,7 +205,7 @@ detail::arg to_arg(const T& v) {
 // sql.Named: a named argument, for drivers with named placeholders.
 template <typename T>
 NamedArg Named(std::string_view name, const T& value) {
-    return NamedArg{string(name), to_arg(value)};
+    return NamedArg{string(name), toArg(value)};
 }
 
 // ---------------------------------------------------------------------------
@@ -213,12 +213,12 @@ NamedArg Named(std::string_view name, const T& value) {
 // destinations.
 
 namespace detail {
-error convert_string(const driver::Value& src, gopp::string& out);
-error convert_bool(const driver::Value& src, bool& out);
-error convert_int(const driver::Value& src, int bits, std::string_view kind, int64& out);
-error convert_uint(const driver::Value& src, int bits, std::string_view kind, uint64& out);
-error convert_float(const driver::Value& src, int bits, std::string_view kind, double& out);
-error convert_time(const driver::Value& src, time::Time& out);
+error convertString(const driver::Value& src, gopp::string& out);
+error convertBool(const driver::Value& src, bool& out);
+error convertInt(const driver::Value& src, int bits, std::string_view kind, int64& out);
+error convertUint(const driver::Value& src, int bits, std::string_view kind, uint64& out);
+error convertFloat(const driver::Value& src, int bits, std::string_view kind, double& out);
+error convertTime(const driver::Value& src, time::Time& out);
 }  // namespace detail
 
 // sql.NullString
@@ -307,7 +307,7 @@ struct Null {
 
     std::pair<driver::Value, error> Value() const {
         if (!Valid) return {nullptr, nullptr};
-        detail::arg a = to_arg(V);
+        detail::arg a = toArg(V);
         return {std::move(a.value), std::move(a.err)};
     }
 };
@@ -326,14 +326,14 @@ struct dest {
 
 extern const error err_nil_ptr;  // "destination pointer is nil"
 
-error convert_bytes(const driver::Value& src, slice<byte>& out);
-error convert_raw_bytes(const driver::Value& src, RawBytes& out, Rows* rows);
-error convert_any(const driver::Value& src, driver::Value& out);
-error unsupported_scan(const driver::Value& src, std::string_view dest_type);
+error convertBytes(const driver::Value& src, slice<byte>& out);
+error convertRawBytes(const driver::Value& src, RawBytes& out, Rows* rows);
+error convertAny(const driver::Value& src, driver::Value& out);
+error unsupportedScan(const driver::Value& src, std::string_view dest_type);
 
 // Go's kind names and %T names of destination types.
 template <typename T>
-constexpr std::string_view int_kind() {
+constexpr std::string_view intKind() {
     if constexpr (std::is_same_v<T, signed char> || std::is_same_v<T, char>) return "int8";
     else if constexpr (std::is_same_v<T, short>) return "int16";
     else if constexpr (std::is_same_v<T, int>) return "int";
@@ -345,9 +345,9 @@ constexpr std::string_view int_kind() {
 }
 
 template <typename T>
-std::string type_name() {
+std::string typeName() {
     if constexpr (std::is_same_v<T, bool>) return "bool";
-    else if constexpr (std::is_integral_v<T>) return std::string(int_kind<T>());
+    else if constexpr (std::is_integral_v<T>) return std::string(intKind<T>());
     else if constexpr (std::is_same_v<T, float>) return "float32";
     else if constexpr (std::is_same_v<T, double>) return "float64";
     else if constexpr (std::is_same_v<T, gopp::string> || std::is_same_v<T, std::string>) return "string";
@@ -355,7 +355,7 @@ std::string type_name() {
     else if constexpr (std::is_same_v<T, slice<byte>>) return "[]uint8";
     else if constexpr (std::is_same_v<T, time::Time>) return "time.Time";
     else if constexpr (std::is_same_v<T, driver::Value>) return "interface {}";
-    else if constexpr (is_optional<T>::value) return "*" + type_name<typename T::value_type>();
+    else if constexpr (is_optional<T>::value) return "*" + typeName<typename T::value_type>();
     else return "unknown";
 }
 
@@ -366,20 +366,20 @@ template <typename T>
 error convert_assign(T* d, const driver::Value& src, Rows* rows) {
     if (!d) return detail::err_nil_ptr;
     if constexpr (std::is_same_v<T, gopp::string>) {
-        return detail::convert_string(src, *d);
+        return detail::convertString(src, *d);
     } else if constexpr (std::is_same_v<T, std::string>) {
         gopp::string s;
-        error err = detail::convert_string(src, s);
+        error err = detail::convertString(src, s);
         if (!err) *d = s.str();
         return err;
     } else if constexpr (std::is_same_v<T, RawBytes>) {
-        return detail::convert_raw_bytes(src, *d, rows);
+        return detail::convertRawBytes(src, *d, rows);
     } else if constexpr (std::is_same_v<T, slice<byte>>) {
-        return detail::convert_bytes(src, *d);
+        return detail::convertBytes(src, *d);
     } else if constexpr (std::is_same_v<T, bool>) {
-        return detail::convert_bool(src, *d);
+        return detail::convertBool(src, *d);
     } else if constexpr (std::is_same_v<T, driver::Value>) {
-        return detail::convert_any(src, *d);
+        return detail::convertAny(src, *d);
     } else if constexpr (detail::has_scan_method<T>) {
         return d->Scan(src);
     } else if constexpr (std::is_base_of_v<Scanner, T>) {
@@ -389,7 +389,7 @@ error convert_assign(T* d, const driver::Value& src, Rows* rows) {
             *d = *t;
             return nullptr;
         }
-        return detail::unsupported_scan(src, "*time.Time");
+        return detail::unsupportedScan(src, "*time.Time");
     } else if constexpr (detail::is_optional<T>::value) {
         // Go's pointer destinations: nil for NULL, else a new value.
         if (std::holds_alternative<std::nullptr_t>(src)) {
@@ -406,12 +406,12 @@ error convert_assign(T* d, const driver::Value& src, Rows* rows) {
             }
         }
         int64 v;
-        if (error err = detail::convert_int(src, static_cast<int>(sizeof(T) * 8), detail::int_kind<T>(), v)) return err;
+        if (error err = detail::convertInt(src, static_cast<int>(sizeof(T) * 8), detail::intKind<T>(), v)) return err;
         *d = static_cast<T>(v);
         return nullptr;
     } else if constexpr (std::is_integral_v<T>) {
         uint64 v;
-        if (error err = detail::convert_uint(src, static_cast<int>(sizeof(T) * 8), detail::int_kind<T>(), v)) return err;
+        if (error err = detail::convertUint(src, static_cast<int>(sizeof(T) * 8), detail::intKind<T>(), v)) return err;
         *d = static_cast<T>(v);
         return nullptr;
     } else if constexpr (std::is_floating_point_v<T>) {
@@ -423,7 +423,7 @@ error convert_assign(T* d, const driver::Value& src, Rows* rows) {
         }
         double v;
         constexpr int bits = sizeof(T) == 4 ? 32 : 64;
-        if (error err = detail::convert_float(src, bits, bits == 32 ? "float32" : "float64", v)) return err;
+        if (error err = detail::convertFloat(src, bits, bits == 32 ? "float32" : "float64", v)) return err;
         *d = static_cast<T>(v);
         return nullptr;
     } else {
@@ -434,7 +434,7 @@ error convert_assign(T* d, const driver::Value& src, Rows* rows) {
 namespace detail {
 
 template <typename T>
-dest make_dest(T* p) {
+dest makeDest(T* p) {
     return dest{p,
                 [](void* p, const driver::Value& src, Rows* rows) -> error {
                     return convert_assign(static_cast<T*>(p), src, rows);
@@ -444,7 +444,7 @@ dest make_dest(T* p) {
 
 template <typename... A>
 std::vector<arg> args(const A&... a) {
-    return {to_arg(a)...};
+    return {toArg(a)...};
 }
 
 // closingMutex: an RWMutex where readers have priority over the writer,
@@ -470,7 +470,7 @@ private:
 // What DB.dep tracks: objects closed when their last dependency goes.
 struct final_closer {
     virtual ~final_closer() = default;
-    virtual error final_close() = 0;
+    virtual error finalClose() = 0;
 };
 
 struct driver_stmt;
@@ -496,15 +496,15 @@ struct driver_conn final : public object, public final_closer {
     void lock() { mu.lock(); }
     void unlock() { mu.unlock(); }
 
-    void release_conn(error err);
-    void remove_open_stmt(driver_stmt* ds);
+    void releaseConn(error err);
+    void removeOpenStmt(driver_stmt* ds);
     bool expired(time::Duration timeout) const;
-    error reset_session(ptr<context::Context> ctx);
-    bool validate_connection(bool needs_reset);
-    std::pair<ptr<driver_stmt>, error> prepare_locked(ptr<context::Context> ctx, bool grabbed, std::string_view query);
+    error resetSession(ptr<context::Context> ctx);
+    bool validateConnection(bool needs_reset);
+    std::pair<ptr<driver_stmt>, error> prepareLocked(ptr<context::Context> ctx, bool grabbed, std::string_view query);
     std::function<error()> close_db_locked();
     error Close();
-    error final_close() override;
+    error finalClose() override;
 };
 
 // A driver statement and the connection whose lock guards it (driverStmt).
@@ -535,7 +535,7 @@ public:
     std::size_t Len() const noexcept { return s_.size(); }
 
 private:
-    void delete_index(std::size_t idx);
+    void deleteIndex(std::size_t idx);
     std::vector<std::pair<chan<conn_request>, handle>> s_;
 };
 
@@ -547,11 +547,11 @@ extern std::function<void(Rows&, error&)> rows_close_hook;
 // What Tx and Conn give a Stmt (stmtConnGrabber).
 struct stmt_conn_grabber {
     virtual ~stmt_conn_grabber() = default;
-    virtual std::tuple<ptr<driver_conn>, release_fn, error> grab_conn(ptr<context::Context> ctx) = 0;
+    virtual std::tuple<ptr<driver_conn>, release_fn, error> grabConn(ptr<context::Context> ctx) = 0;
     virtual ptr<context::Context> tx_ctx() = 0;
 };
 
-struct conn_stmt {
+struct connStmt {
     ptr<driver_conn> dc;
     ptr<driver_stmt> ds;
 };
@@ -626,27 +626,27 @@ public:
 
     template <typename... A>
     std::pair<ptr<Result>, error> ExecContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return exec_args(std::move(ctx), query, detail::args(args...));
+        return execArgs(std::move(ctx), query, detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Result>, error> Exec(std::string_view query, const A&... args) {
-        return exec_args(context::Background(), query, detail::args(args...));
+        return execArgs(context::Background(), query, detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Rows>, error> QueryContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return query_args(std::move(ctx), query, detail::args(args...));
+        return queryArgs(std::move(ctx), query, detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Rows>, error> Query(std::string_view query, const A&... args) {
-        return query_args(context::Background(), query, detail::args(args...));
+        return queryArgs(context::Background(), query, detail::args(args...));
     }
     template <typename... A>
     ptr<Row> QueryRowContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return query_row_args(std::move(ctx), query, detail::args(args...));
+        return queryRowArgs(std::move(ctx), query, detail::args(args...));
     }
     template <typename... A>
     ptr<Row> QueryRow(std::string_view query, const A&... args) {
-        return query_row_args(context::Background(), query, detail::args(args...));
+        return queryRowArgs(context::Background(), query, detail::args(args...));
     }
 
     // opts may be nil for the defaults.
@@ -657,9 +657,9 @@ public:
     std::pair<ptr<sql::Conn>, error> Conn(ptr<context::Context> ctx);
 
     // The arguments as converted (template-free entry points).
-    std::pair<ptr<Result>, error> exec_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
-    std::pair<ptr<Rows>, error> query_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
-    ptr<Row> query_row_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    std::pair<ptr<Result>, error> execArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    std::pair<ptr<Rows>, error> queryArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    ptr<Row> queryRowArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
 
 private:
     friend struct sql::test_access;
@@ -670,33 +670,33 @@ private:
     friend struct detail::driver_conn;
     friend ptr<DB> OpenDB(ptr<driver::Connector> c);
 
-    int max_idle_conns_locked() const;
-    time::Duration shortest_idle_time_locked() const;
-    void start_cleaner_locked();
-    void connection_cleaner(time::Duration d);
-    std::pair<time::Duration, std::vector<ptr<detail::driver_conn>>> connection_cleaner_run_locked(time::Duration d);
-    void maybe_open_new_connections();
-    void connection_opener(ptr<context::Context> ctx);
-    void open_new_connection(ptr<context::Context> ctx);
+    int maxIdleConnsLocked() const;
+    time::Duration shortestIdleTimeLocked() const;
+    void startCleanerLocked();
+    void connectionCleaner(time::Duration d);
+    std::pair<time::Duration, std::vector<ptr<detail::driver_conn>>> connectionCleanerRunLocked(time::Duration d);
+    void maybeOpenNewConnections();
+    void connectionOpener(ptr<context::Context> ctx);
+    void openNewConnection(ptr<context::Context> ctx);
     std::pair<ptr<detail::driver_conn>, error> conn(ptr<context::Context> ctx, detail::conn_reuse_strategy strategy);
-    void note_unused_driver_statement(const ptr<detail::driver_conn>& c, const ptr<detail::driver_stmt>& ds);
-    void put_conn(ptr<detail::driver_conn> dc, error err, bool reset_session);
-    bool put_conn_db_locked(const ptr<detail::driver_conn>& dc, error err);
+    void noteUnusedDriverStatement(const ptr<detail::driver_conn>& c, const ptr<detail::driver_stmt>& ds);
+    void putConn(ptr<detail::driver_conn> dc, error err, bool resetSession);
+    bool putConnDbLocked(const ptr<detail::driver_conn>& dc, error err);
     error retry(const std::function<error(detail::conn_reuse_strategy)>& fn);
-    error ping_dc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc, const detail::release_fn& release);
-    std::pair<ptr<sql::Stmt>, error> prepare_dc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
+    error pingDc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc, const detail::release_fn& release);
+    std::pair<ptr<sql::Stmt>, error> prepareDc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
                                                 detail::release_fn release, detail::stmt_conn_grabber* cg,
                                                 ptr<object> cg_keep, std::string_view query);
-    std::pair<ptr<Result>, error> exec_dc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
+    std::pair<ptr<Result>, error> execDc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
                                           detail::release_fn release, std::string_view query,
                                           std::span<const detail::arg> args);
-    std::pair<ptr<Rows>, error> query_dc(ptr<context::Context> ctx, ptr<context::Context> txctx,
+    std::pair<ptr<Rows>, error> queryDc(ptr<context::Context> ctx, ptr<context::Context> txctx,
                                          const ptr<detail::driver_conn>& dc, detail::release_fn release,
                                          std::string_view query, std::span<const detail::arg> args);
-    std::pair<ptr<sql::Tx>, error> begin_dc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
+    std::pair<ptr<sql::Tx>, error> beginDc(ptr<context::Context> ctx, const ptr<detail::driver_conn>& dc,
                                             detail::release_fn release, const TxOptions* opts);
-    void add_dep(detail::final_closer* x, ptr<object> keep, const void* dep);
-    void add_dep_locked(detail::final_closer* x, ptr<object> keep, const void* dep);
+    void addDep(detail::final_closer* x, ptr<object> keep, const void* dep);
+    void addDepLocked(detail::final_closer* x, ptr<object> keep, const void* dep);
     error remove_dep(detail::final_closer* x, const void* dep);
     std::function<error()> remove_dep_locked(detail::final_closer* x, const void* dep);
 
@@ -742,15 +742,15 @@ public:
     error PingContext(ptr<context::Context> ctx);
     template <typename... A>
     std::pair<ptr<Result>, error> ExecContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return exec_args(std::move(ctx), query, detail::args(args...));
+        return execArgs(std::move(ctx), query, detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Rows>, error> QueryContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return query_args(std::move(ctx), query, detail::args(args...));
+        return queryArgs(std::move(ctx), query, detail::args(args...));
     }
     template <typename... A>
     ptr<Row> QueryRowContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return query_row_args(std::move(ctx), query, detail::args(args...));
+        return queryRowArgs(std::move(ctx), query, detail::args(args...));
     }
     std::pair<ptr<sql::Stmt>, error> PrepareContext(ptr<context::Context> ctx, std::string_view query);
     // Runs f with the driver's connection; a panic in f makes the
@@ -760,18 +760,18 @@ public:
     // Returns the connection to the pool.
     error Close();
 
-    std::pair<ptr<Result>, error> exec_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
-    std::pair<ptr<Rows>, error> query_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
-    ptr<Row> query_row_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    std::pair<ptr<Result>, error> execArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    std::pair<ptr<Rows>, error> queryArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    ptr<Row> queryRowArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
 
-    std::tuple<ptr<detail::driver_conn>, detail::release_fn, error> grab_conn(ptr<context::Context> ctx) override;
+    std::tuple<ptr<detail::driver_conn>, detail::release_fn, error> grabConn(ptr<context::Context> ctx) override;
     ptr<context::Context> tx_ctx() override { return nullptr; }
 
 private:
     friend struct sql::test_access;
     friend class DB;
     Conn(ptr<DB> db, ptr<detail::driver_conn> dc) : db_(std::move(db)), dc_(std::move(dc)) {}
-    void closemu_runlock_cond_release_conn(error err);
+    void closemuRunlockCondReleaseConn(error err);
     error close(error err);
 
     ptr<DB> db_;
@@ -795,44 +795,44 @@ public:
 
     template <typename... A>
     std::pair<ptr<Result>, error> ExecContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return exec_args(std::move(ctx), query, detail::args(args...));
+        return execArgs(std::move(ctx), query, detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Result>, error> Exec(std::string_view query, const A&... args) {
-        return exec_args(context::Background(), query, detail::args(args...));
+        return execArgs(context::Background(), query, detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Rows>, error> QueryContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return query_args(std::move(ctx), query, detail::args(args...));
+        return queryArgs(std::move(ctx), query, detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Rows>, error> Query(std::string_view query, const A&... args) {
-        return query_args(context::Background(), query, detail::args(args...));
+        return queryArgs(context::Background(), query, detail::args(args...));
     }
     template <typename... A>
     ptr<Row> QueryRowContext(ptr<context::Context> ctx, std::string_view query, const A&... args) {
-        return query_row_args(std::move(ctx), query, detail::args(args...));
+        return queryRowArgs(std::move(ctx), query, detail::args(args...));
     }
     template <typename... A>
     ptr<Row> QueryRow(std::string_view query, const A&... args) {
-        return query_row_args(context::Background(), query, detail::args(args...));
+        return queryRowArgs(context::Background(), query, detail::args(args...));
     }
 
-    std::pair<ptr<Result>, error> exec_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
-    std::pair<ptr<Rows>, error> query_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
-    ptr<Row> query_row_args(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    std::pair<ptr<Result>, error> execArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    std::pair<ptr<Rows>, error> queryArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
+    ptr<Row> queryRowArgs(ptr<context::Context> ctx, std::string_view query, std::vector<detail::arg> args);
 
-    std::tuple<ptr<detail::driver_conn>, detail::release_fn, error> grab_conn(ptr<context::Context> ctx) override;
+    std::tuple<ptr<detail::driver_conn>, detail::release_fn, error> grabConn(ptr<context::Context> ctx) override;
     ptr<context::Context> tx_ctx() override { return ctx_; }
 
 private:
     friend struct sql::test_access;
     friend class DB;
     Tx() = default;
-    void await_done();
+    void awaitDone();
     bool is_done() const { return done_.load(); }
     void close(error err);
-    void close_prepared();
+    void closePrepared();
     error rollback(bool discard_conn);
 
     ptr<DB> db_;
@@ -856,33 +856,33 @@ public:
 
     template <typename... A>
     std::pair<ptr<Result>, error> ExecContext(ptr<context::Context> ctx, const A&... args) {
-        return exec_args(std::move(ctx), detail::args(args...));
+        return execArgs(std::move(ctx), detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Result>, error> Exec(const A&... args) {
-        return exec_args(context::Background(), detail::args(args...));
+        return execArgs(context::Background(), detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Rows>, error> QueryContext(ptr<context::Context> ctx, const A&... args) {
-        return query_args(std::move(ctx), detail::args(args...));
+        return queryArgs(std::move(ctx), detail::args(args...));
     }
     template <typename... A>
     std::pair<ptr<Rows>, error> Query(const A&... args) {
-        return query_args(context::Background(), detail::args(args...));
+        return queryArgs(context::Background(), detail::args(args...));
     }
     template <typename... A>
     ptr<Row> QueryRowContext(ptr<context::Context> ctx, const A&... args) {
-        return query_row_args(std::move(ctx), detail::args(args...));
+        return queryRowArgs(std::move(ctx), detail::args(args...));
     }
     template <typename... A>
     ptr<Row> QueryRow(const A&... args) {
-        return query_row_args(context::Background(), detail::args(args...));
+        return queryRowArgs(context::Background(), detail::args(args...));
     }
     error Close();
 
-    std::pair<ptr<Result>, error> exec_args(ptr<context::Context> ctx, std::vector<detail::arg> args);
-    std::pair<ptr<Rows>, error> query_args(ptr<context::Context> ctx, std::vector<detail::arg> args);
-    ptr<Row> query_row_args(ptr<context::Context> ctx, std::vector<detail::arg> args);
+    std::pair<ptr<Result>, error> execArgs(ptr<context::Context> ctx, std::vector<detail::arg> args);
+    std::pair<ptr<Rows>, error> queryArgs(ptr<context::Context> ctx, std::vector<detail::arg> args);
+    ptr<Row> queryRowArgs(ptr<context::Context> ctx, std::vector<detail::arg> args);
 
 private:
     friend struct sql::test_access;
@@ -890,11 +890,11 @@ private:
     friend class Tx;
     friend class Rows;
     Stmt() = default;
-    error final_close() override;
-    void remove_closed_stmt_locked();
-    std::tuple<ptr<detail::driver_conn>, detail::release_fn, ptr<detail::driver_stmt>, error> conn_stmt(
+    error finalClose() override;
+    void removeClosedStmtLocked();
+    std::tuple<ptr<detail::driver_conn>, detail::release_fn, ptr<detail::driver_stmt>, error> connStmt(
         ptr<context::Context> ctx, detail::conn_reuse_strategy strategy);
-    std::pair<ptr<detail::driver_stmt>, error> prepare_on_conn_locked(ptr<context::Context> ctx,
+    std::pair<ptr<detail::driver_stmt>, error> prepareOnConnLocked(ptr<context::Context> ctx,
                                                                       const ptr<detail::driver_conn>& dc);
 
     ptr<DB> db_;
@@ -907,7 +907,7 @@ private:
     ptr<sql::Stmt> parent_stmt_;
     sync::Mutex mu_;  // guards the following
     bool closed_ = false;
-    std::vector<detail::conn_stmt> css_;
+    std::vector<detail::connStmt> css_;
     uint64 last_num_closed_ = 0;
 };
 
@@ -925,7 +925,7 @@ public:
 
     template <typename... T>
     error Scan(T*... dest) {
-        std::array<detail::dest, sizeof...(T)> ds = {detail::make_dest(dest)...};
+        std::array<detail::dest, sizeof...(T)> ds = {detail::makeDest(dest)...};
         return scan(ds);
     }
     error scan(std::span<detail::dest> dest);
@@ -940,12 +940,12 @@ private:
     friend class Stmt;
     friend class Row;
     Rows() = default;
-    error lasterr_or_err_locked(error err);
-    void init_context_close(ptr<context::Context> ctx, ptr<context::Context> txctx);
-    void await_done(ptr<context::Context> ctx, ptr<context::Context> txctx, ptr<context::Context> closectx);
-    std::pair<bool, bool> next_locked();
-    error scan_locked(std::span<detail::dest> dest);
-    void closemu_runlock_if_held_by_scan();
+    error lasterrOrErrLocked(error err);
+    void initContextClose(ptr<context::Context> ctx, ptr<context::Context> txctx);
+    void awaitDone(ptr<context::Context> ctx, ptr<context::Context> txctx, ptr<context::Context> closectx);
+    std::pair<bool, bool> nextLocked();
+    error scanLocked(std::span<detail::dest> dest);
+    void closemuRunlockIfHeldByScan();
     error close(error err);
 
     ptr<detail::driver_conn> dc_;
@@ -974,7 +974,7 @@ public:
     // there is none.
     template <typename... T>
     error Scan(T*... dest) {
-        std::array<detail::dest, sizeof...(T)> ds = {detail::make_dest(dest)...};
+        std::array<detail::dest, sizeof...(T)> ds = {detail::makeDest(dest)...};
         return scan(ds);
     }
     error scan(std::span<detail::dest> dest);

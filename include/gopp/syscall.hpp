@@ -34,17 +34,17 @@ namespace gopp::syscall {
 // fs::ErrExist, and EACCES and EPERM are fs::ErrPermission; and with
 // another Errno of the same code, such as syscall::ECHILD_. Compare codes
 // with errors::As<syscall::Errno>(err)->Code.
-struct Errno : error_interface {
+struct Errno : errorInterface {
     int Code;
     explicit Errno(int c) : Code(c) {}
     string Error() const override;
     bool Timeout() const noexcept override;
-    bool Is(const error_interface* target) const noexcept override;
+    bool Is(const errorInterface* target) const noexcept override;
 };
 
 // An Errno error for code. The codes Linux defines have one error each,
 // so that err == syscall::ECHILD_ holds for an error made from ECHILD.
-gopp::error errno_error(int code);
+gopp::error errnoError(int code);
 
 // syscall.Cmsghdr: the header of a socket control message.
 struct Cmsghdr {

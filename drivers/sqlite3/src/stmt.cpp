@@ -31,7 +31,7 @@ int bindValue(sqlite3_stmt* s, int n, const driver::Value& value) {
     case 3: return sqlite3_bind_int(s, n, std::get<bool>(value) ? 1 : 0);                      // bool
     case 4: {                                                                                  // []byte
         const slice<byte>& v = std::get<slice<byte>>(value);
-        if (v.is_nil()) return sqlite3_bind_null(s, n);
+        if (v.isNil()) return sqlite3_bind_null(s, n);
         if (v.empty()) return sqlite3_bind_blob64(s, n, placeHolder, 0, SQLITE_TRANSIENT);
         return sqlite3_bind_blob64(s, n, v.data(), v.size(), SQLITE_TRANSIENT);
     }
@@ -54,7 +54,7 @@ const error errStmtConnClosed = errors::New("sqlite statement with already close
 
 }  // namespace
 
-int blocking_step(sqlite3_stmt* s) {
+int blockingStep(sqlite3_stmt* s) {
     return runtime::blocking([&] { return sqlite3_step(s); });
 }
 
@@ -187,9 +187,9 @@ std::pair<ptr<driver::Result>, error> stmt::exec(const ptr<context::Context>& ct
         return {nullptr, err};
     }
     canceler cancel(c_, ctx);
-    if (error err = cancel.ctx_err()) return {nullptr, err};
+    if (error err = cancel.ctxErr()) return {nullptr, err};
     cancel.begin();
-    int rv = blocking_step(s_);
+    int rv = blockingStep(s_);
     cancel.end();
     ::sqlite3* db = c_->db();
     int64 rowid = sqlite3_last_insert_rowid(db);
@@ -199,7 +199,7 @@ std::pair<ptr<driver::Result>, error> stmt::exec(const ptr<context::Context>& ct
         sqlite3_reset(s_);
         sqlite3_clear_bindings(s_);
         // An interrupt for a canceled context reports the context's error.
-        if (error cerr = cancel.ctx_err()) {
+        if (error cerr = cancel.ctxErr()) {
             if (auto* e = errors::As<Error_>(err); e && e->Code == ErrInterrupt) return {nullptr, cerr};
         }
         return {nullptr, err};
@@ -210,7 +210,7 @@ std::pair<ptr<driver::Result>, error> stmt::exec(const ptr<context::Context>& ct
 std::pair<ptr<driver::Rows>, error> stmt::query(const ptr<context::Context>& ctx, std::span<const driver::NamedValue> args) {
     if (closed_ || !c_->db()) return {nullptr, errStmtConnClosed};
     auto r = make_ptr<rows>(ptr<stmt>(this), cls, ctx);
-    if (error err = r->first_step(args)) return {nullptr, err};
+    if (error err = r->firstStep(args)) return {nullptr, err};
     return {r, nullptr};
 }
 
@@ -221,16 +221,16 @@ rows::rows(ptr<stmt> s, bool cls, ptr<context::Context> ctx) : s_(std::move(s)),
 
 rows::~rows() { Close(); }
 
-error rows::first_step(std::span<const driver::NamedValue> args) {
+error rows::firstStep(std::span<const driver::NamedValue> args) {
     sqlite3_stmt* h = s_->handle();
     if (error err = s_->bind(args)) return err;
     cancel_ = std::make_unique<canceler>(s_->connection(), ctx_);
-    if (error err = cancel_->ctx_err()) {
+    if (error err = cancel_->ctxErr()) {
         cancel_.reset();
         return err;
     }
     int rv = step();
-    if (error err = cancel_->ctx_err()) {
+    if (error err = cancel_->ctxErr()) {
         cancel_.reset();
         sqlite3_reset(h);
         sqlite3_clear_bindings(h);
@@ -250,7 +250,7 @@ error rows::first_step(std::span<const driver::NamedValue> args) {
 
 int rows::step() {
     cancel_->begin();
-    int rv = blocking_step(s_->handle());
+    int rv = blockingStep(s_->handle());
     cancel_->end();
     return rv;
 }
@@ -290,10 +290,10 @@ error rows::Next(std::span<driver::Value> dest) {
         pending_ = -1;
         return readStepResult(dest, rv);
     }
-    if (error err = cancel_->ctx_err()) return err;
+    if (error err = cancel_->ctxErr()) return err;
     int rv = step();
     error err = readStepResult(dest, rv);
-    if (error cerr = cancel_->ctx_err()) return cerr;
+    if (error cerr = cancel_->ctxErr()) return cerr;
     return err;
 }
 
@@ -339,7 +339,7 @@ error rows::readStepResult(std::span<driver::Value> dest, int rv) {
             int n = sqlite3_column_bytes(h, col);
             slice<byte> b = slice<byte>::make(0, static_cast<std::size_t>(n));  // not nil: []byte{} for an empty blob
             if (p && n > 0) {
-                b = append_span(std::move(b), std::span<const byte>(static_cast<const byte*>(p), static_cast<std::size_t>(n)));
+                b = appendSpan(std::move(b), std::span<const byte>(static_cast<const byte*>(p), static_cast<std::size_t>(n)));
             }
             dest[i] = std::move(b);
             break;
@@ -390,14 +390,14 @@ string rows::ColumnTypeScanType(int i) {
     std::string t(d ? d : "");
     for (char& c : t) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     auto contains = [&](std::string_view sub) { return t.find(sub) != std::string::npos; };
-    if (contains("INT")) return string::from_static("sql.NullInt64");
-    if (t == "CLOB" || t == "TEXT" || contains("CHAR")) return string::from_static("sql.NullString");
-    if (t == "BLOB") return string::from_static("sql.RawBytes");
-    if (t == "REAL" || t == "FLOAT" || contains("DOUBLE")) return string::from_static("sql.NullFloat64");
-    if (t == "DATE" || t == "DATETIME" || t == "TIMESTAMP") return string::from_static("sql.NullTime");
-    if (t == "NUMERIC" || contains("DECIMAL")) return string::from_static("sql.NullFloat64");
-    if (t == "BOOLEAN") return string::from_static("sql.NullBool");
-    return string::from_static("*interface {}");
+    if (contains("INT")) return string::fromStatic("sql.NullInt64");
+    if (t == "CLOB" || t == "TEXT" || contains("CHAR")) return string::fromStatic("sql.NullString");
+    if (t == "BLOB") return string::fromStatic("sql.RawBytes");
+    if (t == "REAL" || t == "FLOAT" || contains("DOUBLE")) return string::fromStatic("sql.NullFloat64");
+    if (t == "DATE" || t == "DATETIME" || t == "TIMESTAMP") return string::fromStatic("sql.NullTime");
+    if (t == "NUMERIC" || contains("DECIMAL")) return string::fromStatic("sql.NullFloat64");
+    if (t == "BOOLEAN") return string::fromStatic("sql.NullBool");
+    return string::fromStatic("*interface {}");
 }
 
 }  // namespace gopp::sqlite3::internal

@@ -1236,7 +1236,7 @@ TEST(GoNetDNS, StrictErrorsLookupIP) {
             case resolveOK: break;
             case resolveOpError: {
                 auto e = make_ptr<OpError>();
-                e->Op = string::from_static("write");
+                e->Op = string::fromStatic("write");
                 e->Err = errors::New("socket on fire");
                 return std::pair<dm::Message, error>{dm::Message{}, e};
             }

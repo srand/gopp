@@ -68,7 +68,7 @@ constexpr std::size_t name_offset = offsetof(dirent64_header, d_type) + 1;
 // Go's File.readdir: reads up to n entries (all if n <= 0) in the given
 // form. With n > 0, no entries at the end of the directory is io::EOF_.
 template <typename Out, typename Add>
-static error readdir(File& f, detail::file_impl& fi, int n, Out& out, Add&& add) {
+static error readdir(File& f, detail::fileImpl& fi, int n, Out& out, Add&& add) {
     std::lock_guard l(fi.dir_mu);
     if (!fi.dir) fi.dir = std::make_unique<detail::dir_info>();
     detail::dir_info& d = *fi.dir;
@@ -153,10 +153,10 @@ std::pair<std::vector<ptr<FileInfo>>, error> File::Readdir(int n) {
 std::pair<std::vector<ptr<DirEntry>>, error> ReadDir(std::string_view name) {
     // Go's openDir: O_DIRECTORY, never polled.
     std::string p;
-    if (!detail::cpath(name, p)) return {{}, detail::path_error("open", name, detail::errno_error(EINVAL))};
+    if (!detail::cpath(name, p)) return {{}, detail::path_error("open", name, detail::errnoError(EINVAL))};
     int e;
-    int fd = detail::open_at(AT_FDCWD, p.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY, 0, &e);
-    if (e) return {{}, detail::path_error("open", name, detail::errno_error(e))};
+    int fd = detail::openAt(AT_FDCWD, p.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY, 0, &e);
+    if (e) return {{}, detail::path_error("open", name, detail::errnoError(e))};
     ptr<File> f = detail::new_file(fd, string(name), detail::file_kind::no_poll, false);
     auto [dirs, err] = f->ReadDir(-1);
     f->Close();

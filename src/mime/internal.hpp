@@ -22,18 +22,18 @@ void set_mime_types(const type_map& lower_ext, const type_map& mix_ext);
 error set_extension_type(std::string_view extension, std::string_view mime_type);
 
 // Loads a shared MIME-info globs2 file, or a mime.types file.
-error load_mime_globs_file(std::string_view filename);
+error loadMimeGlobsFile(std::string_view filename);
 void load_mime_file(std::string_view filename);
 
 // Makes the next lookup initialize the tables again, with fn instead of
 // the built-in and system types if fn isn't empty (setMimeInit).
 void set_mime_init(std::function<void()> fn);
 // Initializes the tables if they aren't (once.Do(initMime)).
-void ensure_init();
+void ensureInit();
 
 // The globs2 files and mime.types files that initialization reads; returns
 // the earlier lists.
-std::pair<std::vector<string>, std::vector<string>> set_system_files(std::vector<string> globs,
+std::pair<std::vector<string>, std::vector<string>> setSystemFiles(std::vector<string> globs,
                                                                      std::vector<string> type_files);
 
 // mediatype.go's helpers, for TestConsumeToken and friends.

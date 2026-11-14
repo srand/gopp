@@ -11,7 +11,7 @@ namespace gopp::slog {
 namespace {
 
 // The level of the bridge between log and slog (SetLogLoggerLevel).
-const ptr<LevelVar>& log_logger_level() {
+const ptr<LevelVar>& logLoggerLevel() {
     static const ptr<LevelVar> v = make_ptr<LevelVar>();
     return v;
 }
@@ -23,14 +23,14 @@ struct default_handler final : Handler {
     default_handler(std::shared_ptr<const detail::common_handler> ch, output_func output) noexcept
         : ch(std::move(ch)), output(std::move(output)) {}
 
-    bool Enabled(const ptr<context::Context>&, slog::Level l) override { return l >= log_logger_level()->Level(); }
+    bool Enabled(const ptr<context::Context>&, slog::Level l) override { return l >= logLoggerLevel()->Level(); }
 
     error Handle(const ptr<context::Context>&, const Record& r) override {
         std::string buf(r.Level.String().view());
         buf.push_back(' ');
         buf += r.Message.view();
         detail::handle_state state(ch.get(), &buf, " ");
-        state.append_non_builtins(r);
+        state.appendNonBuiltins(r);
         return output(r.PC, buf);
     }
 
@@ -38,7 +38,7 @@ struct default_handler final : Handler {
         return make_ptr<default_handler>(ch->with_attrs(as), output);
     }
     ptr<Handler> WithGroup(std::string_view name) override {
-        return make_ptr<default_handler>(ch->with_group(name), output);
+        return make_ptr<default_handler>(ch->withGroup(name), output);
     }
 
     std::shared_ptr<const detail::common_handler> ch;
@@ -57,7 +57,7 @@ struct handler_writer final : log::detail::located_writer {
         slog::Level l = level.Level();
         const auto& ctx = context::Background();
         if (!h->Enabled(ctx, l)) return {0, nullptr};
-        std::string_view s = as_string_view(p);
+        std::string_view s = asStringView(p);
         auto orig_len = static_cast<isize>(s.size());  // report that the whole buf was written
         if (s.ends_with('\n')) s.remove_suffix(1);
         Record r(time::Now(), l, string(s), capture_pc ? loc : std::source_location());
@@ -74,8 +74,8 @@ struct default_logger {
     ptr<Logger> logger;
 };
 
-default_logger& default_state() {
-    static default_logger d{{}, New(detail::new_default_handler([](const std::source_location& loc, std::string_view s) {
+default_logger& defaultState() {
+    static default_logger d{{}, New(detail::newDefaultHandler([](const std::source_location& loc, std::string_view s) {
                                    return log::Default()->output(loc, s);
                                }))};
     return d;
@@ -85,7 +85,7 @@ default_logger& default_state() {
 
 namespace detail {
 
-ptr<Handler> new_default_handler(output_func output) {
+ptr<Handler> newDefaultHandler(output_func output) {
     return make_ptr<default_handler>(std::make_shared<common_handler>(), std::move(output));
 }
 
@@ -120,13 +120,13 @@ const ptr<context::Context>& Logger::background() {
 ptr<Logger> New(ptr<Handler> h) { return make_ptr<Logger>(std::move(h)); }
 
 ptr<Logger> Default() {
-    auto& d = default_state();
+    auto& d = defaultState();
     std::lock_guard lock(d.mu);
     return d.logger;
 }
 
 void SetDefault(ptr<Logger> l) {
-    auto& d = default_state();
+    auto& d = defaultState();
     {
         std::lock_guard lock(d.mu);
         d.logger = l;
@@ -135,14 +135,14 @@ void SetDefault(ptr<Logger> l) {
     // sending log's lines to it would loop.
     if (!dynamic_cast<default_handler*>(l->Handler().get())) {
         bool capture_pc = (log::Flags() & (log::Lshortfile | log::Llongfile)) != 0;
-        log::SetOutput(make_ptr<handler_writer>(l->Handler(), leveler(log_logger_level()), capture_pc));
+        log::SetOutput(make_ptr<handler_writer>(l->Handler(), leveler(logLoggerLevel()), capture_pc));
         log::SetFlags(0);  // just the message: no time or location
     }
 }
 
 Level SetLogLoggerLevel(Level level) {
-    Level old = log_logger_level()->Level();
-    log_logger_level()->Set(level);
+    Level old = logLoggerLevel()->Level();
+    logLoggerLevel()->Set(level);
     return old;
 }
 

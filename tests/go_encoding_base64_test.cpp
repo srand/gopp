@@ -98,13 +98,13 @@ const testpair bigtest = {
     "VHdhcyBicmlsbGlnLCBhbmQgdGhlIHNsaXRoeSB0b3Zlcw==",
 };
 
-std::string str(std::span<const byte> b) { return std::string(as_string_view(b)); }
+std::string str(std::span<const byte> b) { return std::string(asStringView(b)); }
 
 TEST(GoBase64, Encode) {
     for (const auto& p : pairs) {
         for (const auto& tt : encodingTests) {
             EXPECT_EQ(tt.enc.EncodeToString(as_bytes(p.decoded)), tt.conv(p.encoded)) << "Encode(" << p.decoded << ")";
-            auto dst = tt.enc.AppendEncode(to_bytes("lead"), as_bytes(p.decoded));
+            auto dst = tt.enc.AppendEncode(toBytes("lead"), as_bytes(p.decoded));
             EXPECT_EQ(str(dst), "lead" + tt.conv(p.encoded)) << "AppendEncode(\"lead\", " << p.decoded << ")";
         }
     }
@@ -150,7 +150,7 @@ TEST(GoBase64, Decode) {
             EXPECT_FALSE(err2) << "DecodeString(" << encoded << ") = error " << err2;
             EXPECT_EQ(str(dbuf2), p.decoded) << "DecodeString(" << encoded << ")";
 
-            auto [dst, err3] = tt.enc.AppendDecode(to_bytes("lead"), as_bytes(encoded));
+            auto [dst, err3] = tt.enc.AppendDecode(toBytes("lead"), as_bytes(encoded));
             EXPECT_FALSE(err3) << "AppendDecode(" << p.encoded << ") = error " << err3;
             EXPECT_EQ(str(dst), "lead" + p.decoded) << "AppendDecode(\"lead\", " << p.encoded << ")";
 
@@ -320,7 +320,7 @@ struct faultInjectReader : io::Reader {
 
 // tests that we don't ignore errors from our underlying reader
 TEST(GoBase64, DecoderIssue3577) {
-    auto next = make_chan<nextRead>(10);
+    auto next = makeChan<nextRead>(10);
     auto wantErr = errors::New("my error");
     next.send({5, nullptr});
     next.send({10, wantErr});
@@ -328,7 +328,7 @@ TEST(GoBase64, DecoderIssue3577) {
     auto d = base64::NewDecoder(base64::StdEncoding,
                                 make_ptr<faultInjectReader>("VHdhcyBicmlsbGlnLCBhbmQgdGhlIHNsaXRoeSB0b3Zlcw==",  // twas brillig...
                                                             next));
-    auto errc = make_chan<error>(1);
+    auto errc = makeChan<error>(1);
     go([d, errc] { errc.send(io::ReadAll(*d).second); });
     select(recv(errc, [&](error err) { EXPECT_EQ(err, wantErr) << "got error " << err << "; want " << wantErr; }),
            recv(time::After(5 * time::Second), [] { ADD_FAILURE() << "timeout; Decoder blocked without returning an error"; }));

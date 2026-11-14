@@ -22,7 +22,7 @@ namespace {
 // Runs this test program's test `name` as a child with the extra
 // environment variables, its descriptors 1, 2 and 3 set to the given ones
 // (-1 keeps the descriptor; for 0, stdin), and returns its wait status.
-int run_child(const std::string& name, const std::vector<std::string>& env, int in, int out, int err, int fd3) {
+int runChild(const std::string& name, const std::vector<std::string>& env, int in, int out, int err, int fd3) {
     std::string filter = "--gtest_filter=" + name;
     std::vector<std::string> envs;
     for (char** e = environ; *e; e++) envs.emplace_back(*e);
@@ -49,7 +49,7 @@ int run_child(const std::string& name, const std::vector<std::string>& env, int 
     return status;
 }
 
-const char* test_full_name() {
+const char* testFullName() {
     static std::string s;
     auto* t = testing::UnitTest::GetInstance()->current_test_info();
     s = std::string(t->test_suite_name()) + "." + t->name();
@@ -70,7 +70,7 @@ TEST(GoOs, EPIPE) {
         error e = werr;
         if (auto* pe = dynamic_cast<const fs::PathError*>(e.get())) e = pe->Err;
         if (auto* se = dynamic_cast<const os::SyscallError*>(e.get())) e = se->Err;
-        EXPECT_TRUE(is_errno(e, EPIPE)) << "iteration " << i << ": got " << e << ", expected EPIPE";
+        EXPECT_TRUE(isErrno(e, EPIPE)) << "iteration " << i << ": got " << e << ", expected EPIPE";
     }
     w->Close();
 }
@@ -78,7 +78,7 @@ TEST(GoOs, EPIPE) {
 TEST(GoOs, StdPipe) {
     if (const char* helper = std::getenv("GO_TEST_STD_PIPE_HELPER")) {
         if (std::getenv("GO_TEST_STD_PIPE_HELPER_SIGNAL")) {
-            auto c = make_chan<os::Signal>(1);
+            auto c = makeChan<os::Signal>(1);
             os::signal::Notify(c, syscall::SIGPIPE_);
         }
         switch (std::atoi(helper)) {
@@ -105,7 +105,7 @@ TEST(GoOs, StdPipe) {
         for (int dest = 1; dest < 4; dest++) {
             std::vector<std::string> env = {"GO_TEST_STD_PIPE_HELPER=" + std::to_string(dest)};
             if (sig) env.push_back("GO_TEST_STD_PIPE_HELPER_SIGNAL=1");
-            int ws = run_child(test_full_name(), env, -1, wfd, wfd, wfd);
+            int ws = runChild(testFullName(), env, -1, wfd, wfd, wfd);
             if (WIFEXITED(ws) && WEXITSTATUS(ws) == 0) {
                 if (!sig && dest < 3) {
                     ADD_FAILURE() << "unexpected success of write to closed pipe " << dest << " sig " << sig << " in child";
@@ -123,7 +123,7 @@ TEST(GoOs, StdPipe) {
     // Test redirecting stdout but not stderr. Issue 40076.
     auto [er, ew, eerr] = os::Pipe();
     ASSERT_FALSE(eerr) << eerr;
-    int ws = run_child(test_full_name(), {"GO_TEST_STD_PIPE_HELPER=1"}, -1, wfd, static_cast<int>(ew->Fd()), -1);
+    int ws = runChild(testFullName(), {"GO_TEST_STD_PIPE_HELPER=1"}, -1, wfd, static_cast<int>(ew->Fd()), -1);
     ew->Close();
     std::string output = read_all(*er);
     er->Close();
@@ -137,7 +137,7 @@ TEST(GoOs, StdPipe) {
 
 namespace {
 
-void test_closed_pipe_race(bool read) {
+void testClosedPipeRace(bool read) {
     // This test should give a full second to close the pipe, but a write
     // to a pipe whose reader isn't reading only blocks once the pipe is
     // full.
@@ -147,7 +147,7 @@ void test_closed_pipe_race(bool read) {
         // reader.
         limit = 131073;
         auto [data, err] = os::ReadFile("/proc/sys/fs/pipe-max-size");
-        if (!err) limit = std::stoul(std::string(as_string_view(data))) + 1;
+        if (!err) limit = std::stoul(std::string(asStringView(data))) + 1;
     }
 
     auto [r, w, err] = os::Pipe();
@@ -180,9 +180,9 @@ void test_closed_pipe_race(bool read) {
 
 }  // namespace
 
-TEST(GoOs, ClosedPipeRaceRead) { test_closed_pipe_race(true); }
+TEST(GoOs, ClosedPipeRaceRead) { testClosedPipeRace(true); }
 
-TEST(GoOs, ClosedPipeRaceWrite) { test_closed_pipe_race(false); }
+TEST(GoOs, ClosedPipeRaceWrite) { testClosedPipeRace(false); }
 
 // Issue 20915: Reading on nonblocking fd should not return "waiting for
 // unsupported file type." Currently it returns EAGAIN; it is possible that
@@ -197,7 +197,7 @@ TEST(GoOs, ReadNonblockingFd) {
         ::fcntl(fd, F_SETFL, fl);
         if (err) {
             auto* perr = dynamic_cast<const fs::PathError*>(err.get());
-            if (!perr || !is_errno(perr->Err, EAGAIN)) {
+            if (!perr || !isErrno(perr->Err, EAGAIN)) {
                 std::fprintf(stderr, "read on nonblocking stdin got %s, should have gotten EAGAIN\n", err.Error().view().data());
                 os::Exit(1);
             }
@@ -206,7 +206,7 @@ TEST(GoOs, ReadNonblockingFd) {
     }
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err) << err;
-    int ws = run_child(test_full_name(), {"GO_WANT_READ_NONBLOCKING_FD=1"}, static_cast<int>(r->Fd()), -1, -1, -1);
+    int ws = runChild(testFullName(), {"GO_WANT_READ_NONBLOCKING_FD=1"}, static_cast<int>(r->Fd()), -1, -1, -1);
     EXPECT_TRUE(WIFEXITED(ws) && WEXITSTATUS(ws) == 0) << "child process failed: " << ws;
     r->Close();
     w->Close();
@@ -215,9 +215,9 @@ TEST(GoOs, ReadNonblockingFd) {
 namespace {
 
 // Test that we don't let a blocking read prevent a close.
-void test_close_with_blocking_read(const ptr<File>& r, const ptr<File>& w) {
-    auto entering_read = make_chan<empty>();
-    auto done = make_chan<empty>();
+void testCloseWithBlockingRead(const ptr<File>& r, const ptr<File>& w) {
+    auto entering_read = makeChan<empty>();
+    auto done = makeChan<empty>();
     go([&] {
         byte buf[1];
         entering_read.close();
@@ -248,7 +248,7 @@ TEST(GoOs, CloseWithBlockingReadByNewFile) {
     int p[2];
     ASSERT_EQ(::pipe(p), 0);
     // os.NewFile returns a blocking mode file.
-    test_close_with_blocking_read(os::NewFile(static_cast<uintptr>(p[0]), "reader"),
+    testCloseWithBlockingRead(os::NewFile(static_cast<uintptr>(p[0]), "reader"),
                                   os::NewFile(static_cast<uintptr>(p[1]), "writer"));
 }
 
@@ -257,7 +257,7 @@ TEST(GoOs, CloseWithBlockingReadByFd) {
     ASSERT_FALSE(err) << err;
     // Calling Fd will put the file into blocking mode.
     (void)r->Fd();
-    test_close_with_blocking_read(r, w);
+    testCloseWithBlockingRead(r, w);
 }
 
 // Test that we don't get a spurious EOF when the read waits.
@@ -265,8 +265,8 @@ TEST(GoOs, PipeEOF) {
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err) << err;
     time::Duration park_delay = 10 * time::Millisecond;
-    auto writer_done = make_chan<empty>();
-    auto write = make_chan<int>(1);
+    auto writer_done = makeChan<empty>();
+    auto write = makeChan<int>(1);
     go([&] {
         for (;;) {
             auto [i, ok] = write.recv2();
@@ -320,7 +320,7 @@ TEST(GoOs, FdReadRace) {
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err) << err;
     constexpr int count = 10;
-    auto c = make_chan<bool>(1);
+    auto c = makeChan<bool>(1);
     sync::WaitGroup wg;
     wg.Add(1);
     go([&] {
@@ -355,7 +355,7 @@ TEST(GoOs, FdReadRace) {
 
 namespace {
 
-void new_file_test(bool blocking) {
+void newFileTest(bool blocking) {
     int p[2];
     ASSERT_EQ(::pipe(p), 0) << "pipe";
     if (!blocking) {
@@ -390,9 +390,9 @@ void new_file_test(bool blocking) {
 
 }  // namespace
 
-TEST(GoOs, NewFileBlock) { new_file_test(true); }
+TEST(GoOs, NewFileBlock) { newFileTest(true); }
 
-TEST(GoOs, NewFileNonBlock) { new_file_test(false); }
+TEST(GoOs, NewFileNonBlock) { newFileTest(false); }
 
 TEST(GoOs, NewFileInvalid) {
     const uintptr neg_one = ~uintptr(0);

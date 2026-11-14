@@ -38,7 +38,7 @@ namespace signal = os::signal;
 // Standard output, shared by the jobs: one line at a time.
 sync::Mutex stdout_mu;
 
-void print_line(std::string_view line) {
+void printLine(std::string_view line) {
     std::lock_guard lock(stdout_mu);
     io::WriteString(os::Stdout, line);
 }
@@ -54,7 +54,7 @@ public:
         buf_.append(reinterpret_cast<const char*>(p.data()), p.size());
         std::size_t start = 0;
         for (std::size_t nl; (nl = buf_.find('\n', start)) != buf_.npos; start = nl + 1) {
-            print_line(prefix_ + buf_.substr(start, nl + 1 - start));
+            printLine(prefix_ + buf_.substr(start, nl + 1 - start));
         }
         buf_.erase(0, start);
         return {static_cast<isize>(p.size()), nullptr};
@@ -62,7 +62,7 @@ public:
 
     // Prints a last line without a newline.
     void Flush() {
-        if (!buf_.empty()) print_line(prefix_ + buf_ + "\n");
+        if (!buf_.empty()) printLine(prefix_ + buf_ + "\n");
         buf_.clear();
     }
 
@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
     // Ctrl-C cancels ctx, and with it every command.
     auto [ctx, stop] = signal::NotifyContext(context::Background(), os::Interrupt, syscall::SIGTERM_);
 
-    auto queue = make_chan<job>(todo.size());
+    auto queue = makeChan<job>(todo.size());
     for (job& j : todo) queue.send(std::move(j));
     queue.close();
 
@@ -126,9 +126,9 @@ int main(int argc, char** argv) {
                 if (run_err) {
                     failed++;
                     string why = run_err.Error();
-                    if (job_ctx->Err() == context::DeadlineExceeded) why = string::from_static("timed out");
+                    if (job_ctx->Err() == context::DeadlineExceeded) why = string::fromStatic("timed out");
                     else if (auto* exit = errors::As<exec::ExitError>(run_err)) why = exit->String();
-                    print_line(fmt::Sprint("[{}] {} ({})\n", j.n, why, time::Since(job_start)).view());
+                    printLine(fmt::Sprint("[{}] {} ({})\n", j.n, why, time::Since(job_start)).view());
                 }
             }
         });

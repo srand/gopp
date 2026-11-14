@@ -42,13 +42,13 @@ std::string demangle(const char* name) {
 
 namespace detail {
 
-void object_created(const object* o) noexcept {
+void objectCreated(const object* o) noexcept {
     registry& r = reg();
     std::lock_guard l(r.mu);
     r.live.emplace(o, r.created++);
 }
 
-void object_destroyed(const object* o) noexcept {
+void objectDestroyed(const object* o) noexcept {
     registry& r = reg();
     std::lock_guard l(r.mu);
     r.live.erase(o);
@@ -56,19 +56,19 @@ void object_destroyed(const object* o) noexcept {
 
 }  // namespace detail
 
-long objects_in_use() noexcept {
+long objectsInUse() noexcept {
     registry& r = reg();
     std::lock_guard l(r.mu);
     return static_cast<long>(r.live.size());
 }
 
-unsigned long objects_created() noexcept {
+unsigned long objectsCreated() noexcept {
     registry& r = reg();
     std::lock_guard l(r.mu);
     return r.created;
 }
 
-std::vector<std::string> live_objects_since(unsigned long since) {
+std::vector<std::string> liveObjectsSince(unsigned long since) {
     std::map<std::string, int> types;
     {
         registry& r = reg();
@@ -83,13 +83,13 @@ std::vector<std::string> live_objects_since(unsigned long since) {
 }
 #endif
 
-std::span<const error> error_interface::UnwrapList() const noexcept { return {}; }
+std::span<const error> errorInterface::UnwrapList() const noexcept { return {}; }
 
 namespace errors {
 
 namespace detail {
 
-const error_interface* find(const error_interface* e, bool (*match)(const error_interface*, void*), void* ctx) noexcept {
+const errorInterface* find(const errorInterface* e, bool (*match)(const errorInterface*, void*), void* ctx) noexcept {
     for (; e; e = e->Unwrap()) {
         if (match(e, ctx)) return e;
         for (const error& u : e->UnwrapList()) {
@@ -104,7 +104,7 @@ const error_interface* find(const error_interface* e, bool (*match)(const error_
 namespace {
 
 // Go's joinError.
-struct join_error final : error_interface {
+struct join_error final : errorInterface {
     std::vector<error> errs;
     string Error() const override {
         std::string s;
@@ -117,7 +117,7 @@ struct join_error final : error_interface {
     std::span<const error> UnwrapList() const noexcept override { return errs; }
 };
 
-struct error_string final : error_interface {
+struct error_string final : errorInterface {
     explicit error_string(string s) : s(std::move(s)) {}
     string Error() const override { return s; }
     string s;
@@ -129,14 +129,14 @@ error New(string text) { return error(make_ptr<error_string>(std::move(text))); 
 
 bool Is(const error& err, const error& target) noexcept {
     if (!err || !target) return err == target;
-    const error_interface* t = target.get();
+    const errorInterface* t = target.get();
     return detail::find(
                err.get(),
-               [](const error_interface* e, void* t) {
-                   auto* target = static_cast<const error_interface*>(t);
+               [](const errorInterface* e, void* t) {
+                   auto* target = static_cast<const errorInterface*>(t);
                    return e == target || e->Is(target);
                },
-               const_cast<error_interface*>(t)) != nullptr;
+               const_cast<errorInterface*>(t)) != nullptr;
 }
 
 error Join(std::span<const error> errs) {
@@ -152,8 +152,8 @@ error Join(std::initializer_list<error> errs) { return Join(std::span<const erro
 
 error Unwrap(const error& err) noexcept {
     if (!err) return nullptr;
-    const error_interface* u = err->Unwrap();
-    return u ? error(ptr<const error_interface>(u)) : error();
+    const errorInterface* u = err->Unwrap();
+    return u ? error(ptr<const errorInterface>(u)) : error();
 }
 
 }  // namespace errors

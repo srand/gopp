@@ -242,7 +242,7 @@ std::pair<ptr<fs::File>, error> MapFS::Open(std::string_view name) {
 std::pair<std::string, bool> MapFS::resolveSymlinks(std::string_view name) const {
     // Fast path: if a symlink is in the map, resolve it.
     if (auto file = find(name); file && file->f.Mode.Type() == fs::ModeSymlink) {
-        std::string_view target = as_string_view(file->f.Data);
+        std::string_view target = asStringView(file->f.Data);
         if (path::IsAbs(target)) return {{}, false};
         return resolveSymlinks(path::Join(path::Dir(name).view(), target).view());
     }
@@ -259,7 +259,7 @@ std::pair<std::string, bool> MapFS::resolveSymlinks(std::string_view name) const
             i += j;
         }
         if (auto file = find(dir); file && file->f.Mode.Type() == fs::ModeSymlink) {
-            std::string_view target = as_string_view(file->f.Data);
+            std::string_view target = asStringView(file->f.Data);
             if (path::IsAbs(target)) return {{}, false};
             std::string next(path::Join(path::Dir(dir).view(), target).view());
             next += name.substr(i);
@@ -836,9 +836,9 @@ public:
     }
 
     void checkFileRead(const std::string& file, std::string_view desc, const slice<byte>& data1, const slice<byte>& data2) {
-        if (as_string_view(data1) != as_string_view(data2)) {
-            errorf("{}: {}: different data returned\n\t{}\n\t{}", file, desc, strconv::Quote(as_string_view(data1)),
-                   strconv::Quote(as_string_view(data2)));
+        if (asStringView(data1) != asStringView(data2)) {
+            errorf("{}: {}: different data returned\n\t{}\n\t{}", file, desc, strconv::Quote(asStringView(data1)),
+                   strconv::Quote(asStringView(data2)));
         }
     }
 

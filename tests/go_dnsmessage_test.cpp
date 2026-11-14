@@ -41,7 +41,7 @@ std::string bodyBytes(const ptr<ResourceBody>& b) {
     if (!b) return "<nil>";
     slice<byte> msg;
     if (error err = b->pack(msg, nullptr, 0)) return "error: " + std::string(err.Error().view());
-    return std::to_string(b->realType()) + ":" + std::string(as_string_view(msg));
+    return std::to_string(b->realType()) + ":" + std::string(asStringView(msg));
 }
 
 bool headerEqual(const ResourceHeader& a, const ResourceHeader& b) {
@@ -444,7 +444,7 @@ TEST(GoDNSMessage, Builder) {
     }
     auto [got, ferr] = b.Finish();
     ASSERT_FALSE(ferr);
-    EXPECT_EQ(as_string_view(got), as_string_view(want));
+    EXPECT_EQ(asStringView(got), asStringView(want));
 }
 
 TEST(GoDNSMessage, ResourcePack) {
@@ -515,8 +515,8 @@ TEST(GoDNSMessage, OptionPackUnpack) {
         auto [w, err] = tt.m.Pack();
         ASSERT_FALSE(err) << tt.name << ": " << err;
         ASSERT_GE(w.size(), tt.w.size());
-        std::string_view tail = as_string_view(w).substr(w.size() - tt.w.size());
-        EXPECT_EQ(tail, as_string_view(tt.w)) << tt.name;
+        std::string_view tail = asStringView(w).substr(w.size() - tt.w.size());
+        EXPECT_EQ(tail, asStringView(tt.w)) << tt.name;
         Message m;
         ASSERT_FALSE(m.Unpack(w)) << tt.name;
         EXPECT_TRUE(resourcesEqual(m.Additionals, tt.m.Additionals)) << tt.name;
@@ -628,7 +628,7 @@ TEST(GoDNSMessage, BuilderNameCompressionWithNonZeroedName) {
         2, 'g', 'o', 3, 'd', 'e', 'v', 0, 0, 0, 0, 0,  // question 1
         0xC0, 12, 0, 0, 0, 0,                            // question 2
     };
-    EXPECT_EQ(as_string_view(msg), as_string_view(expect));
+    EXPECT_EQ(asStringView(msg), asStringView(expect));
 }
 
 TEST(GoDNSMessage, BuilderCompressionInAppendMode) {
@@ -649,5 +649,5 @@ TEST(GoDNSMessage, BuilderCompressionInAppendMode) {
         2, 'g', 'o', 3, 'd', 'e', 'v', 0, 0, 0, 0, 0,  // question 1
         0xC0, 12, 0, 0, 0, 0,                            // question 2
     };
-    EXPECT_EQ(as_string_view(msg.Sub(maxPtr)), as_string_view(expect));
+    EXPECT_EQ(asStringView(msg.Sub(maxPtr)), asStringView(expect));
 }

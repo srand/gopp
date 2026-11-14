@@ -24,7 +24,7 @@ namespace gopp::runtime {
 // ---------------------------------------------------------------------------
 // Architecture
 
-inline void cpu_relax() noexcept {
+inline void cpuRelax() noexcept {
 #if defined(__x86_64__) || defined(__i386__)
     __builtin_ia32_pause();
 #elif defined(__aarch64__) || defined(__arm__)
@@ -47,7 +47,7 @@ public:
     void lock() noexcept {
         uint32_t c = 0;
         if (s_.compare_exchange_strong(c, 1, std::memory_order_acquire)) return;
-        lock_slow();
+        lockSlow();
     }
 
     void unlock() noexcept {
@@ -55,7 +55,7 @@ public:
     }
 
 private:
-    void lock_slow() noexcept;
+    void lockSlow() noexcept;
     std::atomic<uint32_t> s_{0};  // 0 unlocked, 1 locked, 2 locked with waiters
 };
 
@@ -88,7 +88,7 @@ enum class gstatus : uint32_t { idle, runnable, running, waiting, dead };
 enum class waitreason : uint8_t {
     none,
     chan_receive,
-    chan_send,
+    chanSend,
     chan_receive_nil,
     chan_send_nil,
     select,
@@ -132,7 +132,7 @@ struct G {
 
     // Nonzero while the fiber runs runtime code that uses its M's P: the
     // SIGURG handler then leaves the P alone. Only the thread running the
-    // fiber touches it; see nopreempt_guard in proc.cpp. It is kept on the
+    // fiber touches it; see nopreemptGuard in proc.cpp. It is kept on the
     // G, not the M, because a fiber parks inside it and finishes it on
     // whichever M resumes it.
     uint32_t nopreempt = 0;
@@ -192,7 +192,7 @@ struct sched_stats {
 #undef GOPP_FIELD
 };
 
-inline void stat_inc(std::atomic<uint64_t>& c, uint64_t n = 1) noexcept {
+inline void statInc(std::atomic<uint64_t>& c, uint64_t n = 1) noexcept {
     c.store(c.load(std::memory_order_relaxed) + n, std::memory_order_relaxed);  // single writer
 }
 
@@ -257,7 +257,7 @@ struct glist {
 M* getm() noexcept;
 
 // Counts on the calling M's stats, if it is an M.
-#define GOPP_STAT(field) do { if (::gopp::runtime::M* m_ = ::gopp::runtime::getm()) ::gopp::runtime::stat_inc(m_->stats.field); } while (0)
+#define GOPP_STAT(field) do { if (::gopp::runtime::M* m_ = ::gopp::runtime::getm()) ::gopp::runtime::statInc(m_->stats.field); } while (0)
 
 // The calling fiber; a pseudo-G on foreign threads; nullptr on an M's
 // scheduler context.
@@ -271,7 +271,7 @@ G* getg() noexcept;
 void park(unlock_fn unlockf, void* arg, waitreason reason) noexcept;
 
 // Parks the calling fiber after unlocking l.
-void park_unlock(lock_t* l, waitreason reason) noexcept;
+void parkUnlock(lock_t* l, waitreason reason) noexcept;
 
 // Makes a parked fiber runnable.
 void ready(G* gp) noexcept;
@@ -281,11 +281,11 @@ void injectglist(glist& list) noexcept;
 
 uint32_t fastrand() noexcept;
 
-void ensure_init() noexcept;
+void ensureInit() noexcept;
 
 // Whether the calling fiber's P has other fibers to run: in its run queue,
 // or the global one. False outside fibers.
-bool has_runnable() noexcept;
+bool hasRunnable() noexcept;
 
 // ---------------------------------------------------------------------------
 // Timers (timer.cpp)
@@ -300,41 +300,41 @@ struct timer {
 };
 
 // Schedules t to fire at t->when (nanotime). t must not be scheduled.
-void add_timer(timer* t) noexcept;
+void addTimer(timer* t) noexcept;
 // Unschedules t; returns whether it was scheduled.
-bool del_timer(timer* t) noexcept;
+bool delTimer(timer* t) noexcept;
 // Reschedules t at when; returns whether it was scheduled before.
-bool mod_timer(timer* t, int64_t when) noexcept;
+bool modTimer(timer* t, int64_t when) noexcept;
 // Runs the timers that are due; returns the time of the next, or INT64_MAX.
-int64_t run_timers(int64_t now) noexcept;
-int64_t next_timer() noexcept;
+int64_t runTimers(int64_t now) noexcept;
+int64_t nextTimer() noexcept;
 // Makes sure an M notices a timer that fires at when (proc.cpp).
-void wake_netpoller(int64_t when) noexcept;
+void wakeNetpoller(int64_t when) noexcept;
 // Makes sure an M runs the network poller, for threads that aren't Ms
 // waiting on it (proc.cpp).
-void ensure_poller() noexcept;
+void ensurePoller() noexcept;
 
 // ---------------------------------------------------------------------------
 // Network poller (netpoll.cpp)
 
-void netpoll_init() noexcept;
+void netpollInit() noexcept;
 // Waits up to delay ns (-1: forever, 0: don't block) for I/O readiness and
 // returns the fibers that became runnable.
 glist netpoll(int64_t delay) noexcept;
 // Interrupts a blocked netpoll.
-void netpoll_break() noexcept;
+void netpollBreak() noexcept;
 // Adds an io_uring ring's descriptor to the poller: when it has
 // completions, netpoll takes them with uring_reap(ring). Returns false if
 // epoll refuses.
-bool netpoll_add_uring(int fd, void* ring) noexcept;
+bool netpollAddUring(int fd, void* ring) noexcept;
 // Counts fibers and threads parked for I/O, besides those on poll_descs:
 // while there are any, an M polls.
-void netpoll_waiter_add(int32_t delta) noexcept;
+void netpollWaiterAdd(int32_t delta) noexcept;
 // Takes a ring's completions; the fibers to run go to list (uring.cpp).
-void uring_reap(void* ring, glist& list) noexcept;
-bool netpoll_any_waiters() noexcept;
+void uringReap(void* ring, glist& list) noexcept;
+bool netpollAnyWaiters() noexcept;
 // The number of fibers and threads parked in the poller, for schedtrace.
-int32_t netpoll_waiters() noexcept;
+int32_t netpollWaiters() noexcept;
 
 // ---------------------------------------------------------------------------
 // Signals (signal.cpp)
@@ -347,7 +347,7 @@ void initsig() noexcept;
 
 // The runtime's part of the SIGURG handler: preemption (proc.cpp).
 // Async-signal-safe.
-void preempt_signal() noexcept;
+void preemptSignal() noexcept;
 
 // Go's sigpipe: after a write to standard output or error failed with
 // EPIPE, dies of SIGPIPE, unless SIGPIPE is ignored or os/signal's Notify
@@ -358,13 +358,13 @@ void sigpipe() noexcept;
 // installs the runtime's handler, which queues the signal for
 // signal_recv; disable restores the signal's earlier disposition; ignore
 // sets SIG_IGN.
-void signal_enable(uint32_t sig) noexcept;
-void signal_disable(uint32_t sig) noexcept;
-void signal_ignore(uint32_t sig) noexcept;
-bool signal_ignored(uint32_t sig) noexcept;
+void signalEnable(uint32_t sig) noexcept;
+void signalDisable(uint32_t sig) noexcept;
+void signalIgnore(uint32_t sig) noexcept;
+bool signalIgnored(uint32_t sig) noexcept;
 // Parks until a signal enabled by signal_enable arrives, and returns it.
 // Only os/signal's loop fiber calls it.
-uint32_t signal_recv() noexcept;
+uint32_t signalRecv() noexcept;
 // Returns once the signals that arrived so far have been delivered by
 // os/signal's loop (Go's signalWaitUntilIdle).
 void signal_wait_until_idle() noexcept;
@@ -376,11 +376,11 @@ void signal_wait_until_idle() noexcept;
 G* allgs() noexcept;
 // The calling fiber, or the pseudo-G of a foreign thread if it has one;
 // unlike getg it never creates one, so signal handlers can call it.
-G* getg_if_any() noexcept;
+G* getgIfAny() noexcept;
 // The entry function of fibers, where their stacks start (proc.cpp).
-uintptr_t gentry_pc() noexcept;
+uintptr_t gentryPc() noexcept;
 // Whether t is the main thread (proc.cpp).
-bool is_main_thread(pid_t t) noexcept;
+bool isMainThread(pid_t t) noexcept;
 
 // Prints "panic: msg" and the calling goroutine's stack, or all of them,
 // as GOTRACEBACK says, and exits.
@@ -389,21 +389,21 @@ bool is_main_thread(pid_t t) noexcept;
 [[noreturn]] void dofatal(const char* msg) noexcept;
 // The handler of the crash signals: SIGSEGV, SIGBUS, SIGFPE, SIGILL,
 // SIGTRAP, SIGABRT, SIGSYS and SIGQUIT.
-[[noreturn]] void crash_signal(int sig, siginfo_t* info, void* uc) noexcept;
+[[noreturn]] void crashSignal(int sig, siginfo_t* info, void* uc) noexcept;
 // The traceback's part of the SIGURG handler: answers a request to print
 // the stack of this thread. Async-signal-safe.
-void traceback_signal(void* uc) noexcept;
+void tracebackSignal(void* uc) noexcept;
 // Runs gp's function. An exception that escapes it is reported as a panic
 // from where it was thrown, before any unwinding.
-void run_fiber_fn(G* gp);
+void runFiberFn(G* gp);
 // The terminate handler: reports an uncaught exception, on threads other
 // than fibers, as a panic.
-[[noreturn]] void terminate_handler() noexcept;
+[[noreturn]] void terminateHandler() noexcept;
 // Gives the calling thread an alternate signal stack, if it has none, so
 // that the crash handler can run after a stack overflow.
-void ensure_sigaltstack() noexcept;
+void ensureSigaltstack() noexcept;
 // Frees the calling thread's alternate signal stack, at its exit.
-void release_sigaltstack() noexcept;
+void releaseSigaltstack() noexcept;
 
 // ---------------------------------------------------------------------------
 // Semaphores (sema.cpp), after Go's sema.Go.

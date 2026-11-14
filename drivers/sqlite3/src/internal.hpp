@@ -63,9 +63,9 @@ public:
     // Cancellation: an operation that a context may cancel runs between
     // begin_op and end_op, and interrupt(id) interrupts it only while it
     // runs, so that a late cancellation can't hit the next statement.
-    uint64_t new_op_id() noexcept;
-    void begin_op(uint64_t id) noexcept;
-    void end_op() noexcept;
+    uint64_t newOpId() noexcept;
+    void beginOp(uint64_t id) noexcept;
+    void endOp() noexcept;
     void interrupt(uint64_t id) noexcept;
 
 private:
@@ -92,7 +92,7 @@ public:
     void begin() noexcept;
     void end() noexcept;
     // ctx's error, or nullptr.
-    error ctx_err() const;
+    error ctxErr() const;
     bool active() const noexcept { return id_ != 0; }
 
 private:
@@ -161,7 +161,7 @@ public:
     string ColumnTypeScanType(int index) override;
 
     // Binds args and takes the first step; the error if it failed.
-    error first_step(std::span<const driver::NamedValue> args);
+    error firstStep(std::span<const driver::NamedValue> args);
     // mattn's SQLiteRows.DeclTypes: the declared column types, in lower
     // case.
     std::vector<std::string> DeclTypes() { return declTypes(); }
@@ -205,6 +205,6 @@ std::vector<driver::NamedValue> stmtArgs(std::span<const driver::NamedValue> arg
 std::vector<driver::NamedValue> valueToNamedValue(std::span<const driver::Value> args);
 
 // SQLite calls that can wait or do I/O, as blocking calls.
-int blocking_step(sqlite3_stmt* s);
+int blockingStep(sqlite3_stmt* s);
 
 }  // namespace gopp::sqlite3::internal

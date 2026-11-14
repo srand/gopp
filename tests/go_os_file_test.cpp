@@ -14,7 +14,7 @@ void check_mode(std::string_view path, FileMode mode) {
     EXPECT_EQ(dir->Mode() & os::ModePerm, uint32(mode)) << "Stat " << path << ": mode " << dir->Mode();
 }
 
-void check_size(File& f, int64 want) {
+void checkSize(File& f, int64 want) {
     auto [dir, err] = f.Stat();
     ASSERT_FALSE(err) << "Stat " << f.Name() << " (looking for size " << want << "): " << err;
     EXPECT_EQ(dir->Size(), want) << "Stat " << f.Name();
@@ -41,32 +41,32 @@ TEST(GoOs, Chmod) {
 
 TEST(GoOs, FTruncate) {
     NewFile f;
-    check_size(*f, 0);
+    checkSize(*f, 0);
     f->Write(b("hello, world\n"));
-    check_size(*f, 13);
+    checkSize(*f, 13);
     f->Truncate(10);
-    check_size(*f, 10);
+    checkSize(*f, 10);
     f->Truncate(1024);
-    check_size(*f, 1024);
+    checkSize(*f, 1024);
     f->Truncate(0);
-    check_size(*f, 0);
+    checkSize(*f, 0);
     auto [_, err] = f->Write(b("surprise!"));
-    if (!err) check_size(*f, 13 + 9);  // wrote at offset past where hello, world was.
+    if (!err) checkSize(*f, 13 + 9);  // wrote at offset past where hello, world was.
 }
 
 TEST(GoOs, Truncate) {
     NewFile f;
-    check_size(*f, 0);
+    checkSize(*f, 0);
     f->Write(b("hello, world\n"));
-    check_size(*f, 13);
+    checkSize(*f, 13);
     os::Truncate(f->Name().view(), 10);
-    check_size(*f, 10);
+    checkSize(*f, 10);
     os::Truncate(f->Name().view(), 1024);
-    check_size(*f, 1024);
+    checkSize(*f, 1024);
     os::Truncate(f->Name().view(), 0);
-    check_size(*f, 0);
+    checkSize(*f, 0);
     auto [_, err] = f->Write(b("surprise!"));
-    if (!err) check_size(*f, 13 + 9);  // wrote at offset past where hello, world was.
+    if (!err) checkSize(*f, 13 + 9);  // wrote at offset past where hello, world was.
 }
 
 TEST(GoOs, TruncateNonexistentFile) {
@@ -83,7 +83,7 @@ TEST(GoOs, TruncateNonexistentFile) {
 
 namespace {
 
-void test_chtimes(std::string_view name) {
+void testChtimes(std::string_view name) {
     auto [pre_stat, err] = os::Stat(name);
     ASSERT_FALSE(err) << "Stat " << name << ": " << err;
     // Move access and modification time back a second
@@ -96,7 +96,7 @@ void test_chtimes(std::string_view name) {
     EXPECT_TRUE(post_stat->ModTime().Before(mt)) << "ModTime didn't go backwards";
 }
 
-void test_chtimes_omit(bool omit_at, bool omit_mt) {
+void testChtimesOmit(bool omit_at, bool omit_mt) {
     SCOPED_TRACE(testing::Message() << "omit atime: " << omit_at << ", mtime: " << omit_mt);
     NewFile file;
     std::string name = str(file->Name());
@@ -127,19 +127,19 @@ void test_chtimes_omit(bool omit_at, bool omit_mt) {
 TEST(GoOs, Chtimes) {
     NewFile f;
     f->Close();
-    test_chtimes(f->Name().view());
+    testChtimes(f->Name().view());
 }
 
 TEST(GoOs, ChtimesOmit) {
-    test_chtimes_omit(true, false);
-    test_chtimes_omit(false, true);
-    test_chtimes_omit(true, true);
-    test_chtimes_omit(false, false);  // Same as TestChtimes.
+    testChtimesOmit(true, false);
+    testChtimesOmit(false, true);
+    testChtimesOmit(true, true);
+    testChtimesOmit(false, false);  // Same as TestChtimes.
 }
 
 TEST(GoOs, ChtimesDir) {
     TempDir tmp;
-    test_chtimes(tmp);
+    testChtimes(tmp);
 }
 
 // TestChtimesToUnixZero is left out: go++'s zero Time is the Unix epoch,
@@ -198,8 +198,8 @@ TEST(GoOs, ChdirAndGetwd) {
 TEST(GoOs, ProgWideChdir) {
     constexpr int N = 10;
     sync::WaitGroup wg;
-    auto hold = make_chan<empty>();
-    auto done = make_chan<empty>();
+    auto hold = makeChan<empty>();
+    auto done = makeChan<empty>();
     TempDir tmp;
     std::string d = tmp.path();
     Chdir restore(d);
@@ -273,11 +273,11 @@ TEST(GoOs, SeekError) {
     auto [_, rerr] = r->Seek(0, 0);
     ASSERT_TRUE(rerr) << "Seek on pipe should fail";
     auto* perr = dynamic_cast<const os::PathError*>(rerr.get());
-    EXPECT_TRUE(perr && is_errno(perr->Err, ESPIPE)) << "Seek returned error " << rerr << ", want &PathError{Err: ESPIPE}";
+    EXPECT_TRUE(perr && isErrno(perr->Err, ESPIPE)) << "Seek returned error " << rerr << ", want &PathError{Err: ESPIPE}";
     auto [_2, werr] = w->Seek(0, 0);
     ASSERT_TRUE(werr) << "Seek on pipe should fail";
     perr = dynamic_cast<const os::PathError*>(werr.get());
-    EXPECT_TRUE(perr && is_errno(perr->Err, ESPIPE)) << "Seek returned error " << werr << ", want &PathError{Err: ESPIPE}";
+    EXPECT_TRUE(perr && isErrno(perr->Err, ESPIPE)) << "Seek returned error " << werr << ", want &PathError{Err: ESPIPE}";
     r->Close();
     w->Close();
 }
@@ -305,7 +305,7 @@ TEST(GoOs, OpenError) {
         }
         auto* perr = dynamic_cast<const os::PathError*>(err.get());
         ASSERT_TRUE(perr) << "OpenFile(" << path << ") returns error " << err << "; want *PathError";
-        EXPECT_TRUE(is_errno(perr->Err, tt.error))
+        EXPECT_TRUE(isErrno(perr->Err, tt.error))
             << "OpenFile(" << path << ") = _, " << perr->Err << "; want " << syscall::Errno(tt.error).Error();
     }
 }
@@ -324,7 +324,7 @@ TEST(GoOs, ReadAt) {
     byte buf[5];
     auto [n, err] = f->ReadAt(buf, 7);
     ASSERT_TRUE(!err && n == 5) << "ReadAt 7: " << n << ", " << err;
-    ASSERT_EQ(as_string_view(buf), "world");
+    ASSERT_EQ(asStringView(buf), "world");
 }
 
 // Verify that ReadAt doesn't affect seek offset.
@@ -335,10 +335,10 @@ TEST(GoOs, ReadAtOffset) {
     byte buf[5];
     auto [n, err] = f->ReadAt(buf, 7);
     ASSERT_TRUE(!err && n == 5) << "ReadAt 7: " << n << ", " << err;
-    ASSERT_EQ(as_string_view(buf), "world");
+    ASSERT_EQ(asStringView(buf), "world");
     auto [n2, err2] = f->Read(buf);
     ASSERT_TRUE(!err2 && n2 == 5) << "Read: " << n2 << ", " << err2;
-    ASSERT_EQ(as_string_view(buf), "hello");
+    ASSERT_EQ(asStringView(buf), "hello");
 }
 
 // Verify that ReadAt doesn't allow negative offset.
@@ -492,9 +492,9 @@ TEST(GoOs, FileRDWRFlags) {
         ASSERT_FALSE(err) << err;
         auto [got, rerr] = io::ReadAll(*f);
         if (test.flag == os::O_WRONLY_) {
-            EXPECT_TRUE(rerr) << "read file: " << as_string_view(got) << "; want error";
+            EXPECT_TRUE(rerr) << "read file: " << asStringView(got) << "; want error";
         } else {
-            EXPECT_TRUE(!rerr && as_string_view(got) == content) << "read file: " << as_string_view(got) << ", " << rerr;
+            EXPECT_TRUE(!rerr && asStringView(got) == content) << "read file: " << asStringView(got) << ", " << rerr;
         }
         auto [_, serr] = f->Seek(0, 0);
         ASSERT_FALSE(serr) << "f.Seek: " << serr;
@@ -539,7 +539,7 @@ TEST(GoOs, SameFile) {
 
 namespace {
 
-void test_dev_null_file_info(std::string_view statname, const ptr<FileInfo>& fi) {
+void testDevNullFileInfo(std::string_view statname, const ptr<FileInfo>& fi) {
     SCOPED_TRACE(statname);
     EXPECT_EQ(fi->Size(), 0) << "wrong file size";
     EXPECT_NE(fi->Mode() & os::ModeDevice, 0u) << "wrong file mode " << fi->Mode() << ": ModeDevice is not set";
@@ -554,10 +554,10 @@ TEST(GoOs, DevNullFile) {
     ASSERT_FALSE(err) << err;
     auto [fi, serr] = f->Stat();
     ASSERT_FALSE(serr) << serr;
-    test_dev_null_file_info("f.Stat", fi);
+    testDevNullFileInfo("f.Stat", fi);
     auto [fi2, serr2] = os::Stat(os::DevNull);
     ASSERT_FALSE(serr2) << serr2;
-    test_dev_null_file_info("Stat", fi2);
+    testDevNullFileInfo("Stat", fi2);
     f->Close();
 }
 

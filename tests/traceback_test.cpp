@@ -37,21 +37,21 @@ void block() {
     for (;;) std::this_thread::sleep_for(std::chrono::seconds(10));
 }
 
-[[gnu::noinline]] void panic_in_fiber() { gopp::panic("boom"); }
+[[gnu::noinline]] void panicInFiber() { gopp::panic("boom"); }
 
 // Exits with 3 if unwinding ran it: the report must come first.
 struct exit_if_destroyed {
     ~exit_if_destroyed() { ::_exit(3); }
 };
 
-[[gnu::noinline]] void throw_error() { throw std::runtime_error("boom"); }
+[[gnu::noinline]] void throwError() { throw std::runtime_error("boom"); }
 
-[[gnu::noinline]] void throw_under_destructor() {
+[[gnu::noinline]] void throwUnderDestructor() {
     exit_if_destroyed e;
-    throw_error();
+    throwError();
 }
 
-[[gnu::noinline]] void nil_deref() {
+[[gnu::noinline]] void nilDeref() {
     int* volatile p = nullptr;
     *p = 1;
 }
@@ -65,42 +65,42 @@ struct exit_if_destroyed {
 
 // The empty asm statements keep the calls from being tail calls, which
 // leave no frame with optimization.
-[[gnu::noinline]] void recv_forever(chan<int> c) {
+[[gnu::noinline]] void recvForever(chan<int> c) {
     c.recv();
     asm volatile("");
 }
 
-[[gnu::noinline]] void lock_forever(sync::Mutex* mu) {
+[[gnu::noinline]] void lockForever(sync::Mutex* mu) {
     mu->lock();
     asm volatile("");
 }
 
-[[gnu::noinline]] void sleep_forever() {
+[[gnu::noinline]] void sleepForever() {
     time::Sleep(time::Hour);
     asm volatile("");
 }
 
 // Starts fibers that block on a channel, a mutex and a sleep, and waits
 // until they have.
-void start_blocked_fibers() {
-    auto c = make_chan<int>();
+void startBlockedFibers() {
+    auto c = makeChan<int>();
     auto* mu = new sync::Mutex;
     mu->lock();
-    go([c] { recv_forever(c); });
-    go([mu] { lock_forever(mu); });
-    go([] { sleep_forever(); });
+    go([c] { recvForever(c); });
+    go([mu] { lockForever(mu); });
+    go([] { sleepForever(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
 // Panics in a fiber, for the stripped copies of this program.
-const bool panic_helper = go_helper::register_helper("traceback-panic", [](const std::vector<std::string>&) {
-    go([] { panic_in_fiber(); });
+const bool panic_helper = go_helper::registerHelper("traceback-panic", [](const std::vector<std::string>&) {
+    go([] { panicInFiber(); });
     block();
 });
 
 // Runs the helper in a copy of this program stripped with strip's flags
 // (none: of everything), and returns what it printed.
-std::string run_stripped(const std::vector<string>& flags, std::string& exe) {
+std::string runStripped(const std::vector<string>& flags, std::string& exe) {
     exe = ::testing::TempDir() + "traceback_stripped_" + std::to_string(::getpid());
     std::vector<string> args = flags;
     args.push_back("-o");
@@ -108,7 +108,7 @@ std::string run_stripped(const std::vector<string>& flags, std::string& exe) {
     args.push_back(go_helper::executable());
     auto [strip_out, err] = os::exec::Command("strip", std::span<const string>(args))->CombinedOutput();
     if (err) {
-        ADD_FAILURE() << "strip: " << err << ": " << as_string_view(strip_out);
+        ADD_FAILURE() << "strip: " << err << ": " << asStringView(strip_out);
         return {};
     }
     // The variable go_helper looks for, which helper_command sets.
@@ -117,7 +117,7 @@ std::string run_stripped(const std::vector<string>& flags, std::string& exe) {
     auto* exit = dynamic_cast<const os::exec::ExitError*>(run_err.get());
     EXPECT_TRUE(exit && exit->ExitCode() == 2) << run_err;
     ::unlink(exe.c_str());
-    return std::string(as_string_view(out));
+    return std::string(asStringView(out));
 }
 
 }  // namespace
@@ -126,7 +126,7 @@ TEST(Traceback, PanicInFiber) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
-            go([] { panic_in_fiber(); });
+            go([] { panicInFiber(); });
             block();
         },
         ExitedWithCode(2),
@@ -134,19 +134,19 @@ TEST(Traceback, PanicInFiber) {
         "\n"
         "goroutine [0-9]+ \\[running\\]:\n"
         "gopp::panic\\(\\.\\.\\.\\)\n\t[^\n]*src/runtime/proc\\.cpp:[0-9]+ \\+0x[0-9a-f]+\n"
-        "\\(anonymous namespace\\)::panic_in_fiber\\(\\)" HERE
+        "\\(anonymous namespace\\)::panicInFiber\\(\\)" HERE
         LAMBDA
         "created by Traceback_PanicInFiber_Test::TestBody" HERE);
 }
 
 TEST(Traceback, PanicOnMainThread) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
-    EXPECT_EXIT(panic_in_fiber(), ExitedWithCode(2),
+    EXPECT_EXIT(panicInFiber(), ExitedWithCode(2),
                 "panic: boom\n"
                 "\n"
                 "thread [0-9]+ \\(main\\) \\[running\\]:\n"
                 "gopp::panic\\(\\.\\.\\.\\)\n\t[^\n]*\n"
-                "\\(anonymous namespace\\)::panic_in_fiber\\(\\)" HERE
+                "\\(anonymous namespace\\)::panicInFiber\\(\\)" HERE
                 "Traceback_PanicOnMainThread_Test::TestBody\\(\\)" HERE);
 }
 
@@ -154,34 +154,34 @@ TEST(Traceback, ExceptionInFiberBeforeUnwinding) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
-            go([] { throw_under_destructor(); });
+            go([] { throwUnderDestructor(); });
             block();
         },
         ExitedWithCode(2),
         "panic: std::runtime_error: boom\n"
         "\n"
         "goroutine [0-9]+ \\[running\\]:\n"
-        "\\(anonymous namespace\\)::throw_error\\(\\)" HERE
-        "\\(anonymous namespace\\)::throw_under_destructor\\(\\)" HERE
+        "\\(anonymous namespace\\)::throwError\\(\\)" HERE
+        "\\(anonymous namespace\\)::throwUnderDestructor\\(\\)" HERE
         LAMBDA
         "created by Traceback_ExceptionInFiberBeforeUnwinding_Test::TestBody" HERE);
 }
 
 TEST(Traceback, ExceptionOnThread) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
-    EXPECT_EXIT(std::thread([] { throw_under_destructor(); }).join(), ExitedWithCode(2),
+    EXPECT_EXIT(std::thread([] { throwUnderDestructor(); }).join(), ExitedWithCode(2),
                 "panic: std::runtime_error: boom\n"
                 "\n"
                 "thread [0-9]+ \\[running\\]:\n"
-                "\\(anonymous namespace\\)::throw_error\\(\\)" HERE
-                "\\(anonymous namespace\\)::throw_under_destructor\\(\\)" HERE);
+                "\\(anonymous namespace\\)::throwError\\(\\)" HERE
+                "\\(anonymous namespace\\)::throwUnderDestructor\\(\\)" HERE);
 }
 
 TEST(Traceback, NilDereference) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
-            go([] { nil_deref(); });
+            go([] { nilDeref(); });
             block();
         },
         ExitedWithCode(2),
@@ -189,8 +189,8 @@ TEST(Traceback, NilDereference) {
         "\\[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x[0-9a-f]+\\]\n"
         "\n"
         "goroutine [0-9]+ \\[running\\]:\n"
-        "\\(anonymous namespace\\)::nil_deref\\(\\)" HERE
-        "(" LAMBDA ")?"  // gone if nil_deref was a tail call
+        "\\(anonymous namespace\\)::nilDeref\\(\\)" HERE
+        "(" LAMBDA ")?"  // gone if nilDeref was a tail call
         "created by Traceback_NilDereference_Test::TestBody" HERE);
 }
 
@@ -216,7 +216,7 @@ TEST(Traceback, FatalErrorPrintsAllGoroutines) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
-            start_blocked_fibers();
+            startBlockedFibers();
             runtime::fatal("test");
         },
         ExitedWithCode(2),
@@ -226,24 +226,24 @@ TEST(Traceback, FatalErrorPrintsAllGoroutines) {
         "(.*\n)*"
         "goroutine [0-9]+ \\[chan receive\\]:\n"
         "(.*\n)*"
-        "\\(anonymous namespace\\)::recv_forever\\(\\.\\.\\.\\)" HERE
+        "\\(anonymous namespace\\)::recvForever\\(\\.\\.\\.\\)" HERE
         "(.*\n)*"
-        "created by \\(anonymous namespace\\)::start_blocked_fibers" HERE
+        "created by \\(anonymous namespace\\)::startBlockedFibers" HERE
         "\n"
         "goroutine [0-9]+ \\[sync.Mutex.Lock\\]:\n"
         "(.*\n)*"
-        "\\(anonymous namespace\\)::lock_forever\\(\\.\\.\\.\\)" HERE
+        "\\(anonymous namespace\\)::lockForever\\(\\.\\.\\.\\)" HERE
         "(.*\n)*"
         "goroutine [0-9]+ \\[sleep\\]:\n"
         "(.*\n)*"
-        "\\(anonymous namespace\\)::sleep_forever\\(\\)" HERE);
+        "\\(anonymous namespace\\)::sleepForever\\(\\)" HERE);
 }
 
 TEST(Traceback, SigquitPrintsAllGoroutinesAndRegisters) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
-            start_blocked_fibers();
+            startBlockedFibers();
             ::raise(SIGQUIT);
         },
         ExitedWithCode(2),
@@ -285,7 +285,7 @@ TEST(Traceback, GotracebackNone) {
     EXPECT_EXIT(
         {
             ::setenv("GOTRACEBACK", "none", 1);
-            go([] { panic_in_fiber(); });
+            go([] { panicInFiber(); });
             block();
         },
         ExitedWithCode(2), "panic: boom\n$");
@@ -296,10 +296,10 @@ TEST(Traceback, GotracebackSystemShowsRuntimeFrames) {
     EXPECT_EXIT(
         {
             ::setenv("GOTRACEBACK", "system", 1);
-            go([] { panic_in_fiber(); });
+            go([] { panicInFiber(); });
             block();
         },
-        ExitedWithCode(2), "goroutine [0-9]+ \\[running\\]:\n(.*\n)*gopp::runtime::run_fiber_fn\\(\\.\\.\\.\\)\n");
+        ExitedWithCode(2), "goroutine [0-9]+ \\[running\\]:\n(.*\n)*gopp::runtime::runFiberFn\\(\\.\\.\\.\\)\n");
 }
 
 TEST(Traceback, GotracebackCrashDiesOfSigabrt) {
@@ -307,7 +307,7 @@ TEST(Traceback, GotracebackCrashDiesOfSigabrt) {
     EXPECT_EXIT(
         {
             ::setenv("GOTRACEBACK", "crash", 1);
-            panic_in_fiber();
+            panicInFiber();
         },
         testing::KilledBySignal(SIGABRT), "panic: boom\n");
 }
@@ -317,7 +317,7 @@ TEST(Traceback, GotracebackCrashDiesOfSigabrt) {
 TEST(Traceback, StrippedProgramPrintsAddresses) {
     if (auto [_, err] = os::exec::LookPath("strip"); err) GTEST_SKIP() << "no strip: " << err;
     std::string exe;
-    std::string out = run_stripped({}, exe);
+    std::string out = runStripped({}, exe);
     const std::string addr = "\n\\? pc=0x[0-9a-f]+ \\(" + exe + "\\+0x[0-9a-f]+\\)\n";
     EXPECT_TRUE(std::regex_search(out, std::regex("panic: boom\n\ngoroutine [0-9]+ \\[running\\]:\n"
                                                   "(\\?\\(\\.\\.\\.\\)\n\t" + addr.substr(1) + ")+"
@@ -330,11 +330,11 @@ TEST(Traceback, StrippedProgramPrintsAddresses) {
 TEST(Traceback, ProgramWithoutDebugInfoPrintsNamesAndAddresses) {
     if (auto [_, err] = os::exec::LookPath("strip"); err) GTEST_SKIP() << "no strip: " << err;
     std::string exe;
-    std::string out = run_stripped({string("-g")}, exe);
+    std::string out = runStripped({string("-g")}, exe);
     const std::string src = "\n\t\\? \\+0x[0-9a-f]+ pc=0x[0-9a-f]+ \\(" + exe + "\\+0x[0-9a-f]+\\)\n";
     EXPECT_TRUE(std::regex_search(out, std::regex("panic: boom\n\ngoroutine [0-9]+ \\[running\\]:\n"
                                                   "gopp::panic\\(\\.\\.\\.\\)" + src +
-                                                  "\\(anonymous namespace\\)::panic_in_fiber\\(\\)" + src +
+                                                  "\\(anonymous namespace\\)::panicInFiber\\(\\)" + src +
                                                   "[^\n]*operator\\(\\)[^\n]*" + src +
                                                   "created by [^\n]*" + src + "$")))
         << out;

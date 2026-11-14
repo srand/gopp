@@ -11,7 +11,7 @@
 
 namespace gopp::runtime {
 
-std::size_t stack_size() noexcept;
+std::size_t stackSize() noexcept;
 
 struct G;
 

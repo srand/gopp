@@ -137,7 +137,7 @@ struct text_ {
     std::string String() const { return s; }  // should be ignored
     std::pair<slice<byte>, error> MarshalText() const {
         if (s.empty()) return {slice<byte>(), errors::New("text: empty string")};
-        return {to_bytes("text{" + quote(s) + "}"), nullptr};
+        return {toBytes("text{" + quote(s) + "}"), nullptr};
     }
 };
 
@@ -145,12 +145,12 @@ struct text_ {
 struct textAppend {
     std::string s;
     std::string String() const { return s; }
-    std::pair<slice<byte>, error> MarshalText() const { return {to_bytes(s), nullptr}; }
+    std::pair<slice<byte>, error> MarshalText() const { return {toBytes(s), nullptr}; }
     std::pair<slice<byte>, error> AppendText(slice<byte> b) const {
         if (s.empty()) return {slice<byte>(), errors::New("textAppend: empty string")};
-        b = append_span(std::move(b), as_bytes(std::string_view("textAppend{\"")));
-        b = append_span(std::move(b), as_bytes(std::string_view(s)));
-        b = append_span(std::move(b), as_bytes(std::string_view("\"}")));
+        b = appendSpan(std::move(b), as_bytes(std::string_view("textAppend{\"")));
+        b = appendSpan(std::move(b), as_bytes(std::string_view(s)));
+        b = appendSpan(std::move(b), as_bytes(std::string_view("\"}")));
         return {b, nullptr};
     }
 };
@@ -219,7 +219,7 @@ struct wrappingHandler : slog::Handler {
 
 // The handler of log's standard logger, which slog's default Logger has.
 ptr<slog::Handler> logDefaultHandler() {
-    return slog::detail::new_default_handler(
+    return slog::detail::newDefaultHandler(
         [](const std::source_location& loc, std::string_view s) { return log::Default()->output(loc, s); });
 }
 
@@ -420,7 +420,7 @@ TEST(GoSlog, LevelMarshalJSON) {
     auto want = slog::LevelWarn - 3;
     auto [data, err] = want.MarshalJSON();
     ASSERT_FALSE(err) << err;
-    EXPECT_EQ(as_string_view(data), R"("INFO+1")");
+    EXPECT_EQ(asStringView(data), R"("INFO+1")");
     slog::Level got;
     ASSERT_FALSE(got.UnmarshalJSON(data));
     EXPECT_EQ(got, want);
@@ -430,7 +430,7 @@ TEST(GoSlog, LevelMarshalText) {
     auto want = slog::LevelWarn - 3;
     auto [data, err] = want.MarshalText();
     ASSERT_FALSE(err) << err;
-    EXPECT_EQ(as_string_view(data), "INFO+1");
+    EXPECT_EQ(asStringView(data), "INFO+1");
     slog::Level got;
     ASSERT_FALSE(got.UnmarshalText(data));
     EXPECT_EQ(got, want);
@@ -441,7 +441,7 @@ TEST(GoSlog, LevelAppendText) {
     auto want = slog::LevelWarn - 3;
     auto [data, err] = want.AppendText(buf);
     ASSERT_FALSE(err) << err;
-    EXPECT_EQ(as_string_view(data), std::string_view("\x00\x00\x00\x00INFO+1", 10));
+    EXPECT_EQ(asStringView(data), std::string_view("\x00\x00\x00\x00INFO+1", 10));
 }
 
 TEST(GoSlog, LevelParse) {
@@ -622,7 +622,7 @@ TEST(GoSlog, DefaultHandle) {
     };
     for (const auto& test : tests) {
         std::string got;
-        ptr<slog::Handler> h = slog::detail::new_default_handler([&](const std::source_location&, std::string_view b) {
+        ptr<slog::Handler> h = slog::detail::newDefaultHandler([&](const std::source_location&, std::string_view b) {
             got = b;
             return error();
         });
@@ -789,7 +789,7 @@ TEST(GoSlog, JSONAndTextHandlers) {
          R"({"source":{"function":"$FUNC","file":"go_slog_test.cpp","line":$LINE},"msg":"message"})"},
         {"replace built-in with group",
          [](std::span<const string>, Attr a) {
-             if (a.Key == slog::TimeKey) return slog::Group(string::from_static(slog::TimeKey), "mins", 3, "secs", 2);
+             if (a.Key == slog::TimeKey) return slog::Group(string::fromStatic(slog::TimeKey), "mins", 3, "secs", 2);
              if (a.Key == slog::LevelKey) return Attr{};
              return a;
          },
@@ -984,7 +984,7 @@ TEST(GoSlog, WriteTimeRFC3339) {
              time::Date(2000, time::November, 12, 3, 4, 500, 50'000'000, time::UTC),
          }) {
         std::string got;
-        slog::detail::append_rfc3339_millis(got, tm);
+        slog::detail::appendRfc3339Millis(got, tm);
         EXPECT_EQ(got, tm.Format(rfc3339Millis).view());
     }
 }
@@ -1085,7 +1085,7 @@ std::string jsonValueString(const Value& v) {
     h.json = true;
     std::string buf;
     slog::detail::handle_state s(&h, &buf, "");
-    if (error err = s.append_json_value(v)) s.append_error(err);
+    if (error err = s.appendJsonValue(v)) s.appendError(err);
     return buf;
 }
 
@@ -1463,8 +1463,8 @@ TEST(GoSlog, LoggerNoOps) {
     EXPECT_EQ(l->WithGroup(""), l) << "wanted receiver, didn't get it";
 }
 
-struct level_box : object {
-    explicit level_box(slog::Level l) : l(l) {}
+struct levelBox : object {
+    explicit levelBox(slog::Level l) : l(l) {}
     slog::Level l;
 };
 
@@ -1493,9 +1493,9 @@ TEST(GoSlog, Context) {
     static const char key = 'L';
     for (const auto& test : tests) {
         h->clear();
-        auto ctx = context::WithValue(context::Background(), &key, make_ptr<level_box>(test.wantLevel));
+        auto ctx = context::WithValue(context::Background(), &key, make_ptr<levelBox>(test.wantLevel));
         test.f(ctx, "msg");
-        auto gv = dynamic_pointer_cast<level_box>(h->ctx->Value(&key));
+        auto gv = dynamic_pointer_cast<levelBox>(h->ctx->Value(&key));
         ASSERT_TRUE(gv);
         EXPECT_EQ(gv->l, test.wantLevel);
         EXPECT_EQ(h->r.Level, test.wantLevel);

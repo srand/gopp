@@ -41,13 +41,13 @@ void internal::logf(std::string_view msg) {
 
 namespace {
 
-bool body_allowed_for_status(int status) {
+bool bodyAllowedForStatus(int status) {
     if (status >= 100 && status <= 199) return false;
     if (status == 204 || status == 304) return false;
     return true;
 }
 
-bool temporary_accept_error(const gopp::error& err) {
+bool temporaryAcceptError(const gopp::error& err) {
     if (auto* e = errors::As<net::Errno>(err)) {
         switch (e->Code) {
         case EMFILE: case ENFILE: case ENOBUFS: case ENOMEM: case ECONNABORTED: case EAGAIN: case EINTR: case ECONNRESET:
@@ -57,7 +57,7 @@ bool temporary_accept_error(const gopp::error& err) {
     return false;
 }
 
-void append_status_line(std::string& out, bool is11, int code) {
+void appendStatusLine(std::string& out, bool is11, int code) {
     out.append(is11 ? "HTTP/1.1 " : "HTTP/1.0 ");
     char num[12];
     auto r = std::to_chars(num, num + sizeof(num), code);
@@ -147,7 +147,7 @@ public:
         opts_.MaxHeaderBytes = max_header_bytes_;
         opts_.DisableKeepAlives = disable_keep_alives_;
         opts_.state = state_;
-        opts_.set_active = [this](bool active) {
+        opts_.setActive = [this](bool active) {
             st_.store(active ? conn_state::active : conn_state::idle, std::memory_order_relaxed);
         };
         opts_.on_shutdown = [this](std::function<void()> fn) {
@@ -187,8 +187,8 @@ public:
     std::function<void()> h2_shutdown;
 
 private:
-    void write_error_response(const gopp::error& err);
-    void close_write_and_wait();
+    void writeErrorResponse(const gopp::error& err);
+    void closeWriteAndWait();
 };
 
 std::pair<isize, gopp::error> conn_writer::Write(std::span<const byte> p) {
@@ -218,8 +218,8 @@ std::pair<isize, gopp::error> expect_continue_reader::Read(std::span<byte> p) {
 class response final : public ResponseWriter, public Flusher, public io::ReaderFrom {
 public:
     response(conn* c, Request* req) : c_(c), req_(req) {
-        wants_10_keep_alive_ = !req->ProtoAtLeast(1, 1) && internal::has_token(req->Header.Get("Connection"), "keep-alive");
-        wants_close_ = internal::has_token(req->Header.Get("Connection"), "close");
+        wants_10_keep_alive_ = !req->ProtoAtLeast(1, 1) && internal::hasToken(req->Header.Get("Connection"), "keep-alive");
+        wants_close_ = internal::hasToken(req->Header.Get("Connection"), "close");
     }
 
     http::Header& Header() override { return handler_header_; }
@@ -233,7 +233,7 @@ public:
         if (code >= 100 && code <= 199 && code != 101) {
             // Informational: send it now; the final status follows.
             std::string out;
-            append_status_line(out, req_->ProtoAtLeast(1, 1), code);
+            appendStatusLine(out, req_->ProtoAtLeast(1, 1), code);
             handler_header_.WriteTo(out);
             out.append("\r\n");
             c_->bufw.WriteString(out);
@@ -257,7 +257,7 @@ public:
     std::pair<isize, gopp::error> Write(std::span<const byte> p) override {
         if (!wrote_header_) WriteHeader(StatusOK);
         if (p.empty()) return {0, nullptr};
-        if (!body_allowed_for_status(status_)) return {0, ErrBodyNotAllowed};
+        if (!bodyAllowedForStatus(status_)) return {0, ErrBodyNotAllowed};
         written_ += static_cast<int64>(p.size());
         if (content_length_ != -1 && written_ > content_length_) return {0, ErrContentLength};
         isize total = static_cast<isize>(p.size());
@@ -322,7 +322,7 @@ public:
         if (!cw_wrote_) cw_write_header({});
         c_->bufw.Flush();
 
-        if (!chunking_ && body_allowed_for_status(status_) && req_->Method != "HEAD") {
+        if (!chunking_ && bodyAllowedForStatus(status_) && req_->Method != "HEAD") {
             auto [m, err] = rf->ReadFrom(src);
             n += m;
             written_ += m;
@@ -349,7 +349,7 @@ public:
 
     bool should_reuse_connection() const {
         if (close_after_reply_) return false;
-        if (req_->Method != "HEAD" && content_length_ != -1 && body_allowed_for_status(status_) &&
+        if (req_->Method != "HEAD" && content_length_ != -1 && bodyAllowedForStatus(status_) &&
             content_length_ != written_)
             return false;  // wrote less than declared
         if (c_->werr) return false;
@@ -422,7 +422,7 @@ private:
         string set_cl, set_ct, set_conn, set_te;
 
         // A finished handler that set no Content-Length: we know it now.
-        if (handler_done_ && body_allowed_for_status(status_) && !header.Has("Content-Length") && !has_te &&
+        if (handler_done_ && bodyAllowedForStatus(status_) && !header.Has("Content-Length") && !has_te &&
             (!is_head || !p.empty())) {
             content_length_ = static_cast<int64>(p.size());
             set_cl = strconv::Itoa(content_length_);
@@ -434,8 +434,8 @@ private:
             if (sent_length && header.Get("Connection") == "keep-alive") close_after_reply_ = false;
         }
         bool has_cl = content_length_ != -1;
-        if (wants_10_keep_alive_ && (is_head || has_cl || !body_allowed_for_status(status_))) {
-            if (!header.Has("Connection")) set_conn = string::from_static("keep-alive");
+        if (wants_10_keep_alive_ && (is_head || has_cl || !bodyAllowedForStatus(status_))) {
+            if (!header.Has("Connection")) set_conn = string::fromStatic("keep-alive");
         } else if (!req_->ProtoAtLeast(1, 1) || wants_close_) {
             close_after_reply_ = true;
         }
@@ -454,7 +454,7 @@ private:
                 bool discard = false, too_big = false;
                 if (b->closed()) {
                     if (!b->saw_eof()) close_after_reply_ = true;
-                } else if (b->unread_size() >= max_post_handler_read_bytes) {
+                } else if (b->unreadSize() >= max_post_handler_read_bytes) {
                     too_big = true;
                 } else {
                     discard = true;
@@ -466,13 +466,13 @@ private:
                 if (too_big) {
                     close_after_reply_ = true;
                     header.Del("Connection");
-                    set_conn = string::from_static("close");
+                    set_conn = string::fromStatic("close");
                 }
             }
         }
 
         int code = status_;
-        if (body_allowed_for_status(code)) {
+        if (bodyAllowedForStatus(code)) {
             bool have_type = header.Has("Content-Type");
             bool has_ce = !header.Get("Content-Encoding").empty();
             if (!has_ce && !have_type && !has_te && !p.empty()) set_ct = DetectContentType(p);
@@ -487,7 +487,7 @@ private:
             header.Del("Content-Length");
             has_cl = false;
         }
-        if (is_head || !body_allowed_for_status(code) || code == StatusNoContent) {
+        if (is_head || !bodyAllowedForStatus(code) || code == StatusNoContent) {
             header.Del("Transfer-Encoding");
         } else if (has_cl) {
             header.Del("Transfer-Encoding");
@@ -499,7 +499,7 @@ private:
             } else {
                 // Unknown length: chunked encoding keeps the connection.
                 chunking_ = true;
-                set_te = string::from_static("chunked");
+                set_te = string::fromStatic("chunked");
                 if (has_te && te == "chunked") header.Del("Transfer-Encoding");
             }
         } else {
@@ -513,16 +513,16 @@ private:
             set_cl = {};
         }
 
-        bool del_conn = close_after_reply_ && (!keep_alives || !internal::has_token(header.Get("Connection"), "close")) &&
+        bool del_conn = close_after_reply_ && (!keep_alives || !internal::hasToken(header.Get("Connection"), "close")) &&
                         code != StatusSwitchingProtocols;
         if (del_conn) {
             header.Del("Connection");
-            if (req_->ProtoAtLeast(1, 1)) set_conn = string::from_static("close");
+            if (req_->ProtoAtLeast(1, 1)) set_conn = string::fromStatic("close");
         }
 
         std::string out;
         out.reserve(256);
-        append_status_line(out, req_->ProtoAtLeast(1, 1), code);
+        appendStatusLine(out, req_->ProtoAtLeast(1, 1), code);
         header.WriteTo(out);
         auto extra = [&](std::string_view k, const string& v) {
             if (v.empty()) return;
@@ -535,7 +535,7 @@ private:
         extra("Transfer-Encoding: ", set_te);
         if (set_date) {
             out.append("Date: ");
-            internal::append_date(out);
+            internal::appendDate(out);
             out.append("\r\n");
         }
         extra("Content-Length: ", set_cl);
@@ -562,14 +562,14 @@ private:
     bool chunking_ = false;
 };
 
-void conn::write_error_response(const gopp::error& err) {
+void conn::writeErrorResponse(const gopp::error& err) {
     int code = 400;
     std::string text = "Bad Request";
     std::string detail;
     if (err == internal::err_header_too_large) {
         code = 431;
         text = "Request Header Fields Too Large";
-    } else if (auto* se = errors::As<internal::status_error>(err)) {
+    } else if (auto* se = errors::As<internal::statusError>(err)) {
         code = se->code;
         text = std::string(StatusText(code));
         detail = std::string(se->text.view());
@@ -580,10 +580,10 @@ void conn::write_error_response(const gopp::error& err) {
     if (!detail.empty()) out += ": " + detail;
     rwc->SetWriteDeadline(time::Now().Add(time::Second));
     io::WriteString(*rwc, out);
-    close_write_and_wait();
+    closeWriteAndWait();
 }
 
-void conn::close_write_and_wait() {
+void conn::closeWriteAndWait() {
     // Closing with unread request bytes makes the kernel send RST, which
     // can destroy the response before the client reads it. Send FIN first
     // and give the client a moment (Go's rstAvoidanceDelay).
@@ -619,16 +619,16 @@ void conn::serve() {
         if (limit.ns > 0) rwc->SetDeadline(time::Time{});
         tls_state = tc->ConnectionState();
         if (tls_state->NegotiatedProtocol == "h2" && protocols_.HTTP2() && internal::http2_enabled) {
-            internal::serve_http2(rwc, bufr, handler_, *this_server_options(), tls_state);
+            internal::serveHttp2(rwc, bufr, handler_, *this_server_options(), tls_state);
             return;
         }
     } else if (protocols_.UnencryptedHTTP2() && internal::http2_enabled) {
         // HTTP/2 with prior knowledge: the client starts with the preface.
         rwc->SetReadDeadline(read_header_timeout_.ns > 0 ? time::Now().Add(read_header_timeout_) : time::Time{});
         auto [head, perr] = bufr->Peek(internal::http2_preface.size());
-        if (!perr && as_string_view(head) == internal::http2_preface) {
+        if (!perr && asStringView(head) == internal::http2_preface) {
             rwc->SetReadDeadline(time::Time{});
-            internal::serve_http2(rwc, bufr, handler_, *this_server_options(), std::nullopt);
+            internal::serveHttp2(rwc, bufr, handler_, *this_server_options(), std::nullopt);
             return;
         }
         if (!protocols_.HTTP1()) return;
@@ -640,7 +640,7 @@ void conn::serve() {
         if (err) {
             if (err == io::EOF_ || err == io::ErrUnexpectedEOF || errors::Is(err, net::ErrClosed)) return;
             if (err->Timeout() || errors::As<net::OpError>(err)) return;  // network read errors
-            write_error_response(err);
+            writeErrorResponse(err);
             return;
         }
         st_.store(conn_state::active, std::memory_order_relaxed);
@@ -679,7 +679,7 @@ void conn::serve() {
         w.finish_request();
         cur_req = nullptr;
         if (!w.should_reuse_connection()) {
-            if (w.closed_request_body_early()) close_write_and_wait();
+            if (w.closed_request_body_early()) closeWriteAndWait();
             return;
         }
         st_.store(conn_state::idle, std::memory_order_relaxed);
@@ -706,7 +706,7 @@ std::shared_ptr<detail::server_state> Server::state() {
 gopp::error Server::ListenAndServe() {
     auto st = state();
     if (st->shutting_down.load()) return ErrServerClosed;
-    string a = Addr.empty() ? string::from_static(":http") : Addr;
+    string a = Addr.empty() ? string::fromStatic(":http") : Addr;
     auto [ln, err] = net::Listen("tcp", a);
     if (err) return err;
     return Serve(ln);
@@ -724,7 +724,7 @@ gopp::error Server::Serve(ptr<net::Listener> l) {
         auto [rw, err] = l->Accept();
         if (err) {
             if (st->shutting_down.load()) return ErrServerClosed;
-            if (temporary_accept_error(err)) {
+            if (temporaryAcceptError(err)) {
                 delay = delay.ns == 0 ? 5 * time::Millisecond : delay * 2;
                 if (delay > time::Second) delay = time::Second;
                 logf("http: Accept error: " + std::string(err.Error().view()) + "; retrying in " +
@@ -800,7 +800,7 @@ namespace {
 
 // The TLS config of a server: TLSConfig with the certificate files added,
 // and ALPN for the enabled protocols.
-std::pair<tls::Config, gopp::error> server_tls_config(const Server& srv, std::string_view cert_file,
+std::pair<tls::Config, gopp::error> serverTlsConfig(const Server& srv, std::string_view cert_file,
                                                       std::string_view key_file) {
     tls::Config cfg = srv.TLSConfig.value_or(tls::Config{});
     cfg.ctx_ = nullptr;  // compiled anew with the changes below
@@ -811,8 +811,8 @@ std::pair<tls::Config, gopp::error> server_tls_config(const Server& srv, std::st
     }
     if (cfg.NextProtos.empty()) {
         Protocols p = srv.Protocols.value_or(DefaultProtocols());
-        if (p.HTTP2() && internal::http2_enabled) cfg.NextProtos.push_back(string::from_static("h2"));
-        if (p.HTTP1()) cfg.NextProtos.push_back(string::from_static("http/1.1"));
+        if (p.HTTP2() && internal::http2_enabled) cfg.NextProtos.push_back(string::fromStatic("h2"));
+        if (p.HTTP1()) cfg.NextProtos.push_back(string::fromStatic("http/1.1"));
     }
     return {cfg, nullptr};
 }
@@ -820,7 +820,7 @@ std::pair<tls::Config, gopp::error> server_tls_config(const Server& srv, std::st
 }  // namespace
 
 gopp::error Server::ServeTLS(ptr<net::Listener> l, std::string_view cert_file, std::string_view key_file) {
-    auto [cfg, err] = server_tls_config(*this, cert_file, key_file);
+    auto [cfg, err] = serverTlsConfig(*this, cert_file, key_file);
     if (err) return err;
     return Serve(tls::NewListener(std::move(l), cfg));
 }
@@ -828,7 +828,7 @@ gopp::error Server::ServeTLS(ptr<net::Listener> l, std::string_view cert_file, s
 gopp::error Server::ListenAndServeTLS(std::string_view cert_file, std::string_view key_file) {
     auto st = state();
     if (st->shutting_down.load()) return ErrServerClosed;
-    string a = Addr.empty() ? string::from_static(":https") : Addr;
+    string a = Addr.empty() ? string::fromStatic(":https") : Addr;
     auto [ln, err] = net::Listen("tcp", a);
     if (err) return err;
     return ServeTLS(ln, cert_file, key_file);

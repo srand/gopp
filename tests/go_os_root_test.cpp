@@ -174,7 +174,7 @@ std::string q(std::string_view s) { return str(strconv::Quote(s)); }
 std::string readAll(File& f) {
     auto [b, err] = io::ReadAll(f);
     EXPECT_FALSE(err) << err;
-    return std::string(as_string_view(b));
+    return std::string(asStringView(b));
 }
 
 }  // namespace
@@ -187,8 +187,8 @@ TEST(GoOsRoot, RootOpen_File) {
             auto [f, err] = root.Open(test.open);
             if (errEndsTest(err, test.wantError, "root.Open(" + q(test.open) + ")")) return;
             auto [got, rerr] = io::ReadAll(*f);
-            EXPECT_TRUE(!rerr && as_string_view(got) == want)
-                << "Dir.Open(" << q(test.open) << "): read content " << as_string_view(got) << ", " << rerr;
+            EXPECT_TRUE(!rerr && asStringView(got) == want)
+                << "Dir.Open(" << q(test.open) << "): read content " << asStringView(got) << ", " << rerr;
             f->Close();
         });
     }
@@ -221,7 +221,7 @@ TEST(GoOsRoot, RootCreate) {
             f->Close();
             auto [got, rerr] = os::ReadFile(target);
             ASSERT_FALSE(rerr) << "reading file created with root.Create(" << q(test.open) << "): " << rerr;
-            ASSERT_EQ(as_string_view(got), want) << "reading file created with root.Create(" << q(test.open) << ")";
+            ASSERT_EQ(asStringView(got), want) << "reading file created with root.Create(" << q(test.open) << ")";
         });
     }
 }
@@ -561,8 +561,8 @@ void testRootMoveFrom(bool rename) {
                     << linkTarget;
             } else {
                 auto [got, rerr] = os::ReadFile(dstFullPath);
-                EXPECT_TRUE(!rerr && as_string_view(got) == want)
-                    << "os.ReadFile(" << q(dstFullPath) << "): read content " << as_string_view(got) << ", " << rerr;
+                EXPECT_TRUE(!rerr && asStringView(got) == want)
+                    << "os.ReadFile(" << q(dstFullPath) << "): read content " << asStringView(got) << ", " << rerr;
                 auto [st, serr] = os::Lstat(dstFullPath);
                 EXPECT_TRUE(!serr && !(st->Mode() & fs::ModeSymlink))
                     << "os.Lstat(" << q(dstFullPath) << ") = " << serr << "; want non-symlink";
@@ -606,8 +606,8 @@ void testRootMoveTo(bool rename) {
             }
 
             auto [got, rerr] = os::ReadFile(join(root.Name().view(), target));
-            EXPECT_TRUE(!rerr && as_string_view(got) == want)
-                << "os.ReadFile(" << q(target) << "): read content " << as_string_view(got) << ", " << rerr;
+            EXPECT_TRUE(!rerr && asStringView(got) == want)
+                << "os.ReadFile(" << q(target) << "): read content " << asStringView(got) << ", " << rerr;
         });
     }
 }
@@ -799,7 +799,7 @@ TEST(GoOsRoot, RootConsistencyOpen) {
             std::pair<std::string, error> res;
             if (!serr && !fi->IsDir()) {
                 auto [b, rerr] = io::ReadAll(*f);
-                res = {std::string(as_string_view(b)), rerr};
+                res = {std::string(asStringView(b)), rerr};
             } else {
                 auto [names, rerr] = f->Readdirnames(-1);
                 std::vector<std::string> v;
@@ -1046,8 +1046,8 @@ TEST(GoOsRoot, RootConcurrentClose) {
     TempDir dir;
     auto [r, err] = os::OpenRoot(dir.path());
     ASSERT_FALSE(err) << err;
-    auto ch = make_chan<error>(1);
-    auto done = make_chan<int>(1);
+    auto ch = makeChan<error>(1);
+    auto done = makeChan<int>(1);
     go([r, ch, done] {
         bool first = true;
         for (;;) {
@@ -1120,7 +1120,7 @@ TEST(GoOsRoot, RootRaceRenameDir) {
     // We're trying to exploit a race, so try this a number of times.
     for (int i = 0; i < 100; i++) {
         // Start a goroutine to open the file.
-        auto gotc = make_chan<std::string>();
+        auto gotc = makeChan<std::string>();
         go([r = r, path, gotc] {
             auto [f, err] = r->Open(path);
             if (err) {
@@ -1129,7 +1129,7 @@ TEST(GoOsRoot, RootRaceRenameDir) {
             }
             auto [b, rerr] = io::ReadAll(*f);
             f->Close();
-            gotc.send(std::string(as_string_view(b)));
+            gotc.send(std::string(asStringView(b)));
         });
 
         // Wait for the open operation to partially complete, and then
@@ -1196,7 +1196,7 @@ TEST(GoOsRoot, RootWriteReadFile) {
     ASSERT_FALSE(root->WriteFile(name, want, 0666)) << "root.WriteFile(" << q(name) << ")";
     auto [got, rerr] = root->ReadFile(name);
     ASSERT_FALSE(rerr) << "root.ReadFile(" << q(name) << ") = " << rerr;
-    EXPECT_EQ(as_string_view(got), want);
+    EXPECT_EQ(asStringView(got), want);
     root->Close();
 }
 
@@ -1691,7 +1691,7 @@ std::vector<std::string> dirTreeContents(const std::string& dir) {
                 auto [content, rerr] = io::ReadAll(*f);
                 f->Close();
                 if (rerr) fatal(str(rerr.Error()));
-                ent += " " + q(as_string_view(content));
+                ent += " " + q(asStringView(content));
             }
         }
         contents.push_back(ent);
@@ -2038,7 +2038,7 @@ TEST(GoOsRoot, RootMultiReadFile) {
         test.setOp(std::format("ReadFile({})", q(test.targetPath)));
         auto [data, gotErr] = test.root ? test.root->ReadFile(test.targetPath) : os::ReadFile(test.targetPath);
         std::string got;
-        if (!gotErr) got = std::string(as_string_view(data));
+        if (!gotErr) got = std::string(asStringView(data));
 
         if (test.target.isError()) {
             test.wantError(gotErr, errAny);

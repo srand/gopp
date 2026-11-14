@@ -22,7 +22,7 @@ concept Ordered = std::totally_ordered<T>;
 
 namespace detail {
 template <typename T>
-constexpr bool is_nan(const T& x) noexcept {
+constexpr bool isNan(const T& x) noexcept {
     if constexpr (std::is_floating_point_v<T>) {
         return x != x;
     } else {
@@ -34,14 +34,14 @@ constexpr bool is_nan(const T& x) noexcept {
 // cmp.Less: whether x < y, with NaN less than any other float.
 template <Ordered T>
 constexpr bool Less(const T& x, const T& y) noexcept {
-    return (detail::is_nan(x) && !detail::is_nan(y)) || x < y;
+    return (detail::isNan(x) && !detail::isNan(y)) || x < y;
 }
 
 // cmp.Compare: -1 if x < y, 0 if x == y, +1 if x > y. A NaN is less than
 // any other float and equal to another NaN.
 template <Ordered T>
 constexpr int Compare(const T& x, const T& y) noexcept {
-    bool x_nan = detail::is_nan(x), y_nan = detail::is_nan(y);
+    bool x_nan = detail::isNan(x), y_nan = detail::isNan(y);
     if (x_nan) return y_nan ? 0 : -1;
     if (y_nan) return +1;
     if (x < y) return -1;

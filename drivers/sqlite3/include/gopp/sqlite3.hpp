@@ -83,7 +83,7 @@ constexpr ErrNoExtended ErrNo::Extend(int by) const noexcept { return ErrNoExten
 // sqlite3.Error: an error from SQLite, with its codes and message. A class
 // can't have a method named like it, so the class is Error_ and Error
 // names it: errors::As<sqlite3::Error>(err) works as in Go.
-struct Error_ final : error_interface {
+struct Error_ final : errorInterface {
     ErrNo Code;                  // the primary result code
     ErrNoExtended ExtendedCode;  // the extended result code
     int SystemErrno = 0;         // the OS errno behind CANTOPEN and IOERR errors, if any
@@ -197,10 +197,10 @@ struct SQLiteDriver final : sql::driver::Driver {
 
 namespace detail {
 // Registers the driver once; true.
-bool register_driver() noexcept;
+bool registerDriver() noexcept;
 // Initialized in every program that includes this header, so that a
 // static library can't leave the driver out.
-inline const bool registered = register_driver();
+inline const bool registered = registerDriver();
 }  // namespace detail
 
 }  // namespace gopp::sqlite3

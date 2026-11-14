@@ -26,13 +26,13 @@ using namespace gopp;
 using namespace std::chrono_literals;
 
 TEST(Runtime, GoRunsFiber) {
-    auto done = make_chan<int>();
+    auto done = makeChan<int>();
     go([done] { done.send(42); });
     EXPECT_EQ(done.recv(), 42);
 }
 
 TEST(Runtime, GoWithArguments) {
-    auto done = make_chan<int>();
+    auto done = makeChan<int>();
     go([](chan<int> c, int a, int b) { c.send(a + b); }, done, 40, 2);
     EXPECT_EQ(done.recv(), 42);
 }
@@ -83,7 +83,7 @@ TEST(Runtime, GoschedYields) {
 }
 
 TEST(Runtime, FiberIdsAreDistinct) {
-    auto ids = make_chan<uint64>(2);
+    auto ids = makeChan<uint64>(2);
     go([ids] { ids.send(runtime::goid()); });
     go([ids] { ids.send(runtime::goid()); });
     uint64 a = ids.recv(), b = ids.recv();
@@ -96,22 +96,22 @@ TEST(Runtime, FiberIdsAreDistinct) {
 TEST(Runtime, BlockingCallHandsOffProcessor) {
     // With GOMAXPROCS fibers stuck in blocking calls, others still run.
     int procs = runtime::GOMAXPROCS();
-    auto release = make_chan<empty>();
+    auto release = makeChan<empty>();
     sync::WaitGroup wg;
     for (int i = 0; i < procs; i++) {
         wg.Go([&] {
             runtime::blocking([] { std::this_thread::sleep_for(50ms); });
         });
     }
-    auto ran = make_chan<int>(1);
+    auto ran = makeChan<int>(1);
     go([ran] { ran.send(1); });
     EXPECT_EQ(ran.recv(), 1);
     wg.Wait();
 }
 
 TEST(Runtime, PingPong) {
-    auto ping = make_chan<int>();
-    auto pong = make_chan<int>();
+    auto ping = makeChan<int>();
+    auto pong = makeChan<int>();
     go([ping, pong] {
         for (int v : ping) pong.send(v + 1);
         pong.close();
@@ -134,7 +134,7 @@ TEST(Runtime, PingPong) {
 namespace {
 
 // Busy for d, without a call into the runtime.
-void spin_for(std::chrono::milliseconds d) {
+void spinFor(std::chrono::milliseconds d) {
     auto end = std::chrono::steady_clock::now() + d;
     while (std::chrono::steady_clock::now() < end) {
     }
@@ -142,7 +142,7 @@ void spin_for(std::chrono::milliseconds d) {
 
 // Receives from c within d; false on timeout.
 template <typename T>
-bool recv_within(const chan<T>& c, time::Duration d, T* out = nullptr) {
+bool recvWithin(const chan<T>& c, time::Duration d, T* out = nullptr) {
     bool got = false;
     select(recv(c,
                 [&](T v) {
@@ -156,7 +156,7 @@ bool recv_within(const chan<T>& c, time::Duration d, T* out = nullptr) {
 // Runs this test program's test `name` as a child with the extra
 // environment variables (ahead of the inherited ones, so they win) and
 // returns its wait status. After run_child in go_os_pipe_test.cpp.
-int run_child(const std::string& name, const std::vector<std::string>& env) {
+int runChild(const std::string& name, const std::vector<std::string>& env) {
     std::string filter = "--gtest_filter=" + name;
     std::vector<std::string> envs = env;
     // Not the parent's GTEST_ settings: a shard or output file of the
@@ -184,9 +184,9 @@ int run_child(const std::string& name, const std::vector<std::string>& env) {
 
 TEST(Runtime, PreemptSpinnersDontStarveSleeper) {
     sync::WaitGroup wg;
-    for (int i = 0; i < runtime::GOMAXPROCS(); i++) wg.Go([] { spin_for(500ms); });
+    for (int i = 0; i < runtime::GOMAXPROCS(); i++) wg.Go([] { spinFor(500ms); });
     auto start = time::Now();
-    auto took = make_chan<time::Duration>(1);
+    auto took = makeChan<time::Duration>(1);
     go([took, start] {
         time::Sleep(10 * time::Millisecond);
         took.send(time::Since(start));
@@ -198,12 +198,12 @@ TEST(Runtime, PreemptSpinnersDontStarveSleeper) {
 
 TEST(Runtime, PreemptSpinnersDontStarveNewFiber) {
     sync::WaitGroup wg;
-    for (int i = 0; i < runtime::GOMAXPROCS(); i++) wg.Go([] { spin_for(500ms); });
+    for (int i = 0; i < runtime::GOMAXPROCS(); i++) wg.Go([] { spinFor(500ms); });
     std::this_thread::sleep_for(20ms);  // let the spinners take every P
-    auto ran = make_chan<int>(1);
+    auto ran = makeChan<int>(1);
     go([ran] {
-        auto ping = make_chan<int>();
-        auto pong = make_chan<int>();
+        auto ping = makeChan<int>();
+        auto pong = makeChan<int>();
         go([ping, pong] {
             for (int v : ping) pong.send(v + 1);
             pong.close();
@@ -217,7 +217,7 @@ TEST(Runtime, PreemptSpinnersDontStarveNewFiber) {
         ran.send(v);
     });
     int v = 0;
-    EXPECT_TRUE(recv_within(ran, 100 * time::Millisecond, &v));
+    EXPECT_TRUE(recvWithin(ran, 100 * time::Millisecond, &v));
     EXPECT_EQ(v, 100);
     wg.Wait();
 }
@@ -227,26 +227,26 @@ TEST(Runtime, PreemptedFiberParksAndResumes) {
     // woken and spins again on whatever P it gets back.
     int procs = runtime::GOMAXPROCS();
     std::vector<chan<int>> cs;
-    for (int i = 0; i < procs; i++) cs.push_back(make_chan<int>(1));
-    auto done = make_chan<int>(procs);
+    for (int i = 0; i < procs; i++) cs.push_back(makeChan<int>(1));
+    auto done = makeChan<int>(procs);
     for (int i = 0; i < procs; i++) {
         go([c = cs[i], done, i] {
-            spin_for(300ms);
+            spinFor(300ms);
             int v = c.recv();
-            spin_for(50ms);
+            spinFor(50ms);
             done.send(i + v);
         });
     }
     std::this_thread::sleep_for(20ms);
-    auto waiter = make_chan<int>(1);
+    auto waiter = makeChan<int>(1);
     go([waiter] { waiter.send(1); });
-    EXPECT_TRUE(recv_within(waiter, 100 * time::Millisecond));
+    EXPECT_TRUE(recvWithin(waiter, 100 * time::Millisecond));
     std::this_thread::sleep_for(300ms);
     for (auto& c : cs) c.send(1000);
     std::set<int> got;
     for (int k = 0; k < procs; k++) {
         int v = 0;
-        if (recv_within(done, 2 * time::Second, &v)) got.insert(v);
+        if (recvWithin(done, 2 * time::Second, &v)) got.insert(v);
     }
     EXPECT_EQ(got.size(), static_cast<std::size_t>(procs));
 }
@@ -287,7 +287,7 @@ TEST(Runtime, PreemptBoundsThreads) {
             int n = running.fetch_add(1) + 1;
             for (int m = most.load(); n > m && !most.compare_exchange_weak(m, n);) {
             }
-            spin_for(100ms);
+            spinFor(100ms);
             running.fetch_sub(1);
         });
     }
@@ -306,9 +306,9 @@ TEST(Runtime, PreemptWithSignalsBlocked) {
         sigaddset(&urg, SIGURG);
         pthread_sigmask(SIG_BLOCK, &urg, nullptr);
         sync::WaitGroup wg;
-        wg.Go([] { spin_for(300ms); });
+        wg.Go([] { spinFor(300ms); });
         auto start = time::Now();
-        auto took = make_chan<time::Duration>(1);
+        auto took = makeChan<time::Duration>(1);
         go([took, start] {
             time::Sleep(10 * time::Millisecond);
             took.send(time::Since(start));
@@ -317,7 +317,7 @@ TEST(Runtime, PreemptWithSignalsBlocked) {
         wg.Wait();
         std::_Exit(elapsed < 150 * time::Millisecond ? 0 : 1);
     }
-    int status = run_child("Runtime.PreemptWithSignalsBlocked", {"GOPP_TEST_PREEMPT_CHILD=1", "GOMAXPROCS=1"});
+    int status = runChild("Runtime.PreemptWithSignalsBlocked", {"GOPP_TEST_PREEMPT_CHILD=1", "GOMAXPROCS=1"});
     ASSERT_TRUE(WIFEXITED(status)) << status;
     EXPECT_EQ(WEXITSTATUS(status), 0) << "the spinner wasn't preempted with SIGURG blocked in main";
 }
@@ -337,9 +337,9 @@ TEST(Runtime, RawBlockingSyscallLosesP) {
         });
     }
     std::this_thread::sleep_for(20ms);
-    auto ran = make_chan<int>(1);
+    auto ran = makeChan<int>(1);
     go([ran] { ran.send(1); });
-    EXPECT_TRUE(recv_within(ran, 100 * time::Millisecond));
+    EXPECT_TRUE(recvWithin(ran, 100 * time::Millisecond));
     wg.Wait();
 }
 
@@ -348,9 +348,9 @@ TEST(Runtime, PreemptOffSwitch) {
         // GOMAXPROCS=1 and GODEBUG=asyncpreemptoff=1: the sleeper waits
         // for the spinner.
         sync::WaitGroup wg;
-        wg.Go([] { spin_for(300ms); });
+        wg.Go([] { spinFor(300ms); });
         auto start = time::Now();
-        auto took = make_chan<time::Duration>(1);
+        auto took = makeChan<time::Duration>(1);
         go([took, start] {
             time::Sleep(10 * time::Millisecond);
             took.send(time::Since(start));
@@ -359,7 +359,7 @@ TEST(Runtime, PreemptOffSwitch) {
         wg.Wait();
         std::_Exit(elapsed >= 250 * time::Millisecond ? 0 : 1);
     }
-    int status = run_child("Runtime.PreemptOffSwitch",
+    int status = runChild("Runtime.PreemptOffSwitch",
                            {"GOPP_TEST_PREEMPT_CHILD=1", "GODEBUG=asyncpreemptoff=1", "GOMAXPROCS=1"});
     ASSERT_TRUE(WIFEXITED(status)) << status;
     EXPECT_EQ(WEXITSTATUS(status), 0) << "the fiber was preempted with asyncpreemptoff=1";

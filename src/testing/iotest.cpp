@@ -26,7 +26,7 @@ struct smallByteReader final : io::Reader {
     }
 };
 
-string q(std::span<const byte> b) { return strconv::Quote(as_string_view(b)); }
+string q(std::span<const byte> b) { return strconv::Quote(asStringView(b)); }
 
 bool equal(std::span<const byte> a, std::span<const byte> b) { return std::ranges::equal(a, b); }
 

@@ -59,7 +59,7 @@ struct URL {
 namespace detail {
 // Implements Error() for an error type named Error, which can't declare it.
 template <typename E>
-struct named_error : error_interface {
+struct named_error : errorInterface {
     string Error() const override { return static_cast<const E&>(*this).message(); }
 };
 }  // namespace detail
@@ -70,7 +70,7 @@ struct Error : detail::named_error<Error> {
     gopp::error Err;
     // The message, as Error() returns it.
     string message() const;
-    const error_interface* Unwrap() const noexcept override { return Err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return Err.get(); }
     bool Timeout() const noexcept override { return Err && Err->Timeout(); }
 };
 

@@ -116,19 +116,19 @@ inline std::span<const byte> b(std::string_view s) { return as_bytes(s); }
 inline std::string read_all(File& f) {
     auto [data, err] = io::ReadAll(f);
     EXPECT_FALSE(err) << err;
-    return std::string(as_string_view(data));
+    return std::string(asStringView(data));
 }
 
 inline std::string read_file(std::string_view name) {
     auto [data, err] = os::ReadFile(name);
     EXPECT_FALSE(err) << err;
-    return std::string(as_string_view(data));
+    return std::string(asStringView(data));
 }
 
-inline const syscall::Errno* errno_of(const error& err) { return errors::As<syscall::Errno>(err); }
+inline const syscall::Errno* errnoOf(const error& err) { return errors::As<syscall::Errno>(err); }
 
-inline bool is_errno(const error& err, int code) {
-    auto* e = errno_of(err);
+inline bool isErrno(const error& err, int code) {
+    auto* e = errnoOf(err);
     return e && e->Code == code;
 }
 
@@ -141,7 +141,7 @@ inline const std::string sfdir = "/etc";
 inline const std::vector<std::string> sysdir_files = {"group", "hosts", "passwd"};
 inline const std::string sfname = "group";
 
-inline int64 file_size(std::string_view name) {
+inline int64 fileSize(std::string_view name) {
     auto [file, err] = os::Open(name);
     if (err) {
         ADD_FAILURE() << "open failed: " << err;

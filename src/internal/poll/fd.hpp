@@ -29,7 +29,7 @@ namespace gopp::poll {
 extern const error ErrFileClosing;
 
 // The struct stat of a statx.
-void stat_from_statx(const struct statx& x, struct stat* st) noexcept;
+void statFromStatx(const struct statx& x, struct stat* st) noexcept;
 
 // fstatat(2), through io_uring's statx if it can; returns 0 or the errno.
 int statat(int dirfd, const char* name, struct stat* st, int flags) noexcept;
@@ -98,7 +98,7 @@ public:
     // blocking descriptors (terminals, pipes and sockets not on the poller)
     // are read and written with plain system calls, which honor O_NONBLOCK
     // if the program sets it.
-    void set_regular(bool regular) noexcept { regular_ = regular; }
+    void setRegular(bool regular) noexcept { regular_ = regular; }
 
 private:
     // Reference counting of operations against Close (Go's fdMutex,
@@ -109,7 +109,7 @@ private:
     // and returns close's error.
     error decref() noexcept;
     error destroy() noexcept;
-    error poll_error(int pe) const;
+    error pollError(int pe) const;
     // Runs a call that takes the descriptor, retrying after EINTR.
     template <typename F>
     error fcall(F&& f);

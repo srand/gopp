@@ -29,19 +29,19 @@ int64 roundDurationUp(time::Duration d, time::Duration to) { return (d.ns + to.n
 error setKeepAliveIdle(netfd& fd, time::Duration d) {
     if (d.ns == 0) d = defaultTCPKeepAliveIdle;
     else if (d.ns < 0) return nullptr;
-    return fd.setsockopt_int(IPPROTO_TCP, TCP_KEEPIDLE, int(roundDurationUp(d, time::Second)));
+    return fd.setsockoptInt(IPPROTO_TCP, TCP_KEEPIDLE, int(roundDurationUp(d, time::Second)));
 }
 
 error setKeepAliveInterval(netfd& fd, time::Duration d) {
     if (d.ns == 0) d = defaultTCPKeepAliveInterval;
     else if (d.ns < 0) return nullptr;
-    return fd.setsockopt_int(IPPROTO_TCP, TCP_KEEPINTVL, int(roundDurationUp(d, time::Second)));
+    return fd.setsockoptInt(IPPROTO_TCP, TCP_KEEPINTVL, int(roundDurationUp(d, time::Second)));
 }
 
 error setKeepAliveCount(netfd& fd, int n) {
     if (n == 0) n = defaultTCPKeepAliveCount;
     else if (n < 0) return nullptr;
-    return fd.setsockopt_int(IPPROTO_TCP, TCP_KEEPCNT, n);
+    return fd.setsockoptInt(IPPROTO_TCP, TCP_KEEPCNT, n);
 }
 
 // Go's selfConnect: a socket that connected to itself, which happens
@@ -49,7 +49,7 @@ error setKeepAliveCount(netfd& fd, int n) {
 bool selfConnect(const ptr<netfd>& fd, const error& err) {
     if (err) return false;
     if (!fd->laddr || !fd->raddr) return true;
-    ip_port l = ip_port_of(fd->laddr.get()), r = ip_port_of(fd->raddr.get());
+    ip_port l = ipPortOf(fd->laddr.get()), r = ipPortOf(fd->raddr.get());
     return l.port == r.port && l.ip.Equal(r.ip);
 }
 
@@ -67,7 +67,7 @@ struct splicePipe {
 constexpr int maxSpliceSize = 1 << 20;
 
 std::mutex pipe_mu;
-std::vector<splicePipe>& pipe_pool() {
+std::vector<splicePipe>& pipePool() {
     static auto* v = new std::vector<splicePipe>;
     return *v;
 }
@@ -75,9 +75,9 @@ std::vector<splicePipe>& pipe_pool() {
 bool getPipe(splicePipe* p) {
     {
         std::lock_guard l(pipe_mu);
-        if (!pipe_pool().empty()) {
-            *p = pipe_pool().back();
-            pipe_pool().pop_back();
+        if (!pipePool().empty()) {
+            *p = pipePool().back();
+            pipePool().pop_back();
             return true;
         }
     }
@@ -96,7 +96,7 @@ void putPipe(const splicePipe& p) {
         return;
     }
     std::lock_guard l(pipe_mu);
-    pipe_pool().push_back(p);
+    pipePool().push_back(p);
 }
 
 // A reference to a socket's descriptor that keeps Close from releasing it
@@ -121,7 +121,7 @@ std::pair<int, error> spliceDrain(int pipefd, netfd& sock, int max) {
         if (n >= 0) return {int(n), nullptr};
         int e = errno;
         if (e == EINTR) continue;
-        if (e != EAGAIN) return {0, errno_error(e)};
+        if (e != EAGAIN) return {0, errnoError(e)};
         if (error err = sock.wait('r')) return {0, err};
     }
 }
@@ -142,7 +142,7 @@ std::pair<int, error> splicePump(netfd& sock, int pipefd, int inPipe) {
         }
         int e = n < 0 ? errno : EAGAIN;
         if (e == EINTR) continue;
-        if (e != EAGAIN) return {written, errno_error(e)};
+        if (e != EAGAIN) return {written, errnoError(e)};
         if (error err = sock.wait('w')) return {written, err};
     }
     return {written, nullptr};
@@ -151,7 +151,7 @@ std::pair<int, error> splicePump(netfd& sock, int pipefd, int inPipe) {
 // Go's poll.Splice: up to remain bytes from src to dst through a pipe.
 std::tuple<int64, bool, error> pollSplice(netfd& dst, netfd& src, int64 remain) {
     splicePipe p;
-    if (!getPipe(&p)) return {0, false, errno_error(EINVAL)};
+    if (!getPipe(&p)) return {0, false, errnoError(EINVAL)};
     int64 written = 0;
     bool handled = false;
     error err;
@@ -194,8 +194,8 @@ std::tuple<int64, error, bool> spliceFrom(netfd& c, io::Reader& r0) {
         if (remain <= 0) return {0, nullptr, true};
     }
     netfd* s = nullptr;
-    if (auto* t = dynamic_cast<TCPConn*>(r)) s = t->internal_fd().get();
-    else if (auto* u = dynamic_cast<UnixConn*>(r); u && u->internal_fd()->network() == "unix") s = u->internal_fd().get();
+    if (auto* t = dynamic_cast<TCPConn*>(r)) s = t->internalFd().get();
+    else if (auto* u = dynamic_cast<UnixConn*>(r); u && u->internalFd()->network() == "unix") s = u->internalFd().get();
     if (!s) return {0, nullptr, false};
     auto [written, handled, err] = pollSplice(c, *s, remain);
     if (lr) lr->N -= written;
@@ -246,7 +246,7 @@ std::tuple<int64, error, bool> sendFile(netfd& c, io::Reader& r0) {
         if (e == EINTR) continue;
         if (lr) lr->N = remain - written;
         bool handled = !(e == ENOSYS || e == EOPNOTSUPP || e == EINVAL) || written > 0;
-        return {written, wrapSyscallError("sendfile", errno_error(e)), handled};
+        return {written, wrapSyscallError("sendfile", errnoError(e)), handled};
     }
     if (lr) lr->N = remain - written;
     return {written, nullptr, true};
@@ -279,7 +279,7 @@ ptr<TCPAddr> TCPAddrFromAddrPort(netip::AddrPort addr) {
 }
 
 ptr<TCPConn> newTCPConn(ptr<netfd> fd, time::Duration keepAliveIdle, KeepAliveConfig keepAliveCfg) {
-    fd->setsockopt_int(IPPROTO_TCP, TCP_NODELAY, 1);
+    fd->setsockoptInt(IPPROTO_TCP, TCP_NODELAY, 1);
     if (!keepAliveCfg.Enable && keepAliveIdle.ns >= 0) keepAliveCfg = KeepAliveConfig{.Enable = true, .Idle = keepAliveIdle};
     auto c = make_ptr<TCPConn>(std::move(fd));
     if (keepAliveCfg.Enable) c->SetKeepAliveConfig(keepAliveCfg);
@@ -302,8 +302,8 @@ std::pair<int64, error> TCPConn::WriteTo(io::Writer& w) {
     error err;
     bool handled = false;
     // Go's spliceTo: to a Unix stream connection.
-    if (auto* uc = dynamic_cast<UnixConn*>(&w); uc && uc->internal_fd()->network() == "unix") {
-        std::tie(n, handled, err) = pollSplice(*uc->internal_fd(), *fd_, std::numeric_limits<int64>::max());
+    if (auto* uc = dynamic_cast<UnixConn*>(&w); uc && uc->internalFd()->network() == "unix") {
+        std::tie(n, handled, err) = pollSplice(*uc->internalFd(), *fd_, std::numeric_limits<int64>::max());
         err = wrapSyscallError("splice", err);
     }
     if (!handled) {
@@ -324,12 +324,12 @@ error TCPConn::CloseWrite() {
 }
 
 error TCPConn::SetLinger(int sec) {
-    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockopt_linger(sec));
+    return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, fd_->setsockoptLinger(sec));
 }
 
 error TCPConn::SetKeepAlive(bool keepalive) {
     return op_error("set", fd_->network(), fd_->laddr, fd_->raddr,
-                    fd_->setsockopt_int(SOL_SOCKET, SO_KEEPALIVE, keepalive));
+                    fd_->setsockoptInt(SOL_SOCKET, SO_KEEPALIVE, keepalive));
 }
 
 error TCPConn::SetKeepAlivePeriod(time::Duration d) {
@@ -338,7 +338,7 @@ error TCPConn::SetKeepAlivePeriod(time::Duration d) {
 
 error TCPConn::SetKeepAliveConfig(const KeepAliveConfig& config) {
     auto fail = [&](error err) { return op_error("set", fd_->network(), fd_->laddr, fd_->raddr, err); };
-    if (error err = fd_->setsockopt_int(SOL_SOCKET, SO_KEEPALIVE, config.Enable)) return fail(err);
+    if (error err = fd_->setsockoptInt(SOL_SOCKET, SO_KEEPALIVE, config.Enable)) return fail(err);
     if (error err = setKeepAliveIdle(*fd_, config.Idle)) return fail(err);
     if (error err = setKeepAliveInterval(*fd_, config.Interval)) return fail(err);
     if (error err = setKeepAliveCount(*fd_, config.Count)) return fail(err);
@@ -347,7 +347,7 @@ error TCPConn::SetKeepAliveConfig(const KeepAliveConfig& config) {
 
 error TCPConn::SetNoDelay(bool noDelay) {
     return op_error("set", fd_->network(), fd_->laddr, fd_->raddr,
-                    fd_->setsockopt_int(IPPROTO_TCP, TCP_NODELAY, noDelay));
+                    fd_->setsockoptInt(IPPROTO_TCP, TCP_NODELAY, noDelay));
 }
 
 std::pair<bool, error> TCPConn::MultipathTCP() { return {isUsingMultipathTCP(*fd_), nullptr}; }

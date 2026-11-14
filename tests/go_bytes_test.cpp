@@ -25,9 +25,9 @@ using bs = std::optional<std::string>;
 bs bytes_of(std::string s) { return s; }
 const bs empty_bytes = ""s;
 
-slice<byte> b(const bs& v) { return v ? to_bytes(*v) : slice<byte>(); }
-slice<byte> b(const std::string& s) { return to_bytes(s); }
-std::string str(std::span<const byte> s) { return std::string(as_string_view(s)); }
+slice<byte> b(const bs& v) { return v ? toBytes(*v) : slice<byte>(); }
+slice<byte> b(const std::string& s) { return toBytes(s); }
+std::string str(std::span<const byte> s) { return std::string(asStringView(s)); }
 std::string q(const bs& v) { return v ? "\"" + *v + "\"" : "nil"; }
 
 std::vector<std::string> sliceOfString(const slice<slice<byte>>& s) {
@@ -739,7 +739,7 @@ TEST(GoBytes, Compare) {
 }
 
 TEST(GoBytes, CompareIdenticalSlice) {
-    auto bb = to_bytes("Hello Gophers!");
+    auto bb = toBytes("Hello Gophers!");
     EXPECT_EQ(bytes::Compare(bb, bb), 0) << "b != b";
     EXPECT_EQ(bytes::Compare(bb, bb.Sub(0, 1)), 1) << "b > b[:1] failed";
 }
@@ -976,8 +976,8 @@ void runStringTests(const std::function<slice<byte>(const slice<byte>&)>& f, con
                     const std::vector<StringTest>& testCases) {
     for (const auto& tc : testCases) {
         auto actual = f(b(tc.in));
-        EXPECT_FALSE(actual.is_nil() && tc.out) << funcName << "(" << tc.in << ") = nil; want " << q(tc.out);
-        EXPECT_FALSE(!actual.is_nil() && !tc.out) << funcName << "(" << tc.in << ") = " << str(actual) << "; want nil";
+        EXPECT_FALSE(actual.isNil() && tc.out) << funcName << "(" << tc.in << ") = nil; want " << q(tc.out);
+        EXPECT_FALSE(!actual.isNil() && !tc.out) << funcName << "(" << tc.in << ") = " << str(actual) << "; want nil";
         EXPECT_TRUE(bytes::Equal(actual, b(tc.out))) << funcName << "(" << tc.in << ") = " << str(actual) << "; want " << q(tc.out);
     }
 }
@@ -1132,7 +1132,7 @@ TEST(GoBytes, Trim) {
         if (actual.len() != 0) {
             ADD_FAILURE() << tc.f << "(" << q(tc.in) << ", " << tc.arg << ") returned non-empty value";
         } else {
-            EXPECT_EQ(actual.is_nil(), !tc.out.has_value()) << tc.f << "(" << q(tc.in) << ", " << tc.arg << ") got nil " << actual.is_nil();
+            EXPECT_EQ(actual.isNil(), !tc.out.has_value()) << tc.f << "(" << q(tc.in) << ", " << tc.arg << ") got nil " << actual.isNil();
         }
     }
 }
@@ -1151,8 +1151,8 @@ TEST(GoBytes, TrimFunc) {
         };
         for (const auto& t : trimmers) {
             auto actual = t.trim(b(tc.in), tc.f.f);
-            EXPECT_FALSE(actual.is_nil() && t.out) << t.name << "(" << tc.in << ", " << tc.f.name << ") = nil; want " << q(t.out);
-            EXPECT_FALSE(!actual.is_nil() && !t.out) << t.name << "(" << tc.in << ", " << tc.f.name << ") = " << str(actual) << "; want nil";
+            EXPECT_FALSE(actual.isNil() && t.out) << t.name << "(" << tc.in << ", " << tc.f.name << ") = nil; want " << q(t.out);
+            EXPECT_FALSE(!actual.isNil() && !t.out) << t.name << "(" << tc.in << ", " << tc.f.name << ") = " << str(actual) << "; want nil";
             EXPECT_TRUE(bytes::Equal(actual, b(t.out))) << t.name << "(" << tc.in << ", " << tc.f.name << ") = " << str(actual) << "; want " << q(t.out);
         }
     }
@@ -1170,7 +1170,7 @@ TEST(GoBytes, Replace) {
         auto in = b(tt.in);
         auto old = b(tt.old);
         auto new_ = b(tt.new_);
-        in = append_span(in, as_bytes("<spare>"));
+        in = appendSpan(in, as_bytes("<spare>"));
         in = in.Sub(0, tt.in.size());
         auto out = bytes::Replace(in, old, new_, tt.n);
         EXPECT_EQ(str(out), tt.out) << "Replace(" << tt.in << ", " << tt.old << ", " << tt.new_ << ", " << tt.n << ")";
@@ -1284,21 +1284,21 @@ TEST(GoBytes, ContainsFunc) {
 }
 
 TEST(GoBytes, Clone) {
-    auto a42 = to_bytes(repeat("a", 42));
+    auto a42 = toBytes(repeat("a", 42));
     const std::vector<slice<byte>> cloneTests = {
         slice<byte>(),
         slice<byte>::make(0),
         bytes::Clone(slice<byte>::make(0)),
         a42.Sub(0, 0),
         a42.Sub(0, 0, 0),
-        to_bytes("short"),
+        toBytes("short"),
         a42,
     };
     for (const auto& input : cloneTests) {
         auto clone = bytes::Clone(input);
         EXPECT_TRUE(bytes::Equal(clone, input)) << "Clone(" << str(input) << ")";
-        EXPECT_FALSE(input.is_nil() && !clone.is_nil()) << "Clone(nil) return value should be equal to nil slice.";
-        EXPECT_FALSE(!input.is_nil() && clone.is_nil()) << "Clone return value should not be equal to nil slice.";
+        EXPECT_FALSE(input.isNil() && !clone.isNil()) << "Clone(nil) return value should be equal to nil slice.";
+        EXPECT_FALSE(!input.isNil() && clone.isNil()) << "Clone return value should not be equal to nil slice.";
         EXPECT_FALSE(input.cap() != 0 && input.data() == clone.data()) << "Clone return value should not reference inputs backing memory.";
     }
 }

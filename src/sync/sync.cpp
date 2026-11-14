@@ -9,15 +9,15 @@ namespace {
 
 constexpr int64_t starvation_threshold_ns = 1000000;
 
-bool can_spin(int iter) noexcept { return iter < 4 && runtime::NumCPU() > 1; }
+bool canSpin(int iter) noexcept { return iter < 4 && runtime::NumCPU() > 1; }
 
-void do_spin() noexcept {
-    for (int i = 0; i < 30; i++) runtime::cpu_relax();
+void doSpin() noexcept {
+    for (int i = 0; i < 30; i++) runtime::cpuRelax();
 }
 
 }  // namespace
 
-void Mutex::lock_slow() noexcept {
+void Mutex::lockSlow() noexcept {
     int64_t wait_start = 0;
     bool is_starving = false;
     bool awoke = false;
@@ -25,12 +25,12 @@ void Mutex::lock_slow() noexcept {
     int32_t old = state_.load(std::memory_order_relaxed);
     for (;;) {
         // Spin while the mutex is locked in normal mode.
-        if ((old & (locked | starving)) == locked && can_spin(iter)) {
+        if ((old & (locked | starving)) == locked && canSpin(iter)) {
             if (!awoke && (old & woken) == 0 && (old >> waiter_shift) != 0 &&
                 state_.compare_exchange_strong(old, old | woken)) {
                 awoke = true;
             }
-            do_spin();
+            doSpin();
             iter++;
             old = state_.load(std::memory_order_relaxed);
             continue;
@@ -65,7 +65,7 @@ void Mutex::lock_slow() noexcept {
     }
 }
 
-void Mutex::unlock_slow(int32_t nw) noexcept {
+void Mutex::unlockSlow(int32_t nw) noexcept {
     if (((nw + locked) & locked) == 0) runtime::fatal("sync: unlock of unlocked mutex");
     if ((nw & starving) == 0) {
         int32_t old = nw;

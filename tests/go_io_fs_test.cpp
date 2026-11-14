@@ -115,9 +115,9 @@ int sysValue;
 // readfile_test.go's testFsys.
 ptr<fstest::MapFS> testFsys() {
     return fstest::MakeMapFS({
-        {"hello.txt", {.Data = to_bytes("hello, world"), .Mode = 0456, .ModTime = time::Now(), .Sys = &sysValue}},
+        {"hello.txt", {.Data = toBytes("hello, world"), .Mode = 0456, .ModTime = time::Now(), .Sys = &sysValue}},
         {"sub/goodbye.txt",
-         {.Data = to_bytes("goodbye, world"), .Mode = 0456, .ModTime = time::Now(), .Sys = &sysValue}},
+         {.Data = toBytes("goodbye, world"), .Mode = 0456, .ModTime = time::Now(), .Sys = &sysValue}},
     });
 }
 
@@ -289,7 +289,7 @@ TEST(GoIoFs, ReadDir) {
 
 TEST(GoIoFs, FileInfoToDirEntry) {
     auto testFs = fstest::MakeMapFS({
-        {"notadir.txt", {.Data = to_bytes("hello, world"), .Mode = 0, .ModTime = time::Now(), .Sys = &sysValue}},
+        {"notadir.txt", {.Data = toBytes("hello, world"), .Mode = 0, .ModTime = time::Now(), .Sys = &sysValue}},
         {"adir", {.Data = {}, .Mode = os::ModeDir, .ModTime = time::Now(), .Sys = &sysValue}},
     });
 
@@ -327,21 +327,21 @@ TEST(GoIoFs, ReadFile) {
     // Test that ReadFile uses the method when present.
     readFileOnly rf(testFsys());
     auto [data, err] = fs::ReadFile(rf, "hello.txt");
-    ASSERT_TRUE(as_string_view(data) == "hello, world" && !err)
-        << "ReadFile(readFileOnly, \"hello.txt\") = " << as_string_view(data) << ", " << err;
+    ASSERT_TRUE(asStringView(data) == "hello, world" && !err)
+        << "ReadFile(readFileOnly, \"hello.txt\") = " << asStringView(data) << ", " << err;
 
     // Test that ReadFile uses Open when the method is not present.
     openOnly o(testFsys());
     std::tie(data, err) = fs::ReadFile(o, "hello.txt");
-    ASSERT_TRUE(as_string_view(data) == "hello, world" && !err)
-        << "ReadFile(openOnly, \"hello.txt\") = " << as_string_view(data) << ", " << err;
+    ASSERT_TRUE(asStringView(data) == "hello, world" && !err)
+        << "ReadFile(openOnly, \"hello.txt\") = " << asStringView(data) << ", " << err;
 
     // Test that ReadFile on Sub of . works (sub_test checks non-trivial subs).
     auto [sub, serr] = fs::Sub(testFsys(), ".");
     ASSERT_FALSE(serr) << serr;
     std::tie(data, err) = fs::ReadFile(*sub, "hello.txt");
-    ASSERT_TRUE(as_string_view(data) == "hello, world" && !err)
-        << "ReadFile(sub(.), \"hello.txt\") = " << as_string_view(data) << ", " << err;
+    ASSERT_TRUE(asStringView(data) == "hello, world" && !err)
+        << "ReadFile(sub(.), \"hello.txt\") = " << asStringView(data) << ", " << err;
 }
 
 TEST(GoIoFs, ReadFilePath) {
@@ -357,11 +357,11 @@ namespace {
 
 ptr<fstest::MapFS> linkFS() {
     return fstest::MakeMapFS({
-        {"foo", {.Data = to_bytes("bar"), .Mode = fs::ModeSymlink | 0777}},
-        {"bar", {.Data = to_bytes("Hello, World!\n"), .Mode = 0644}},
-        {"dir/parentlink", {.Data = to_bytes("../bar"), .Mode = fs::ModeSymlink | 0777}},
-        {"dir/link", {.Data = to_bytes("file"), .Mode = fs::ModeSymlink | 0777}},
-        {"dir/file", {.Data = to_bytes("Hello, World!\n"), .Mode = 0644}},
+        {"foo", {.Data = toBytes("bar"), .Mode = fs::ModeSymlink | 0777}},
+        {"bar", {.Data = toBytes("Hello, World!\n"), .Mode = 0644}},
+        {"dir/parentlink", {.Data = toBytes("../bar"), .Mode = fs::ModeSymlink | 0777}},
+        {"dir/link", {.Data = toBytes("file"), .Mode = fs::ModeSymlink | 0777}},
+        {"dir/file", {.Data = toBytes("Hello, World!\n"), .Mode = 0644}},
     });
 }
 
@@ -433,8 +433,8 @@ TEST(GoIoFs, Sub) {
             return;
         }
         auto [data, rerr] = fs::ReadFile(*sub, "goodbye.txt");
-        if (as_string_view(data) != "goodbye, world" || rerr) {
-            ADD_FAILURE() << "ReadFile(" << desc << ", \"goodbye.txt\") = " << as_string_view(data) << ", " << rerr
+        if (asStringView(data) != "goodbye, world" || rerr) {
+            ADD_FAILURE() << "ReadFile(" << desc << ", \"goodbye.txt\") = " << asStringView(data) << ", " << rerr
                           << ", want goodbye, world, nil";
         }
 
@@ -543,10 +543,10 @@ TEST(GoIoFs, WalkDir) {
 
 TEST(GoIoFs, WalkDirSymlink) {
     auto fsys = fstest::MakeMapFS({
-        {"link", {.Data = to_bytes("dir"), .Mode = fs::ModeSymlink}},
+        {"link", {.Data = toBytes("dir"), .Mode = fs::ModeSymlink}},
         {"dir/a", {}},
         {"dir/b/c", {}},
-        {"dir/d", {.Data = to_bytes("b"), .Mode = fs::ModeSymlink}},
+        {"dir/d", {.Data = toBytes("b"), .Mode = fs::ModeSymlink}},
     });
 
     std::map<std::string, fs::FileMode> wantTypes = {

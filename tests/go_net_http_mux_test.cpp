@@ -25,8 +25,8 @@ using gopp::http::Request;
 
 namespace {
 
-std::unique_ptr<pattern> must_parse_pattern(std::string_view s) {
-    auto [p, err] = parse_pattern(s);
+std::unique_ptr<pattern> mustParsePattern(std::string_view s) {
+    auto [p, err] = parsePattern(s);
     if (err) ADD_FAILURE() << s << ": " << err;
     return std::move(p);
 }
@@ -74,7 +74,7 @@ TEST(GoNetHttp, ParsePattern) {
         {"DELETE    \texample.com/a/{foo12}/{$}", {"DELETE", "example.com", {lit("a"), wild("foo12"), lit("/")}}},
     };
     for (auto& test : tests) {
-        auto got = must_parse_pattern(test.in);
+        auto got = mustParsePattern(test.in);
         ASSERT_TRUE(got) << test.in;
         EXPECT_EQ(got->method, test.want.method) << test.in;
         EXPECT_EQ(got->host, test.want.host) << test.in;
@@ -109,7 +109,7 @@ TEST(GoNetHttp, ParsePatternError) {
         {"GET //", "at offset 4: non-CONNECT pattern with unclean path"},
     };
     for (auto& test : tests) {
-        auto [p, err] = parse_pattern(test.in);
+        auto [p, err] = parsePattern(test.in);
         ASSERT_TRUE(err) << test.in;
         EXPECT_NE(std::string(err.Error().view()).find(test.contains), std::string::npos)
             << test.in << ": got " << err << ", want error containing " << test.contains;
@@ -131,10 +131,10 @@ TEST(GoNetHttp, CompareMethods) {
         {"GET /", "HEAD /", relationship::more_general},
     };
     for (auto& test : tests) {
-        auto pat1 = must_parse_pattern(test.p1);
-        auto pat2 = must_parse_pattern(test.p2);
-        EXPECT_EQ(str(compare_methods(*pat1, *pat2)), str(test.want)) << test.p1 << " vs " << test.p2;
-        EXPECT_EQ(str(compare_methods(*pat2, *pat1)), str(inverse_relationship(test.want))) << test.p2 << " vs " << test.p1;
+        auto pat1 = mustParsePattern(test.p1);
+        auto pat2 = mustParsePattern(test.p2);
+        EXPECT_EQ(str(compareMethods(*pat1, *pat2)), str(test.want)) << test.p1 << " vs " << test.p2;
+        EXPECT_EQ(str(compareMethods(*pat2, *pat1)), str(inverseRelationship(test.want))) << test.p2 << " vs " << test.p1;
     }
 }
 
@@ -274,12 +274,12 @@ TEST(GoNetHttp, ComparePaths) {
         {"/a/{z}/{$}", "/{z}/a/", overlaps},
     };
     for (auto& test : tests) {
-        auto pat1 = must_parse_pattern(test.p1);
-        auto pat2 = must_parse_pattern(test.p2);
-        EXPECT_EQ(str(compare_paths(*pat1, *pat1)), "equivalent") << test.p1 << " does not match itself";
-        EXPECT_EQ(str(compare_paths(*pat2, *pat2)), "equivalent") << test.p2 << " does not match itself";
-        EXPECT_EQ(str(compare_paths(*pat1, *pat2)), str(test.want)) << test.p1 << " vs " << test.p2;
-        EXPECT_EQ(str(compare_paths(*pat2, *pat1)), str(inverse_relationship(test.want))) << test.p2 << " vs " << test.p1;
+        auto pat1 = mustParsePattern(test.p1);
+        auto pat2 = mustParsePattern(test.p2);
+        EXPECT_EQ(str(comparePaths(*pat1, *pat1)), "equivalent") << test.p1 << " does not match itself";
+        EXPECT_EQ(str(comparePaths(*pat2, *pat2)), "equivalent") << test.p2 << " does not match itself";
+        EXPECT_EQ(str(comparePaths(*pat1, *pat2)), str(test.want)) << test.p1 << " vs " << test.p2;
+        EXPECT_EQ(str(comparePaths(*pat2, *pat1)), str(inverseRelationship(test.want))) << test.p2 << " vs " << test.p1;
     }
 }
 
@@ -311,8 +311,8 @@ TEST(GoNetHttp, ConflictsWith) {
         {"GET /foo", "HEAD /", true},
     };
     for (auto& test : tests) {
-        auto pat1 = must_parse_pattern(test.p1);
-        auto pat2 = must_parse_pattern(test.p2);
+        auto pat1 = mustParsePattern(test.p1);
+        auto pat2 = mustParsePattern(test.p2);
         EXPECT_EQ(conflicts_with(*pat1, *pat2), test.want) << test.p1 << ".ConflictsWith(" << test.p2 << ")";
         // conflictsWith should be commutative.
         EXPECT_EQ(conflicts_with(*pat2, *pat1), test.want) << test.p2 << ".ConflictsWith(" << test.p1 << ")";
@@ -339,7 +339,7 @@ TEST(GoNetHttp, DescribeConflict) {
         {"POST /", "/a", "matches fewer methods than /a, but has a more general path pattern"},
     };
     for (auto& test : tests) {
-        std::string got(describe_conflict(*must_parse_pattern(test.p1), *must_parse_pattern(test.p2)).view());
+        std::string got(describe_conflict(*mustParsePattern(test.p1), *mustParsePattern(test.p2)).view());
         EXPECT_NE(got.find(test.want), std::string::npos) << test.p1 << " vs. " << test.p2 << ":\n" << got;
     }
 }
@@ -360,10 +360,10 @@ TEST(GoNetHttp, CommonPath) {
         {"/a/{z}/{x...}", "/{z}/b/{y...}", "/a/b/"},
     };
     for (auto& test : tests) {
-        auto pat1 = must_parse_pattern(test.p1);
-        auto pat2 = must_parse_pattern(test.p2);
-        ASSERT_EQ(str(compare_paths(*pat1, *pat2)), "overlaps") << test.p1 << " does not overlap " << test.p2;
-        EXPECT_EQ(common_path(*pat1, *pat2), test.want) << test.p1 << " vs. " << test.p2;
+        auto pat1 = mustParsePattern(test.p1);
+        auto pat2 = mustParsePattern(test.p2);
+        ASSERT_EQ(str(comparePaths(*pat1, *pat2)), "overlaps") << test.p1 << " does not overlap " << test.p2;
+        EXPECT_EQ(commonPath(*pat1, *pat2), test.want) << test.p1 << " vs. " << test.p2;
     }
 }
 
@@ -398,12 +398,12 @@ TEST(GoNetHttp, DifferencePath) {
         {"/{x}/c/{y...}", "/a/{x}/b/{$}", "/x/c/"},
     };
     for (auto& test : tests) {
-        auto pat1 = must_parse_pattern(test.p1);
-        auto pat2 = must_parse_pattern(test.p2);
-        relationship rel = compare_paths(*pat1, *pat2);
+        auto pat1 = mustParsePattern(test.p1);
+        auto pat2 = mustParsePattern(test.p2);
+        relationship rel = comparePaths(*pat1, *pat2);
         ASSERT_TRUE(rel == relationship::overlaps || rel == relationship::more_general)
             << test.p1 << " vs. " << test.p2 << " are " << str(rel) << ", need overlaps or moreGeneral";
-        EXPECT_EQ(difference_path(*pat1, *pat2), test.want) << test.p1 << " vs. " << test.p2;
+        EXPECT_EQ(differencePath(*pat1, *pat2), test.want) << test.p1 << " vs. " << test.p2;
     }
 }
 
@@ -418,11 +418,11 @@ struct test_tree {
     routing_node root;
 };
 
-std::unique_ptr<test_tree> build_tree(std::initializer_list<std::string_view> pats) {
+std::unique_ptr<test_tree> buildTree(std::initializer_list<std::string_view> pats) {
     auto t = std::make_unique<test_tree>();
     for (auto p : pats) {
-        auto pat = must_parse_pattern(p);
-        t->root.add_pattern(pat.get(), nullptr);
+        auto pat = mustParsePattern(p);
+        t->root.addPattern(pat.get(), nullptr);
         t->pats.push_back(std::move(pat));
     }
     return t;
@@ -441,7 +441,7 @@ void print(const routing_node& n, std::string& w, int level) {
     std::sort(keys.begin(), keys.end());
     for (auto& k : keys) {
         w += indent + std::string(strconv::Quote(k).view()) + ":\n";
-        print(*n.find_child(k), w, level + 1);
+        print(*n.findChild(k), w, level + 1);
     }
     if (n.multi_child) {
         w += indent + "MULTI:\n";
@@ -466,7 +466,7 @@ TEST(GoNetHttp, RoutingFirstSegment) {
         std::vector<std::string> got;
         std::string_view rest = test.in;
         while (!rest.empty()) {
-            auto [seg, r] = first_segment(rest);
+            auto [seg, r] = firstSegment(rest);
             got.emplace_back(seg.view());
             rest = r;
         }
@@ -497,7 +497,7 @@ TEST(GoNetHttp, RoutingAddPattern) {
                 "i":
                     "/g/h/i"
 )";
-    auto t = build_tree({"/a", "/a/b", "/a/{x}", "/g/h/i", "/g/{x}/j", "/a/b/{x...}", "/a/b/{y}", "/a/b/{$}"});
+    auto t = buildTree({"/a", "/a/b", "/a/{x}", "/g/h/i", "/g/{x}/j", "/a/b/{x...}", "/a/b/{y}", "/a/b/{$}"});
     std::string got;
     print(t->root, got, 0);
     EXPECT_EQ(got, want);
@@ -511,7 +511,7 @@ struct test_case {
     std::vector<std::string> want_matches;
 };
 
-void run_match_tests(const routing_node& tree, std::initializer_list<test_case> tests) {
+void runMatchTests(const routing_node& tree, std::initializer_list<test_case> tests) {
     for (auto& test : tests) {
         routing_node::matches_t m;
         const routing_node* got_node = tree.match(test.host, test.method, string(test.path), m);
@@ -526,8 +526,8 @@ void run_match_tests(const routing_node& tree, std::initializer_list<test_case> 
 }  // namespace
 
 TEST(GoNetHttp, RoutingNodeMatch) {
-    auto t = build_tree({"/a", "/a/b", "/a/{x}", "/g/h/i", "/g/{x}/j", "/a/b/{x...}", "/a/b/{y}", "/a/b/{$}"});
-    run_match_tests(t->root, {
+    auto t = buildTree({"/a", "/a/b", "/a/{x}", "/g/h/i", "/g/{x}/j", "/a/b/{x...}", "/a/b/{y}", "/a/b/{$}"});
+    runMatchTests(t->root, {
                                  {"GET", "", "/a", "/a", {}},
                                  {"Get", "", "/b", "", {}},
                                  {"Get", "", "/a/b", "/a/b", {}},
@@ -539,10 +539,10 @@ TEST(GoNetHttp, RoutingNodeMatch) {
                                  {"Get", "", "/g/h/j", "/g/{x}/j", {"h"}},
                              });
 
-    auto tree = build_tree({"/item/", "POST /item/{user}", "GET /item/{user}", "/item/{user}", "/item/{user}/{id}",
+    auto tree = buildTree({"/item/", "POST /item/{user}", "GET /item/{user}", "/item/{user}", "/item/{user}/{id}",
                             "/item/{user}/new", "/item/{$}", "POST alt.com/item/{user}", "GET /headwins",
                             "HEAD /headwins", "/path/{p...}"});
-    run_match_tests(tree->root, {
+    runMatchTests(tree->root, {
                                     {"GET", "", "/item/jba", "GET /item/{user}", {"jba"}},
                                     {"POST", "", "/item/jba", "POST /item/{user}", {"jba"}},
                                     {"HEAD", "", "/item/jba", "GET /item/{user}", {"jba"}},
@@ -562,7 +562,7 @@ TEST(GoNetHttp, RoutingNodeMatch) {
 
     // A pattern ending in {$} should only match URLS with a trailing slash.
     std::string pat1 = "/a/b/{$}";
-    run_match_tests(build_tree({pat1})->root, {
+    runMatchTests(buildTree({pat1})->root, {
                                                   {"GET", "", "/a/b", "", {}},
                                                   {"GET", "", "/a/b/", pat1, {}},
                                                   {"GET", "", "/a/b/c", "", {}},
@@ -571,7 +571,7 @@ TEST(GoNetHttp, RoutingNodeMatch) {
 
     // A pattern ending in a single wildcard should not match a trailing slash URL.
     std::string pat2 = "/a/b/{w}";
-    run_match_tests(build_tree({pat2})->root, {
+    runMatchTests(buildTree({pat2})->root, {
                                                   {"GET", "", "/a/b", "", {}},
                                                   {"GET", "", "/a/b/", "", {}},
                                                   {"GET", "", "/a/b/c", pat2, {"c"}},
@@ -580,7 +580,7 @@ TEST(GoNetHttp, RoutingNodeMatch) {
 
     // A pattern ending in a multi wildcard should match both URLs.
     std::string pat3 = "/a/b/{w...}";
-    run_match_tests(build_tree({pat3})->root, {
+    runMatchTests(buildTree({pat3})->root, {
                                                   {"GET", "", "/a/b", "", {}},
                                                   {"GET", "", "/a/b/", pat3, {""}},
                                                   {"GET", "", "/a/b/c", pat3, {"c"}},
@@ -588,7 +588,7 @@ TEST(GoNetHttp, RoutingNodeMatch) {
                                               });
 
     // All three of the above should work together.
-    run_match_tests(build_tree({pat1, pat2, pat3})->root, {
+    runMatchTests(buildTree({pat1, pat2, pat3})->root, {
                                                               {"GET", "", "/a/b", "", {}},
                                                               {"GET", "", "/a/b/", pat1, {}},
                                                               {"GET", "", "/a/b/c", pat2, {"c"}},
@@ -597,10 +597,10 @@ TEST(GoNetHttp, RoutingNodeMatch) {
 }
 
 TEST(GoNetHttp, MatchingMethods) {
-    auto host_tree = build_tree({"GET a.com/", "PUT b.com/", "POST /foo/{x}"});
-    auto post_tree = build_tree({"POST /"});
-    auto get_tree = build_tree({"GET /"});
-    auto empty_tree = build_tree({"/"});
+    auto host_tree = buildTree({"GET a.com/", "PUT b.com/", "POST /foo/{x}"});
+    auto post_tree = buildTree({"POST /"});
+    auto get_tree = buildTree({"GET /"});
+    auto empty_tree = buildTree({"/"});
     struct {
         std::string name;
         const routing_node* tree;
@@ -747,11 +747,11 @@ TEST(GoNetHttp, ExactMatch) {
         routing_node node;
         const routing_node* n = nullptr;
         if (!test.pattern.empty()) {
-            pat = must_parse_pattern(test.pattern);
+            pat = mustParsePattern(test.pattern);
             node.pat = pat.get();
             n = &node;
         }
-        EXPECT_EQ(exact_match(n, test.path), test.want) << test.pattern << ", " << test.path;
+        EXPECT_EQ(exactMatch(n, test.path), test.want) << test.pattern << ", " << test.path;
     }
 }
 
@@ -791,7 +791,7 @@ TEST(GoNetHttp, CleanPath) {
         {"a//b/////c", "/a/b/c"},
         {"/foo/../bar/./..//baz", "/baz"},
     };
-    for (auto& test : tests) EXPECT_EQ(clean_path(string(test.in)), test.want) << test.in;
+    for (auto& test : tests) EXPECT_EQ(cleanPath(string(test.in)), test.want) << test.in;
 }
 
 // ---------------------------------------------------------------------------
@@ -807,13 +807,13 @@ ptr<http::Handler> serve(int code) {
 // scheme and the query, 500 otherwise.
 void check_query_string_handler(http::ResponseWriter& w, Request& r) {
     url::URL u = r.URL;
-    u.Scheme = string::from_static("http");
+    u.Scheme = string::fromStatic("http");
     u.Host = r.Host;
     u.RawQuery = {};
     w.WriteHeader("http://" + r.URL.RawQuery == u.String() ? 200 : 500);
 }
 
-void register_serve_mux(http::ServeMux& mux) {
+void registerServeMux(http::ServeMux& mux) {
     mux.Handle("/dir/", serve(200));
     mux.Handle("/search", serve(201));
     mux.Handle("codesearch.google.com/search", serve(202));
@@ -826,7 +826,7 @@ void register_serve_mux(http::ServeMux& mux) {
 
 TEST(GoNetHttp, ServeMuxHandler) {
     http::ServeMux mux;
-    register_serve_mux(mux);
+    registerServeMux(mux);
     struct {
         std::string method, host, path;
         int code;
@@ -889,7 +889,7 @@ TEST(GoNetHttp, ServeMuxHandlerRedirects) {
     // Automatic redirects generated by mux.Handler() shouldn't clear the
     // request's query string.
     http::ServeMux mux;
-    register_serve_mux(mux);
+    registerServeMux(mux);
     struct {
         std::string method, host, url;
         int code;
@@ -1007,7 +1007,7 @@ TEST(GoNetHttp, ServeWithSlashRedirectKeepsQueryString) {
         if (!tt.status_ok) {
             EXPECT_EQ(res->StatusCode, 404) << "#" << i;
         }
-        EXPECT_EQ(as_string_view(slurp), tt.want) << "#" << i;
+        EXPECT_EQ(asStringView(slurp), tt.want) << "#" << i;
         i++;
     }
 }

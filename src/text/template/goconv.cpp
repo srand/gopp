@@ -18,11 +18,11 @@ namespace {
 const gopp::error err_syntax = errors::New("invalid syntax");
 const gopp::error err_range = errors::New("value out of range");
 
-gopp::error num_error(std::string_view fn, std::string_view s, const gopp::error& e) {
+gopp::error numError(std::string_view fn, std::string_view s, const gopp::error& e) {
     return errors::New("strconv." + string(fn) + ": parsing " + string(quote(s)) + ": " + e.Error());
 }
 
-int hex_val(char c) noexcept {
+int hexVal(char c) noexcept {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
@@ -31,7 +31,7 @@ int hex_val(char c) noexcept {
 
 // Removes underscores, checking Go's placement rule: only between digits
 // (or after a base prefix).
-bool strip_underscores(std::string_view s, std::string& out) {
+bool stripUnderscores(std::string_view s, std::string& out) {
     // underscoreOK
     char saw = '^';  // ^ start, 0 digit, _ underscore, ! other
     std::size_t i = 0;
@@ -47,7 +47,7 @@ bool strip_underscores(std::string_view s, std::string& out) {
     }
     for (; i < s.size(); i++) {
         char c = s[i];
-        if ((c >= '0' && c <= '9') || (hex && hex_val(c) >= 0)) {
+        if ((c >= '0' && c <= '9') || (hex && hexVal(c) >= 0)) {
             saw = '0';
             continue;
         }
@@ -72,7 +72,7 @@ bool strip_underscores(std::string_view s, std::string& out) {
 // ---------------------------------------------------------------------------
 // UTF-8
 
-std::pair<rune, int> decode_rune(std::string_view s, std::size_t i) noexcept {
+std::pair<rune, int> decodeRune(std::string_view s, std::size_t i) noexcept {
     if (i >= s.size()) return {rune_error, 0};
     auto b = [&](std::size_t k) { return static_cast<unsigned char>(s[i + k]); };
     unsigned char c = b(0);
@@ -97,18 +97,18 @@ std::pair<rune, int> decode_rune(std::string_view s, std::size_t i) noexcept {
     return {rune_error, 1};
 }
 
-std::pair<rune, int> decode_last_rune(std::string_view s, std::size_t end) noexcept {
+std::pair<rune, int> decodeLastRune(std::string_view s, std::size_t end) noexcept {
     if (end == 0) return {rune_error, 0};
     std::size_t start = end - 1;
     if (static_cast<unsigned char>(s[start]) < 0x80) return {static_cast<unsigned char>(s[start]), 1};
     std::size_t lim = end >= 4 ? end - 4 : 0;
     while (start > lim && (static_cast<unsigned char>(s[start]) & 0xC0) == 0x80) start--;
-    auto [r, w] = decode_rune(s.substr(0, end), start);
+    auto [r, w] = decodeRune(s.substr(0, end), start);
     if (start + static_cast<std::size_t>(w) != end) return {rune_error, 1};
     return {r, w};
 }
 
-void append_rune(std::string& out, rune r) {
+void appendRune(std::string& out, rune r) {
     if (r < 0 || r > max_rune || (r >= 0xD800 && r <= 0xDFFF)) r = rune_error;
     if (r < 0x80) {
         out.push_back(static_cast<char>(r));
@@ -127,25 +127,25 @@ void append_rune(std::string& out, rune r) {
     }
 }
 
-bool valid_utf8(std::string_view s) noexcept {
+bool validUtf8(std::string_view s) noexcept {
     for (std::size_t i = 0; i < s.size();) {
-        auto [r, w] = decode_rune(s, i);
+        auto [r, w] = decodeRune(s, i);
         if (r == rune_error && w == 1) return false;
         i += static_cast<std::size_t>(w);
     }
     return true;
 }
 
-std::size_t rune_count(std::string_view s) noexcept {
+std::size_t runeCount(std::string_view s) noexcept {
     std::size_t n = 0;
-    for (std::size_t i = 0; i < s.size(); n++) i += static_cast<std::size_t>(decode_rune(s, i).second);
+    for (std::size_t i = 0; i < s.size(); n++) i += static_cast<std::size_t>(decodeRune(s, i).second);
     return n;
 }
 
 // ---------------------------------------------------------------------------
 // unicode
 
-bool is_letter(rune r) noexcept {
+bool isLetter(rune r) noexcept {
     if (r < 0x80) return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z');
     if (r < 0x100) return r == 0xAA || r == 0xB5 || r == 0xBA || (r >= 0xC0 && r != 0xD7 && r != 0xF7);
     return !is_space(r) && r != rune_error && !(r >= 0x2000 && r <= 0x206F);
@@ -171,7 +171,7 @@ bool is_space(rune r) noexcept {
     return r >= 0x2000 && r <= 0x200A;
 }
 
-bool is_print(rune r) noexcept {
+bool isPrint(rune r) noexcept {
     if (r < 0x20 || (r >= 0x7F && r < 0xA0)) return false;
     if (r == 0xAD) return false;  // soft hyphen
     if (r == ' ') return true;
@@ -189,19 +189,19 @@ bool is_print(rune r) noexcept {
 
 namespace {
 
-void append_escaped_rune(std::string& out, rune r, char q, bool ascii_only) {
+void appendEscapedRune(std::string& out, rune r, char q, bool ascii_only) {
     if (r == q || r == '\\') {
         out.push_back('\\');
         out.push_back(static_cast<char>(r));
         return;
     }
     if (ascii_only) {
-        if (r < 0x80 && is_print(r)) {
+        if (r < 0x80 && isPrint(r)) {
             out.push_back(static_cast<char>(r));
             return;
         }
-    } else if (is_print(r)) {
-        append_rune(out, r);
+    } else if (isPrint(r)) {
+        appendRune(out, r);
         return;
     }
     char buf[16];
@@ -231,7 +231,7 @@ std::string quote(std::string_view s, bool ascii_only) {
     out.reserve(s.size() + 2);
     out.push_back('"');
     for (std::size_t i = 0; i < s.size();) {
-        auto [r, w] = decode_rune(s, i);
+        auto [r, w] = decodeRune(s, i);
         if (w == 1 && r == rune_error) {
             char buf[8];
             std::snprintf(buf, sizeof(buf), "\\x%02x", static_cast<unsigned char>(s[i]));
@@ -239,27 +239,27 @@ std::string quote(std::string_view s, bool ascii_only) {
             i++;
             continue;
         }
-        append_escaped_rune(out, r, '"', ascii_only);
+        appendEscapedRune(out, r, '"', ascii_only);
         i += static_cast<std::size_t>(w);
     }
     out.push_back('"');
     return out;
 }
 
-std::string quote_rune(rune r, bool ascii_only) {
+std::string quoteRune(rune r, bool ascii_only) {
     if (r < 0 || r > max_rune || (r >= 0xD800 && r <= 0xDFFF)) r = rune_error;
     std::string out = "'";
-    append_escaped_rune(out, r, '\'', ascii_only);
+    appendEscapedRune(out, r, '\'', ascii_only);
     out.push_back('\'');
     return out;
 }
 
-std::tuple<rune, bool, std::string_view, gopp::error> unquote_char(std::string_view s, char q) {
+std::tuple<rune, bool, std::string_view, gopp::error> unquoteChar(std::string_view s, char q) {
     if (s.empty()) return {0, false, s, err_syntax};
     unsigned char c = static_cast<unsigned char>(s[0]);
     if (c == static_cast<unsigned char>(q) && (q == '\'' || q == '"')) return {0, false, s, err_syntax};
     if (c >= 0x80) {
-        auto [r, w] = decode_rune(s);
+        auto [r, w] = decodeRune(s);
         return {r, true, s.substr(static_cast<std::size_t>(w)), nullptr};
     }
     if (c != '\\') return {c, false, s.substr(1), nullptr};
@@ -280,7 +280,7 @@ std::tuple<rune, bool, std::string_view, gopp::error> unquote_char(std::string_v
         if (static_cast<int>(s.size()) < n) return {0, false, s, err_syntax};
         uint32 v = 0;
         for (int j = 0; j < n; j++) {
-            int x = hex_val(s[static_cast<std::size_t>(j)]);
+            int x = hexVal(s[static_cast<std::size_t>(j)]);
             if (x < 0) return {0, false, s, err_syntax};
             v = v << 4 | static_cast<uint32>(x);
         }
@@ -330,11 +330,11 @@ std::pair<std::string, gopp::error> unquote(std::string_view s) {
     std::string out;
     std::size_t runes = 0;
     while (!in.empty()) {
-        auto [r, multibyte, tail, err] = unquote_char(in, q);
+        auto [r, multibyte, tail, err] = unquoteChar(in, q);
         if (err) return {{}, err};
         in = tail;
         if (r < 0x80 && !multibyte) out.push_back(static_cast<char>(r));
-        else append_rune(out, r);
+        else appendRune(out, r);
         runes++;
         if (q == '\'' && !in.empty()) return {{}, err_syntax};
     }
@@ -346,12 +346,12 @@ std::pair<std::string, gopp::error> unquote(std::string_view s) {
 // Numbers
 
 std::pair<uint64, gopp::error> parse_uint(std::string_view s0, int base, int bit_size) {
-    if (s0.empty()) return {0, num_error("ParseUint", s0, err_syntax)};
+    if (s0.empty()) return {0, numError("ParseUint", s0, err_syntax)};
     std::string_view s = s0;
     std::string clean;
     if (base == 0) {
         // Underscores are allowed only with base 0, between digits.
-        if (!strip_underscores(s0, clean)) return {0, num_error("ParseUint", s0, err_syntax)};
+        if (!stripUnderscores(s0, clean)) return {0, numError("ParseUint", s0, err_syntax)};
         s = clean;
         base = 10;
         if (s[0] == '0') {
@@ -373,19 +373,19 @@ std::pair<uint64, gopp::error> parse_uint(std::string_view s0, int base, int bit
             }
         }
     }
-    if (s.empty() || s[0] == '-' || s[0] == '+') return {0, num_error("ParseUint", s0, err_syntax)};
+    if (s.empty() || s[0] == '-' || s[0] == '+') return {0, numError("ParseUint", s0, err_syntax)};
     uint64 v = 0;
     auto r = std::from_chars(s.data(), s.data() + s.size(), v, base);
-    if (r.ptr != s.data() + s.size()) return {0, num_error("ParseUint", s0, err_syntax)};
-    if (r.ec == std::errc::result_out_of_range) return {~uint64(0), num_error("ParseUint", s0, err_range)};
-    if (r.ec != std::errc()) return {0, num_error("ParseUint", s0, err_syntax)};
-    if (bit_size < 64 && v >= (uint64(1) << bit_size)) return {(uint64(1) << bit_size) - 1, num_error("ParseUint", s0, err_range)};
+    if (r.ptr != s.data() + s.size()) return {0, numError("ParseUint", s0, err_syntax)};
+    if (r.ec == std::errc::result_out_of_range) return {~uint64(0), numError("ParseUint", s0, err_range)};
+    if (r.ec != std::errc()) return {0, numError("ParseUint", s0, err_syntax)};
+    if (bit_size < 64 && v >= (uint64(1) << bit_size)) return {(uint64(1) << bit_size) - 1, numError("ParseUint", s0, err_range)};
     return {v, nullptr};
 }
 
-std::pair<int64, gopp::error> parse_int(std::string_view s0, int base, int bit_size) {
+std::pair<int64, gopp::error> parseInt(std::string_view s0, int base, int bit_size) {
     std::string_view s = s0;
-    if (s.empty()) return {0, num_error("ParseInt", s0, err_syntax)};
+    if (s.empty()) return {0, numError("ParseInt", s0, err_syntax)};
     bool neg = false;
     if (s[0] == '+' || s[0] == '-') {
         neg = s[0] == '-';
@@ -393,19 +393,19 @@ std::pair<int64, gopp::error> parse_int(std::string_view s0, int base, int bit_s
     }
     auto [un, err] = parse_uint(s, base, bit_size);
     if (err) {
-        if (err.Error().view().find("out of range") == std::string_view::npos) return {0, num_error("ParseInt", s0, err_syntax)};
-        return {neg ? std::numeric_limits<int64>::min() : std::numeric_limits<int64>::max(), num_error("ParseInt", s0, err_range)};
+        if (err.Error().view().find("out of range") == std::string_view::npos) return {0, numError("ParseInt", s0, err_syntax)};
+        return {neg ? std::numeric_limits<int64>::min() : std::numeric_limits<int64>::max(), numError("ParseInt", s0, err_range)};
     }
     uint64 cutoff = uint64(1) << (bit_size - 1);
-    if (!neg && un >= cutoff) return {static_cast<int64>(cutoff - 1), num_error("ParseInt", s0, err_range)};
-    if (neg && un > cutoff) return {-static_cast<int64>(cutoff), num_error("ParseInt", s0, err_range)};
+    if (!neg && un >= cutoff) return {static_cast<int64>(cutoff - 1), numError("ParseInt", s0, err_range)};
+    if (neg && un > cutoff) return {-static_cast<int64>(cutoff), numError("ParseInt", s0, err_range)};
     int64 n = neg ? static_cast<int64>(0 - un) : static_cast<int64>(un);
     return {n, nullptr};
 }
 
-std::pair<double, gopp::error> parse_float(std::string_view s0) {
+std::pair<double, gopp::error> parseFloat(std::string_view s0) {
     std::string_view s = s0;
-    if (s.empty()) return {0, num_error("ParseFloat", s0, err_syntax)};
+    if (s.empty()) return {0, numError("ParseFloat", s0, err_syntax)};
     std::string lower;
     for (char c : s) lower.push_back(static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c));
     std::string_view l = lower;
@@ -418,38 +418,38 @@ std::pair<double, gopp::error> parse_float(std::string_view s0) {
     if (l == "nan") return {std::nan(""), nullptr};
     std::string clean;
     if (s.find('_') != s.npos) {
-        if (!strip_underscores(s, clean)) return {0, num_error("ParseFloat", s0, err_syntax)};
+        if (!stripUnderscores(s, clean)) return {0, numError("ParseFloat", s0, err_syntax)};
         s = clean;
     }
     std::string_view t = s;
     if (t[0] == '+' || t[0] == '-') t = t.substr(1);
-    if (t.empty()) return {0, num_error("ParseFloat", s0, err_syntax)};
+    if (t.empty()) return {0, numError("ParseFloat", s0, err_syntax)};
     double v = 0;
     std::from_chars_result r;
     if (t.size() > 2 && t[0] == '0' && (t[1] | 0x20) == 'x') {
         // Hex floats need a p exponent in Go.
         std::string_view h = t.substr(2);
-        if (h.find_first_of("pP") == h.npos) return {0, num_error("ParseFloat", s0, err_syntax)};
+        if (h.find_first_of("pP") == h.npos) return {0, numError("ParseFloat", s0, err_syntax)};
         r = std::from_chars(h.data(), h.data() + h.size(), v, std::chars_format::hex);
-        if (r.ptr != h.data() + h.size()) return {0, num_error("ParseFloat", s0, err_syntax)};
+        if (r.ptr != h.data() + h.size()) return {0, numError("ParseFloat", s0, err_syntax)};
     } else {
         // Go accepts only decimal digits, '.', and an e exponent.
         for (char c : t) {
             if (!((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')) {
-                return {0, num_error("ParseFloat", s0, err_syntax)};
+                return {0, numError("ParseFloat", s0, err_syntax)};
             }
         }
         r = std::from_chars(t.data(), t.data() + t.size(), v, std::chars_format::general);
-        if (r.ptr != t.data() + t.size() && r.ec == std::errc()) return {0, num_error("ParseFloat", s0, err_syntax)};
+        if (r.ptr != t.data() + t.size() && r.ec == std::errc()) return {0, numError("ParseFloat", s0, err_syntax)};
     }
     if (r.ec == std::errc::result_out_of_range) {
         // Overflow gives ±Inf, underflow 0, as Go.
         bool big = t.find_first_of("eEpP") != t.npos && t.find("-", t.find_first_of("eEpP")) == t.npos;
         double inf = big ? HUGE_VAL : 0;
-        if (big) return {neg ? -inf : inf, num_error("ParseFloat", s0, err_range)};
+        if (big) return {neg ? -inf : inf, numError("ParseFloat", s0, err_range)};
         return {neg ? -0.0 : 0.0, nullptr};
     }
-    if (r.ec != std::errc()) return {0, num_error("ParseFloat", s0, err_syntax)};
+    if (r.ec != std::errc()) return {0, numError("ParseFloat", s0, err_syntax)};
     return {neg ? -v : v, nullptr};
 }
 
@@ -461,7 +461,7 @@ namespace {
 // The decimal digits of f (without trailing zeros) and the decimal point
 // position: f = 0.digits × 10^dp. prec < 0: shortest; otherwise rounded to
 // prec significant digits.
-void decimal_digits(double f, int prec, std::string& digs, int& dp) {
+void decimalDigits(double f, int prec, std::string& digs, int& dp) {
     char buf[512];
     std::to_chars_result r = prec < 0 ? std::to_chars(buf, buf + sizeof(buf), f, std::chars_format::scientific)
                                       : std::to_chars(buf, buf + sizeof(buf), f, std::chars_format::scientific, prec > 0 ? prec - 1 : 0);
@@ -482,7 +482,7 @@ void decimal_digits(double f, int prec, std::string& digs, int& dp) {
     dp = exp + 1;
 }
 
-std::string fmt_e(bool neg, const std::string& d, int dp, int prec, char fmt) {
+std::string fmtE(bool neg, const std::string& d, int dp, int prec, char fmt) {
     std::string out;
     if (neg) out.push_back('-');
     out.push_back(d.empty() ? '0' : d[0]);
@@ -499,7 +499,7 @@ std::string fmt_e(bool neg, const std::string& d, int dp, int prec, char fmt) {
     return out;
 }
 
-std::string fmt_f(bool neg, const std::string& d, int dp, int prec) {
+std::string fmtF(bool neg, const std::string& d, int dp, int prec) {
     std::string out;
     if (neg) out.push_back('-');
     if (dp > 0) {
@@ -519,7 +519,7 @@ std::string fmt_f(bool neg, const std::string& d, int dp, int prec) {
 
 }  // namespace
 
-std::string format_float(double f, char fmt, int prec) {
+std::string formatFloat(double f, char fmt, int prec) {
     if (std::isnan(f)) return "NaN";
     if (std::isinf(f)) return f > 0 ? "+Inf" : "-Inf";
     bool neg = std::signbit(f);
@@ -529,15 +529,15 @@ std::string format_float(double f, char fmt, int prec) {
     int dp = 0;
     switch (fmt) {
     case 'e': case 'E': {
-        decimal_digits(a, shortest ? -1 : prec + 1, d, dp);
+        decimalDigits(a, shortest ? -1 : prec + 1, d, dp);
         if (shortest) prec = d.empty() ? 0 : static_cast<int>(d.size()) - 1;
-        return fmt_e(neg, d, dp, prec, fmt);
+        return fmtE(neg, d, dp, prec, fmt);
     }
     case 'f': {
         if (shortest) {
-            decimal_digits(a, -1, d, dp);
+            decimalDigits(a, -1, d, dp);
             prec = std::max(static_cast<int>(d.size()) - dp, 0);
-            return fmt_f(neg, d, dp, prec);
+            return fmtF(neg, d, dp, prec);
         }
         char buf[512];
         auto r = std::to_chars(buf, buf + sizeof(buf), a, std::chars_format::fixed, prec);
@@ -545,7 +545,7 @@ std::string format_float(double f, char fmt, int prec) {
     }
     case 'g': case 'G': {
         if (prec == 0) prec = 1;
-        decimal_digits(a, shortest ? -1 : prec, d, dp);
+        decimalDigits(a, shortest ? -1 : prec, d, dp);
         int nd = static_cast<int>(d.size());
         if (shortest) prec = nd == 0 ? 1 : nd;
         int eprec = prec;
@@ -555,10 +555,10 @@ std::string format_float(double f, char fmt, int prec) {
         if (nd == 0) exp = 0;
         if (exp < -4 || exp >= eprec) {
             if (prec > nd) prec = nd;
-            return fmt_e(neg, d, dp, std::max(prec - 1, 0), fmt == 'g' ? 'e' : 'E');
+            return fmtE(neg, d, dp, std::max(prec - 1, 0), fmt == 'g' ? 'e' : 'E');
         }
         if (prec > dp) prec = nd;
-        return fmt_f(neg, d, dp, std::max(prec - dp, 0));
+        return fmtF(neg, d, dp, std::max(prec - dp, 0));
     }
     }
     return "%" + std::string(1, fmt);

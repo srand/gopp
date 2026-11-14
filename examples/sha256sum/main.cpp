@@ -29,9 +29,9 @@
 
 using namespace gopp;
 
-using new_hash = ptr<hash::Hash> (*)();
+using newHash = ptr<hash::Hash> (*)();
 
-const std::map<std::string_view, new_hash> algorithms = {
+const std::map<std::string_view, newHash> algorithms = {
     {"md5", md5::New},       {"sha1", sha1::New},      {"sha224", sha256::New224},
     {"sha256", sha256::New}, {"sha384", sha512::New384}, {"sha512", sha512::New},
 };
@@ -42,7 +42,7 @@ struct Result {
 };
 
 // The checksum of a file, or of standard input for "-".
-Result sum_file(new_hash algorithm, const string& name) {
+Result sumFile(newHash algorithm, const string& name) {
     ptr<hash::Hash> h = algorithm();
     if (name == "-") {
         if (auto [_, err] = io::Copy(*h, os::Stdin); err) return {{}, err};
@@ -58,17 +58,17 @@ Result sum_file(new_hash algorithm, const string& name) {
 
 // Hashes the files, at most jobs at once. The i-th channel gets the i-th
 // file's result.
-std::vector<chan<Result>> sum_all(new_hash algorithm, const std::vector<string>& names, isize jobs) {
+std::vector<chan<Result>> sumAll(newHash algorithm, const std::vector<string>& names, isize jobs) {
     std::vector<chan<Result>> results;
-    for (std::size_t i = 0; i < names.size(); i++) results.push_back(make_chan<Result>(1));
+    for (std::size_t i = 0; i < names.size(); i++) results.push_back(makeChan<Result>(1));
     // A buffered channel as a semaphore: a send takes a slot, a receive
     // gives it back.
-    auto slots = make_chan<empty>(jobs);
+    auto slots = makeChan<empty>(jobs);
     go([algorithm, names, results, slots] {
         for (std::size_t i = 0; i < names.size(); i++) {
             slots.send({});
             go([algorithm, name = names[i], result = results[i], slots] {
-                result.send(sum_file(algorithm, name));
+                result.send(sumFile(algorithm, name));
                 slots.recv();
             });
         }
@@ -89,12 +89,12 @@ int main(int argc, char** argv) {
         fmt::Println(os::Stderr, "usage: sha256sum [-a hash] [-c] [-j n] [file ...]");
         return 2;
     }
-    new_hash h = found->second;
+    newHash h = found->second;
     std::vector<string> args = flag::Args();
     if (args.empty()) args.push_back("-");
 
     if (!check) {
-        std::vector<chan<Result>> results = sum_all(h, args, jobs);
+        std::vector<chan<Result>> results = sumAll(h, args, jobs);
         int status = 0;
         for (std::size_t i = 0; i < args.size(); i++) {
             Result r = results[i].recv();
@@ -130,7 +130,7 @@ int main(int argc, char** argv) {
             names.push_back(name.slice(1));
         }
     }
-    std::vector<chan<Result>> results = sum_all(h, names, jobs);
+    std::vector<chan<Result>> results = sumAll(h, names, jobs);
     int failed = 0, unreadable = 0;
     for (std::size_t i = 0; i < names.size(); i++) {
         Result r = results[i].recv();

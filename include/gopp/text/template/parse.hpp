@@ -216,7 +216,7 @@ public:
     string Text;  // the original textual representation
     ptr<Node> Copy() const override;
     void write_to(std::string& sb) const override;
-    void simplify_complex();
+    void simplifyComplex();
 };
 
 // parse.StringNode
@@ -330,37 +330,37 @@ private:
     void backup2(const item& t1);
     void backup3(const item& t2, const item& t1);
     item peek();
-    item next_non_space();
-    item peek_non_space();
+    item nextNonSpace();
+    item peekNonSpace();
     item expect(int expected, std::string_view context);
-    item expect_one_of(int expected1, int expected2, std::string_view context);
-    void start_parse(std::vector<const FuncNames*> funcs, std::shared_ptr<lexer> lex,
+    item expectOneOf(int expected1, int expected2, std::string_view context);
+    void startParse(std::vector<const FuncNames*> funcs, std::shared_ptr<lexer> lex,
                      std::map<std::string, ptr<Tree>, std::less<>>* tree_set);
-    void stop_parse();
+    void stopParse();
     void add();
     void parse();
-    void parse_definition();
-    std::pair<ptr<ListNode>, ptr<Node>> item_list();
-    ptr<Node> text_or_action();
+    void parseDefinition();
+    std::pair<ptr<ListNode>, ptr<Node>> itemList();
+    ptr<Node> textOrAction();
     ptr<Node> action();
-    ptr<Node> break_control(parse::Pos pos, int line);
-    ptr<Node> continue_control(parse::Pos pos, int line);
+    ptr<Node> breakControl(parse::Pos pos, int line);
+    ptr<Node> continueControl(parse::Pos pos, int line);
     ptr<PipeNode> pipeline(std::string_view context, int end);
-    void check_pipeline(const PipeNode& pipe, std::string_view context);
-    ptr<BranchNode> parse_control(std::string_view context, ptr<BranchNode> node);
-    ptr<Node> if_control();
-    ptr<Node> range_control();
-    ptr<Node> with_control();
-    ptr<Node> end_control();
+    void checkPipeline(const PipeNode& pipe, std::string_view context);
+    ptr<BranchNode> parseControl(std::string_view context, ptr<BranchNode> node);
+    ptr<Node> ifControl();
+    ptr<Node> rangeControl();
+    ptr<Node> withControl();
+    ptr<Node> endControl();
     ptr<Node> else_control();
-    ptr<Node> block_control();
-    ptr<Node> template_control();
-    string parse_template_name(const item& token, std::string_view context);
+    ptr<Node> blockControl();
+    ptr<Node> templateControl();
+    string parseTemplateName(const item& token, std::string_view context);
     ptr<CommandNode> command();
     ptr<Node> operand();
     ptr<Node> term();
-    bool has_function(std::string_view name) const;
-    ptr<Node> use_var(parse::Pos pos, std::string_view name);
+    bool hasFunction(std::string_view name) const;
+    ptr<Node> useVar(parse::Pos pos, std::string_view name);
     ptr<Node> new_number(parse::Pos pos, std::string_view text, int typ);
     template <typename N>
     ptr<N> make(parse::NodeType type, parse::Pos pos);

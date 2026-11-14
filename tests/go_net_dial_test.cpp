@@ -103,18 +103,18 @@ error controlOnConnSetup(std::string_view network, std::string_view address, sys
         fn = [&](uintptr s) {
             int v;
             socklen_t len = sizeof(v);
-            if (::getsockopt(int(s), SOL_SOCKET, SO_ERROR, &v, &len) < 0) operr = syscall::errno_error(errno);
+            if (::getsockopt(int(s), SOL_SOCKET, SO_ERROR, &v, &len) < 0) operr = syscall::errnoError(errno);
         };
     } else if (network.back() == '4') {
         fn = [&](uintptr s) {
             int one = 1;
-            if (::setsockopt(int(s), IPPROTO_IP, IP_TTL, &one, sizeof(one)) < 0) operr = syscall::errno_error(errno);
+            if (::setsockopt(int(s), IPPROTO_IP, IP_TTL, &one, sizeof(one)) < 0) operr = syscall::errnoError(errno);
         };
     } else if (network.back() == '6') {
         fn = [&](uintptr s) {
             int one = 1;
             if (::setsockopt(int(s), IPPROTO_IPV6, IPV6_UNICAST_HOPS, &one, sizeof(one)) < 0) {
-                operr = syscall::errno_error(errno);
+                operr = syscall::errnoError(errno);
             }
         };
     } else {
@@ -131,7 +131,7 @@ std::pair<isize, error> readRawConn(syscall::RawConn& c, std::span<byte> b) {
     error err = c.Read([&](uintptr s) {
         ssize_t r = ::read(int(s), b.data(), b.size());
         if (r < 0 && errno == EAGAIN) return false;
-        if (r < 0) operr = syscall::errno_error(errno);
+        if (r < 0) operr = syscall::errnoError(errno);
         else n = r;
         return true;
     });
@@ -144,7 +144,7 @@ error writeRawConn(syscall::RawConn& c, std::span<const byte> b) {
     error err = c.Write([&](uintptr s) {
         ssize_t r = ::write(int(s), b.data(), b.size());
         if (r < 0 && errno == EAGAIN) return false;
-        if (r < 0) operr = syscall::errno_error(errno);
+        if (r < 0) operr = syscall::errnoError(errno);
         return true;
     });
     if (err) return err;
@@ -157,7 +157,7 @@ error controlRawConn(syscall::RawConn& c, const ptr<net::Addr>& addr) {
         int v;
         socklen_t len = sizeof(v);
         if (::getsockopt(int(s), SOL_SOCKET, SO_REUSEADDR, &v, &len) < 0) {
-            operr = syscall::errno_error(errno);
+            operr = syscall::errnoError(errno);
             return;
         }
         if (auto* a = dynamic_cast<net::TCPAddr*>(addr.get())) {
@@ -168,7 +168,7 @@ error controlRawConn(syscall::RawConn& c, const ptr<net::Addr>& addr) {
             } else if (a->IP.To16().empty() && !a->IP.To4().empty()) {
                 r = ::setsockopt(int(s), IPPROTO_IP, IP_TTL, &one, sizeof(one));
             }
-            if (r < 0) operr = syscall::errno_error(errno);
+            if (r < 0) operr = syscall::errnoError(errno);
         }
     };
     if (error err = c.Control(fn)) return err;
@@ -181,7 +181,7 @@ bool isDeadlineExceeded(const error& err) { return errors::Is(err, os::ErrDeadli
 void withTCPConnPair(const std::function<error(net::TCPConn&)>& peer1,
                      const std::function<error(net::TCPConn&)>& peer2) {
     auto ln = newLocalListener("tcp");
-    auto errc = make_chan<error>(2);
+    auto errc = makeChan<error>(2);
     go([&, ln, errc] {
         auto [c1, err] = ln->Accept();
         if (err) {
@@ -211,14 +211,14 @@ void withTCPConnPair(const std::function<error(net::TCPConn&)>& peer1,
 
 // The key of context values in the tests ("id" in Go).
 const char id_key = 0;
-struct int_value final : object {
+struct intValue final : object {
     int v;
-    explicit int_value(int v_) : v(v_) {}
+    explicit intValue(int v_) : v(v_) {}
 };
 
-int ctx_id(const ptr<context::Context>& ctx) {
+int ctxId(const ptr<context::Context>& ctx) {
     auto v = ctx->Value(&id_key);
-    return v ? static_cast<int_value*>(v.get())->v : 0;
+    return v ? static_cast<intValue*>(v.get())->v : 0;
 }
 
 }  // namespace
@@ -370,7 +370,7 @@ TEST(GoNetDial, CancelAfterDial) {
         wg.Done();
     });
     auto try_ = [&] {
-        auto cancel = make_chan<empty>();
+        auto cancel = makeChan<empty>();
         net::Dialer d{.Cancel = cancel};
         auto [c, err] = d.Dial("tcp", ln->Addr()->String().view());
         // Immediately after dialing, request cancellation and sleep. Before
@@ -445,10 +445,10 @@ TEST(GoNetDial, DialerControlContext) {
         int id = 0;
         net::Dialer d{.ControlContext = [&](const ptr<context::Context>& ctx, std::string_view network,
                                             std::string_view address, syscall::RawConn& c) {
-            id = ctx_id(ctx);
+            id = ctxId(ctx);
             return controlOnConnSetup(network, address, c);
         }};
-        auto ctx = context::WithValue(context::Background(), &id_key, make_ptr<int_value>(i));
+        auto ctx = context::WithValue(context::Background(), &id_key, make_ptr<intValue>(i));
         auto [c, err] = d.DialContext(ctx, network, ln->Addr()->String().view());
         ASSERT_FALSE(err) << network << ": " << err;
         EXPECT_EQ(id, i) << network;
@@ -467,10 +467,10 @@ TEST(GoNetDial, DialContext) {
         int id = 0;
         net::Dialer d{.ControlContext = [&](const ptr<context::Context>& ctx, std::string_view network,
                                             std::string_view address, syscall::RawConn& c) {
-            id = ctx_id(ctx);
+            id = ctxId(ctx);
             return controlOnConnSetup(network, address, c);
         }};
-        auto ctx = context::WithValue(context::Background(), &id_key, make_ptr<int_value>(i));
+        auto ctx = context::WithValue(context::Background(), &id_key, make_ptr<intValue>(i));
         ptr<net::Conn> c;
         error err;
         if (network.starts_with("tcp")) {
@@ -496,10 +496,10 @@ TEST(GoNetDial, DialContext) {
         int id = 0;
         net::Dialer d{.ControlContext = [&](const ptr<context::Context>& ctx, std::string_view network,
                                             std::string_view address, syscall::RawConn& c) {
-            id = ctx_id(ctx);
+            id = ctxId(ctx);
             return controlOnConnSetup(network, address, c);
         }};
-        auto ctx = context::WithValue(context::Background(), &id_key, make_ptr<int_value>(i));
+        auto ctx = context::WithValue(context::Background(), &id_key, make_ptr<intValue>(i));
         ptr<net::Conn> c2;
         error err;
         if (network.starts_with("udp")) {
@@ -560,7 +560,7 @@ TEST(GoNetDial, RawConnReadWrite) {
     // TCP
     {
         auto ln = newLocalListener("tcp");
-        auto done = make_chan<empty>(1);
+        auto done = makeChan<empty>(1);
         go([ln, done] {
             auto [c, err] = ln->Accept();
             if (err) {
@@ -672,7 +672,7 @@ TEST(GoNetDial, CloseWrite) {
     for (std::string network : {"tcp", "unix", "unixpacket"}) {
         SCOPED_TRACE(network);
         auto ln = newLocalListener(network);
-        auto done = make_chan<empty>(1);
+        auto done = makeChan<empty>(1);
         go([ln, done] {
             auto [c, err] = ln->Accept();
             if (err) {
@@ -742,9 +742,9 @@ TEST(GoNetDial, PacketConnClose) {
 }
 
 TEST(GoNetDial, ReadTimeoutUnblocksRead) {
-    auto serverDone = make_chan<empty>();
+    auto serverDone = makeChan<empty>();
     auto server = [&](net::TCPConn& cs) -> error {
-        auto errc = make_chan<error>(1);
+        auto errc = makeChan<error>(1);
         ptr<net::TCPConn> c(&cs);
         go([c, errc] {
             go([c] {
@@ -776,7 +776,7 @@ TEST(GoNetDial, ReadTimeoutUnblocksRead) {
 // writev_test.go
 
 namespace {
-slice<byte> bs(std::string_view s) { return to_bytes(s); }
+slice<byte> bs(std::string_view s) { return toBytes(s); }
 }  // namespace
 
 TEST(GoNetDial, Buffers_read) {
@@ -784,14 +784,14 @@ TEST(GoNetDial, Buffers_read) {
     net::Buffers buffers{bs("once "), bs("upon "), bs("a "), bs("time "), bs("in "), bs("Gopherland ... ")};
     auto [got, err] = io::ReadAll(buffers);
     ASSERT_FALSE(err) << err;
-    EXPECT_EQ(as_string_view(got), story);
+    EXPECT_EQ(asStringView(got), story);
     EXPECT_EQ(buffers.size(), 0u);
 }
 
 TEST(GoNetDial, Buffers_consume) {
     auto render = [](const net::Buffers& b) {
         std::string s = "[";
-        for (auto& x : b) s += "\"" + std::string(as_string_view(x)) + "\" ";
+        for (auto& x : b) s += "\"" + std::string(asStringView(x)) + "\" ";
         return s + "]";
     };
     struct {
@@ -848,7 +848,7 @@ TEST(GoNetDial, Buffers_WriteTo) {
 
 TEST(GoNetDial, WritevError) {
     auto ln = newLocalListener("tcp");
-    auto ch = make_chan<ptr<net::Conn>>(1);
+    auto ch = makeChan<ptr<net::Conn>>(1);
     go([ln, ch] {
         auto [c, err] = ln->Accept();
         EXPECT_FALSE(err) << err;
@@ -979,7 +979,7 @@ TEST(GoNetDial, TCPStress) {
         return true;
     };
     auto ln = newLocalListener("tcp");
-    auto done = make_chan<empty>();
+    auto done = makeChan<empty>();
     // Acceptor.
     go([ln, done, recvMsg] {
         for (;;) {
@@ -995,7 +995,7 @@ TEST(GoNetDial, TCPStress) {
         }
         done.close();
     });
-    auto sem = make_chan<empty>(conns);
+    auto sem = makeChan<empty>(conns);
     for (int i = 0; i < conns; i++) {
         // Client connection.
         go([ln, sem, sendMsg] {
@@ -1021,7 +1021,7 @@ TEST(GoNetDial, TCPBig) {
         SCOPED_TRACE(writev ? "writev" : "write");
         auto ln = newLocalListener("tcp");
         constexpr std::size_t x = std::size_t(1) << 28;  // 256 MiB, enough to exceed any socket buffer
-        auto done = make_chan<int64>(1);
+        auto done = makeChan<int64>(1);
         go([ln, done] {
             auto [c, err] = ln->Accept();
             if (err) {
@@ -1057,7 +1057,7 @@ TEST(GoNetDial, TCPBig) {
 
 TEST(GoNetDial, CopyPipeIntoTCP) {
     auto ln = newLocalListener("tcp");
-    auto errc = make_chan<error>(1);
+    auto errc = makeChan<error>(1);
     go([ln, errc] {
         auto [c, err] = ln->Accept();
         if (err) {
@@ -1070,8 +1070,8 @@ TEST(GoNetDial, CopyPipeIntoTCP) {
             errc.send(rerr);
             return;
         }
-        if (as_string_view(buf) != "hello, world") {
-            errc.send(errors::New("got \"" + std::string(as_string_view(buf)) + "\"; want \"hello, world\""));
+        if (asStringView(buf) != "hello, world") {
+            errc.send(errors::New("got \"" + std::string(asStringView(buf)) + "\"; want \"hello, world\""));
             return;
         }
         errc.send(nullptr);
@@ -1080,7 +1080,7 @@ TEST(GoNetDial, CopyPipeIntoTCP) {
     ASSERT_FALSE(err) << err;
     auto [r, w, perr] = os::Pipe();
     ASSERT_FALSE(perr) << perr;
-    auto errc2 = make_chan<error>(1);
+    auto errc2 = makeChan<error>(1);
     go([w, errc2] {
         auto [n, err] = io::WriteString(*w, "hello, world");
         w->Close();
@@ -1282,7 +1282,7 @@ bool isPattern(std::span<const byte> b, std::size_t from) {
 // io::Copy(c, r) on the dialed side; the bytes the other side read.
 slice<byte> copyAndRead(const std::function<void(net::TCPConn&)>& send) {
     auto ln = newLocalListener("tcp");
-    auto got = make_chan<slice<byte>>(1);
+    auto got = makeChan<slice<byte>>(1);
     go([ln, got] {
         auto [c, err] = ln->Accept();
         if (err) {
@@ -1367,7 +1367,7 @@ TEST(GoNetDial, SendfilePipe) {
         EXPECT_FALSE(err) << err;
         EXPECT_EQ(n, 11);
     });
-    EXPECT_EQ(as_string_view(b), "from a pipe");
+    EXPECT_EQ(asStringView(b), "from a pipe");
     r->Close();
 }
 
@@ -1411,7 +1411,7 @@ TEST(GoNetDial, Splice) {
     }
     // TCPConn.WriteTo a Unix connection.
     auto uln = newLocalListener("unix");
-    auto got = make_chan<slice<byte>>(1);
+    auto got = makeChan<slice<byte>>(1);
     go([uln, got] {
         auto [c, err] = uln->Accept();
         if (err) {
@@ -1453,7 +1453,7 @@ TEST(GoNetDial, MultiPathTCP) {
         EXPECT_EQ(lc.MultipathTCP(), useMPTCP);
         auto [ln, err] = lc.Listen(context::Background(), "tcp", "127.0.0.1:0");
         ASSERT_FALSE(err) << err;
-        auto accepted = make_chan<ptr<net::Conn>>(1);
+        auto accepted = makeChan<ptr<net::Conn>>(1);
         go([ln, accepted] { accepted.send(ln->Accept().first); });
         net::Dialer d;
         d.SetMultipathTCP(useMPTCP);

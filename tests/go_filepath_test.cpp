@@ -287,7 +287,7 @@ TEST(GoFilepath, SplitList) {
         std::vector<std::string> got;
         for (const auto& e : l) got.push_back(str(e));
         EXPECT_EQ(got, test.result) << "SplitList(" << test.list << ")";
-        EXPECT_FALSE(l.is_nil()) << "SplitList(" << test.list << ") is nil";
+        EXPECT_FALSE(l.isNil()) << "SplitList(" << test.list << ") is nil";
     }
 }
 

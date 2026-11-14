@@ -29,8 +29,8 @@ const error errNoSuchInterface = errors::New("no such network interface");
 
 error routeError(error err) {
     auto e = make_ptr<OpError>();
-    e->Op = string::from_static("route");
-    e->Net = string::from_static("ip+net");
+    e->Op = string::fromStatic("route");
+    e->Net = string::fromStatic("ip+net");
     e->Err = std::move(err);
     return e;
 }
@@ -40,14 +40,14 @@ error routeError(error err) {
 std::pair<std::vector<byte>, error> netlinkRIB(int proto, int family) {
     return runtime::blocking([&]() -> std::pair<std::vector<byte>, error> {
         int s = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
-        if (s < 0) return {{}, errno_error(errno)};
+        if (s < 0) return {{}, errnoError(errno)};
         struct closer {
             int s;
             ~closer() { ::close(s); }
         } c{s};
         sockaddr_nl sa{};
         sa.nl_family = AF_NETLINK;
-        if (::bind(s, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) < 0) return {{}, errno_error(errno)};
+        if (::bind(s, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) < 0) return {{}, errnoError(errno)};
         struct {
             nlmsghdr hdr;
             rtgenmsg gen;
@@ -58,19 +58,19 @@ std::pair<std::vector<byte>, error> netlinkRIB(int proto, int family) {
         req.hdr.nlmsg_seq = 1;
         req.gen.rtgen_family = uint8(family);
         if (::sendto(s, &req, req.hdr.nlmsg_len, 0, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) < 0) {
-            return {{}, errno_error(errno)};
+            return {{}, errnoError(errno)};
         }
         socklen_t salen = sizeof(sa);
-        if (::getsockname(s, reinterpret_cast<sockaddr*>(&sa), &salen) < 0) return {{}, errno_error(errno)};
+        if (::getsockname(s, reinterpret_cast<sockaddr*>(&sa), &salen) < 0) return {{}, errnoError(errno)};
         std::vector<byte> tab;
         std::vector<byte> rb(size_t(::getpagesize()));
         for (;;) {
             ssize_t nr = ::recv(s, rb.data(), rb.size(), 0);
             if (nr < 0) {
                 if (errno == EINTR) continue;
-                return {{}, errno_error(errno)};
+                return {{}, errnoError(errno)};
             }
-            if (std::size_t(nr) < NLMSG_HDRLEN) return {{}, errno_error(EINVAL)};
+            if (std::size_t(nr) < NLMSG_HDRLEN) return {{}, errnoError(EINVAL)};
             tab.insert(tab.end(), rb.begin(), rb.begin() + nr);
             // Done when this read ends with NLMSG_DONE, or has an error.
             bool done = false;
@@ -78,9 +78,9 @@ std::pair<std::vector<byte>, error> netlinkRIB(int proto, int family) {
             while (off + NLMSG_HDRLEN <= tab.size()) {
                 auto* h = reinterpret_cast<nlmsghdr*>(tab.data() + off);
                 if (h->nlmsg_len < NLMSG_HDRLEN || off + h->nlmsg_len > tab.size()) break;
-                if (h->nlmsg_seq != 1 || h->nlmsg_pid != sa.nl_pid) return {{}, errno_error(EINVAL)};
+                if (h->nlmsg_seq != 1 || h->nlmsg_pid != sa.nl_pid) return {{}, errnoError(EINVAL)};
                 if (h->nlmsg_type == NLMSG_DONE) done = true;
-                if (h->nlmsg_type == NLMSG_ERROR) return {{}, errno_error(EINVAL)};
+                if (h->nlmsg_type == NLMSG_ERROR) return {{}, errnoError(EINVAL)};
                 off += NLMSG_ALIGN(h->nlmsg_len);
             }
             if (done) return {tab, nullptr};
@@ -100,7 +100,7 @@ error forEachMessage(const std::vector<byte>& tab, std::size_t fixed, F f) {
     std::size_t off = 0;
     while (off + NLMSG_HDRLEN <= tab.size()) {
         auto* h = reinterpret_cast<const nlmsghdr*>(tab.data() + off);
-        if (h->nlmsg_len < NLMSG_HDRLEN || off + h->nlmsg_len > tab.size()) return errno_error(EINVAL);
+        if (h->nlmsg_len < NLMSG_HDRLEN || off + h->nlmsg_len > tab.size()) return errnoError(EINVAL);
         if (h->nlmsg_type == NLMSG_DONE) return nullptr;
         std::span<const byte> data(tab.data() + off + NLMSG_HDRLEN, h->nlmsg_len - NLMSG_HDRLEN);
         if ((h->nlmsg_type == RTM_NEWLINK || h->nlmsg_type == RTM_NEWADDR) && data.size() >= fixed) {
@@ -109,7 +109,7 @@ error forEachMessage(const std::vector<byte>& tab, std::size_t fixed, F f) {
             while (b.size() >= sizeof(rtattr)) {
                 rtattr a;
                 std::memcpy(&a, b.data(), sizeof(a));
-                if (a.rta_len < sizeof(rtattr) || a.rta_len > b.size()) return errno_error(EINVAL);
+                if (a.rta_len < sizeof(rtattr) || a.rta_len > b.size()) return errnoError(EINVAL);
                 attrs.push_back({a.rta_type, b.subspan(RTA_LENGTH(0), a.rta_len - RTA_LENGTH(0))});
                 std::size_t adv = RTA_ALIGN(a.rta_len);
                 if (adv >= b.size()) break;
@@ -165,7 +165,7 @@ Interface newLink(const ifinfomsg& ifim, const std::vector<rtattr_view>& attrs) 
             break;
         }
         case IFLA_IFNAME:
-            if (!a.value.empty()) ifi.Name = string(as_string_view(a.value.first(a.value.size() - 1)));
+            if (!a.value.empty()) ifi.Name = string(asStringView(a.value.first(a.value.size() - 1)));
             break;
         case IFLA_MTU:
             if (a.value.size() >= 4) {
@@ -274,7 +274,7 @@ std::vector<std::string> readLines(const std::string& path) {
     auto [data, err] = os::ReadFile(path);
     std::vector<std::string> lines;
     if (err) return lines;
-    std::string_view s = as_string_view(data);
+    std::string_view s = asStringView(data);
     while (!s.empty()) {
         auto nl = s.find('\n');
         lines.emplace_back(s.substr(0, nl));
@@ -352,7 +352,7 @@ string HardwareAddr::String() const {
 
 std::pair<HardwareAddr, error> ParseMAC(std::string_view s) {
     auto fail = [&] {
-        return std::pair<HardwareAddr, error>{{}, make_ptr<AddrError>(string::from_static("invalid MAC address"), string(s))};
+        return std::pair<HardwareAddr, error>{{}, make_ptr<AddrError>(string::fromStatic("invalid MAC address"), string(s))};
     };
     if (s.size() < 12) return fail();
     HardwareAddr hw;
@@ -451,11 +451,11 @@ std::pair<ptr<Interface>, error> InterfaceByName(std::string_view name) {
 
 namespace {
 
-error wrapSetsockopt(int r) { return r < 0 ? os::NewSyscallError("setsockopt", errno_error(errno)) : nullptr; }
+error wrapSetsockopt(int r) { return r < 0 ? os::NewSyscallError("setsockopt", errnoError(errno)) : nullptr; }
 
-error setsockopt_raw(netfd& fd, int level, int name, const void* v, socklen_t len) {
+error setsockoptRaw(netfd& fd, int level, int name, const void* v, socklen_t len) {
     error err;
-    fd.raw_control([&](uintptr s) { err = wrapSetsockopt(::setsockopt(int(s), level, name, v, len)); });
+    fd.rawControl([&](uintptr s) { err = wrapSetsockopt(::setsockopt(int(s), level, name, v, len)); });
     return err;
 }
 
@@ -463,27 +463,27 @@ error listenIPv4MulticastUDP(netfd& fd, const Interface* ifi, const IP& ip) {
     if (ifi) {
         ip_mreqn mreq{};
         mreq.imr_ifindex = ifi->Index;
-        if (error err = setsockopt_raw(fd, IPPROTO_IP, IP_MULTICAST_IF, &mreq, sizeof(mreq))) return err;
+        if (error err = setsockoptRaw(fd, IPPROTO_IP, IP_MULTICAST_IF, &mreq, sizeof(mreq))) return err;
     }
     int off = 0;
-    if (error err = setsockopt_raw(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &off, sizeof(off))) return err;
+    if (error err = setsockoptRaw(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &off, sizeof(off))) return err;
     ip_mreqn mreq{};
     std::memcpy(&mreq.imr_multiaddr, ip.data(), 4);
     if (ifi) mreq.imr_ifindex = ifi->Index;
-    return setsockopt_raw(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
+    return setsockoptRaw(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
 }
 
 error listenIPv6MulticastUDP(netfd& fd, const Interface* ifi, const IP& ip) {
     if (ifi) {
         int v = ifi->Index;
-        if (error err = setsockopt_raw(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF, &v, sizeof(v))) return err;
+        if (error err = setsockoptRaw(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF, &v, sizeof(v))) return err;
     }
     int off = 0;
-    if (error err = setsockopt_raw(fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &off, sizeof(off))) return err;
+    if (error err = setsockoptRaw(fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &off, sizeof(off))) return err;
     ipv6_mreq mreq{};
     std::memcpy(&mreq.ipv6mr_multiaddr, ip.To16().data(), 16);
     if (ifi) mreq.ipv6mr_interface = unsigned(ifi->Index);
-    return setsockopt_raw(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq, sizeof(mreq));
+    return setsockoptRaw(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq, sizeof(mreq));
 }
 
 }  // namespace

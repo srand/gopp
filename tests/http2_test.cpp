@@ -17,7 +17,7 @@ using namespace gopp;
 
 namespace {
 
-ptr<http::ServeMux> h2_mux() {
+ptr<http::ServeMux> h2Mux() {
     auto mux = http::NewServeMux();
     mux->HandleFunc("GET /info", [](http::ResponseWriter& w, http::Request& r) {
         fmt::Print(w, "{} {}", r.Proto, r.RemoteAddr);
@@ -39,42 +39,42 @@ ptr<http::ServeMux> h2_mux() {
     return mux;
 }
 
-std::string read_body(const ptr<http::Response>& resp) {
+std::string readBody(const ptr<http::Response>& resp) {
     auto [data, err] = io::ReadAll(*resp->Body);
     EXPECT_FALSE(err) << err;
     resp->Body->Close();
-    return std::string(as_string_view(data));
+    return std::string(asStringView(data));
 }
 
-http::Protocols h2c_only() {
+http::Protocols h2cOnly() {
     http::Protocols p;
     p.SetUnencryptedHTTP2(true);
     return p;
 }
 
 // A server speaking h2c (and HTTP/1), and a client speaking only h2c.
-struct h2c_server {
+struct h2cServer {
     ptr<httptest::Server> ts;
     ptr<http::Transport> tr = make_ptr<http::Transport>();
     http::Client client;
 
-    explicit h2c_server(ptr<http::Handler> h) {
+    explicit h2cServer(ptr<http::Handler> h) {
         http::Protocols p;
         p.SetHTTP1(true);
         p.SetUnencryptedHTTP2(true);
         ts = httptest::NewUnstartedServer(std::move(h));
         ts->Config.Protocols = p;
         ts->Start();
-        tr->Protocols = h2c_only();
+        tr->Protocols = h2cOnly();
         client.Transport = tr;
     }
-    ~h2c_server() { tr->CloseIdleConnections(); }
+    ~h2cServer() { tr->CloseIdleConnections(); }
 };
 
 }  // namespace
 
 TEST(Http2, GetOverTLS) {
-    auto ts = httptest::NewTLSServer(h2_mux());
+    auto ts = httptest::NewTLSServer(h2Mux());
     auto [resp, err] = ts->Client().Get(std::string(ts->URL.view()) + "/info");
     ASSERT_FALSE(err) << err;
     EXPECT_EQ(resp->StatusCode, 200);
@@ -82,22 +82,22 @@ TEST(Http2, GetOverTLS) {
     EXPECT_EQ(resp->ProtoMajor, 2);
     ASSERT_TRUE(resp->TLS);
     EXPECT_EQ(resp->TLS->NegotiatedProtocol, "h2");
-    EXPECT_TRUE(read_body(resp).starts_with("HTTP/2.0 ")) << "server saw HTTP/1";
+    EXPECT_TRUE(readBody(resp).starts_with("HTTP/2.0 ")) << "server saw HTTP/1";
 }
 
 TEST(Http2, GetOverH2C) {
-    h2c_server s(h2_mux());
+    h2cServer s(h2Mux());
     auto [resp, err] = s.client.Get(std::string(s.ts->URL.view()) + "/info");
     ASSERT_FALSE(err) << err;
     EXPECT_EQ(resp->Proto, "HTTP/2.0");
     EXPECT_FALSE(resp->TLS);
-    EXPECT_TRUE(read_body(resp).starts_with("HTTP/2.0 "));
+    EXPECT_TRUE(readBody(resp).starts_with("HTTP/2.0 "));
 }
 
 TEST(Http2, MultiplexesOneConnection) {
     // Concurrent requests share one connection: the server sees one
     // remote address.
-    auto ts = httptest::NewTLSServer(h2_mux());
+    auto ts = httptest::NewTLSServer(h2Mux());
     std::string url = std::string(ts->URL.view()) + "/info";
     sync::Mutex mu;
     std::set<std::string> addrs;
@@ -106,12 +106,12 @@ TEST(Http2, MultiplexesOneConnection) {
     // A first request opens the connection the others share.
     auto [first, ferr] = ts->Client().Get(url);
     ASSERT_FALSE(ferr) << ferr;
-    addrs.insert(read_body(first));
+    addrs.insert(readBody(first));
     for (int i = 0; i < 50; i++) {
         wg.Go([&] {
             auto [resp, err] = ts->Client().Get(url);
             if (err) return;
-            std::string b = read_body(resp);
+            std::string b = readBody(resp);
             std::lock_guard l(mu);
             addrs.insert(b);
             ok++;
@@ -125,24 +125,24 @@ TEST(Http2, MultiplexesOneConnection) {
 TEST(Http2, LargeBodiesBothWays) {
     // Larger than the 64 KiB initial windows and the 1 MiB server stream
     // window, so flow control has to work in both directions.
-    h2c_server s(h2_mux());
+    h2cServer s(h2Mux());
     std::string data(5 << 20, '\0');
     for (std::size_t i = 0; i < data.size(); i++) data[i] = static_cast<char>(i * 31 + 7);
     auto [resp, err] = s.client.Post(std::string(s.ts->URL.view()) + "/echo", "application/octet-stream",
                                      strings::NewReader(string(data)));
     ASSERT_FALSE(err) << err;
-    std::string got = read_body(resp);
+    std::string got = readBody(resp);
     EXPECT_EQ(got.size(), data.size());
     EXPECT_TRUE(got == data);
 
     auto [big, berr] = s.client.Get(std::string(s.ts->URL.view()) + "/big");
     ASSERT_FALSE(berr) << berr;
     EXPECT_EQ(big->ContentLength, -1);
-    EXPECT_EQ(read_body(big).size(), 3u << 20);
+    EXPECT_EQ(readBody(big).size(), 3u << 20);
 }
 
 TEST(Http2, StreamingResponse) {
-    auto ts = httptest::NewTLSServer(h2_mux());
+    auto ts = httptest::NewTLSServer(h2Mux());
     auto [resp, err] = ts->Client().Get(std::string(ts->URL.view()) + "/stream");
     ASSERT_FALSE(err) << err;
     auto br = make_ptr<bufio::Reader>(resp->Body);
@@ -155,7 +155,7 @@ TEST(Http2, StreamingResponse) {
 }
 
 TEST(Http2, ConcurrentEcho) {
-    h2c_server s(h2_mux());
+    h2cServer s(h2Mux());
     std::string url = std::string(s.ts->URL.view()) + "/echo";
     std::atomic<int> bad{0};
     sync::WaitGroup wg;
@@ -169,7 +169,7 @@ TEST(Http2, ConcurrentEcho) {
                     ADD_FAILURE() << err;
                     continue;
                 }
-                if (read_body(resp) != body) bad++;
+                if (readBody(resp) != body) bad++;
             }
         });
     }
@@ -178,7 +178,7 @@ TEST(Http2, ConcurrentEcho) {
 }
 
 TEST(Http2, ContextCancelsRequest) {
-    auto handler_done = make_chan<bool>(1);
+    auto handler_done = makeChan<bool>(1);
     auto mux = http::NewServeMux();
     mux->HandleFunc("GET /slow", [&](http::ResponseWriter&, http::Request& r) {
         // Ends when the client gives up and the stream is reset.
@@ -199,7 +199,7 @@ TEST(Http2, ContextCancelsRequest) {
 TEST(Http2, EarlyBodyCloseResetsStream) {
     // Closing a body before its end cancels the stream; the connection
     // stays usable.
-    auto ts = httptest::NewTLSServer(h2_mux());
+    auto ts = httptest::NewTLSServer(h2Mux());
     auto [resp, err] = ts->Client().Get(std::string(ts->URL.view()) + "/big");
     ASSERT_FALSE(err) << err;
     byte buf[100];
@@ -208,41 +208,41 @@ TEST(Http2, EarlyBodyCloseResetsStream) {
     resp->Body->Close();
     auto [r2, err2] = ts->Client().Get(std::string(ts->URL.view()) + "/info");
     ASSERT_FALSE(err2) << err2;
-    EXPECT_TRUE(read_body(r2).starts_with("HTTP/2.0"));
+    EXPECT_TRUE(readBody(r2).starts_with("HTTP/2.0"));
 }
 
 TEST(Http2, HeadAndNotFound) {
-    auto ts = httptest::NewTLSServer(h2_mux());
+    auto ts = httptest::NewTLSServer(h2Mux());
     auto [resp, err] = ts->Client().Head(std::string(ts->URL.view()) + "/info");
     ASSERT_FALSE(err) << err;
     EXPECT_EQ(resp->StatusCode, 200);  // a GET pattern matches HEAD too
-    EXPECT_EQ(read_body(resp), "");
+    EXPECT_EQ(readBody(resp), "");
     auto [r2, err2] = ts->Client().Get(std::string(ts->URL.view()) + "/nope");
     ASSERT_FALSE(err2) << err2;
     EXPECT_EQ(r2->StatusCode, 404);
-    EXPECT_EQ(read_body(r2), "404 page not found\n");
+    EXPECT_EQ(readBody(r2), "404 page not found\n");
 }
 
 TEST(Http2, CloseIdleConnections) {
     // The next request after CloseIdleConnections uses a new connection.
-    auto mux = h2_mux();
+    auto mux = h2Mux();
     auto ts = httptest::NewTLSServer(mux);
     std::string url = std::string(ts->URL.view()) + "/info";
     auto [r1, e1] = ts->Client().Get(url);
     ASSERT_FALSE(e1) << e1;
-    std::string a1 = read_body(r1);
+    std::string a1 = readBody(r1);
     ts->Client().CloseIdleConnections();
     auto [r2, e2] = ts->Client().Get(url);
     ASSERT_FALSE(e2) << e2;
-    EXPECT_NE(read_body(r2), a1);
+    EXPECT_NE(readBody(r2), a1);
 }
 
 TEST(Http2, ServerGoAwayWhileIdle) {
-    h2c_server s(h2_mux());
+    h2cServer s(h2Mux());
     std::string url = std::string(s.ts->URL.view()) + "/info";
     auto [r1, e1] = s.client.Get(url);
     ASSERT_FALSE(e1) << e1;
-    read_body(r1);
+    readBody(r1);
     // Shutdown sends GOAWAY and closes the idle connection.
     auto ctx = context::Background();
     EXPECT_FALSE(s.ts->Config.Shutdown(ctx));

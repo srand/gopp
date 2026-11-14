@@ -21,7 +21,7 @@ struct printer {
     bool wid_present = false, prec_present = false;
     int wid = 0, prec = 0;
 
-    void clear_flags() {
+    void clearFlags() {
         plus = minus = sharp = space = zero = plus_v = sharp_v = false;
         wid_present = prec_present = false;
         wid = prec = 0;
@@ -33,7 +33,7 @@ struct printer {
             buf += s;
             return;
         }
-        int width = wid - static_cast<int>(detail::rune_count(s));
+        int width = wid - static_cast<int>(detail::runeCount(s));
         if (width <= 0) {
             buf += s;
             return;
@@ -47,9 +47,9 @@ struct printer {
         }
     }
 
-    void fmt_bool(bool b) { pad(b ? "true" : "false"); }
+    void fmtBool(bool b) { pad(b ? "true" : "false"); }
 
-    void fmt_integer(uint64 u, int base, bool is_signed, char verb) {
+    void fmtInteger(uint64 u, int base, bool is_signed, char verb) {
         bool negative = is_signed && static_cast<int64>(u) < 0;
         if (negative) u = 0 - u;
         std::string digits;
@@ -88,32 +88,32 @@ struct printer {
         zero = z;
     }
 
-    void fmt_unicode(uint64 u) {
+    void fmtUnicode(uint64 u) {
         char b[32];
         std::snprintf(b, sizeof(b), "U+%04llX", static_cast<unsigned long long>(u));
         std::string s = b;
-        if (sharp && u <= static_cast<uint64>(detail::max_rune) && detail::is_print(static_cast<detail::rune>(u))) {
+        if (sharp && u <= static_cast<uint64>(detail::max_rune) && detail::isPrint(static_cast<detail::rune>(u))) {
             s += " '";
-            detail::append_rune(s, static_cast<detail::rune>(u));
+            detail::appendRune(s, static_cast<detail::rune>(u));
             s += "'";
         }
         pad(s);
     }
 
-    void fmt_c(uint64 u) {
+    void fmtC(uint64 u) {
         std::string s;
-        detail::append_rune(s, u > static_cast<uint64>(detail::max_rune) ? detail::rune_error : static_cast<detail::rune>(u));
+        detail::appendRune(s, u > static_cast<uint64>(detail::max_rune) ? detail::rune_error : static_cast<detail::rune>(u));
         pad(s);
     }
 
-    void fmt_qc(uint64 u) {
+    void fmtQc(uint64 u) {
         detail::rune r = u > static_cast<uint64>(detail::max_rune) ? detail::rune_error : static_cast<detail::rune>(u);
-        pad(detail::quote_rune(r, plus));
+        pad(detail::quoteRune(r, plus));
     }
 
-    void fmt_float(double f, char verb, int default_prec) {
+    void fmtFloat(double f, char verb, int default_prec) {
         int p = prec_present ? prec : default_prec;
-        std::string s = detail::format_float(f, verb == 'v' ? 'g' : verb == 'F' ? 'f' : verb, p);
+        std::string s = detail::formatFloat(f, verb == 'v' ? 'g' : verb == 'F' ? 'f' : verb, p);
         if (s[0] != '-' && s[0] != '+') {
             if (plus) s = "+" + s;
             else if (space) s = " " + s;
@@ -130,7 +130,7 @@ struct printer {
             std::string rest = s.substr(1);
             int width = wid - 1;
             std::string padded = rest;
-            while (static_cast<int>(detail::rune_count(padded)) < width) padded.insert(padded.begin(), '0');
+            while (static_cast<int>(detail::runeCount(padded)) < width) padded.insert(padded.begin(), '0');
             buf.push_back(sign);
             buf += padded;
             return;
@@ -145,12 +145,12 @@ struct printer {
         pad(s);
     }
 
-    void fmt_complex(std::complex<double> c, char verb) {
+    void fmtComplex(std::complex<double> c, char verb) {
         bool old_plus = plus;
         buf.push_back('(');
-        fmt_float(c.real(), verb, -1);
+        fmtFloat(c.real(), verb, -1);
         plus = true;
-        fmt_float(c.imag(), verb, -1);
+        fmtFloat(c.imag(), verb, -1);
         buf += "i)";
         plus = old_plus;
     }
@@ -158,13 +158,13 @@ struct printer {
     std::string truncate(std::string_view s) {
         if (!prec_present) return std::string(s);
         std::size_t i = 0;
-        for (int n = 0; n < prec && i < s.size(); n++) i += static_cast<std::size_t>(detail::decode_rune(s, i).second);
+        for (int n = 0; n < prec && i < s.size(); n++) i += static_cast<std::size_t>(detail::decodeRune(s, i).second);
         return std::string(s.substr(0, i));
     }
 
-    void fmt_s(std::string_view s) { pad(truncate(s)); }
+    void fmtS(std::string_view s) { pad(truncate(s)); }
 
-    void fmt_sbx(std::string_view s, const char* digits) {
+    void fmtSbx(std::string_view s, const char* digits) {
         std::string out;
         std::size_t length = s.size();
         if (prec_present && prec < static_cast<int>(length)) length = static_cast<std::size_t>(prec);
@@ -178,12 +178,12 @@ struct printer {
         pad(out);
     }
 
-    void fmt_q(std::string_view s) {
+    void fmtQ(std::string_view s) {
         std::string t = truncate(s);
         if (sharp && t.find('`') == std::string::npos) {
             bool can_backquote = true;
             for (std::size_t i = 0; i < t.size();) {
-                auto [r, w] = detail::decode_rune(t, i);
+                auto [r, w] = detail::decodeRune(t, i);
                 if ((r == detail::rune_error && w == 1) || (r < ' ' && r != '\t') || r == 0x7F || r == 0xFEFF) {
                     can_backquote = false;
                     break;
@@ -198,21 +198,21 @@ struct printer {
         pad(detail::quote(t, plus));
     }
 
-    void fmt_string(std::string_view s, char verb) {
+    void fmtString(std::string_view s, char verb) {
         switch (verb) {
         case 'v':
-            if (sharp_v) fmt_q(s);
-            else fmt_s(s);
+            if (sharp_v) fmtQ(s);
+            else fmtS(s);
             break;
-        case 's': fmt_s(s); break;
-        case 'x': fmt_sbx(s, "0123456789abcdef"); break;
-        case 'X': fmt_sbx(s, "0123456789ABCDEF"); break;
-        case 'q': fmt_q(s); break;
-        default: bad_verb(verb, nullptr); break;
+        case 's': fmtS(s); break;
+        case 'x': fmtSbx(s, "0123456789abcdef"); break;
+        case 'X': fmtSbx(s, "0123456789ABCDEF"); break;
+        case 'q': fmtQ(s); break;
+        default: badVerb(verb, nullptr); break;
         }
     }
 
-    void bad_verb(char verb, const Value* v) {
+    void badVerb(char verb, const Value* v) {
         buf += "%!";
         buf.push_back(verb);
         buf.push_back('(');
@@ -229,7 +229,7 @@ struct printer {
     }
 
     // String() or Error(), for the verbs that take them.
-    bool handle_methods(const Value& v, char verb) {
+    bool handleMethods(const Value& v, char verb) {
         if (sharp_v) return false;
         if (verb != 'v' && verb != 's' && verb != 'x' && verb != 'X' && verb != 'q') return false;
         Value recv = v;
@@ -251,13 +251,13 @@ struct printer {
             return true;
         }
         if (r.Kind() != Kind::String) return false;
-        fmt_string(r.Str(), verb);
+        fmtString(r.Str(), verb);
         return true;
     }
 
     void print_value(const Value& v0, char verb, int depth) {
         Value v = v0;
-        if (depth > 0 && v.IsValid() && handle_methods(v, verb)) return;
+        if (depth > 0 && v.IsValid() && handleMethods(v, verb)) return;
         if (depth > max_depth) {
             buf += "...";
             return;
@@ -266,31 +266,31 @@ struct printer {
         case Kind::Invalid:
             if (depth == 0) buf += "<invalid reflect.Value>";
             else if (verb == 'v') buf += "<nil>";
-            else bad_verb(verb, nullptr);
+            else badVerb(verb, nullptr);
             return;
         case Kind::Bool:
-            if (verb == 't' || verb == 'v') fmt_bool(v.Bool());
-            else bad_verb(verb, &v);
+            if (verb == 't' || verb == 'v') fmtBool(v.Bool());
+            else badVerb(verb, &v);
             return;
-        case Kind::Int: print_int(static_cast<uint64>(v.Int()), true, verb, &v); return;
-        case Kind::Uint: print_int(v.Uint(), false, verb, &v); return;
+        case Kind::Int: printInt(static_cast<uint64>(v.Int()), true, verb, &v); return;
+        case Kind::Uint: printInt(v.Uint(), false, verb, &v); return;
         case Kind::Float:
             switch (verb) {
-            case 'v': fmt_float(v.Float(), 'g', -1); return;
-            case 'b': case 'g': case 'G': case 'x': case 'X': fmt_float(v.Float(), verb, -1); return;
-            case 'f': case 'e': case 'E': case 'F': fmt_float(v.Float(), verb, 6); return;
-            default: bad_verb(verb, &v); return;
+            case 'v': fmtFloat(v.Float(), 'g', -1); return;
+            case 'b': case 'g': case 'G': case 'x': case 'X': fmtFloat(v.Float(), verb, -1); return;
+            case 'f': case 'e': case 'E': case 'F': fmtFloat(v.Float(), verb, 6); return;
+            default: badVerb(verb, &v); return;
             }
         case Kind::Complex:
             switch (verb) {
             case 'v': case 'b': case 'g': case 'G': case 'x': case 'X': case 'f': case 'F': case 'e': case 'E':
-                fmt_complex(v.Complex(), verb == 'v' ? 'g' : verb);
+                fmtComplex(v.Complex(), verb == 'v' ? 'g' : verb);
                 return;
-            default: bad_verb(verb, &v); return;
+            default: badVerb(verb, &v); return;
             }
         case Kind::String:
-            if (verb == 'v' || verb == 's' || verb == 'x' || verb == 'X' || verb == 'q') fmt_string(v.Str(), verb);
-            else bad_verb(verb, &v);
+            if (verb == 'v' || verb == 's' || verb == 'x' || verb == 'X' || verb == 'q') fmtString(v.Str(), verb);
+            else badVerb(verb, &v);
             return;
         case Kind::Map: {
             if (sharp_v) buf += std::string(v.TypeName()) + "{";
@@ -339,7 +339,7 @@ struct printer {
                 v.Type()->elem()->name == "uint8") {
                 std::string bytes;
                 for (std::size_t i = 0; i < v.Len(); i++) bytes.push_back(static_cast<char>(v.Index(i).Uint()));
-                fmt_string(bytes, verb);
+                fmtString(bytes, verb);
                 return;
             }
             if (sharp_v) {
@@ -377,33 +377,33 @@ struct printer {
                     break;
                 }
             }
-            fmt_pointer(v, verb);
+            fmtPointer(v, verb);
             return;
         case Kind::Func:
-            fmt_pointer(v, verb);
+            fmtPointer(v, verb);
             return;
         }
     }
 
-    void print_int(uint64 u, bool is_signed, char verb, const Value* v) {
+    void printInt(uint64 u, bool is_signed, char verb, const Value* v) {
         switch (verb) {
         case 'v':
-            if (sharp_v && !is_signed) fmt_integer(u, 16, false, 'x');  // Go: %#v of uint is 0x...
-            else fmt_integer(u, 10, is_signed, verb);
+            if (sharp_v && !is_signed) fmtInteger(u, 16, false, 'x');  // Go: %#v of uint is 0x...
+            else fmtInteger(u, 10, is_signed, verb);
             break;
-        case 'd': fmt_integer(u, 10, is_signed, verb); break;
-        case 'b': fmt_integer(u, 2, is_signed, verb); break;
-        case 'o': case 'O': fmt_integer(u, 8, is_signed, verb); break;
-        case 'x': fmt_integer(u, 16, is_signed, verb); break;
-        case 'X': fmt_integer(u, 16, is_signed, verb); break;
-        case 'c': fmt_c(u); break;
-        case 'q': fmt_qc(u); break;
-        case 'U': fmt_unicode(u); break;
-        default: bad_verb(verb, v); break;
+        case 'd': fmtInteger(u, 10, is_signed, verb); break;
+        case 'b': fmtInteger(u, 2, is_signed, verb); break;
+        case 'o': case 'O': fmtInteger(u, 8, is_signed, verb); break;
+        case 'x': fmtInteger(u, 16, is_signed, verb); break;
+        case 'X': fmtInteger(u, 16, is_signed, verb); break;
+        case 'c': fmtC(u); break;
+        case 'q': fmtQc(u); break;
+        case 'U': fmtUnicode(u); break;
+        default: badVerb(verb, v); break;
         }
     }
 
-    void fmt_pointer(const Value& v, char verb) {
+    void fmtPointer(const Value& v, char verb) {
         uintptr_t u = v.IsNil() ? 0 : reinterpret_cast<uintptr_t>(v.ptr());
         switch (verb) {
         case 'v':
@@ -421,25 +421,25 @@ struct printer {
             pad(b);
             break;
         }
-        case 'b': case 'o': case 'd': case 'x': case 'X': fmt_integer(u, verb == 'b' ? 2 : verb == 'o' ? 8 : verb == 'd' ? 10 : 16, false, verb); break;
-        default: bad_verb(verb, &v); break;
+        case 'b': case 'o': case 'd': case 'x': case 'X': fmtInteger(u, verb == 'b' ? 2 : verb == 'o' ? 8 : verb == 'd' ? 10 : 16, false, verb); break;
+        default: badVerb(verb, &v); break;
         }
     }
 
-    void print_arg(const Value& arg, char verb) {
+    void printArg(const Value& arg, char verb) {
         if (!arg.IsValid()) {
             switch (verb) {
             case 'T': case 'v': pad("<nil>"); break;
-            default: bad_verb(verb, nullptr); break;
+            default: badVerb(verb, nullptr); break;
             }
             return;
         }
         if (verb == 'T') {
-            fmt_s(arg.TypeName());
+            fmtS(arg.TypeName());
             return;
         }
         if (verb == 'p') {
-            fmt_pointer(arg, 'p');
+            fmtPointer(arg, 'p');
             return;
         }
         // Interfaces print as what they hold.
@@ -448,11 +448,11 @@ struct printer {
             v = v.Elem();
             if (!v.IsValid()) {
                 if (verb == 'v' || verb == 's') pad("<nil>");
-                else bad_verb(verb, nullptr);
+                else badVerb(verb, nullptr);
                 return;
             }
         }
-        if (handle_methods(v, verb)) return;
+        if (handleMethods(v, verb)) return;
         print_value(v, verb, 0);
     }
 };
@@ -466,7 +466,7 @@ string Sprint(std::span<const Value> args) {
         bool is_string = args[i].IsValid() && args[i].Kind() == Kind::String;
         // Add a space between two non-string arguments.
         if (i > 0 && !is_string && !prev_string) p.buf.push_back(' ');
-        p.print_arg(args[i], 'v');
+        p.printArg(args[i], 'v');
         prev_string = is_string;
     }
     return string(p.buf);
@@ -476,7 +476,7 @@ string Sprintln(std::span<const Value> args) {
     printer p;
     for (std::size_t i = 0; i < args.size(); i++) {
         if (i > 0) p.buf.push_back(' ');
-        p.print_arg(args[i], 'v');
+        p.printArg(args[i], 'v');
     }
     p.buf.push_back('\n');
     return string(p.buf);
@@ -492,7 +492,7 @@ string Sprintf(std::string_view format, std::span<const Value> args) {
         if (i > lasti) p.buf.append(format.substr(lasti, i - lasti));
         if (i >= end) break;
         i++;  // skip %
-        p.clear_flags();
+        p.clearFlags();
         // Flags.
         for (; i < end; i++) {
             char c = format[i];
@@ -551,7 +551,7 @@ string Sprintf(std::string_view format, std::span<const Value> args) {
             p.buf += "%!(NOVERB)";
             break;
         }
-        auto [verb_rune, w] = detail::decode_rune(format, i);
+        auto [verb_rune, w] = detail::decodeRune(format, i);
         i += static_cast<std::size_t>(w);
         char verb = verb_rune < 0x80 ? static_cast<char>(verb_rune) : '?';
         if (verb == '%') {
@@ -560,7 +560,7 @@ string Sprintf(std::string_view format, std::span<const Value> args) {
         }
         if (arg_num >= args.size()) {
             p.buf += "%!";
-            detail::append_rune(p.buf, verb_rune);
+            detail::appendRune(p.buf, verb_rune);
             p.buf += "(MISSING)";
             continue;
         }
@@ -575,11 +575,11 @@ string Sprintf(std::string_view format, std::span<const Value> args) {
             }
         }
         if (verb == 'w') verb = 'v';
-        p.print_arg(args[arg_num], verb);
+        p.printArg(args[arg_num], verb);
         arg_num++;
     }
     if (arg_num < args.size()) {
-        p.clear_flags();
+        p.clearFlags();
         p.buf += "%!(EXTRA ";
         for (std::size_t k = arg_num; k < args.size(); k++) {
             if (k > arg_num) p.buf += ", ";
@@ -588,7 +588,7 @@ string Sprintf(std::string_view format, std::span<const Value> args) {
             } else {
                 p.buf += args[k].TypeName();
                 p.buf.push_back('=');
-                p.print_arg(args[k], 'v');
+                p.printArg(args[k], 'v');
             }
         }
         p.buf.push_back(')');

@@ -19,6 +19,6 @@ struct ip_port {
     string zone;
     bool ok = false;
 };
-ip_port ip_port_of(const Addr* a);
+ip_port ipPortOf(const Addr* a);
 
 }  // namespace gopp::net

@@ -28,7 +28,7 @@ int main() {
         fmt::Println("{}", err);
         return 1;
     }
-    fmt::Println("{}", as_string_view(b));
+    fmt::Println("{}", asStringView(b));
     fmt::Println("{}", mime::TypeByExtension(".json"));
 
     auto t = tmpl::Must(tmpl::New("inventory")->Parse("{{.Name}} has {{.Count}} items\n"));

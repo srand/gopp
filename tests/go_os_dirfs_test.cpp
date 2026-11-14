@@ -120,7 +120,7 @@ TEST(GoOsDirFS, DirFSReadFileProc) {
     auto [data, err] = fs::ReadFile(*fsys, name);
     ASSERT_FALSE(err) << err;
     ASSERT_TRUE(data.size() > 0 && data[data.size() - 1] == '\n')
-        << "read " << name << ": not newline-terminated: " << as_string_view(data);
+        << "read " << name << ": not newline-terminated: " << asStringView(data);
 }
 
 TEST(GoOsDirFS, DirFSReadLink) {
@@ -274,9 +274,9 @@ error verifyCopyFS(fs::FS& originFS, fs::FS& copiedFS) {
             close();
             return e1 ? e1 : e2;
         }
-        if (as_string_view(data) != as_string_view(newData)) {
+        if (asStringView(data) != asStringView(newData)) {
             close();
-            return fmt::Errorf("file {} content is {}, want {}", path, as_string_view(newData), as_string_view(data));
+            return fmt::Errorf("file {} content is {}, want {}", path, asStringView(newData), asStringView(data));
         }
 
         auto [fStat, e3] = fInfo->Stat();
@@ -322,11 +322,11 @@ TEST(GoOsDirFS, CopyFS) {
 
     // Test with memory filesystem.
     fsys = fstest::MakeMapFS({
-        {"william", {.Data = to_bytes("Shakespeare\n")}},
-        {"carl", {.Data = to_bytes("Gauss\n")}},
-        {"daVinci", {.Data = to_bytes("Leonardo\n")}},
-        {"einstein", {.Data = to_bytes("Albert\n")}},
-        {"dir/newton", {.Data = to_bytes("Sir Isaac\n")}},
+        {"william", {.Data = toBytes("Shakespeare\n")}},
+        {"carl", {.Data = toBytes("Gauss\n")}},
+        {"daVinci", {.Data = toBytes("Leonardo\n")}},
+        {"einstein", {.Data = toBytes("Albert\n")}},
+        {"dir/newton", {.Data = toBytes("Sir Isaac\n")}},
     });
     TempDir tmpDir;
     ASSERT_FALSE(os::CopyFS(tmpDir, *fsys)) << "CopyFS";
@@ -405,7 +405,7 @@ TEST(GoOsDirFS, CopyFSWithSymlinks) {
         if (e1) return e1;
         auto [newData, e2] = fs::ReadFile(*tmpFsys, path);
         if (e2) return e2;
-        if (as_string_view(data) != as_string_view(newData)) {
+        if (asStringView(data) != asStringView(newData)) {
             return errors::New("file " + std::string(path) + " contents differ");
         }
 
@@ -416,7 +416,7 @@ TEST(GoOsDirFS, CopyFSWithSymlinks) {
         if (!target.empty()) {
             auto [targetData, e3] = os::ReadFile(target);
             if (e3) return e3;
-            if (as_string_view(targetData) != as_string_view(newData)) {
+            if (asStringView(targetData) != asStringView(newData)) {
                 return errors::New("file " + std::string(path) + " contents differ from target");
             }
         }

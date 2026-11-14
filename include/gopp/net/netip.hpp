@@ -130,7 +130,7 @@ public:
 
     // Internals, for the package and its tests.
     constexpr Addr(uint128 addr, const detail::addr_detail* z) noexcept : addr_(addr), z_(z) {}
-    uint128 addr_bits() const noexcept { return addr_; }
+    uint128 addrBits() const noexcept { return addr_; }
     const detail::addr_detail* z() const noexcept { return z_; }
     uint8 v4(uint8 i) const noexcept { return uint8(addr_.lo >> ((3 - i) * 8)); }
     uint8 v6(uint8 i) const noexcept { return uint8((i < 8 ? addr_.hi : addr_.lo) >> ((7 - i % 8) * 8)); }
@@ -251,7 +251,7 @@ Prefix MustParsePrefix(std::string_view s);
 template <>
 struct std::hash<gopp::netip::Addr> {
     std::size_t operator()(const gopp::netip::Addr& a) const noexcept {
-        auto b = a.addr_bits();
+        auto b = a.addrBits();
         std::size_t h = std::hash<gopp::uint64>()(b.hi) * 31 + std::hash<gopp::uint64>()(b.lo);
         return h * 31 + std::hash<const void*>()(a.z());
     }

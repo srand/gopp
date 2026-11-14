@@ -66,7 +66,7 @@ std::tuple<string, int, string> Version() {
     return {string(sqlite3_libversion()), sqlite3_libversion_number(), string(sqlite3_sourceid())};
 }
 
-bool detail::register_driver() noexcept {
+bool detail::registerDriver() noexcept {
     // Every program that includes the header runs this; register once.
     static std::atomic<bool> done{false};
     if (!done.exchange(true)) sql::Register("sqlite3", make_ptr<SQLiteDriver>());
@@ -91,7 +91,7 @@ std::string upper(std::string_view s) {
 }
 
 // A boolean option: 0 or 1, or -1 when the value isn't one.
-int parse_bool(const std::string& v) {
+int parseBool(const std::string& v) {
     std::string l = lower(v);
     if (l == "0" || l == "no" || l == "false" || l == "off") return 0;
     if (l == "1" || l == "yes" || l == "true" || l == "on") return 1;
@@ -101,7 +101,7 @@ int parse_bool(const std::string& v) {
 error errorf(std::string msg) { return errors::New(string(msg)); }
 
 // sqlite3_exec as a blocking call.
-error exec_pragma(::sqlite3* db, const std::string& s) {
+error execPragma(::sqlite3* db, const std::string& s) {
     int rv = runtime::blocking([&] { return sqlite3_exec(db, s.c_str(), nullptr, nullptr, nullptr); });
     if (rv != SQLITE_OK) return lastError(db);
     return nullptr;
@@ -198,7 +198,7 @@ std::pair<ptr<sql::driver::Conn>, error> SQLiteDriver::Open(std::string_view dsn
         auto boolean = [&](std::initializer_list<const char*> keys, const char* name, int& out) -> error {
             std::string val = get(keys);
             if (val.empty()) return nullptr;
-            out = parse_bool(val);
+            out = parseBool(val);
             if (out < 0) {
                 return errorf(std::string("Invalid ") + name + ": " + val +
                               ", expecting boolean value of '0 1 false true no yes off on'");
@@ -241,7 +241,7 @@ std::pair<ptr<sql::driver::Conn>, error> SQLiteDriver::Open(std::string_view dsn
         // Secure Delete (_secure_delete)
         if (std::string val = get({"_secure_delete"}); !val.empty()) {
             std::string l = lower(val);
-            if (int b = parse_bool(val); b >= 0) secureDelete = b ? "ON" : "OFF";
+            if (int b = parseBool(val); b >= 0) secureDelete = b ? "ON" : "OFF";
             else if (l == "fast") secureDelete = "FAST";
             else {
                 return {nullptr, errorf("Invalid _secure_delete: " + val +
@@ -296,51 +296,51 @@ std::pair<ptr<sql::driver::Conn>, error> SQLiteDriver::Open(std::string_view dsn
     };
 
     // Busy timeout
-    if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA busy_timeout = {};", busyTimeout).str())) return fail(err);
+    if (auto err = execPragma(db, fmt::Sprint("PRAGMA busy_timeout = {};", busyTimeout).str())) return fail(err);
     // Auto Vacuum: must be set before any tables are created.
     if (autoVacuum > -1) {
-        if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA auto_vacuum = {};", autoVacuum).str())) return fail(err);
+        if (auto err = execPragma(db, fmt::Sprint("PRAGMA auto_vacuum = {};", autoVacuum).str())) return fail(err);
     }
     if (caseSensitiveLike > -1) {
-        if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA case_sensitive_like = {};", caseSensitiveLike).str())) {
+        if (auto err = execPragma(db, fmt::Sprint("PRAGMA case_sensitive_like = {};", caseSensitiveLike).str())) {
             return fail(err);
         }
     }
     if (deferForeignKeys > -1) {
-        if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA defer_foreign_keys = {};", deferForeignKeys).str())) {
+        if (auto err = execPragma(db, fmt::Sprint("PRAGMA defer_foreign_keys = {};", deferForeignKeys).str())) {
             return fail(err);
         }
     }
     if (foreignKeys > -1) {
-        if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA foreign_keys = {};", foreignKeys).str())) return fail(err);
+        if (auto err = execPragma(db, fmt::Sprint("PRAGMA foreign_keys = {};", foreignKeys).str())) return fail(err);
     }
     if (ignoreCheckConstraints > -1) {
         if (auto err =
-                exec_pragma(db, fmt::Sprint("PRAGMA ignore_check_constraints = {};", ignoreCheckConstraints).str())) {
+                execPragma(db, fmt::Sprint("PRAGMA ignore_check_constraints = {};", ignoreCheckConstraints).str())) {
             return fail(err);
         }
     }
     if (!journalMode.empty()) {
-        if (auto err = exec_pragma(db, "PRAGMA journal_mode = " + journalMode + ";")) return fail(err);
+        if (auto err = execPragma(db, "PRAGMA journal_mode = " + journalMode + ";")) return fail(err);
     }
-    if (auto err = exec_pragma(db, "PRAGMA locking_mode = " + lockingMode + ";")) return fail(err);
+    if (auto err = execPragma(db, "PRAGMA locking_mode = " + lockingMode + ";")) return fail(err);
     if (queryOnly > -1) {
-        if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA query_only = {};", queryOnly).str())) return fail(err);
+        if (auto err = execPragma(db, fmt::Sprint("PRAGMA query_only = {};", queryOnly).str())) return fail(err);
     }
     if (recursiveTriggers > -1) {
-        if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA recursive_triggers = {};", recursiveTriggers).str())) {
+        if (auto err = execPragma(db, fmt::Sprint("PRAGMA recursive_triggers = {};", recursiveTriggers).str())) {
             return fail(err);
         }
     }
     if (secureDelete != "DEFAULT") {
-        if (auto err = exec_pragma(db, "PRAGMA secure_delete = " + secureDelete + ";")) return fail(err);
+        if (auto err = execPragma(db, "PRAGMA secure_delete = " + secureDelete + ";")) return fail(err);
     }
-    if (auto err = exec_pragma(db, "PRAGMA synchronous = " + synchronousMode + ";")) return fail(err);
+    if (auto err = execPragma(db, "PRAGMA synchronous = " + synchronousMode + ";")) return fail(err);
     if (writableSchema > -1) {
-        if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA writable_schema = {};", writableSchema).str())) return fail(err);
+        if (auto err = execPragma(db, fmt::Sprint("PRAGMA writable_schema = {};", writableSchema).str())) return fail(err);
     }
     if (haveCacheSize) {
-        if (auto err = exec_pragma(db, fmt::Sprint("PRAGMA cache_size = {};", cacheSize).str())) return fail(err);
+        if (auto err = execPragma(db, fmt::Sprint("PRAGMA cache_size = {};", cacheSize).str())) return fail(err);
     }
     return {c, nullptr};
 }
@@ -408,7 +408,7 @@ std::string trim_space(std::string_view s) {
     return std::string(s);
 }
 
-error not_enough_args(std::size_t want, std::size_t got) {
+error notEnoughArgs(std::size_t want, std::size_t got) {
     return errors::New(fmt::Sprint("not enough args to execute query: want {} got {}", want, got));
 }
 
@@ -439,7 +439,7 @@ std::pair<ptr<driver::Result>, error> conn::exec(const ptr<context::Context>& ct
             std::size_t na = static_cast<std::size_t>(s->NumInput());
             if (args.size() - start < na) {
                 s->Close();
-                return {nullptr, not_enough_args(na, args.size() - start)};
+                return {nullptr, notEnoughArgs(na, args.size() - start)};
             }
             auto sargs = stmtArgs(args, start, na);
             auto [r, eerr] = s->exec(ctx, sargs);
@@ -479,7 +479,7 @@ std::pair<ptr<driver::Rows>, error> conn::query(const ptr<context::Context>& ctx
         std::size_t na = static_cast<std::size_t>(s->NumInput());
         if (args.size() - start < na) {
             s->Close();
-            return {nullptr, not_enough_args(na, args.size() - start)};
+            return {nullptr, notEnoughArgs(na, args.size() - start)};
         }
         auto sargs = stmtArgs(args, start, na);
         auto [r, qerr] = s->query(ctx, sargs);
@@ -496,17 +496,17 @@ std::pair<ptr<driver::Rows>, error> conn::query(const ptr<context::Context>& ctx
     }
 }
 
-uint64_t conn::new_op_id() noexcept {
+uint64_t conn::newOpId() noexcept {
     std::lock_guard l(mu_);
     return next_op_++;
 }
 
-void conn::begin_op(uint64_t id) noexcept {
+void conn::beginOp(uint64_t id) noexcept {
     std::lock_guard l(mu_);
     active_op_ = id;
 }
 
-void conn::end_op() noexcept {
+void conn::endOp() noexcept {
     std::lock_guard l(mu_);
     active_op_ = 0;
 }
@@ -521,8 +521,8 @@ void conn::interrupt(uint64_t id) noexcept {
 
 canceler::canceler(ptr<conn> c, ptr<context::Context> ctx) : c_(std::move(c)), ctx_(std::move(ctx)) {
     if (!ctx_ || !ctx_->Done()) return;
-    id_ = c_->new_op_id();
-    done_ = make_chan<bool>();
+    id_ = c_->newOpId();
+    done_ = makeChan<bool>();
     go([c = c_, ctx = ctx_, done = done_, id = id_] {
         select(recv(ctx->Done(), [&] { c->interrupt(id); }), recv(done, [] {}));
     });
@@ -534,16 +534,16 @@ canceler::~canceler() {
 
 void canceler::begin() noexcept {
     if (!id_) return;
-    c_->begin_op(id_);
+    c_->beginOp(id_);
     // A cancellation just before begin found no operation to interrupt.
     if (ctx_->Err()) c_->interrupt(id_);
 }
 
 void canceler::end() noexcept {
-    if (id_) c_->end_op();
+    if (id_) c_->endOp();
 }
 
-error canceler::ctx_err() const { return id_ ? ctx_->Err() : nullptr; }
+error canceler::ctxErr() const { return id_ ? ctx_->Err() : nullptr; }
 
 // ---------------------------------------------------------------------------
 // Transactions

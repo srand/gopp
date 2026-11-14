@@ -30,7 +30,7 @@ void Reader::Reset(ptr<io::Reader> rd) {
     last_byte_ = -1;
 }
 
-error Reader::read_err() {
+error Reader::readErr() {
     error e = std::move(err_);
     err_ = nullptr;
     return e;
@@ -60,10 +60,10 @@ void Reader::fill() {
 std::pair<isize, error> Reader::Read(std::span<byte> p) {
     if (p.empty()) {
         if (Buffered() > 0) return {0, nullptr};
-        return {0, read_err()};
+        return {0, readErr()};
     }
     if (r_ == w_) {
-        if (err_) return {0, read_err()};
+        if (err_) return {0, readErr()};
         if (p.size() >= size_) {
             // Large read with an empty buffer: read directly into p.
             auto [n, err] = rd_->Read(p);
@@ -87,7 +87,7 @@ std::pair<isize, error> Reader::Read(std::span<byte> p) {
 
 std::pair<byte, error> Reader::ReadByte() {
     while (r_ == w_) {
-        if (err_) return {0, read_err()};
+        if (err_) return {0, readErr()};
         fill();
     }
     byte c = buf_[r_++];
@@ -115,7 +115,7 @@ std::pair<std::span<const byte>, error> Reader::Peek(std::size_t n) {
     std::size_t avail = w_ - r_;
     if (avail < n) {
         n = avail;
-        err = read_err();
+        err = readErr();
         if (!err) err = ErrBufferFull;
     }
     return {std::span<const byte>(buf_.get() + r_, n), err};
@@ -137,7 +137,7 @@ std::pair<std::span<const byte>, error> Reader::ReadSlice(byte delim) {
         if (err_) {
             line = std::span<const byte>(buf_.get() + r_, w_ - r_);
             r_ = w_;
-            err = read_err();
+            err = readErr();
             break;
         }
         if (Buffered() >= size_) {
@@ -201,7 +201,7 @@ std::pair<isize, error> Reader::Discard(isize n) {
         r_ += skip;
         remain -= static_cast<isize>(skip);
         if (remain == 0) return {n, nullptr};
-        if (err_) return {n - remain, read_err()};
+        if (err_) return {n - remain, readErr()};
     }
 }
 

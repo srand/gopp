@@ -33,7 +33,7 @@ struct common {
 };
 
 // Templates alive (template.cpp), for tests.
-long live_templates() noexcept;
+long liveTemplates() noexcept;
 
 struct template_access {
     static common* of(const Template& t) { return t.common_; }
@@ -41,13 +41,13 @@ struct template_access {
 
 // The builtin functions.
 const FuncMap& builtins();
-const parse::FuncNames& builtin_names();
+const parse::FuncNames& builtinNames();
 
 // Go's truth of a value.
-std::pair<bool, bool> is_true(const Value& v);
+std::pair<bool, bool> isTrue(const Value& v);
 // Follows pointers and interfaces; whether it stopped at a nil.
 std::pair<Value, bool> indirect(Value v);
-Value indirect_interface(const Value& v);
+Value indirectInterface(const Value& v);
 
 // The deepest {{template}} recursion at execution. Go allows 100000;
 // templates may run on 256 KiB fiber stacks.

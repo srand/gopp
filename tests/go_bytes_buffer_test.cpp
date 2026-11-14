@@ -28,9 +28,9 @@ const slice<byte> testBytes = [] {
     for (std::size_t i = 0; i < N; i++) b[i] = byte('a' + i % 26);
     return b;
 }();
-const std::string testString(as_string_view(testBytes));
+const std::string testString(asStringView(testBytes));
 
-std::string str(std::span<const byte> s) { return std::string(as_string_view(s)); }
+std::string str(std::span<const byte> s) { return std::string(asStringView(s)); }
 
 struct negativeReader : io::Reader {
     std::pair<isize, error> Read(std::span<byte>) override { return {-1, nullptr}; }
@@ -43,7 +43,7 @@ void check(const std::string& testname, bytes::Buffer& buf, std::string_view s) 
     EXPECT_EQ(std::size_t(buf.Len()), bs.len()) << testname << ": buf.Len() != len(buf.Bytes())";
     EXPECT_EQ(std::size_t(buf.Len()), st.len()) << testname << ": buf.Len() != len(buf.String())";
     EXPECT_EQ(std::size_t(buf.Len()), s.size()) << testname << ": buf.Len() != len(s)";
-    EXPECT_EQ(as_string_view(bs), s) << testname << ": string(buf.Bytes()) != s";
+    EXPECT_EQ(asStringView(bs), s) << testname << ": string(buf.Bytes()) != s";
 }
 
 // Fill buf through n writes of string fus. The initial contents of buf
@@ -70,7 +70,7 @@ std::string fillBytes(const std::string& testname, bytes::Buffer& buf, std::stri
         auto [m, err] = buf.Write(fub);
         EXPECT_EQ(std::size_t(m), fub.size()) << testname << " (fill 2)";
         EXPECT_FALSE(err) << testname << " (fill 3): err should always be nil";
-        s += as_string_view(fub);
+        s += asStringView(fub);
         check(testname + " (fill 4)", buf, s);
     }
     return s;
@@ -212,7 +212,7 @@ TEST(GoBytesBuffer, WriteAppend) {
     std::string want;
     for (int i = 0; i < 1000; i++) {
         auto b = got.AvailableBuffer();
-        b = append_span(b, as_bytes(std::to_string(i)));
+        b = appendSpan(b, as_bytes(std::to_string(i)));
         want += std::to_string(i);
         got.Write(b);
     }
@@ -455,7 +455,7 @@ TEST(GoBytesBuffer, BufferGrowth) {
 // reader_test.go
 
 TEST(GoBytesReader, Reader) {
-    auto r = bytes::NewReader(to_bytes("0123456789"));
+    auto r = bytes::NewReader(toBytes("0123456789"));
     struct T {
         int64 off = 0;
         int seek = 0;
@@ -500,14 +500,14 @@ TEST(GoBytesReader, Reader) {
 }
 
 TEST(GoBytesReader, ReadAfterBigSeek) {
-    auto r = bytes::NewReader(to_bytes("0123456789"));
+    auto r = bytes::NewReader(toBytes("0123456789"));
     ASSERT_FALSE(r->Seek((int64(1) << 31) + 5, io::SeekStart).second);
     auto [n, err] = r->Read(slice<byte>::make(10));
     EXPECT_TRUE(n == 0 && err == io::EOF_) << "Read = " << n << ", " << err << "; want 0, EOF";
 }
 
 TEST(GoBytesReader, ReaderAt) {
-    auto r = bytes::NewReader(to_bytes("0123456789"));
+    auto r = bytes::NewReader(toBytes("0123456789"));
     struct T {
         int64 off;
         std::size_t n;
@@ -547,7 +547,7 @@ TEST(GoBytesReader, ReaderWriteTo) {
 }
 
 TEST(GoBytesReader, ReaderLen) {
-    auto r = bytes::NewReader(to_bytes("hello world"));
+    auto r = bytes::NewReader(toBytes("hello world"));
     EXPECT_EQ(r->Len(), 11);
     auto [n, err] = r->Read(slice<byte>::make(10));
     EXPECT_TRUE(!err && n == 10) << "Read failed";
@@ -573,7 +573,7 @@ TEST(GoBytesReader, UnreadRuneError) {
          }},
     };
     for (const auto& tt : UnreadRuneErrorTests) {
-        auto reader = bytes::NewReader(to_bytes("0123456789"));
+        auto reader = bytes::NewReader(toBytes("0123456789"));
         ASSERT_FALSE(std::get<2>(reader->ReadRune()));
         tt.f(*reader);
         EXPECT_TRUE(reader->UnreadRune()) << "Unreading after " << tt.name << ": expected error";
@@ -581,7 +581,7 @@ TEST(GoBytesReader, UnreadRuneError) {
 }
 
 TEST(GoBytesReader, ReaderDoubleUnreadRune) {
-    auto buf = bytes::NewBuffer(to_bytes("groucho"));
+    auto buf = bytes::NewBuffer(toBytes("groucho"));
     ASSERT_FALSE(std::get<2>(buf->ReadRune()));
     ASSERT_FALSE(buf->UnreadByte());
     ASSERT_TRUE(buf->UnreadByte()) << "UnreadByte: expected error, got nil";
@@ -609,17 +609,17 @@ TEST(GoBytesReader, ReaderCopyNothing) {
 
 // tests that Len is affected by reads, but Size is not.
 TEST(GoBytesReader, ReaderLenSize) {
-    auto r = bytes::NewReader(to_bytes("abc"));
+    auto r = bytes::NewReader(toBytes("abc"));
     io::CopyN(io::Discard(), *r, 1);
     EXPECT_EQ(r->Len(), 2);
     EXPECT_EQ(r->Size(), 3);
 }
 
 TEST(GoBytesReader, ReaderReset) {
-    auto r = bytes::NewReader(to_bytes("世界"));
+    auto r = bytes::NewReader(toBytes("世界"));
     EXPECT_FALSE(std::get<2>(r->ReadRune())) << "ReadRune: unexpected error";
     const std::string want = "abcdef";
-    r->Reset(to_bytes(want));
+    r->Reset(toBytes(want));
     EXPECT_TRUE(r->UnreadRune()) << "UnreadRune: expected error, got nil";
     auto [buf, err] = io::ReadAll(*r);
     EXPECT_FALSE(err) << "ReadAll: unexpected error";

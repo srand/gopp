@@ -57,12 +57,12 @@ std::string wait_sig1(const chan<os::Signal>& c, os::Signal sig, bool all) {
     return "timeout waiting for " + str(sig.String());
 }
 
-void wait_sig(const chan<os::Signal>& c, os::Signal sig) {
+void waitSig(const chan<os::Signal>& c, os::Signal sig) {
     std::string err = wait_sig1(c, sig, false);
     ASSERT_EQ(err, "");
 }
 
-void wait_sig_all(const chan<os::Signal>& c, os::Signal sig) {
+void waitSigAll(const chan<os::Signal>& c, os::Signal sig) {
     std::string err = wait_sig1(c, sig, true);
     ASSERT_EQ(err, "");
 }
@@ -73,42 +73,42 @@ void quiesce() {
     while (time::Since(start) < settle_time) time::Sleep(settle_time / 10);
 }
 
-void kill_self(syscall::Signal sig) { syscall::Kill(syscall::Getpid(), sig); }
+void killSelf(syscall::Signal sig) { syscall::Kill(syscall::Getpid(), sig); }
 
 // Go's TestStop for one signal, as a function the helper "stop" runs too;
 // returns an error message. send_uncaught_sighup: 1 sends SIGHUP before
 // Notify, 2 after Stop.
-std::string test_stop(syscall::Signal sig, int send_uncaught_sighup) {
+std::string testStop(syscall::Signal sig, int send_uncaught_sighup) {
     // If the signal isn't ignored, send it before Notify, to check the
     // default handling: SIGWINCH is ignored, SIGHUP may end the program,
     // as the argument says. (Not SIGUSR1, which ends a go++ program.)
     bool may_have_blocked_signal = false;
     if (!os::signal::Ignored(sig) && sig != syscall::SIGUSR1_ && (sig != syscall::SIGHUP_ || send_uncaught_sighup == 1)) {
-        kill_self(sig);
+        killSelf(sig);
         quiesce();
         may_have_blocked_signal = true;
     }
 
     // Ask for the signal, and send it again.
-    auto c = make_chan<os::Signal>(1);
+    auto c = makeChan<os::Signal>(1);
     os::signal::Notify(c, sig);
-    kill_self(sig);
+    killSelf(sig);
     if (std::string err = wait_sig1(c, sig, false); !err.empty()) return err;
 
     if (may_have_blocked_signal) {
         // A queued initial signal may have come too: let it clear.
         quiesce();
         os::Signal s;
-        c.try_recv(s);
+        c.tryRecv(s);
     }
 
     // Stop watching for the signal and send it again.
     os::signal::Stop(c);
     if (sig != syscall::SIGUSR1_ && (sig != syscall::SIGHUP_ || send_uncaught_sighup == 2)) {
-        kill_self(sig);
+        killSelf(sig);
         quiesce();
         os::Signal s;
-        if (c.try_recv(s)) return "unexpected signal " + str(s.String());
+        if (c.tryRecv(s)) return "unexpected signal " + str(s.String());
         // A signal that was blocked comes when it's unblocked.
         os::signal::Notify(c, sig);
         quiesce();
@@ -117,9 +117,9 @@ std::string test_stop(syscall::Signal sig, int send_uncaught_sighup) {
     return "";
 }
 
-std::string run_test_stop(int send_uncaught_sighup) {
+std::string runTestStop(int send_uncaught_sighup) {
     for (syscall::Signal sig : {syscall::SIGWINCH_, syscall::SIGHUP_, syscall::SIGUSR1_}) {
-        if (std::string err = test_stop(sig, send_uncaught_sighup); !err.empty()) return sig.String().str() + ": " + err;
+        if (std::string err = testStop(sig, send_uncaught_sighup); !err.empty()) return sig.String().str() + ": " + err;
     }
     return "";
 }
@@ -135,7 +135,7 @@ void atomic_stop_test_program() {
     int pid = syscall::Getpid();
     bool printed = false;
     for (int i = 0; i < tries; i++) {
-        auto cs = make_chan<os::Signal>(1);
+        auto cs = makeChan<os::Signal>(1);
         os::signal::Notify(cs, syscall::SIGINT_);
 
         sync::WaitGroup wg;
@@ -163,7 +163,7 @@ void atomic_stop_test_program() {
 }
 
 const bool helpers_registered = [] {
-    go_helper::register_helper("check_sighup_ignored", [](const std::vector<std::string>&) {
+    go_helper::registerHelper("check_sighup_ignored", [](const std::vector<std::string>&) {
         if (!os::signal::Ignored(syscall::SIGHUP_)) {
             fmt::Println("SIGHUP is not ignored.");
             os::Exit(1);
@@ -171,17 +171,17 @@ const bool helpers_registered = [] {
         fmt::Println("SIGHUP is ignored.");
     });
     // TestStop with -send_uncaught_sighup=args[0].
-    go_helper::register_helper("stop", [](const std::vector<std::string>& args) {
-        std::string err = run_test_stop(std::atoi(args.at(0).c_str()));
+    go_helper::registerHelper("stop", [](const std::vector<std::string>& args) {
+        std::string err = runTestStop(std::atoi(args.at(0).c_str()));
         if (!err.empty()) {
             fmt::Println("{}", err);
             os::Exit(1);
         }
         fmt::Println("PASS");
     });
-    go_helper::register_helper("atomic_stop", [](const std::vector<std::string>&) { atomic_stop_test_program(); });
+    go_helper::registerHelper("atomic_stop", [](const std::vector<std::string>&) { atomic_stop_test_program(); });
     // TestNotifyContextNotifications with -ctx_notify_times=args[0].
-    go_helper::register_helper("notify_ctx", [](const std::vector<std::string>& args) {
+    go_helper::registerHelper("notify_ctx", [](const std::vector<std::string>& args) {
         auto [ctx, stop] = os::signal::NotifyContext(context::Background(), syscall::SIGINT_);
         // Stop mustn't be called when a signal is received: wait for a
         // number of signals to check that.
@@ -190,7 +190,7 @@ const bool helpers_registered = [] {
         wg.Add(n);
         for (int i = 0; i < n; i++) {
             go([&wg] {
-                kill_self(syscall::SIGINT_);
+                killSelf(syscall::SIGINT_);
                 wg.Done();
             });
         }
@@ -213,33 +213,33 @@ const bool helpers_registered = [] {
 // Test that basic signal handling works.
 TEST(GoOsSignal, Signal) {
     // Ask for SIGHUP.
-    auto c = make_chan<os::Signal>(1);
+    auto c = makeChan<os::Signal>(1);
     os::signal::Notify(c, syscall::SIGHUP_);
 
     // Send this process a SIGHUP.
-    kill_self(syscall::SIGHUP_);
-    wait_sig(c, syscall::SIGHUP_);
+    killSelf(syscall::SIGHUP_);
+    waitSig(c, syscall::SIGHUP_);
 
     // Ask for everything we can get. The buffer has more than 1 in case the
     // runtime sends SIGURG (Go's does).
-    auto c1 = make_chan<os::Signal>(10);
+    auto c1 = makeChan<os::Signal>(10);
     os::signal::Notify(c1);
     // Stop relaying SIGURG signals. See Go's #49724.
     os::signal::Reset(syscall::SIGURG_);
 
     // Send this process a SIGWINCH.
-    kill_self(syscall::SIGWINCH_);
-    wait_sig_all(c1, syscall::SIGWINCH_);
+    killSelf(syscall::SIGWINCH_);
+    waitSigAll(c1, syscall::SIGWINCH_);
 
     // Send two more SIGHUPs, to make sure that they get delivered on c1
     // and that not reading from c does not block everything.
-    kill_self(syscall::SIGHUP_);
-    wait_sig_all(c1, syscall::SIGHUP_);
-    kill_self(syscall::SIGHUP_);
-    wait_sig_all(c1, syscall::SIGHUP_);
+    killSelf(syscall::SIGHUP_);
+    waitSigAll(c1, syscall::SIGHUP_);
+    killSelf(syscall::SIGHUP_);
+    waitSigAll(c1, syscall::SIGHUP_);
 
     // The first SIGHUP should be waiting for us on c.
-    wait_sig(c, syscall::SIGHUP_);
+    waitSig(c, syscall::SIGHUP_);
 
     os::signal::Stop(c1);
     os::signal::Stop(c);
@@ -248,15 +248,15 @@ TEST(GoOsSignal, Signal) {
 TEST(GoOsSignal, Stress) {
     // Go runs 3s, or 100ms in short mode.
     const time::Duration dur = 300 * time::Millisecond;
-    auto sig = make_chan<os::Signal>(1);
+    auto sig = makeChan<os::Signal>(1);
     os::signal::Notify(sig, syscall::SIGUSR1_);
 
     go([sig, dur] {
         auto stop = time::After(dur);
         for (;;) {
             bool stopped = false;
-            select(recv(stop, [&] { stopped = true; }), default_case([] {
-                       kill_self(syscall::SIGUSR1_);
+            select(recv(stop, [&] { stopped = true; }), defaultCase([] {
+                       killSelf(syscall::SIGUSR1_);
                        runtime::Gosched();
                    }));
             if (stopped) {
@@ -280,21 +280,21 @@ TEST(GoOsSignal, Stress) {
 
 namespace {
 
-void test_cancel(bool ignore) {
+void testCancel(bool ignore) {
     // Ask to be notified on c1 when a SIGWINCH is received.
-    auto c1 = make_chan<os::Signal>(1);
+    auto c1 = makeChan<os::Signal>(1);
     os::signal::Notify(c1, syscall::SIGWINCH_);
     // Ask to be notified on c2 when a SIGHUP is received.
-    auto c2 = make_chan<os::Signal>(1);
+    auto c2 = makeChan<os::Signal>(1);
     os::signal::Notify(c2, syscall::SIGHUP_);
 
     // Send this process a SIGWINCH and wait for notification on c1.
-    kill_self(syscall::SIGWINCH_);
-    wait_sig(c1, syscall::SIGWINCH_);
+    killSelf(syscall::SIGWINCH_);
+    waitSig(c1, syscall::SIGWINCH_);
 
     // Send this process a SIGHUP and wait for notification on c2.
-    kill_self(syscall::SIGHUP_);
-    wait_sig(c2, syscall::SIGHUP_);
+    killSelf(syscall::SIGHUP_);
+    waitSig(c2, syscall::SIGHUP_);
 
     // Ignore, or reset the signal handlers for, SIGWINCH and SIGHUP.
     // Either way, this should undo both calls to Notify above.
@@ -306,15 +306,15 @@ void test_cancel(bool ignore) {
     }
 
     // Send this process a SIGWINCH. It should be ignored.
-    kill_self(syscall::SIGWINCH_);
+    killSelf(syscall::SIGWINCH_);
     // If ignoring, send this process a SIGHUP. It should be ignored.
-    if (ignore) kill_self(syscall::SIGHUP_);
+    if (ignore) killSelf(syscall::SIGHUP_);
 
     quiesce();
 
     os::Signal s;
-    EXPECT_FALSE(c1.try_recv(s)) << "unexpected signal " << s;
-    EXPECT_FALSE(c2.try_recv(s)) << "unexpected signal " << s;
+    EXPECT_FALSE(c1.tryRecv(s)) << "unexpected signal " << s;
+    EXPECT_FALSE(c2.tryRecv(s)) << "unexpected signal " << s;
 
     // One or both of the signals may have been blocked for this process
     // by the calling process. Discard any queued signals now to avoid
@@ -329,11 +329,11 @@ void test_cancel(bool ignore) {
 }  // namespace
 
 // Test that Reset cancels registration for listed signals on all channels.
-TEST(GoOsSignal, Reset) { test_cancel(false); }
+TEST(GoOsSignal, Reset) { testCancel(false); }
 
 // Test that Ignore cancels registration for listed signals on all channels.
 TEST(GoOsSignal, Ignore) {
-    test_cancel(true);
+    testCancel(true);
     // Go leaves SIGHUP ignored here; give it back its default, so that
     // the next tests see the program as it started.
     os::signal::Reset(syscall::SIGWINCH_);
@@ -343,7 +343,7 @@ TEST(GoOsSignal, Ignore) {
 // signal.
 TEST(GoOsSignal, Ignored) {
     // Ask to be notified on SIGWINCH.
-    auto c = make_chan<os::Signal>(1);
+    auto c = makeChan<os::Signal>(1);
     os::signal::Notify(c, syscall::SIGWINCH_);
 
     // If we're being notified, then the signal should not be ignored.
@@ -362,12 +362,12 @@ TEST(GoOsSignal, Ignored) {
 TEST(GoOsSignal, DetectNohup) {
     // Ask for SIGHUP, so that the child doesn't have it ignored even if
     // this test runs under nohup. We have no intention of reading from c.
-    auto c = make_chan<os::Signal>(1);
+    auto c = makeChan<os::Signal>(1);
     os::signal::Notify(c, syscall::SIGHUP_);
     {
         auto [out, err] = helper_command("check_sighup_ignored")->CombinedOutput();
         EXPECT_TRUE(err) << "ran test with -check_sighup_ignored and it succeeded: expected failure.\nOutput:\n"
-                         << as_string_view(out);
+                         << asStringView(out);
     }
     os::signal::Stop(c);
 
@@ -386,7 +386,7 @@ TEST(GoOsSignal, DetectNohup) {
     os::Remove("nohup.out");
     EXPECT_FALSE(err) << "ran test with -check_sighup_ignored under nohup and it failed: expected success.\nError: "
                       << err << "\nOutput:\n"
-                      << as_string_view(out) << as_string_view(data);
+                      << asStringView(out) << asStringView(data);
     os::signal::Reset();
 }
 
@@ -394,7 +394,7 @@ TEST(GoOsSignal, DetectNohup) {
 TEST(GoOsSignal, Stop) {
     for (syscall::Signal sig : {syscall::SIGWINCH_, syscall::SIGHUP_, syscall::SIGUSR1_}) {
         SCOPED_TRACE(sig.String().str());
-        EXPECT_EQ(test_stop(sig, 0), "");
+        EXPECT_EQ(testStop(sig, 0), "");
     }
 }
 
@@ -403,7 +403,7 @@ TEST(GoOsSignal, Stop) {
 TEST(GoOsSignal, Nohup) {
     // Ask for SIGHUP, so that the child doesn't have it ignored even if
     // this test runs under nohup. We have no intention of reading from c.
-    auto c = make_chan<os::Signal>(1);
+    auto c = makeChan<os::Signal>(1);
     os::signal::Notify(c, syscall::SIGHUP_);
 
     // Without nohup, the uncaught SIGHUP ends the child, before (1) or
@@ -412,7 +412,7 @@ TEST(GoOsSignal, Nohup) {
         auto [out, err] = helper_command("stop", {std::to_string(i)})->CombinedOutput();
         EXPECT_TRUE(err) << "ran test with -send_uncaught_sighup=" << i
                          << " and it succeeded: expected failure.\nOutput:\n"
-                         << as_string_view(out);
+                         << asStringView(out);
     }
     os::signal::Stop(c);
 
@@ -426,17 +426,17 @@ TEST(GoOsSignal, Nohup) {
         auto [out, err] = cmd->CombinedOutput();
         EXPECT_FALSE(err) << "ran test with -send_uncaught_sighup=" << i
                           << " under nohup and it failed: expected success.\nError: " << err << "\nOutput:\n"
-                          << as_string_view(out);
+                          << asStringView(out);
     }
 }
 
 // Test that SIGCONT works (Go's issue 8953).
 // Go's TestSIGCONT (SIGCONT is a C macro).
 TEST(GoOsSignal, SIGCONT_) {
-    auto c = make_chan<os::Signal>(1);
+    auto c = makeChan<os::Signal>(1);
     os::signal::Notify(c, syscall::SIGCONT_);
-    kill_self(syscall::SIGCONT_);
-    wait_sig(c, syscall::SIGCONT_);
+    killSelf(syscall::SIGCONT_);
+    waitSig(c, syscall::SIGCONT_);
     os::signal::Stop(c);
 }
 
@@ -444,13 +444,13 @@ TEST(GoOsSignal, SIGCONT_) {
 TEST(GoOsSignal, AtomicStop) {
     // Notify for SIGINT before starting the child, so that SIGINT isn't
     // ignored for the child.
-    auto cs = make_chan<os::Signal>(1);
+    auto cs = makeChan<os::Signal>(1);
     os::signal::Notify(cs, syscall::SIGINT_);
 
     constexpr int execs = 10;
     for (int i = 0; i < execs; i++) {
         auto [out, err] = helper_command("atomic_stop")->CombinedOutput();
-        std::string_view o = as_string_view(out);
+        std::string_view o = asStringView(out);
         bool lost = o.find("lost signal") != std::string_view::npos;
         EXPECT_FALSE(lost) << "iteration " << i << ": lost signal";
         // The program either dies of SIGINT, or exits with success without
@@ -475,15 +475,15 @@ TEST(GoOsSignal, Time) {
     // Signals work during calls that get the time (VDSO calls, Go's
     // issue 34391). Go runs 3s, or 100ms in short mode.
     const time::Duration dur = 300 * time::Millisecond;
-    auto sig = make_chan<os::Signal>(1);
+    auto sig = makeChan<os::Signal>(1);
     os::signal::Notify(sig, syscall::SIGUSR1_);
 
-    auto stop = make_chan<empty>();
+    auto stop = makeChan<empty>();
     go([sig, stop] {
         for (;;) {
             bool stopped = false;
-            select(recv(stop, [&] { stopped = true; }), default_case([] {
-                       kill_self(syscall::SIGUSR1_);
+            select(recv(stop, [&] { stopped = true; }), defaultCase([] {
+                       killSelf(syscall::SIGUSR1_);
                        runtime::Gosched();
                    }));
             if (stopped) {
@@ -495,7 +495,7 @@ TEST(GoOsSignal, Time) {
         }
     });
 
-    auto done = make_chan<empty>();
+    auto done = makeChan<empty>();
     go([sig, done] {
         for (auto s : sig) (void)s;
         done.close();
@@ -515,9 +515,9 @@ TEST(GoOsSignal, NotifyContextNotifications) {
         auto [out, err] = helper_command("notify_ctx", {std::to_string(n)})->CombinedOutput();
         EXPECT_FALSE(err) << "ran test with -check_notify_ctx_notification and it failed with " << err
                           << ".\nOutput:\n"
-                          << as_string_view(out);
-        EXPECT_NE(as_string_view(out).find("received SIGINT\n"), std::string_view::npos)
-            << "got " << as_string_view(out) << ", wanted received SIGINT";
+                          << asStringView(out);
+        EXPECT_NE(asStringView(out).find("received SIGINT\n"), std::string_view::npos)
+            << "got " << asStringView(out) << ", wanted received SIGINT";
     }
 }
 
@@ -586,7 +586,7 @@ TEST(GoOsSignal, NotifyContextStringer) { GTEST_SKIP() << "go++'s contexts have 
 
 TEST(GoOsSignal, NotifyContextCause) {
     auto [ctx, stop] = os::signal::NotifyContext(context::Background(), syscall::SIGINT_);
-    kill_self(syscall::SIGINT_);
+    killSelf(syscall::SIGINT_);
     ctx->Done().recv();
 
     error err = ctx->Err();
@@ -603,7 +603,7 @@ TEST(GoOsSignal, NotifyContextCause) {
 
 TEST(GoOsSignal, SignalValues) {
     os::Signal nil;
-    EXPECT_TRUE(nil.is_nil());
+    EXPECT_TRUE(nil.isNil());
     EXPECT_EQ(nil.String(), "<nil>");
     EXPECT_EQ(os::Interrupt, syscall::SIGINT_);
     EXPECT_EQ(os::Kill.String(), "killed");
@@ -611,7 +611,7 @@ TEST(GoOsSignal, SignalValues) {
     EXPECT_EQ(syscall::SIGTERM_.String(), "terminated");
     EXPECT_EQ(syscall::Signal(99).String(), "signal 99");
     EXPECT_EQ(fmt::Sprint("{}", os::Signal(syscall::SIGHUP_)), "hangup");
-    auto [s, ok] = os::Interrupt.as_syscall();
+    auto [s, ok] = os::Interrupt.asSyscall();
     EXPECT_TRUE(ok);
     EXPECT_EQ(s, syscall::SIGINT_);
 
@@ -623,7 +623,7 @@ TEST(GoOsSignal, SignalValues) {
     };
     os::Signal mine(make_ptr<my_signal>());
     EXPECT_EQ(mine.String(), "mine");
-    EXPECT_FALSE(mine.as_syscall().second);
+    EXPECT_FALSE(mine.asSyscall().second);
     EXPECT_FALSE(mine == os::Interrupt);
     EXPECT_TRUE(mine == mine);
     EXPECT_FALSE(os::signal::Ignored(mine));
@@ -635,14 +635,14 @@ TEST(GoOsSignal, SignalValues) {
 TEST(GoOsSignal, NotifySIGPIPE) {
     // With SIGPIPE notified, a write to a broken pipe still fails with
     // EPIPE, and the channel gets the signal.
-    auto c = make_chan<os::Signal>(1);
+    auto c = makeChan<os::Signal>(1);
     os::signal::Notify(c, syscall::SIGPIPE_);
     auto [r, w, err] = os::Pipe();
     ASSERT_FALSE(err);
     r->Close();
     auto [_, werr] = w->Write(b("x"));
     EXPECT_TRUE(errors::Is(werr, syscall::EPIPE_)) << werr;
-    wait_sig(c, syscall::SIGPIPE_);
+    waitSig(c, syscall::SIGPIPE_);
     os::signal::Stop(c);
     // Without it, writes still fail with EPIPE, and the program lives on.
     auto [_2, werr2] = w->Write(b("x"));
@@ -660,10 +660,10 @@ TEST(GoOsSignal, SIGURGHandlerStaysInstalled) {
         return (sa.sa_flags & SA_SIGINFO) != 0;
     };
     EXPECT_TRUE(installed());  // from startup
-    auto c = make_chan<os::Signal>(10);
+    auto c = makeChan<os::Signal>(10);
     os::signal::Notify(c, syscall::SIGURG_);
-    kill_self(syscall::SIGURG_);
-    wait_sig(c, syscall::SIGURG_);
+    killSelf(syscall::SIGURG_);
+    waitSig(c, syscall::SIGURG_);
     os::signal::Stop(c);
     EXPECT_TRUE(installed());  // Stop keeps it
     os::signal::Ignore(syscall::SIGURG_);

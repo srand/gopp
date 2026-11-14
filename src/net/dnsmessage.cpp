@@ -43,7 +43,7 @@ const error errNonCanonicalName = errors::New("name is not in canonical format (
 const error errStringTooLong = errors::New("character string exceeds maximum length (255)");
 
 // Go's nestedError: an error with the context of where it happened.
-struct nestedError final : error_interface {
+struct nestedError final : errorInterface {
     string s;
     error err;
     nestedError(string s_, error e) : s(std::move(s_)), err(std::move(e)) {}
@@ -71,7 +71,7 @@ slice<byte> packUint32(slice<byte> msg, uint32 field) {
     return append(std::move(msg), byte(field >> 24), byte(field >> 16), byte(field >> 8), byte(field));
 }
 
-slice<byte> packBytes(slice<byte> msg, std::span<const byte> field) { return append_span(std::move(msg), field); }
+slice<byte> packBytes(slice<byte> msg, std::span<const byte> field) { return appendSpan(std::move(msg), field); }
 
 std::tuple<uint16, int, error> unpackUint16(const slice<byte>& msg, int off) {
     if (off + uint16Len > len(msg)) return {0, off, errBaseLen};
@@ -97,7 +97,7 @@ std::pair<int, error> skipUint32(const slice<byte>& msg, int off) {
 error packText(slice<byte>& msg, std::string_view field) {
     if (field.size() > 255) return errStringTooLong;
     msg = append(std::move(msg), byte(field.size()));
-    msg = append_span(std::move(msg), as_bytes(field));
+    msg = appendSpan(std::move(msg), as_bytes(field));
     return nullptr;
 }
 
@@ -398,35 +398,35 @@ const error ErrSectionDone = errors::New("parsing/packing of this section has co
 
 string TypeString(Type t) {
     switch (t) {
-    case TypeA: return string::from_static("TypeA");
-    case TypeNS: return string::from_static("TypeNS");
-    case TypeCNAME: return string::from_static("TypeCNAME");
-    case TypeSOA: return string::from_static("TypeSOA");
-    case TypePTR: return string::from_static("TypePTR");
-    case TypeMX: return string::from_static("TypeMX");
-    case TypeTXT: return string::from_static("TypeTXT");
-    case TypeAAAA: return string::from_static("TypeAAAA");
-    case TypeSRV: return string::from_static("TypeSRV");
-    case TypeOPT: return string::from_static("TypeOPT");
-    case TypeSVCB: return string::from_static("TypeSVCB");
-    case TypeHTTPS: return string::from_static("TypeHTTPS");
-    case TypeWKS: return string::from_static("TypeWKS");
-    case TypeHINFO: return string::from_static("TypeHINFO");
-    case TypeMINFO: return string::from_static("TypeMINFO");
-    case TypeAXFR: return string::from_static("TypeAXFR");
-    case TypeALL: return string::from_static("TypeALL");
+    case TypeA: return string::fromStatic("TypeA");
+    case TypeNS: return string::fromStatic("TypeNS");
+    case TypeCNAME: return string::fromStatic("TypeCNAME");
+    case TypeSOA: return string::fromStatic("TypeSOA");
+    case TypePTR: return string::fromStatic("TypePTR");
+    case TypeMX: return string::fromStatic("TypeMX");
+    case TypeTXT: return string::fromStatic("TypeTXT");
+    case TypeAAAA: return string::fromStatic("TypeAAAA");
+    case TypeSRV: return string::fromStatic("TypeSRV");
+    case TypeOPT: return string::fromStatic("TypeOPT");
+    case TypeSVCB: return string::fromStatic("TypeSVCB");
+    case TypeHTTPS: return string::fromStatic("TypeHTTPS");
+    case TypeWKS: return string::fromStatic("TypeWKS");
+    case TypeHINFO: return string::fromStatic("TypeHINFO");
+    case TypeMINFO: return string::fromStatic("TypeMINFO");
+    case TypeAXFR: return string::fromStatic("TypeAXFR");
+    case TypeALL: return string::fromStatic("TypeALL");
     }
     return string(std::to_string(uint16(t)));
 }
 
 string RCodeString(RCode r) {
     switch (r) {
-    case RCodeSuccess: return string::from_static("RCodeSuccess");
-    case RCodeFormatError: return string::from_static("RCodeFormatError");
-    case RCodeServerFailure: return string::from_static("RCodeServerFailure");
-    case RCodeNameError: return string::from_static("RCodeNameError");
-    case RCodeNotImplemented: return string::from_static("RCodeNotImplemented");
-    case RCodeRefused: return string::from_static("RCodeRefused");
+    case RCodeSuccess: return string::fromStatic("RCodeSuccess");
+    case RCodeFormatError: return string::fromStatic("RCodeFormatError");
+    case RCodeServerFailure: return string::fromStatic("RCodeServerFailure");
+    case RCodeNameError: return string::fromStatic("RCodeNameError");
+    case RCodeNotImplemented: return string::fromStatic("RCodeNotImplemented");
+    case RCodeRefused: return string::fromStatic("RCodeRefused");
     }
     return string(std::to_string(uint16(r)));
 }
@@ -909,11 +909,11 @@ std::pair<slice<byte>, error> Message::AppendPack(slice<byte> b) {
 // Builder
 
 Builder::Builder(slice<byte> buf, dnsmessage::Header h) {
-    if (buf.is_nil()) buf = slice<byte>::make(0, packStartingCap);
+    if (buf.isNil()) buf = slice<byte>::make(0, packStartingCap);
     start_ = len(buf);
     std::tie(header_.id, header_.bits) = h.pack();
     byte hb[headerLen] = {};
-    msg_ = append_span(std::move(buf), std::span<const byte>(hb));
+    msg_ = appendSpan(std::move(buf), std::span<const byte>(hb));
     section_ = sectionHeader;
 }
 

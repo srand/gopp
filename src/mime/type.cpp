@@ -34,11 +34,11 @@ struct tables {
     std::atomic<bool> inited{false};
     std::function<void()> test_init;
 
-    std::vector<string> mime_globs{string::from_static("/usr/local/share/mime/globs2"),
-                                   string::from_static("/usr/share/mime/globs2")};
-    std::vector<string> type_files{string::from_static("/etc/mime.types"), string::from_static("/etc/apache2/mime.types"),
-                                   string::from_static("/etc/apache/mime.types"),
-                                   string::from_static("/etc/httpd/conf/mime.types")};
+    std::vector<string> mime_globs{string::fromStatic("/usr/local/share/mime/globs2"),
+                                   string::fromStatic("/usr/share/mime/globs2")};
+    std::vector<string> type_files{string::fromStatic("/etc/mime.types"), string::fromStatic("/etc/apache2/mime.types"),
+                                   string::fromStatic("/etc/apache/mime.types"),
+                                   string::fromStatic("/etc/httpd/conf/mime.types")};
 };
 
 tables& tab() {
@@ -46,7 +46,7 @@ tables& tab() {
     return *t;
 }
 
-void init_mime_unix();
+void initMimeUnix();
 
 void init_mime() {
     tables& t = tab();
@@ -54,84 +54,84 @@ void init_mime() {
         t.test_init();
     } else {
         set_mime_types(builtin_types_lower(), builtin_types_lower());
-        init_mime_unix();
+        initMimeUnix();
     }
 }
 
-bool contains_any(std::string_view s, std::string_view chars) { return s.find_first_of(chars) != s.npos; }
+bool containsAny(std::string_view s, std::string_view chars) { return s.find_first_of(chars) != s.npos; }
 
 }  // namespace
 
 const type_map& builtin_types_lower() {
     static const type_map m{
-        {string::from_static(".ai"), string::from_static("application/postscript")},
-        {string::from_static(".apk"), string::from_static("application/vnd.android.package-archive")},
-        {string::from_static(".apng"), string::from_static("image/apng")},
-        {string::from_static(".avif"), string::from_static("image/avif")},
-        {string::from_static(".bin"), string::from_static("application/octet-stream")},
-        {string::from_static(".bmp"), string::from_static("image/bmp")},
-        {string::from_static(".com"), string::from_static("application/octet-stream")},
-        {string::from_static(".css"), string::from_static("text/css; charset=utf-8")},
-        {string::from_static(".csv"), string::from_static("text/csv; charset=utf-8")},
-        {string::from_static(".doc"), string::from_static("application/msword")},
-        {string::from_static(".docx"),
-         string::from_static("application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
-        {string::from_static(".ehtml"), string::from_static("text/html; charset=utf-8")},
-        {string::from_static(".eml"), string::from_static("message/rfc822")},
-        {string::from_static(".eps"), string::from_static("application/postscript")},
-        {string::from_static(".exe"), string::from_static("application/octet-stream")},
-        {string::from_static(".flac"), string::from_static("audio/flac")},
-        {string::from_static(".gif"), string::from_static("image/gif")},
-        {string::from_static(".gz"), string::from_static("application/gzip")},
-        {string::from_static(".htm"), string::from_static("text/html; charset=utf-8")},
-        {string::from_static(".html"), string::from_static("text/html; charset=utf-8")},
-        {string::from_static(".ico"), string::from_static("image/vnd.microsoft.icon")},
-        {string::from_static(".ics"), string::from_static("text/calendar; charset=utf-8")},
-        {string::from_static(".jfif"), string::from_static("image/jpeg")},
-        {string::from_static(".jpeg"), string::from_static("image/jpeg")},
-        {string::from_static(".jpg"), string::from_static("image/jpeg")},
-        {string::from_static(".js"), string::from_static("text/javascript; charset=utf-8")},
-        {string::from_static(".json"), string::from_static("application/json")},
-        {string::from_static(".m4a"), string::from_static("audio/mp4")},
-        {string::from_static(".mjs"), string::from_static("text/javascript; charset=utf-8")},
-        {string::from_static(".mp3"), string::from_static("audio/mpeg")},
-        {string::from_static(".mp4"), string::from_static("video/mp4")},
-        {string::from_static(".oga"), string::from_static("audio/ogg")},
-        {string::from_static(".ogg"), string::from_static("audio/ogg")},
-        {string::from_static(".ogv"), string::from_static("video/ogg")},
-        {string::from_static(".opus"), string::from_static("audio/ogg")},
-        {string::from_static(".pdf"), string::from_static("application/pdf")},
-        {string::from_static(".pjp"), string::from_static("image/jpeg")},
-        {string::from_static(".pjpeg"), string::from_static("image/jpeg")},
-        {string::from_static(".png"), string::from_static("image/png")},
-        {string::from_static(".ppt"), string::from_static("application/vnd.ms-powerpoint")},
-        {string::from_static(".pptx"),
-         string::from_static("application/vnd.openxmlformats-officedocument.presentationml.presentation")},
-        {string::from_static(".ps"), string::from_static("application/postscript")},
-        {string::from_static(".rdf"), string::from_static("application/rdf+xml")},
-        {string::from_static(".rtf"), string::from_static("application/rtf")},
-        {string::from_static(".shtml"), string::from_static("text/html; charset=utf-8")},
-        {string::from_static(".svg"), string::from_static("image/svg+xml")},
-        {string::from_static(".text"), string::from_static("text/plain; charset=utf-8")},
-        {string::from_static(".tif"), string::from_static("image/tiff")},
-        {string::from_static(".tiff"), string::from_static("image/tiff")},
-        {string::from_static(".txt"), string::from_static("text/plain; charset=utf-8")},
-        {string::from_static(".vtt"), string::from_static("text/vtt; charset=utf-8")},
-        {string::from_static(".wasm"), string::from_static("application/wasm")},
-        {string::from_static(".wav"), string::from_static("audio/wav")},
-        {string::from_static(".weba"), string::from_static("audio/webm")},
-        {string::from_static(".webm"), string::from_static("video/webm")},
-        {string::from_static(".webp"), string::from_static("image/webp")},
-        {string::from_static(".xbl"), string::from_static("text/xml; charset=utf-8")},
-        {string::from_static(".xbm"), string::from_static("image/x-xbitmap")},
-        {string::from_static(".xht"), string::from_static("application/xhtml+xml")},
-        {string::from_static(".xhtml"), string::from_static("application/xhtml+xml")},
-        {string::from_static(".xls"), string::from_static("application/vnd.ms-excel")},
-        {string::from_static(".xlsx"),
-         string::from_static("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-        {string::from_static(".xml"), string::from_static("text/xml; charset=utf-8")},
-        {string::from_static(".xsl"), string::from_static("text/xml; charset=utf-8")},
-        {string::from_static(".zip"), string::from_static("application/zip")},
+        {string::fromStatic(".ai"), string::fromStatic("application/postscript")},
+        {string::fromStatic(".apk"), string::fromStatic("application/vnd.android.package-archive")},
+        {string::fromStatic(".apng"), string::fromStatic("image/apng")},
+        {string::fromStatic(".avif"), string::fromStatic("image/avif")},
+        {string::fromStatic(".bin"), string::fromStatic("application/octet-stream")},
+        {string::fromStatic(".bmp"), string::fromStatic("image/bmp")},
+        {string::fromStatic(".com"), string::fromStatic("application/octet-stream")},
+        {string::fromStatic(".css"), string::fromStatic("text/css; charset=utf-8")},
+        {string::fromStatic(".csv"), string::fromStatic("text/csv; charset=utf-8")},
+        {string::fromStatic(".doc"), string::fromStatic("application/msword")},
+        {string::fromStatic(".docx"),
+         string::fromStatic("application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        {string::fromStatic(".ehtml"), string::fromStatic("text/html; charset=utf-8")},
+        {string::fromStatic(".eml"), string::fromStatic("message/rfc822")},
+        {string::fromStatic(".eps"), string::fromStatic("application/postscript")},
+        {string::fromStatic(".exe"), string::fromStatic("application/octet-stream")},
+        {string::fromStatic(".flac"), string::fromStatic("audio/flac")},
+        {string::fromStatic(".gif"), string::fromStatic("image/gif")},
+        {string::fromStatic(".gz"), string::fromStatic("application/gzip")},
+        {string::fromStatic(".htm"), string::fromStatic("text/html; charset=utf-8")},
+        {string::fromStatic(".html"), string::fromStatic("text/html; charset=utf-8")},
+        {string::fromStatic(".ico"), string::fromStatic("image/vnd.microsoft.icon")},
+        {string::fromStatic(".ics"), string::fromStatic("text/calendar; charset=utf-8")},
+        {string::fromStatic(".jfif"), string::fromStatic("image/jpeg")},
+        {string::fromStatic(".jpeg"), string::fromStatic("image/jpeg")},
+        {string::fromStatic(".jpg"), string::fromStatic("image/jpeg")},
+        {string::fromStatic(".js"), string::fromStatic("text/javascript; charset=utf-8")},
+        {string::fromStatic(".json"), string::fromStatic("application/json")},
+        {string::fromStatic(".m4a"), string::fromStatic("audio/mp4")},
+        {string::fromStatic(".mjs"), string::fromStatic("text/javascript; charset=utf-8")},
+        {string::fromStatic(".mp3"), string::fromStatic("audio/mpeg")},
+        {string::fromStatic(".mp4"), string::fromStatic("video/mp4")},
+        {string::fromStatic(".oga"), string::fromStatic("audio/ogg")},
+        {string::fromStatic(".ogg"), string::fromStatic("audio/ogg")},
+        {string::fromStatic(".ogv"), string::fromStatic("video/ogg")},
+        {string::fromStatic(".opus"), string::fromStatic("audio/ogg")},
+        {string::fromStatic(".pdf"), string::fromStatic("application/pdf")},
+        {string::fromStatic(".pjp"), string::fromStatic("image/jpeg")},
+        {string::fromStatic(".pjpeg"), string::fromStatic("image/jpeg")},
+        {string::fromStatic(".png"), string::fromStatic("image/png")},
+        {string::fromStatic(".ppt"), string::fromStatic("application/vnd.ms-powerpoint")},
+        {string::fromStatic(".pptx"),
+         string::fromStatic("application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+        {string::fromStatic(".ps"), string::fromStatic("application/postscript")},
+        {string::fromStatic(".rdf"), string::fromStatic("application/rdf+xml")},
+        {string::fromStatic(".rtf"), string::fromStatic("application/rtf")},
+        {string::fromStatic(".shtml"), string::fromStatic("text/html; charset=utf-8")},
+        {string::fromStatic(".svg"), string::fromStatic("image/svg+xml")},
+        {string::fromStatic(".text"), string::fromStatic("text/plain; charset=utf-8")},
+        {string::fromStatic(".tif"), string::fromStatic("image/tiff")},
+        {string::fromStatic(".tiff"), string::fromStatic("image/tiff")},
+        {string::fromStatic(".txt"), string::fromStatic("text/plain; charset=utf-8")},
+        {string::fromStatic(".vtt"), string::fromStatic("text/vtt; charset=utf-8")},
+        {string::fromStatic(".wasm"), string::fromStatic("application/wasm")},
+        {string::fromStatic(".wav"), string::fromStatic("audio/wav")},
+        {string::fromStatic(".weba"), string::fromStatic("audio/webm")},
+        {string::fromStatic(".webm"), string::fromStatic("video/webm")},
+        {string::fromStatic(".webp"), string::fromStatic("image/webp")},
+        {string::fromStatic(".xbl"), string::fromStatic("text/xml; charset=utf-8")},
+        {string::fromStatic(".xbm"), string::fromStatic("image/x-xbitmap")},
+        {string::fromStatic(".xht"), string::fromStatic("application/xhtml+xml")},
+        {string::fromStatic(".xhtml"), string::fromStatic("application/xhtml+xml")},
+        {string::fromStatic(".xls"), string::fromStatic("application/vnd.ms-excel")},
+        {string::fromStatic(".xlsx"),
+         string::fromStatic("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        {string::fromStatic(".xml"), string::fromStatic("text/xml; charset=utf-8")},
+        {string::fromStatic(".xsl"), string::fromStatic("text/xml; charset=utf-8")},
+        {string::fromStatic(".zip"), string::fromStatic("application/zip")},
     };
     return m;
 }
@@ -155,8 +155,8 @@ error set_extension_type(std::string_view extension, std::string_view mime_type)
     auto [just_type, param, err] = ParseMediaType(mime_type);
     if (err) return err;
     string type(mime_type);
-    if (mime_type.starts_with("text/") && param[string::from_static("charset")].empty()) {
-        param[string::from_static("charset")] = string::from_static("utf-8");
+    if (mime_type.starts_with("text/") && param[string::fromStatic("charset")].empty()) {
+        param[string::fromStatic("charset")] = string::fromStatic("utf-8");
         type = FormatMediaType(just_type, param);
     }
     string ext(extension);
@@ -173,7 +173,7 @@ error set_extension_type(std::string_view extension, std::string_view mime_type)
 
 // See https://specifications.freedesktop.org/shared-mime-info-spec/ for
 // the FreeDesktop Shared MIME-info Database.
-error load_mime_globs_file(std::string_view filename) {
+error loadMimeGlobsFile(std::string_view filename) {
     auto [data, err] = os::ReadFile(filename);
     if (err) return err;
     std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
@@ -195,7 +195,7 @@ error load_mime_globs_file(std::string_view filename) {
 
         std::string_view extension = fields[2].substr(1);
         // A glob rather than a bare extension: ignored, as Go does.
-        if (contains_any(extension, "?*[")) continue;
+        if (containsAny(extension, "?*[")) continue;
         {
             tables& t = tab();
             std::shared_lock lock(t.mu);
@@ -235,11 +235,11 @@ void load_mime_file(std::string_view filename) {
 
 namespace {
 
-void init_mime_unix() {
+void initMimeUnix() {
     tables& t = tab();
     for (const string& filename : t.mime_globs) {
         // Stop checking more files if the MIME-type database is found.
-        if (!load_mime_globs_file(filename)) return;
+        if (!loadMimeGlobsFile(filename)) return;
     }
     // Fallback if no system-generated MIME-type database exists.
     for (const string& filename : t.type_files) load_mime_file(filename);
@@ -247,7 +247,7 @@ void init_mime_unix() {
 
 }  // namespace
 
-void ensure_init() {
+void ensureInit() {
     tables& t = tab();
     if (t.inited.load(std::memory_order_acquire)) return;
     std::lock_guard lock(t.init_mu);
@@ -263,7 +263,7 @@ void set_mime_init(std::function<void()> fn) {
     t.inited.store(false, std::memory_order_release);
 }
 
-std::pair<std::vector<string>, std::vector<string>> set_system_files(std::vector<string> globs,
+std::pair<std::vector<string>, std::vector<string>> setSystemFiles(std::vector<string> globs,
                                                                      std::vector<string> type_files) {
     tables& t = tab();
     std::lock_guard lock(t.init_mu);
@@ -276,7 +276,7 @@ std::pair<std::vector<string>, std::vector<string>> set_system_files(std::vector
 }  // namespace internal
 
 string TypeByExtension(std::string_view ext) {
-    internal::ensure_init();
+    internal::ensureInit();
     auto& t = internal::tab();
     std::shared_lock lock(t.mu);
     // Case-sensitive lookup.
@@ -289,7 +289,7 @@ string TypeByExtension(std::string_view ext) {
 std::pair<std::vector<string>, error> ExtensionsByType(std::string_view typ) {
     auto [just_type, params, err] = ParseMediaType(typ);
     if (err) return {{}, err};
-    internal::ensure_init();
+    internal::ensureInit();
     auto& t = internal::tab();
     std::vector<string> ret;
     {
@@ -304,7 +304,7 @@ std::pair<std::vector<string>, error> ExtensionsByType(std::string_view typ) {
 
 error AddExtensionType(std::string_view ext, std::string_view typ) {
     if (!ext.starts_with('.')) return fmt::Errorf("mime: extension {} missing leading dot", strconv::Quote(ext));
-    internal::ensure_init();
+    internal::ensureInit();
     return internal::set_extension_type(ext, typ);
 }
 

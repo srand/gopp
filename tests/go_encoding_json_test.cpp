@@ -27,10 +27,10 @@ using namespace gopp;
 
 namespace {
 
-std::string marshal_str(const auto& v) {
+std::string marshalStr(const auto& v) {
     auto [b, err] = json::Marshal(v);
     EXPECT_FALSE(err) << err;
-    return std::string(as_string_view(b));
+    return std::string(asStringView(b));
 }
 
 std::string nlines(std::string_view s, int n) {
@@ -192,7 +192,7 @@ TEST(GoEncodingJson, OmitEmpty) {
     o.Sw = "something";
     auto [got, err] = json::MarshalIndent(o, "", " ");
     ASSERT_FALSE(err) << err;
-    EXPECT_EQ(as_string_view(got), want);
+    EXPECT_EQ(asStringView(got), want);
 }
 
 namespace {
@@ -234,7 +234,7 @@ TEST(GoEncodingJson, RoundtripStringTag) {
     for (auto& tt : tests) {
         auto [got, err] = json::MarshalIndent(tt.in, "", "\t");
         ASSERT_FALSE(err) << tt.name << ": " << err;
-        EXPECT_EQ(as_string_view(got), tt.want) << tt.name;
+        EXPECT_EQ(asStringView(got), tt.want) << tt.name;
         // Verify that it round-trips.
         StringTag s2{};
         ASSERT_FALSE(json::Unmarshal(got, &s2)) << tt.name;
@@ -281,7 +281,7 @@ TEST(GoEncodingJson, EncodePointerString) {
     };
     auto [b, err] = json::Marshal(stringPointer{std::make_shared<int64>(42)});
     ASSERT_FALSE(err) << err;
-    EXPECT_EQ(as_string_view(b), R"({"n":"42"})");
+    EXPECT_EQ(asStringView(b), R"({"n":"42"})");
     stringPointer back;
     ASSERT_FALSE(json::Unmarshal(b, &back));
     ASSERT_TRUE(back.N);
@@ -297,7 +297,7 @@ TEST(GoEncodingJson, EncodeString) {
         "\"\\u0015\"", "\"\\u0016\"", "\"\\u0017\"", "\"\\u0018\"", "\"\\u0019\"", "\"\\u001a\"", "\"\\u001b\"",
         "\"\\u001c\"", "\"\\u001d\"", "\"\\u001e\"", "\"\\u001f\"",
     };
-    for (int c = 0; c < 32; c++) EXPECT_EQ(marshal_str(std::string(1, static_cast<char>(c))), want[c]) << c;
+    for (int c = 0; c < 32; c++) EXPECT_EQ(marshalStr(std::string(1, static_cast<char>(c))), want[c]) << c;
 }
 
 TEST(GoEncodingJson, MarshalFloat) {
@@ -331,9 +331,9 @@ TEST(GoEncodingJson, MarshalFloat) {
         if (bits == 32) {
             float g = static_cast<float>(f);
             f = g;
-            out = marshal_str(g);
+            out = marshalStr(g);
         } else {
-            out = marshal_str(f);
+            out = marshalStr(f);
         }
         // The result must convert back to the same float.
         double g = 0;
@@ -402,36 +402,36 @@ TEST(GoEncodingJson, MarshalRawMessageValue) {
     };
     json::RawMessage raw_nil{};
     json::RawMessage raw_empty{slice<byte>::make(0)};
-    json::RawMessage raw_text{to_bytes("\"foo\"")};
+    json::RawMessage raw_text{toBytes("\"foo\"")};
 
     // Test with nil RawMessage.
-    EXPECT_EQ(marshal_str(raw_nil), "null");
-    EXPECT_EQ(marshal_str(std::vector<json::RawMessage>{raw_nil}), "[null]");
-    EXPECT_EQ(marshal_str(S1{raw_nil}), R"({"M":null})");
-    EXPECT_EQ(marshal_str(std::map<string, json::RawMessage>{{"M", raw_nil}}), R"({"M":null})");
-    EXPECT_EQ(marshal_str(T1{raw_nil}), "{}");
-    EXPECT_EQ(marshal_str(T2{std::make_shared<json::RawMessage>(raw_nil)}), R"({"M":null})");
+    EXPECT_EQ(marshalStr(raw_nil), "null");
+    EXPECT_EQ(marshalStr(std::vector<json::RawMessage>{raw_nil}), "[null]");
+    EXPECT_EQ(marshalStr(S1{raw_nil}), R"({"M":null})");
+    EXPECT_EQ(marshalStr(std::map<string, json::RawMessage>{{"M", raw_nil}}), R"({"M":null})");
+    EXPECT_EQ(marshalStr(T1{raw_nil}), "{}");
+    EXPECT_EQ(marshalStr(T2{std::make_shared<json::RawMessage>(raw_nil)}), R"({"M":null})");
 
     // Test with empty, but non-nil, RawMessage.
     EXPECT_TRUE(json::Marshal(raw_empty).second);
     EXPECT_TRUE(json::Marshal(std::vector<json::RawMessage>{raw_empty}).second);
     EXPECT_TRUE(json::Marshal(S1{raw_empty}).second);
-    EXPECT_EQ(marshal_str(T1{raw_empty}), "{}");
+    EXPECT_EQ(marshalStr(T1{raw_empty}), "{}");
     EXPECT_TRUE(json::Marshal(T2{std::make_shared<json::RawMessage>(raw_empty)}).second);
 
     // Test with RawMessage with some text.
-    EXPECT_EQ(marshal_str(raw_text), "\"foo\"");
-    EXPECT_EQ(marshal_str(std::vector<json::RawMessage>{raw_text}), "[\"foo\"]");
-    EXPECT_EQ(marshal_str(S1{raw_text}), R"({"M":"foo"})");
-    EXPECT_EQ(marshal_str(T1{raw_text}), R"({"M":"foo"})");
-    EXPECT_EQ(marshal_str(T2{std::make_shared<json::RawMessage>(raw_text)}), R"({"M":"foo"})");
+    EXPECT_EQ(marshalStr(raw_text), "\"foo\"");
+    EXPECT_EQ(marshalStr(std::vector<json::RawMessage>{raw_text}), "[\"foo\"]");
+    EXPECT_EQ(marshalStr(S1{raw_text}), R"({"M":"foo"})");
+    EXPECT_EQ(marshalStr(T1{raw_text}), R"({"M":"foo"})");
+    EXPECT_EQ(marshalStr(T2{std::make_shared<json::RawMessage>(raw_text)}), R"({"M":"foo"})");
 }
 
 TEST(GoEncodingJson, MarshalUncommonFieldNames) {
     struct {
         int A0, À, Aβ;
     } v{};
-    EXPECT_EQ(marshal_str(v), "{\"A0\":0,\"\xc3\x80\":0,\"A\xce\xb2\":0}");
+    EXPECT_EQ(marshalStr(v), "{\"A0\":0,\"\xc3\x80\":0,\"A\xce\xb2\":0}");
 }
 
 TEST(GoEncodingJson, MarshalerError) {
@@ -492,12 +492,12 @@ namespace {
 
 struct strMarshaler {
     string s;
-    std::pair<slice<byte>, error> MarshalJSON() const { return {to_bytes(s), nullptr}; }
+    std::pair<slice<byte>, error> MarshalJSON() const { return {toBytes(s), nullptr}; }
 };
 
 // Go's type C, whose MarshalJSON returns `"<&>"`.
 struct C {
-    std::pair<slice<byte>, error> MarshalJSON() const { return {to_bytes("\"<&>\""), nullptr}; }
+    std::pair<slice<byte>, error> MarshalJSON() const { return {toBytes("\"<&>\""), nullptr}; }
 };
 
 }  // namespace
@@ -562,8 +562,8 @@ TEST(GoEncodingJson, RawMessage) {
     const std::string raw = "[\"\\u0056\",null]";
     const std::string want = "{\"X\":0.1,\"Id\":[\"\\u0056\",null],\"Y\":0.2}";
     ASSERT_FALSE(json::Unmarshal(want, &data));
-    EXPECT_EQ(as_string_view(data.Id.data), raw);
-    EXPECT_EQ(marshal_str(data), want);
+    EXPECT_EQ(asStringView(data.Id.data), raw);
+    EXPECT_EQ(marshalStr(data), want);
 }
 
 TEST(GoEncodingJson, NullRawMessage) {
@@ -575,9 +575,9 @@ TEST(GoEncodingJson, NullRawMessage) {
     } data{};
     const std::string want = R"({"X":0.1,"Id":null,"IdPtr":null,"Y":0.2})";
     ASSERT_FALSE(json::Unmarshal(want, &data));
-    EXPECT_EQ(as_string_view(data.Id.data), "null");
+    EXPECT_EQ(asStringView(data.Id.data), "null");
     EXPECT_FALSE(data.IdPtr);
-    EXPECT_EQ(marshal_str(data), want);
+    EXPECT_EQ(marshalStr(data), want);
 }
 
 // ---------------------------------------------------------------------------
@@ -586,7 +586,7 @@ TEST(GoEncodingJson, NullRawMessage) {
 TEST(GoEncodingJson, Escape) {
     const std::string input = "\"foobar\"<html> [\xe2\x80\xa8 \xe2\x80\xa9]";
     const std::string want = "\"\\\"foobar\\\"\\u003chtml\\u003e [\\u2028 \\u2029]\"";
-    EXPECT_EQ(marshal_str(input), want);
+    EXPECT_EQ(marshalStr(input), want);
 }
 
 TEST(GoEncodingJson, EmptyString) {

@@ -13,7 +13,7 @@ using namespace gopp;
 
 namespace {
 
-tls::Config server_config(std::vector<string> protos = {}) {
+tls::Config serverConfig(std::vector<string> protos = {}) {
     auto [cert, err] = tls::X509KeyPair(testcert::localhost_cert, testcert::localhost_key);
     EXPECT_FALSE(err) << err;
     tls::Config cfg;
@@ -22,7 +22,7 @@ tls::Config server_config(std::vector<string> protos = {}) {
     return cfg;
 }
 
-tls::Config client_config(std::vector<string> protos = {}) {
+tls::Config clientConfig(std::vector<string> protos = {}) {
     tls::Config cfg;
     cfg.RootCAs = x509::NewCertPool();
     EXPECT_TRUE(cfg.RootCAs->AppendCertsFromPEM(testcert::localhost_cert));
@@ -31,7 +31,7 @@ tls::Config client_config(std::vector<string> protos = {}) {
 }
 
 // A TLS echo server; returns its address.
-string echo_server(const tls::Config& cfg, ptr<net::Listener>& out) {
+string echoServer(const tls::Config& cfg, ptr<net::Listener>& out) {
     auto [ln, err] = tls::Listen("tcp", "127.0.0.1:0", cfg);
     EXPECT_FALSE(err) << err;
     out = ln;
@@ -61,8 +61,8 @@ TEST(Tls, KeyPair) {
 
 TEST(Tls, HandshakeAndEcho) {
     ptr<net::Listener> ln;
-    string addr = echo_server(server_config(), ln);
-    auto [c, err] = tls::Dial("tcp", addr, client_config());
+    string addr = echoServer(serverConfig(), ln);
+    auto [c, err] = tls::Dial("tcp", addr, clientConfig());
     ASSERT_FALSE(err) << err;
     auto st = c->ConnectionState();
     EXPECT_TRUE(st.HandshakeComplete);
@@ -73,7 +73,7 @@ TEST(Tls, HandshakeAndEcho) {
     byte buf[64];
     auto [n, rerr] = io::ReadFull(*c, std::span<byte>(buf, 9));
     ASSERT_FALSE(rerr) << rerr;
-    EXPECT_EQ(as_string_view(std::span<const byte>(buf, 9)), "hello tls");
+    EXPECT_EQ(asStringView(std::span<const byte>(buf, 9)), "hello tls");
     c->Close();
     ln->Close();
 }
@@ -81,12 +81,12 @@ TEST(Tls, HandshakeAndEcho) {
 TEST(Tls, LargeTransferAndConcurrentReadWrite) {
     // One fiber writes 1 MiB while another reads the echo of it.
     ptr<net::Listener> ln;
-    string addr = echo_server(server_config(), ln);
-    auto [c, err] = tls::Dial("tcp", addr, client_config());
+    string addr = echoServer(serverConfig(), ln);
+    auto [c, err] = tls::Dial("tcp", addr, clientConfig());
     ASSERT_FALSE(err) << err;
     std::string data(1 << 20, '\0');
     for (std::size_t i = 0; i < data.size(); i++) data[i] = static_cast<char>(i * 7);
-    auto written = make_chan<error>(1);
+    auto written = makeChan<error>(1);
     go([c, &data, written] { written.send(io::WriteString(*c, data).second); });
     std::string got(data.size(), '\0');
     auto [n, rerr] = io::ReadFull(*c, std::span<byte>(reinterpret_cast<byte*>(got.data()), got.size()));
@@ -99,21 +99,21 @@ TEST(Tls, LargeTransferAndConcurrentReadWrite) {
 
 TEST(Tls, ALPN) {
     ptr<net::Listener> ln;
-    string addr = echo_server(server_config({"h2", "http/1.1"}), ln);
+    string addr = echoServer(serverConfig({"h2", "http/1.1"}), ln);
     {
-        auto [c, err] = tls::Dial("tcp", addr, client_config({"http/1.1", "h2"}));
+        auto [c, err] = tls::Dial("tcp", addr, clientConfig({"http/1.1", "h2"}));
         ASSERT_FALSE(err) << err;
         EXPECT_EQ(c->ConnectionState().NegotiatedProtocol, "h2");  // the server's preference
         c->Close();
     }
     {
-        auto [c, err] = tls::Dial("tcp", addr, client_config({"http/1.1"}));
+        auto [c, err] = tls::Dial("tcp", addr, clientConfig({"http/1.1"}));
         ASSERT_FALSE(err) << err;
         EXPECT_EQ(c->ConnectionState().NegotiatedProtocol, "http/1.1");
         c->Close();
     }
     {
-        auto [c, err] = tls::Dial("tcp", addr, client_config({"spdy/3"}));
+        auto [c, err] = tls::Dial("tcp", addr, clientConfig({"spdy/3"}));
         ASSERT_FALSE(err) << err;  // no overlap: no protocol
         EXPECT_EQ(c->ConnectionState().NegotiatedProtocol, "");
         c->Close();
@@ -123,7 +123,7 @@ TEST(Tls, ALPN) {
 
 TEST(Tls, Verification) {
     ptr<net::Listener> ln;
-    string addr = echo_server(server_config(), ln);
+    string addr = echoServer(serverConfig(), ln);
 
     // The system roots don't trust Go's test certificate.
     auto [c1, e1] = tls::Dial("tcp", addr, tls::Config{});
@@ -137,13 +137,13 @@ TEST(Tls, Verification) {
     if (c2) c2->Close();
 
     // The certificate is for example.com and *.example.com, not other names.
-    tls::Config ok = client_config();
+    tls::Config ok = clientConfig();
     ok.ServerName = "www.example.com";
     auto [c3, e3] = tls::Dial("tcp", addr, ok);
     EXPECT_FALSE(e3) << e3;
     if (c3) c3->Close();
 
-    tls::Config wrong = client_config();
+    tls::Config wrong = clientConfig();
     wrong.ServerName = "example.org";
     auto [c4, e4] = tls::Dial("tcp", addr, wrong);
     ASSERT_TRUE(e4);
@@ -152,7 +152,7 @@ TEST(Tls, Verification) {
 }
 
 TEST(Tls, CloseNotifyGivesEOF) {
-    auto [ln, err] = tls::Listen("tcp", "127.0.0.1:0", server_config());
+    auto [ln, err] = tls::Listen("tcp", "127.0.0.1:0", serverConfig());
     ASSERT_FALSE(err);
     go([ln] {
         auto [c, err] = ln->Accept();
@@ -160,11 +160,11 @@ TEST(Tls, CloseNotifyGivesEOF) {
         io::WriteString(*c, "bye");
         c->Close();
     });
-    auto [c, derr] = tls::Dial("tcp", ln->Addr()->String(), client_config());
+    auto [c, derr] = tls::Dial("tcp", ln->Addr()->String(), clientConfig());
     ASSERT_FALSE(derr) << derr;
     auto [data, rerr] = io::ReadAll(*c);
     EXPECT_FALSE(rerr) << rerr;
-    EXPECT_EQ(as_string_view(data), "bye");
+    EXPECT_EQ(asStringView(data), "bye");
     ln->Close();
 }
 

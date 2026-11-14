@@ -26,7 +26,7 @@ extern const error ErrLength;
 
 // hex.InvalidByteError: the input of Decode had a byte that isn't a hex
 // digit.
-struct InvalidByteError : error_interface {
+struct InvalidByteError : errorInterface {
     explicit InvalidByteError(byte b) noexcept : Byte(b) {}
     string Error() const override;
     byte Byte;

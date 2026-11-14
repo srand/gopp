@@ -30,13 +30,13 @@
 using namespace os_test;
 namespace exec = gopp::os::exec;
 using go_helper::helper_command;
-using go_helper::helper_command_context;
+using go_helper::helperCommandContext;
 
 namespace {
 
 const std::string stdin_close_test_string = "Some test string.";
 
-std::string join_args(const std::vector<std::string>& args) {
+std::string joinArgs(const std::vector<std::string>& args) {
     std::string s;
     for (std::size_t i = 0; i < args.size(); i++) s += (i ? " " : "") + args[i];
     return s;
@@ -56,13 +56,13 @@ std::pair<std::string, error> read_line(bufio::Reader& br) {
 }
 
 // Go's helper commands.
-void cmd_echo(const std::vector<std::string>& args) { fmt::Println("{}", join_args(args)); }
+void cmdEcho(const std::vector<std::string>& args) { fmt::Println("{}", joinArgs(args)); }
 
-void cmd_echo_env(const std::vector<std::string>& args) {
+void cmdEchoEnv(const std::vector<std::string>& args) {
     for (auto& s : args) fmt::Println("{}", os::Getenv(s));
 }
 
-void cmd_cat(const std::vector<std::string>& args) {
+void cmdCat(const std::vector<std::string>& args) {
     if (args.empty()) {
         io::Copy(os::Stdout, os::Stdin);
         return;
@@ -81,7 +81,7 @@ void cmd_cat(const std::vector<std::string>& args) {
     os::Exit(exit);
 }
 
-void cmd_pipe_test(const std::vector<std::string>&) {
+void cmdPipeTest(const std::vector<std::string>&) {
     bufio::Reader bufr(ptr<io::Reader>(&os::Stdin));
     for (;;) {
         auto [line, err] = read_line(bufr);
@@ -97,40 +97,40 @@ void cmd_pipe_test(const std::vector<std::string>&) {
     }
 }
 
-void cmd_stdin_close(const std::vector<std::string>&) {
+void cmdStdinClose(const std::vector<std::string>&) {
     auto [b, err] = io::ReadAll(os::Stdin);
     if (err) {
         fmt::Println(os::Stderr, "Error: {}", err);
         os::Exit(1);
     }
-    if (as_string_view(b) != stdin_close_test_string) {
-        fmt::Print(os::Stderr, "Error: Read {}, want {}", as_string_view(b), stdin_close_test_string);
+    if (asStringView(b) != stdin_close_test_string) {
+        fmt::Print(os::Stderr, "Error: Read {}, want {}", asStringView(b), stdin_close_test_string);
         os::Exit(1);
     }
 }
 
-void cmd_exit(const std::vector<std::string>& args) { os::Exit(std::atoi(args.at(0).c_str())); }
+void cmdExit(const std::vector<std::string>& args) { os::Exit(std::atoi(args.at(0).c_str())); }
 
 // Go's describefiles, for temporary files: the contents of descriptor 3.
-void cmd_describe_files(const std::vector<std::string>&) {
+void cmdDescribeFiles(const std::vector<std::string>&) {
     auto f = os::NewFile(3, "fd3");
     std::string s = read_all(*f);
     fmt::Println("fd3: file {}", s);
 }
 
-void cmd_stderr_fail(const std::vector<std::string>&) {
+void cmdStderrFail(const std::vector<std::string>&) {
     fmt::Print(os::Stderr, "some stderr text\n");
     os::Exit(1);
 }
 
-void cmd_yes(const std::vector<std::string>& args) {
-    std::string s = (args.empty() ? std::string("y") : join_args(args)) + "\n";
+void cmdYes(const std::vector<std::string>& args) {
+    std::string s = (args.empty() ? std::string("y") : joinArgs(args)) + "\n";
     for (;;) {
         if (os::Stdout.WriteString(s).second) os::Exit(1);
     }
 }
 
-void cmd_pwd(const std::vector<std::string>&) {
+void cmdPwd(const std::vector<std::string>&) {
     auto [pwd, err] = os::Getwd();
     if (err) {
         fmt::Println(os::Stderr, "{}", err);
@@ -143,7 +143,7 @@ void cmd_pwd(const std::vector<std::string>&) {
 // process inherited any other descriptor. The runtime's own (epoll,
 // eventfd, io_uring) are anonymous inodes; the parent's pipes, files and
 // sockets aren't.
-void cmd_read3(const std::vector<std::string>&) {
+void cmdRead3(const std::vector<std::string>&) {
     std::string leaked;
     if (DIR* d = ::opendir("/proc/self/fd")) {
         int self = ::dirfd(d);
@@ -169,31 +169,31 @@ void cmd_read3(const std::vector<std::string>&) {
 
 void cmd_hang(const std::vector<std::string>& args);
 
-void cmd_signal_test(const std::vector<std::string>&);
+void cmdSignalTest(const std::vector<std::string>&);
 
 const bool helpers_registered = [] {
-    using go_helper::register_helper;
-    register_helper("echo", cmd_echo);
-    register_helper("echoenv", cmd_echo_env);
-    register_helper("cat", cmd_cat);
-    register_helper("pipetest", cmd_pipe_test);
-    register_helper("stdinClose", cmd_stdin_close);
-    register_helper("exit", cmd_exit);
-    register_helper("describefiles", cmd_describe_files);
-    register_helper("stderrfail", cmd_stderr_fail);
-    register_helper("yes", cmd_yes);
-    register_helper("hang", cmd_hang);
-    register_helper("pwd", cmd_pwd);
-    register_helper("signaltest", cmd_signal_test);
-    register_helper("read3", cmd_read3);
+    using go_helper::registerHelper;
+    registerHelper("echo", cmdEcho);
+    registerHelper("echoenv", cmdEchoEnv);
+    registerHelper("cat", cmdCat);
+    registerHelper("pipetest", cmdPipeTest);
+    registerHelper("stdinClose", cmdStdinClose);
+    registerHelper("exit", cmdExit);
+    registerHelper("describefiles", cmdDescribeFiles);
+    registerHelper("stderrfail", cmdStderrFail);
+    registerHelper("yes", cmdYes);
+    registerHelper("hang", cmd_hang);
+    registerHelper("pwd", cmdPwd);
+    registerHelper("signaltest", cmdSignalTest);
+    registerHelper("read3", cmdRead3);
     return true;
 }();
 
 // Go's fmt.Errorf("%w: ...", err).
-struct wrap_error final : error_interface {
+struct wrap_error final : errorInterface {
     wrap_error(error e, std::string msg) : err(std::move(e)), msg(std::move(msg)) {}
     string Error() const override { return err.Error() + ": " + string(msg); }
-    const error_interface* Unwrap() const noexcept override { return err.get(); }
+    const errorInterface* Unwrap() const noexcept override { return err.get(); }
     error err;
     std::string msg;
 };
@@ -203,7 +203,7 @@ struct wrap_error final : error_interface {
 TEST(GoOsExec, Echo) {
     auto [bs, err] = helper_command("echo", {"foo bar", "baz"})->Output();
     EXPECT_FALSE(err) << "echo: " << err;
-    EXPECT_EQ(as_string_view(bs), "foo bar baz\n");
+    EXPECT_EQ(asStringView(bs), "foo bar baz\n");
 }
 
 TEST(GoOsExec, CommandRelativeName) {
@@ -213,15 +213,15 @@ TEST(GoOsExec, CommandRelativeName) {
     std::string dir = exe.substr(0, exe.rfind('/'));
     std::string base = exe.substr(exe.rfind('/') + 1);
     if (dir.empty()) GTEST_SKIP() << "skipping; running test at root somehow";
-    std::string parent_dir = dir.substr(0, dir.rfind('/'));
+    std::string parentDir = dir.substr(0, dir.rfind('/'));
     std::string dir_base = dir.substr(dir.rfind('/') + 1);
-    if (parent_dir.empty()) GTEST_SKIP() << "skipping; unexpected shallow dir of " << dir;
+    if (parentDir.empty()) GTEST_SKIP() << "skipping; unexpected shallow dir of " << dir;
 
     cmd->Path = string(dir_base + "/" + base);
-    cmd->Dir = string(parent_dir);
+    cmd->Dir = string(parentDir);
     auto [out, err] = cmd->Output();
     EXPECT_FALSE(err) << "echo: " << err;
-    EXPECT_EQ(as_string_view(out), "foo\n");
+    EXPECT_EQ(asStringView(out), "foo\n");
 }
 
 TEST(GoOsExec, CatStdin) {
@@ -231,7 +231,7 @@ TEST(GoOsExec, CatStdin) {
     p->Stdin = strings::NewReader(input);
     auto [bs, err] = p->Output();
     EXPECT_FALSE(err) << "cat: " << err;
-    EXPECT_EQ(as_string_view(bs), input);
+    EXPECT_EQ(asStringView(bs), input);
 }
 
 TEST(GoOsExec, EchoFileRace) {
@@ -239,7 +239,7 @@ TEST(GoOsExec, EchoFileRace) {
     auto [stdin, err] = cmd->StdinPipe();
     ASSERT_FALSE(err) << "StdinPipe: " << err;
     ASSERT_FALSE(cmd->Start()) << "Start";
-    auto wrote = make_chan<bool>();
+    auto wrote = makeChan<bool>();
     go([stdin, wrote] {
         fmt::Print(*stdin, "echo\n");
         wrote.close();
@@ -256,7 +256,7 @@ TEST(GoOsExec, CatGoodAndBadFile) {
     auto [bs, err] = helper_command("cat", {"/bogus/file.foo", str(f->Name())})->CombinedOutput();
     EXPECT_TRUE(errors::As<exec::ExitError>(err)) << "expected *exec.ExitError from cat combined; got " << err;
     auto [err_line, body, ok] = strings::Cut(String(bs), "\n");
-    ASSERT_TRUE(ok) << "expected two lines from cat; got " << as_string_view(bs);
+    ASSERT_TRUE(ok) << "expected two lines from cat; got " << asStringView(bs);
     EXPECT_TRUE(err_line.starts_with("Error: open /bogus/file.foo")) << "expected stderr to complain about file; got "
                                                                      << err_line;
     EXPECT_TRUE(strings::Contains(body, "func TestCatGoodAndBadFile(t *testing.T)")) << "expected test code; got " << body;
@@ -383,7 +383,7 @@ TEST(GoOsExec, StdinCloseRace) {
 
 namespace {
 
-std::vector<int> open_fds() {
+std::vector<int> openFds() {
     std::vector<int> fds;
     for (int i = 0; i < 100; i++) {
         if (::fcntl(i, F_GETFD) >= 0) fds.push_back(i);
@@ -395,7 +395,7 @@ std::vector<int> open_fds() {
 
 // Go's issue 5071.
 TEST(GoOsExec, PipeLookPathLeak) {
-    std::vector<int> old = open_fds();
+    std::vector<int> old = openFds();
     for (int i = 0; i < 6; i++) {
         auto cmd = exec::Command("something-that-does-not-exist-executable");
         cmd->StdoutPipe();
@@ -403,7 +403,7 @@ TEST(GoOsExec, PipeLookPathLeak) {
         cmd->StdinPipe();
         ASSERT_TRUE(cmd->Run()) << "unexpected success";
     }
-    for (int fd : open_fds()) {
+    for (int fd : openFds()) {
         EXPECT_NE(std::find(old.begin(), old.end(), fd), old.end()) << "leaked file descriptor " << fd;
     }
 }
@@ -459,7 +459,7 @@ TEST(GoOsExec, ExtraFilesRace) {
     auto run_command = [](ptr<exec::Cmd> c, chan<std::string> out) {
         auto [bout, err] = c->CombinedOutput();
         if (err) out.send("ERROR:" + str(err.Error()));
-        else out.send(std::string(as_string_view(bout)));
+        else out.send(std::string(asStringView(bout)));
     };
     for (int i = 0; i < 10; i++) {
         std::string a = "A" + std::to_string(i), b_ = "B" + std::to_string(i);
@@ -468,7 +468,7 @@ TEST(GoOsExec, ExtraFilesRace) {
         ca->ExtraFiles = {fa};
         auto cb = helper_command("describefiles");
         cb->ExtraFiles = {fb};
-        auto ares = make_chan<std::string>(), bres = make_chan<std::string>();
+        auto ares = makeChan<std::string>(), bres = makeChan<std::string>();
         go(run_command, ca, ares);
         go(run_command, cb, bres);
         EXPECT_EQ(ares.recv(), "fd3: file " + a + "\n") << "iteration " << i << ", process A";
@@ -529,12 +529,12 @@ TEST(GoOsExec, OutputStderrCapture) {
     auto [_, err] = cmd->Output();
     auto* ee = errors::As<exec::ExitError>(err);
     ASSERT_TRUE(ee) << "Output error = " << err << "; want ExitError";
-    EXPECT_EQ(as_string_view(ee->Stderr), "some stderr text\n");
+    EXPECT_EQ(asStringView(ee->Stderr), "some stderr text\n");
 }
 
 TEST(GoOsExec, Context) {
     auto [ctx, cancel] = context::WithCancel(context::Background());
-    auto c = helper_command_context(ctx, "pipetest");
+    auto c = helperCommandContext(ctx, "pipetest");
     auto [stdin, err] = c->StdinPipe();
     ASSERT_FALSE(err) << err;
     auto [stdout, oerr] = c->StdoutPipe();
@@ -544,7 +544,7 @@ TEST(GoOsExec, Context) {
     ASSERT_FALSE(stdin->Write(b("O:hi\n")).second);
     byte buf[5];
     auto [n, rerr] = io::ReadFull(*stdout, buf);
-    ASSERT_TRUE(n == 5 && !rerr && as_string_view(std::span<const byte>(buf, 5)) == "O:hi\n")
+    ASSERT_TRUE(n == 5 && !rerr && asStringView(std::span<const byte>(buf, 5)) == "O:hi\n")
         << "ReadFull = " << n << ", " << rerr;
     go(cancel);
     EXPECT_TRUE(c->Wait()) << "expected Wait failure";
@@ -552,7 +552,7 @@ TEST(GoOsExec, Context) {
 
 TEST(GoOsExec, ContextCancel) {
     auto [ctx, cancel] = context::WithCancel(context::Background());
-    auto c = helper_command_context(ctx, "cat");
+    auto c = helperCommandContext(ctx, "cat");
     auto [stdin, err] = c->StdinPipe();
     ASSERT_FALSE(err) << err;
     ASSERT_FALSE(c->Start());
@@ -591,7 +591,7 @@ TEST(GoOsExec, EnvNULCharacter) {
     auto cmd = helper_command("echoenv", {"FOO", "BAR"});
     cmd->Env = append(cmd->Environ(), string(std::string_view("FOO=foo\0BAR=bar", 15)));
     auto [out, err] = cmd->CombinedOutput();
-    EXPECT_TRUE(err) << "output = " << as_string_view(out) << "; want error";
+    EXPECT_TRUE(err) << "output = " << asStringView(out) << "; want error";
 }
 
 TEST(GoOsExec, String) {
@@ -638,11 +638,11 @@ TEST(GoOsExec, DoubleStartLeavesPipesOpen) {
     EXPECT_TRUE(err2 && strings::HasSuffix(err2.Error(), "already started"))
         << "second call to Start returned a nil; want an 'already started' error";
 
-    auto outc = make_chan<std::string>(1);
+    auto outc = makeChan<std::string>(1);
     go([out, outc] {
         auto [b, err] = io::ReadAll(*out);
         EXPECT_FALSE(err) << err;
-        outc.send(std::string(as_string_view(b)));
+        outc.send(std::string(asStringView(b)));
     });
     const std::string msg = "O:Hello, pipe!\n";
     ASSERT_FALSE(io::WriteString(*in, msg).second);
@@ -693,7 +693,7 @@ void cmd_hang(const std::vector<std::string>& args) {
     }
 
     if (exit_on_interrupt) {
-        auto c = make_chan<os::Signal>(1);
+        auto c = makeChan<os::Signal>(1);
         os::signal::Notify(c, os::Interrupt);
         go([c, pid] {
             os::Signal sig = c.recv();
@@ -766,7 +766,7 @@ ptr<exec::Cmd> start_hang(ptr<context::Context> ctx, time::Duration hang_time, o
                           ptr<strings::Builder>* stderr_out = nullptr) {
     std::vector<std::string> args{str(hang_time.String())};
     args.insert(args.end(), flags.begin(), flags.end());
-    auto cmd = helper_command_context(ctx, "hang", args);
+    auto cmd = helperCommandContext(ctx, "hang", args);
     cmd->Stdin = make_ptr<tick_reader>(time::Millisecond);
     auto stderr = make_ptr<strings::Builder>();
     cmd->Stderr = stderr;
@@ -879,7 +879,7 @@ TEST(GoOsExec, CancelErrors) {
         // successfully, Wait wraps the error from Cancel.
         SCOPED_TRACE("success after error");
         auto [ctx, cancel] = context::WithCancel(context::Background());
-        auto cmd = helper_command_context(ctx, "pipetest");
+        auto cmd = helperCommandContext(ctx, "pipetest");
         auto [stdin, err] = cmd->StdinPipe();
         ASSERT_FALSE(err);
         error err_arbitrary = errors::New("arbitrary error");
@@ -898,13 +898,13 @@ TEST(GoOsExec, CancelErrors) {
         // ignores it.
         SCOPED_TRACE("success after ErrProcessDone");
         auto [ctx, cancel] = context::WithCancel(context::Background());
-        auto cmd = helper_command_context(ctx, "pipetest");
+        auto cmd = helperCommandContext(ctx, "pipetest");
         auto [stdin, err] = cmd->StdinPipe();
         ASSERT_FALSE(err);
         auto [stdout, oerr] = cmd->StdoutPipe();
         ASSERT_FALSE(oerr);
         // Race Cancel against the process exiting, but let the process win.
-        auto interrupt_called = make_chan<empty>(), done = make_chan<empty>();
+        auto interrupt_called = makeChan<empty>(), done = makeChan<empty>();
         cmd->Cancel = [interrupt_called, done]() -> error {
             interrupt_called.close();
             done.recv();
@@ -924,7 +924,7 @@ TEST(GoOsExec, CancelErrors) {
         // WaitDelay, Wait reports the usual ExitError of SIGKILL.
         SCOPED_TRACE("killed after error");
         auto [ctx, cancel] = context::WithCancel(context::Background());
-        auto cmd = helper_command_context(ctx, "pipetest");
+        auto cmd = helperCommandContext(ctx, "pipetest");
         auto [stdin, err] = cmd->StdinPipe();
         ASSERT_FALSE(err);
         error err_arbitrary = errors::New("arbitrary error");
@@ -947,7 +947,7 @@ TEST(GoOsExec, CancelErrors) {
         // to be killed), Wait reports the usual ExitError.
         SCOPED_TRACE("killed after spurious ErrProcessDone");
         auto [ctx, cancel] = context::WithCancel(context::Background());
-        auto cmd = helper_command_context(ctx, "pipetest");
+        auto cmd = helperCommandContext(ctx, "pipetest");
         auto [stdin, err] = cmd->StdinPipe();
         ASSERT_FALSE(err);
         auto interrupt_called = std::make_shared<std::atomic<bool>>(false);
@@ -968,11 +968,11 @@ TEST(GoOsExec, CancelErrors) {
         // the process's error takes precedence.
         SCOPED_TRACE("nonzero exit after error");
         auto [ctx, cancel] = context::WithCancel(context::Background());
-        auto cmd = helper_command_context(ctx, "stderrfail");
+        auto cmd = helperCommandContext(ctx, "stderrfail");
         auto [stderr, err] = cmd->StderrPipe();
         ASSERT_FALSE(err);
         error err_arbitrary = errors::New("arbitrary error");
-        auto interrupted = make_chan<empty>();
+        auto interrupted = makeChan<empty>();
         cmd->Cancel = [interrupted, err_arbitrary] {
             interrupted.close();
             return err_arbitrary;
@@ -998,7 +998,7 @@ TEST(GoOsExec, ConcurrentExec) {
 
     for (int i = 0; i < n_hangs; i++) {
         go([&, ctx] {
-            auto cmd = helper_command_context(ctx, "pipetest");
+            auto cmd = helperCommandContext(ctx, "pipetest");
             auto [stdin, err] = cmd->StdinPipe();
             if (err) {
                 ready.Done();
@@ -1019,7 +1019,7 @@ TEST(GoOsExec, ConcurrentExec) {
     }
     for (int i = 0; i < n_exits; i++) {
         go([&, ctx] {
-            auto cmd = helper_command_context(ctx, "exit", {"0"});
+            auto cmd = helperCommandContext(ctx, "exit", {"0"});
             ready.Done();
             ready.Wait();
             if (error err = cmd->Run()) ADD_FAILURE() << err;
@@ -1034,7 +1034,7 @@ TEST(GoOsExec, ConcurrentExec) {
 // Cmd::String can be called while Start runs.
 TEST(GoOsExec, PathRace) {
     auto cmd = helper_command("exit", {"0"});
-    auto done = make_chan<empty>();
+    auto done = makeChan<empty>();
     go([cmd, done] {
         cmd->CombinedOutput();
         done.close();
@@ -1114,7 +1114,7 @@ TEST(GoOsExec, Waitid) {
         cmd->Process->Kill();
         FAIL() << err;
     }
-    auto ch = make_chan<error>();
+    auto ch = makeChan<error>();
     go([cmd, ch] { ch.send(cmd->Wait()); });
 
     // Give Wait a little time to block.
@@ -1133,7 +1133,7 @@ TEST(GoOsExec, Waitid) {
 
 namespace {
 
-std::string parent_dir(const std::string& d) {
+std::string parentDir(const std::string& d) {
     std::size_t i = d.rfind('/');
     return i == 0 ? "/" : d.substr(0, i);
 }
@@ -1150,13 +1150,13 @@ TEST(GoOsExec, ImplicitPWD) {
     for (const tc& c : std::vector<tc>{
              {"empty", "", cwd},
              {"dot", ".", cwd},
-             {"dotdot", "..", parent_dir(cwd)},
+             {"dotdot", "..", parentDir(cwd)},
              {"PWD", cwd, cwd},
-             {"PWDdotdot", cwd + "/..", parent_dir(cwd)},
+             {"PWDdotdot", cwd + "/..", parentDir(cwd)},
          }) {
         SCOPED_TRACE(c.name);
         auto cmd = helper_command("pwd");
-        ASSERT_TRUE(cmd->Env.is_nil()) << "test requires helperCommand not to set Env field";
+        ASSERT_TRUE(cmd->Env.isNil()) << "test requires helperCommand not to set Env field";
         cmd->Dir = string(c.dir);
 
         std::vector<std::string> pwds;
@@ -1216,8 +1216,8 @@ TEST(GoOsExec, ExplicitPWD) {
 
 namespace {
 
-void cmd_signal_test(const std::vector<std::string>&) {
-    auto ch_sig = make_chan<os::Signal>(1);
+void cmdSignalTest(const std::vector<std::string>&) {
+    auto ch_sig = makeChan<os::Signal>(1);
     os::signal::Notify(ch_sig, syscall::SIGCHLD_);
 
     sync::WaitGroup wg;
@@ -1254,7 +1254,7 @@ void cmd_signal_test(const std::vector<std::string>&) {
 // Go's TestSIGCHLD (SIGCHLD is a C macro).
 TEST(GoOsExec, SIGCHLD_) {
     auto [out, err] = helper_command("signaltest")->CombinedOutput();
-    EXPECT_FALSE(err) << err << "\n" << as_string_view(out);
+    EXPECT_FALSE(err) << err << "\n" << asStringView(out);
 }
 
 // lp_unix_test.go
@@ -1277,13 +1277,13 @@ TEST(GoOsExec, LookPathUnixEmptyPath) {
 
 namespace {
 
-class setenv_guard {
+class setenvGuard {
 public:
-    setenv_guard(const std::string& k, const std::string& v) : k_(k) {
+    setenvGuard(const std::string& k, const std::string& v) : k_(k) {
         std::tie(old_, had_) = os::LookupEnv(k);
         os::Setenv(k, v);
     }
-    ~setenv_guard() {
+    ~setenvGuard() {
         if (had_) os::Setenv(k_, old_);
         else os::Unsetenv(k_);
     }
@@ -1294,7 +1294,7 @@ private:
     bool had_ = false;
 };
 
-void check_not_found(const std::string& test) {
+void checkNotFound(const std::string& test) {
     auto [p, err] = exec::LookPath(test);
     EXPECT_TRUE(err) << test << ": error expected, got nil";
     EXPECT_EQ(p, "") << test << ": path returned should be \"\"";
@@ -1315,10 +1315,10 @@ TEST(GoOsExec, LookPath) {
     // try to trick it with "../testdir" too.
     for (std::string errdot : {"1", "0"}) {
         SCOPED_TRACE("GODEBUG=execerrdot=" + errdot);
-        setenv_guard godebug("GODEBUG", "execerrdot=" + errdot + ",execwait=2");
+        setenvGuard godebug("GODEBUG", "execerrdot=" + errdot + ",execwait=2");
         for (std::string dir : {".", "../testdir"}) {
             SCOPED_TRACE("PATH=" + dir);
-            setenv_guard path("PATH", dir + ":" + orig_path);
+            setenvGuard path("PATH", dir + ":" + orig_path);
             std::string good = dir + "/execabs-test";
             auto [found, err] = exec::LookPath(good);
             ASSERT_TRUE(!err && found.starts_with(good)) << "LookPath(" << good << ") = " << found << ", " << err;
@@ -1352,7 +1352,7 @@ TEST(GoOsExec, LookPath) {
         // The first entry of PATH is an absolute name of the working
         // directory: no ErrDot.
         SCOPED_TRACE("PATH=$PWD");
-        setenv_guard path("PATH", tmp_dir + ":" + orig_path);
+        setenvGuard path("PATH", tmp_dir + ":" + orig_path);
         std::string good = join(tmp_dir, "execabs-test");
         auto [found, err] = exec::LookPath(good);
         EXPECT_TRUE(!err && found.starts_with(good)) << "LookPath(" << good << ") = " << found << ", " << err;
@@ -1366,14 +1366,14 @@ TEST(GoOsExec, LookPath) {
         SCOPED_TRACE("PATH=$OTHER");
         bool want_err_dot = false;
         {
-            setenv_guard path("PATH", "");
+            setenvGuard path("PATH", "");
             auto [found, err] = exec::LookPath("execabs-test");
             if (errors::Is(err, exec::ErrDot)) want_err_dot = true;
             else EXPECT_TRUE(err) << "with PATH='', LookPath(execabs-test) = " << found << "; want non-nil error";
         }
         TempDir other;
         ASSERT_FALSE(os::WriteFile(join(other.path(), executable), std::string_view("\1\2\3"), 0777));
-        setenv_guard path("PATH", other.path() + ":" + orig_path);
+        setenvGuard path("PATH", other.path() + ":" + orig_path);
         auto [found, err] = exec::LookPath("execabs-test");
         if (want_err_dot) {
             EXPECT_TRUE(found == executable && errors::Is(err, exec::ErrDot));
@@ -1383,10 +1383,10 @@ TEST(GoOsExec, LookPath) {
         }
     }
     auto checks = [] {
-        check_not_found("");
-        check_not_found(".");
-        check_not_found("abc/..");
-        check_not_found("..");
+        checkNotFound("");
+        checkNotFound(".");
+        checkNotFound("abc/..");
+        checkNotFound("..");
     };
     {
         SCOPED_TRACE("PATH=$OTHER2");
@@ -1395,12 +1395,12 @@ TEST(GoOsExec, LookPath) {
     {
         // PATH with an executable file that isn't a directory.
         SCOPED_TRACE("PATH=exe");
-        setenv_guard path("PATH", str(go_helper::executable()));
+        setenvGuard path("PATH", str(go_helper::executable()));
         checks();
     }
     {
         SCOPED_TRACE("PATH=exe/xx");
-        setenv_guard path("PATH", str(go_helper::executable()) + "/xx");
+        setenvGuard path("PATH", str(go_helper::executable()) + "/xx");
         checks();
     }
 }
@@ -1451,5 +1451,5 @@ TEST(GoOsExec, CleanPath) {
         {"/abc/def/../../..", "/"}, {"abc/def/../../../ghi/jkl/../../../mno", "../../mno"},
         {"/../abc", "/abc"},
     };
-    for (auto& [in, want] : tests) EXPECT_EQ(exec::detail::clean_path(in), want) << in;
+    for (auto& [in, want] : tests) EXPECT_EQ(exec::detail::cleanPath(in), want) << in;
 }

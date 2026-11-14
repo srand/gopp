@@ -48,7 +48,7 @@ namespace tls {
 namespace {
 
 // The last OpenSSL error as text, and the error queue cleared.
-std::string openssl_error() {
+std::string opensslError() {
     unsigned long code = ERR_get_error();
     ERR_clear_error();
     if (code == 0) return "unknown error";
@@ -60,7 +60,7 @@ std::string openssl_error() {
     return pos == std::string::npos ? s : s.substr(pos + 1);
 }
 
-gopp::error tls_error(std::string_view msg) { return errors::New("tls: " + string(msg)); }
+gopp::error tlsError(std::string_view msg) { return errors::New("tls: " + string(msg)); }
 
 std::pair<std::string, gopp::error> read_file(std::string_view path) {
     std::ifstream f{std::string(path), std::ios::binary};
@@ -70,7 +70,7 @@ std::pair<std::string, gopp::error> read_file(std::string_view path) {
     return {ss.str(), nullptr};
 }
 
-int tls_version(uint16 v) {
+int tlsVersion(uint16 v) {
     switch (v) {
     case VersionTLS12: return TLS1_2_VERSION;
     case VersionTLS13: return TLS1_3_VERSION;
@@ -78,7 +78,7 @@ int tls_version(uint16 v) {
     }
 }
 
-bool load_pem_chain(SSL_CTX* ctx, std::string_view cert_pem, std::string_view key_pem, std::string& err) {
+bool loadPemChain(SSL_CTX* ctx, std::string_view cert_pem, std::string_view key_pem, std::string& err) {
     BIO* bio = BIO_new_mem_buf(cert_pem.data(), static_cast<int>(cert_pem.size()));
     X509* leaf = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
     if (!leaf) {
@@ -96,7 +96,7 @@ bool load_pem_chain(SSL_CTX* ctx, std::string_view cert_pem, std::string_view ke
     BIO_free(bio);
     ERR_clear_error();  // the end of the PEM data
     if (!ok) {
-        err = openssl_error();
+        err = opensslError();
         return false;
     }
     BIO* kbio = BIO_new_mem_buf(key_pem.data(), static_cast<int>(key_pem.size()));
@@ -116,7 +116,7 @@ bool load_pem_chain(SSL_CTX* ctx, std::string_view cert_pem, std::string_view ke
 
 // ALPN: the first of the server's protocols that the client offers, as Go
 // chooses.
-int alpn_select(SSL*, const unsigned char** out, unsigned char* outlen, const unsigned char* in, unsigned int inlen,
+int alpnSelect(SSL*, const unsigned char** out, unsigned char* outlen, const unsigned char* in, unsigned int inlen,
                 void* arg) {
     auto* protos = static_cast<std::vector<string>*>(arg);
     for (const string& p : *protos) {
@@ -158,15 +158,15 @@ struct context {
         NextProtos = cfg.NextProtos;
         SSL_CTX* c = SSL_CTX_new(is_client ? TLS_client_method() : TLS_server_method());
         if (!c) {
-            err = openssl_error();
+            err = opensslError();
             return nullptr;
         }
-        SSL_CTX_set_min_proto_version(c, tls_version(cfg.MinVersion));
-        SSL_CTX_set_max_proto_version(c, tls_version(cfg.MaxVersion));
+        SSL_CTX_set_min_proto_version(c, tlsVersion(cfg.MinVersion));
+        SSL_CTX_set_max_proto_version(c, tlsVersion(cfg.MaxVersion));
         SSL_CTX_set_mode(c, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
         SSL_CTX_set_options(c, SSL_OP_NO_RENEGOTIATION);
         for (const Certificate& cert : cfg.Certificates) {
-            if (!load_pem_chain(c, cert.CertPEM, cert.KeyPEM, err)) {
+            if (!loadPemChain(c, cert.CertPEM, cert.KeyPEM, err)) {
                 SSL_CTX_free(c);
                 return nullptr;
             }
@@ -204,7 +204,7 @@ struct context {
                 err = "neither Certificates, GetCertificate, nor GetConfigForClient set in Config";
                 return nullptr;
             }
-            if (!NextProtos.empty()) SSL_CTX_set_alpn_select_cb(c, alpn_select, &NextProtos);
+            if (!NextProtos.empty()) SSL_CTX_set_alpn_select_cb(c, alpnSelect, &NextProtos);
         }
         ctx = c;
         return ctx;
@@ -220,9 +220,9 @@ std::pair<Certificate, gopp::error> X509KeyPair(std::string_view cert_pem, std::
     // Check the pair by loading it.
     SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
     std::string err;
-    bool ok = load_pem_chain(ctx, cert_pem, key_pem, err);
+    bool ok = loadPemChain(ctx, cert_pem, key_pem, err);
     SSL_CTX_free(ctx);
-    if (!ok) return {{}, tls_error(err)};
+    if (!ok) return {{}, tlsError(err)};
     return {Certificate{string(cert_pem), string(key_pem)}, nullptr};
 }
 
@@ -250,7 +250,7 @@ struct Conn::impl {
     sync::Mutex hs_mu;
     bool handshake_done = false;
     gopp::error handshake_err;
-    gopp::error read_err;
+    gopp::error readErr;
     gopp::error write_err;
     bool closed = false;
     byte inbuf[16 * 1024 + 512];
@@ -279,7 +279,7 @@ struct Conn::impl {
         return err;
     }
 
-    bool has_output() {
+    bool hasOutput() {
         std::lock_guard l(ssl_mu);
         return BIO_ctrl_pending(wbio) > 0;
     }
@@ -340,7 +340,7 @@ gopp::error Conn::Handshake() {
     std::lock_guard hl(impl_->hs_mu);
     if (impl_->handshake_done || impl_->handshake_err) return impl_->handshake_err;
     if (!impl_->ssl) {
-        impl_->handshake_err = tls_error(impl_->setup_error);
+        impl_->handshake_err = tlsError(impl_->setup_error);
         return impl_->handshake_err;
     }
     for (;;) {
@@ -371,11 +371,11 @@ gopp::error Conn::Handshake() {
             }
             continue;
         }
-        std::string msg = openssl_error();
+        std::string msg = opensslError();
         if (verify != X509_V_OK) {
             msg = std::string("failed to verify certificate: x509: ") + X509_verify_cert_error_string(verify);
         }
-        impl_->handshake_err = tls_error(msg);
+        impl_->handshake_err = tlsError(msg);
         return impl_->handshake_err;
     }
 }
@@ -383,7 +383,7 @@ gopp::error Conn::Handshake() {
 std::pair<isize, gopp::error> Conn::Read(std::span<byte> p) {
     if (gopp::error err = Handshake()) return {0, err};
     std::lock_guard rl(impl_->read_mu);
-    if (impl_->read_err) return {0, impl_->read_err};
+    if (impl_->readErr) return {0, impl_->readErr};
     if (p.empty()) return {0, nullptr};
     for (;;) {
         std::size_t got = 0;
@@ -394,7 +394,7 @@ std::pair<isize, gopp::error> Conn::Read(std::span<byte> p) {
             e = r == 1 ? SSL_ERROR_NONE : SSL_get_error(impl_->ssl, r);
         }
         // Reading may produce output, such as a key update.
-        if (impl_->has_output()) {
+        if (impl_->hasOutput()) {
             std::lock_guard wl(impl_->write_mu);
             impl_->flush(*conn_);
         }
@@ -403,17 +403,17 @@ std::pair<isize, gopp::error> Conn::Read(std::span<byte> p) {
             if (gopp::error err = impl_->fill(*conn_)) {
                 // EOF without close_notify is an unexpected EOF in Go, but
                 // many servers do it; report EOF like Go's io.ReadAll sees.
-                impl_->read_err = err;
+                impl_->readErr = err;
                 return {0, err};
             }
             continue;
         }
         if (e == SSL_ERROR_ZERO_RETURN) {
-            impl_->read_err = io::EOF_;  // close_notify
+            impl_->readErr = io::EOF_;  // close_notify
             return {0, io::EOF_};
         }
-        impl_->read_err = tls_error(openssl_error());
-        return {0, impl_->read_err};
+        impl_->readErr = tlsError(opensslError());
+        return {0, impl_->readErr};
     }
 }
 
@@ -430,7 +430,7 @@ std::pair<isize, gopp::error> Conn::Write(std::span<const byte> p) {
             r = SSL_write_ex(impl_->ssl, p.data(), p.size(), &done);
         }
         if (r != 1) {
-            impl_->write_err = tls_error(openssl_error());
+            impl_->write_err = tlsError(opensslError());
             return {total, impl_->write_err};
         }
         if (gopp::error err = impl_->flush(*conn_)) return {total, err};
@@ -505,7 +505,7 @@ ptr<net::Listener> NewListener(ptr<net::Listener> inner, const Config& config) {
 
 std::pair<ptr<net::Listener>, gopp::error> Listen(std::string_view network, std::string_view address, const Config& config) {
     if (config.Certificates.empty()) {
-        return {nullptr, tls_error("neither Certificates, GetCertificate, nor GetConfigForClient set in Config")};
+        return {nullptr, tlsError("neither Certificates, GetCertificate, nor GetConfigForClient set in Config")};
     }
     auto [ln, err] = net::Listen(network, address);
     if (err) return {nullptr, err};

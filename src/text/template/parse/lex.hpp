@@ -60,7 +60,7 @@ extern int max_stack_depth;
 extern bool text_format_q;
 
 // tree.newNumber, for the tests: the number node for text, or its error.
-std::pair<ptr<NumberNode>, gopp::error> new_number_for_test(std::string_view text, int typ);
+std::pair<ptr<NumberNode>, gopp::error> newNumberForTest(std::string_view text, int typ);
 
 inline constexpr std::string_view default_left_delim = "{{";
 inline constexpr std::string_view default_right_delim = "}}";
@@ -76,7 +76,7 @@ public:
     lexer(string name, string input, std::string_view left, std::string_view right);
 
     // The next item from the input.
-    item next_item();
+    item nextItem();
 
     lex_options options;
 
@@ -86,32 +86,32 @@ private:
     int32 next();
     int32 peek();
     void backup();
-    item this_item(itemType t);
+    item thisItem(itemType t);
     bool emit(itemType t);
-    bool emit_item(item i);
+    bool emitItem(item i);
     void ignore();
     bool accept(std::string_view valid);
-    void accept_run(std::string_view valid);
+    void acceptRun(std::string_view valid);
     bool errorf(std::string msg);
-    bool at_terminator();
-    std::pair<bool, bool> at_right_delim();
-    bool scan_number();
+    bool atTerminator();
+    std::pair<bool, bool> atRightDelim();
+    bool scanNumber();
 
     // States: return false once an item is set; state_ holds the next.
-    bool lex_text();
-    bool lex_left_delim();
-    bool lex_comment();
-    bool lex_right_delim();
+    bool lexText();
+    bool lexLeftDelim();
+    bool lexComment();
+    bool lexRightDelim();
     bool lex_inside_action();
-    bool lex_space();
-    bool lex_identifier();
-    bool lex_field();
-    bool lex_variable();
-    bool lex_field_or_variable(itemType typ);
-    bool lex_char();
-    bool lex_number();
-    bool lex_quote();
-    bool lex_raw_quote();
+    bool lexSpace();
+    bool lexIdentifier();
+    bool lexField();
+    bool lexVariable();
+    bool lexFieldOrVariable(itemType typ);
+    bool lexChar();
+    bool lexNumber();
+    bool lexQuote();
+    bool lexRawQuote();
 
     string name_;
     string input_;

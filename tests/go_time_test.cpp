@@ -650,15 +650,15 @@ TEST_F(GoTime, MarshalInvalidTimes) {
     };
     for (const auto& tt : tests) {
         auto [b, err] = tt.time.MarshalJSON();
-        EXPECT_TRUE(b.is_nil()) << "MarshalJSON() = " << bytes_str(b) << ", want nil";
+        EXPECT_TRUE(b.isNil()) << "MarshalJSON() = " << bytes_str(b) << ", want nil";
         EXPECT_EQ(S(err), tt.want);
 
         auto [b2, err2] = tt.time.MarshalText();
-        EXPECT_TRUE(b2.is_nil());
+        EXPECT_TRUE(b2.isNil());
         EXPECT_EQ(S(err2), replace(tt.want, "JSON", "Text"));
 
         auto [b3, err3] = tt.time.AppendText(slice<byte>{});
-        EXPECT_TRUE(b3.is_nil());
+        EXPECT_TRUE(b3.isNil());
         EXPECT_EQ(S(err3), replace(tt.want, "MarshalJSON", "AppendText"));
     }
 }
@@ -784,7 +784,7 @@ TEST_F(GoTime, ParseDurationRoundTrip) {
 
 TEST_F(GoTime, LocationRace) {
     hooks::ResetLocalOnceForTest();  // reset the Once to trigger the race
-    auto c = make_chan<string>(1);
+    auto c = makeChan<string>(1);
     go([c] { c.send(Now().String()); });
     (void)Now().String();
     c.recv();
@@ -1379,7 +1379,7 @@ TEST_F(GoTime, MonotonicString) {
 // with one P and no preemption, where a parked loader would hang.
 namespace {
 
-const bool time_first_use_helper = go_helper::register_helper("time-first-use", [](const std::vector<std::string>&) {
+const bool time_first_use_helper = go_helper::registerHelper("time-first-use", [](const std::vector<std::string>&) {
     sync::WaitGroup wg;
     for (int i = 0; i < 16; i++) {
         wg.Go([i] {
@@ -1395,7 +1395,7 @@ const bool time_first_use_helper = go_helper::register_helper("time-first-use", 
 
 TEST(GoppTime, ConcurrentFirstUse) {
     auto [ctx, cancel] = context::WithTimeout(context::Background(), 10 * Second);
-    auto cmd = go_helper::helper_command_context(ctx, "time-first-use");
+    auto cmd = go_helper::helperCommandContext(ctx, "time-first-use");
     cmd->Env = append(cmd->Environ(), string("GOMAXPROCS=1"), string("GODEBUG=asyncpreemptoff=1"));
     auto err = cmd->Run();
     EXPECT_FALSE(err) << S(err) << ": the fibers deadlocked on first use";

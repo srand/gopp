@@ -49,18 +49,18 @@ int64 nanotime() noexcept;
 void entersyscall() noexcept;
 void exitsyscall() noexcept;
 
-class blocking_call {
+class blockingCall {
 public:
-    blocking_call() noexcept { entersyscall(); }
-    ~blocking_call() { exitsyscall(); }
-    blocking_call(const blocking_call&) = delete;
-    blocking_call& operator=(const blocking_call&) = delete;
+    blockingCall() noexcept { entersyscall(); }
+    ~blockingCall() { exitsyscall(); }
+    blockingCall(const blockingCall&) = delete;
+    blockingCall& operator=(const blockingCall&) = delete;
 };
 
 // Run f as a blocking call.
 template <typename F>
 decltype(auto) blocking(F&& f) {
-    blocking_call b;
+    blockingCall b;
     return std::forward<F>(f)();
 }
 
