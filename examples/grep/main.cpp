@@ -1,10 +1,11 @@
-// grep: searches a directory tree for lines that contain a string. One
-// fiber walks the tree with fs::WalkDir over os::DirFS, a pool of fibers
-// reads and searches the files (on io_uring where the kernel has it), and
-// the errors are gathered with errors::Join.
+// grep: searches a directory tree for lines that match a regular
+// expression (regexp, RE2's syntax). One fiber walks the tree with
+// fs::WalkDir over os::DirFS, a pool of fibers reads and searches the files
+// (on io_uring where the kernel has it), and the errors are gathered with
+// errors::Join.
 //
-//     $ grep -dir ~/src/go -ext .go -i 'goroutine'
-//     $ grep -j 32 TODO
+//     $ grep -dir ~/src/go -ext .go -i 'go(routine|func)'
+//     $ grep -j 32 'TODO|FIXME'
 //
 // Directories whose names start with a period, such as .git, are skipped,
 // and so are files that look binary.
@@ -15,6 +16,7 @@
 #include <gopp/io/fs.hpp>
 #include <gopp/os.hpp>
 #include <gopp/path.hpp>
+#include <gopp/regexp.hpp>
 #include <gopp/strings.hpp>
 #include <gopp/sync.hpp>
 
@@ -36,10 +38,14 @@ int main(int argc, char** argv) {
     flag::IntVar(&workers, "j", workers, "the files searched at once");
     flag::Parse(argc, argv);
     if (flag::Args().size() != 1) {
-        fmt::Println(os::Stderr, "usage: grep [-dir d] [-ext .a,.b] [-i] [-j n] text");
+        fmt::Println(os::Stderr, "usage: grep [-dir d] [-ext .a,.b] [-i] [-j n] regexp");
         return 2;
     }
-    string pattern = ignore_case ? strings::ToLower(flag::Args()[0]) : flag::Args()[0];
+    auto [re, rerr] = regexp::Compile(ignore_case ? "(?i)" + flag::Args()[0] : flag::Args()[0]);
+    if (rerr) {
+        fmt::Println(os::Stderr, "grep: {}", rerr);
+        return 2;
+    }
     std::vector<string> want_exts;
     if (!exts.empty()) {
         for (const string& e : strings::Split(exts, ",")) want_exts.push_back(e);
@@ -80,9 +86,7 @@ int main(int argc, char** argv) {
                     std::string_view line = text.substr(0, nl);
                     text = nl == text.npos ? std::string_view() : text.substr(nl + 1);
                     line_no++;
-                    bool hit = ignore_case ? strings::Contains(strings::ToLower(line), pattern)
-                                           : strings::Contains(line, pattern);
-                    if (!hit) continue;
+                    if (!re->MatchString(line)) continue;
                     matches++;
                     found += fmt::Sprint("{}:{}: {}\n", path::Join(dir, name), line_no, line).view();
                 }

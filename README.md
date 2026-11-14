@@ -156,7 +156,7 @@ jolt build examples/fetch          # a small curl: fetch -i https://go.dev/, or 
 jolt build examples/httpfileserver # serve a directory: httpfileserver -dir ./public (an os::Root: nothing outside it)
 jolt build examples/proxy          # TCP proxy with splice(2): proxy -listen :8443 -to go.dev:443
 jolt build examples/lookup         # concurrent DNS lookups: lookup go.dev example.com
-jolt build examples/grep           # search a tree with fs::WalkDir and a pool of fibers: grep -dir src -ext .cpp TODO
+jolt build examples/grep           # search a tree with fs::WalkDir, a pool of fibers and regexp: grep -dir src -ext .cpp 'TODO|FIXME'
 jolt build examples/parallel       # run shell commands concurrently, like xargs -P: ... | parallel -j 8
 jolt build examples/sandbox        # run a command in new namespaces, unprivileged: sandbox -net=false -- sh
 jolt build examples/modules        # go++ imported as C++ modules

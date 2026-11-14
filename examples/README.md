@@ -53,7 +53,7 @@ If you're new to go++, read them in this order:
 
 | Example | What it shows |
 |---|---|
-| [grep](grep/main.cpp) | Searches a tree: one fiber walks it with `fs::WalkDir`, a pool of fibers reads and searches the files (on io_uring where the kernel has it), and the errors are collected with `errors::Join` |
+| [grep](grep/main.cpp) | Searches a tree for a regular expression: one fiber walks it with `fs::WalkDir`, a pool of fibers reads and searches the files (on io_uring where the kernel has it), and the errors are collected with `errors::Join` |
 | [sha256sum](sha256sum/main.cpp) | coreutils' `sha256sum`, hashing several files at once: `crypto/sha256`, `md5`, `sha1` and `sha512` behind `hash::Hash`, `io::Copy` into a hash, `hex`, a buffered channel as a semaphore, and results printed in order. `-c` checks a list, and its output is interchangeable with coreutils' |
 | [wordfreq](wordfreq/main.cpp) | Counts the words of files, a fiber per file, with Go's Unicode tables (`unicode::IsLetter` in any script), `strings::FieldsFunc`, `maps::DeleteFunc`, and `slices::SortFunc` with `cmp::Or` to sort by count, then by word |
 | [parallel](parallel/main.cpp) | Runs shell commands a few at a time, like `xargs -P`: `os/exec` with `CommandContext`, an `io::Writer` of its own as each command's `Stdout`, which prefixes the lines with the job number, and timeouts and Ctrl-C that kill the processes |
