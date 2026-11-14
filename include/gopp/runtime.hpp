@@ -68,8 +68,10 @@ decltype(auto) blocking(F&& f) {
 
 // The go statement: runs f(args...) on a new fiber. Arguments are moved
 // or copied into the fiber, like Go evaluates them before starting it.
+// Always inlined, so that tracebacks show the fiber as created by the
+// function with the go statement.
 template <typename F, typename... Args>
-void go(F&& f, Args&&... args) {
+[[gnu::always_inline]] inline void go(F&& f, Args&&... args) {
     runtime::newproc([f = std::forward<F>(f), tup = std::make_tuple(std::forward<Args>(args)...)]() mutable {
         std::apply(std::move(f), std::move(tup));
     });

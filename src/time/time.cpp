@@ -204,7 +204,7 @@ void Sleep(Duration d) {
             runtime::add_timer(static_cast<runtime::timer*>(arg));
             return true;
         },
-        &t);
+        &t, runtime::waitreason::sleep);
 }
 
 // ---------------------------------------------------------------------------

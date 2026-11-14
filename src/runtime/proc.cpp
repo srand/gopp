@@ -25,22 +25,13 @@
 
 namespace gopp {
 
-void panic(std::string_view msg) noexcept {
-    std::fprintf(stderr, "panic: %.*s\n", static_cast<int>(msg.size()), msg.data());
-    if (auto id = runtime::goid()) std::fprintf(stderr, "\ngoroutine %llu [running]\n", static_cast<unsigned long long>(id));
-    std::fflush(stderr);
-    std::abort();
-}
+void panic(std::string_view msg) noexcept { runtime::dopanic(msg); }
 
 }  // namespace gopp
 
 namespace gopp::runtime {
 
-void fatal(const char* msg) noexcept {
-    std::fprintf(stderr, "fatal error: %s\n", msg);
-    std::fflush(stderr);
-    std::abort();
-}
+void fatal(const char* msg) noexcept { dofatal(msg); }
 
 void lock_t::lock_slow() noexcept {
     for (int i = 0; i < 64; i++) {
@@ -108,6 +99,29 @@ thread_local M* tls_m = nullptr;
 thread_local G* tls_thread_g = nullptr;
 thread_local uint64_t tls_rand = 0;
 
+// All Gs, for tracebacks: pushed at the head, never removed, so that a
+// crash can walk the list while other threads add to it.
+constinit std::atomic<G*> allgs_head{nullptr};
+constinit std::atomic<pid_t> main_tid{0};
+
+void allgadd(G* gp) noexcept {
+    G* head = allgs_head.load(std::memory_order_relaxed);
+    do gp->alllink = head;
+    while (!allgs_head.compare_exchange_weak(head, gp, std::memory_order_release, std::memory_order_relaxed));
+}
+
+// Marks the pseudo-G of a thread dead when the thread exits, so that
+// tracebacks don't signal its thread id, which may be reused.
+struct thread_g_reaper {
+    G* gp = nullptr;
+    ~thread_g_reaper() {
+        if (!gp) return;
+        gp->tid = 0;
+        gp->status.store(gstatus::dead, std::memory_order_release);
+        release_sigaltstack();
+    }
+};
+
 int ncpu = 1;
 
 // GODEBUG=asyncpreemptoff=1: sysmon doesn't take Ps from long-running
@@ -154,11 +168,25 @@ G* fiber_of(M* m) noexcept { return m ? m->curg : nullptr; }
     if (!gp) {
         gp = new G();
         gp->is_thread = true;
+        gp->tid = gettid();
         gp->status.store(gstatus::running, std::memory_order_relaxed);
         tls_thread_g = gp;
+        thread_local thread_g_reaper reaper;
+        reaper.gp = gp;
+        ensure_sigaltstack();
+        allgadd(gp);
     }
     return gp;
 }
+
+G* allgs() noexcept { return allgs_head.load(std::memory_order_acquire); }
+
+G* getg_if_any() noexcept {
+    if (M* m = tls_m) return m->curg;
+    return tls_thread_g;
+}
+
+bool is_main_thread(pid_t t) noexcept { return t != 0 && t == main_tid.load(std::memory_order_relaxed); }
 
 uint32_t fastrand() noexcept {
     // wyrand
@@ -721,18 +749,14 @@ G* gfget(P* pp) noexcept {
     return gp;
 }
 
-boost::context::fiber gentry(G* gp, boost::context::fiber&& caller) {
+// Not inlined: tracebacks stop at its frame (gentry_pc).
+[[gnu::noinline]] boost::context::fiber gentry(G* gp, boost::context::fiber&& caller) {
     gp->caller = std::move(caller);
     // The switch here held nopreempt (see mcall); newproc set it to 1.
     std::atomic_signal_fence(std::memory_order_seq_cst);
     gp->nopreempt--;
-    try {
-        gp->fn();
-    } catch (const std::exception& e) {
-        panic(e.what());
-    } catch (...) {
-        panic("uncaught exception");
-    }
+    // An exception that escapes is reported where it was thrown.
+    run_fiber_fn(gp);
     gp->fn = nullptr;  // destroy captured state while still on the fiber
     gp->nopreempt++;   // held across the switch, as in mcall
     std::atomic_signal_fence(std::memory_order_seq_cst);
@@ -814,6 +838,7 @@ void schedule(M* m) noexcept {
 void mstart(M* m) noexcept {
     tls_m = m;
     m->tid = gettid();
+    ensure_sigaltstack();
     // The thread inherits its creator's signal mask: a program that blocks
     // signals in main would otherwise block preemption (Go's minit).
     sigset_t urg;
@@ -833,6 +858,8 @@ void mcall(G* gp, gaction action) noexcept {
     gp->nopreempt++;
     std::atomic_signal_fence(std::memory_order_seq_cst);
     gp->action = action;
+    // Where a traceback of the switched-out fiber starts.
+    gp->sched_fp = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
     gp->caller = std::move(gp->caller).resume();
     std::atomic_signal_fence(std::memory_order_seq_cst);
     gp->nopreempt--;
@@ -1079,28 +1106,45 @@ namespace {
 
 // The signal handlers are installed before main, as Go's runtime does
 // before main.main: in a program that links the runtime, a write to a
-// broken pipe fails with EPIPE from the start.
-[[gnu::constructor]] void install_signal_handlers() { initsig(); }
+// broken pipe fails with EPIPE from the start, and crashes print
+// tracebacks. The main thread gets its pseudo-G here, so that tracebacks
+// list it.
+[[gnu::constructor]] void install_signal_handlers() {
+    main_tid.store(gettid(), std::memory_order_relaxed);
+    initsig();
+    getg();
+}
 
 }  // namespace
 
 // ---------------------------------------------------------------------------
 // Public and runtime-internal entry points
 
-void newproc(std::move_only_function<void()> fn) {
+uintptr_t gentry_pc() noexcept { return reinterpret_cast<uintptr_t>(&gentry); }
+
+// Not inlined, so that its return address is in the function that
+// started the fiber (gopp::go is always inlined).
+[[gnu::noinline]] void newproc(std::move_only_function<void()> fn) {
     ensure_init();
+    uintptr_t gopc = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     M* m = getm();
     nopreempt_guard g{fiber_of(m)};
     P* pp = m ? m->p : nullptr;
     G* gp = pp ? gfget(pp) : nullptr;
-    if (!gp) gp = new G();
+    bool fresh = !gp;
+    if (fresh) gp = new G();
     gp->nopreempt = 1;  // gentry drops it once the fiber runs
     gp->fn = std::move(fn);
     gp->goid = sched.goidgen.fetch_add(1, std::memory_order_relaxed) + 1;
-    gp->ctx = boost::context::fiber(std::allocator_arg, stack_allocator(),
+    gp->sched_fp = 0;
+    gp->gopc = gopc;
+    gp->parent_goid = m && m->curg ? m->curg->goid : 0;
+    gp->wait = waitreason::none;
+    gp->ctx = boost::context::fiber(std::allocator_arg, stack_allocator{gp},
                                     [gp](boost::context::fiber&& caller) { return gentry(gp, std::move(caller)); });
     gp->status.store(gstatus::runnable, std::memory_order_relaxed);
     sched.ngoroutines.fetch_add(1, std::memory_order_relaxed);
+    if (fresh) allgadd(gp);
     if (pp) {
         runqput(pp, gp, true);
     } else {
@@ -1111,11 +1155,12 @@ void newproc(std::move_only_function<void()> fn) {
     wakep();
 }
 
-void park(unlock_fn unlockf, void* arg) noexcept {
+void park(unlock_fn unlockf, void* arg, waitreason reason) noexcept {
     G* gp = getg();
     if (!gp) fatal("park on scheduler stack");
     nopreempt_guard g{gp->is_thread ? nullptr : gp};
     if (!gp->is_thread && !gp->m->p) exitsyscall();  // parking inside a blocking call
+    gp->wait = reason;
     gp->status.store(gstatus::waiting, std::memory_order_relaxed);
     if (gp->is_thread) {
         if (unlockf && !unlockf(gp, arg)) {
@@ -1131,13 +1176,13 @@ void park(unlock_fn unlockf, void* arg) noexcept {
     mcall(gp, gaction::park);
 }
 
-void park_unlock(lock_t* l) noexcept {
+void park_unlock(lock_t* l, waitreason reason) noexcept {
     park(
         [](G*, void* arg) {
             static_cast<lock_t*>(arg)->unlock();
             return true;
         },
-        l);
+        l, reason);
 }
 
 void ready(G* gp) noexcept {

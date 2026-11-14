@@ -64,6 +64,8 @@ class Gopp(GoppProject, cxx.Library):
             artifact.collect("gopp/**/*.hpp", "include/")
         artifact.cxxinfo.incpaths.append("include")
         artifact.cxxinfo.libraries.append("pthread")
+        # Tracebacks symbolize with the libbacktrace in GCC's libstdc++exp.
+        artifact.cxxinfo.libraries.append("stdc++exp")
 
 
 class GoppSQLite3(GoppProject, cxx.Library):

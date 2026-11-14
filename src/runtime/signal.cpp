@@ -13,6 +13,12 @@
 // (signal_recv) and delivers the signals to the channels. Signals the
 // program started with ignored stay ignored until Notify asks for them,
 // and Reset or Stop gives a signal back its earlier disposition.
+//
+// Crashes: SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGTRAP, SIGABRT, SIGSYS and
+// SIGQUIT get a handler at startup, if their disposition is the default
+// one, that prints the goroutines' stacks and exits (traceback.cpp), as
+// Go's does. Notify can still take SIGQUIT and SIGABRT; Reset or Stop
+// gives them back to the runtime.
 #include "netpoll.hpp"
 #include "runtime.hpp"
 
@@ -22,6 +28,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <exception>
 #include <mutex>
 
 namespace gopp::runtime {
@@ -48,12 +55,23 @@ constexpr bool default_ignored(int s) noexcept {
     return s == SIGCHLD || s == SIGURG || s == SIGWINCH || s == SIGCONT;
 }
 
+// Go's _SigPanic and _SigThrow signals.
+constexpr bool is_crash(int s) noexcept {
+    switch (s) {
+    case SIGSEGV: case SIGBUS: case SIGFPE: case SIGILL: case SIGTRAP: case SIGABRT: case SIGSYS: case SIGQUIT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 struct sig_state {
     std::atomic<uint32_t> wanted[nwords];   // signals Notify asked for
     std::atomic<uint32_t> ignored[nwords];  // signals ignored, by Ignore or from the start
     std::atomic<uint32_t> mask[nwords];     // signals queued for signal_recv
     std::atomic<uint32_t> handling[nwords]; // signals with the runtime's handler
     std::atomic<int32_t> delivering{0};     // handlers in sigsend
+    std::atomic<uint32_t> at_init[nwords];  // handlers installed by initsig, which stay
     // signal_recv's state: true while it waits with nothing queued.
     std::atomic<bool> receiving{false};
     std::atomic<int> wakefd{-1};            // eventfd that wakes signal_recv
@@ -62,11 +80,6 @@ struct sig_state {
     lock_t lock;                            // serializes enable, disable and ignore
     // The dispositions before the runtime's handler (Go's fwdSig).
     struct sigaction fwd[nsig] = {};
-    // SIGPIPE's handler was installed at startup: it stays.
-    bool sigpipe_at_init = false;
-    // SIGURG's handler was installed at startup, for preemption: it stays
-    // through Stop, Reset and Ignore.
-    bool sigurg_at_init = false;
 };
 
 // Constant-initialized: initsig runs before dynamic initialization.
@@ -139,8 +152,17 @@ void forward(int s, siginfo_t* info, void* ctx) noexcept {
 
 void sighandler(int s, siginfo_t* info, void* ctx) {
     int saved = errno;
-    if (s == SIGURG) preempt_signal();
-    if (!sigsend(static_cast<uint32_t>(s))) forward(s, info, ctx);
+    if (s == SIGURG) {
+        traceback_signal(ctx);
+        preempt_signal();
+    }
+    bool crash = is_crash(s) && test(sig.at_init, static_cast<uint32_t>(s));
+    // Faults can't be notified: their handler returning would fault again.
+    if (crash && !can_notify(static_cast<uint32_t>(s))) crash_signal(s, info, ctx);
+    if (!sigsend(static_cast<uint32_t>(s))) {
+        if (crash) crash_signal(s, info, ctx);
+        forward(s, info, ctx);
+    }
     errno = saved;
 }
 
@@ -153,6 +175,13 @@ void install(int s) noexcept {
     sa.sa_sigaction = sighandler;
     sigfillset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
+    if (is_crash(s)) {
+        // A fault while the traceback prints comes back to the handler,
+        // which then gives up, instead of the kernel killing the process
+        // without a word.
+        sa.sa_flags |= SA_NODEFER;
+        for (int f : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGTRAP, SIGABRT, SIGSYS}) sigdelset(&sa.sa_mask, f);
+    }
     ::sigaction(s, &sa, nullptr);
 }
 
@@ -178,21 +207,31 @@ void initsig() noexcept {
             // keeps SIGHUP and SIGINT so; here all of them).
             if (!(old.sa_flags & SA_SIGINFO) && old.sa_handler == SIG_IGN) set(sig.ignored, s, true);
         }
-        const struct sigaction& old = sig.fwd[SIGPIPE];
-        if (!(old.sa_flags & SA_SIGINFO) && old.sa_handler == SIG_DFL) {
-            install(SIGPIPE);
-            set(sig.handling, SIGPIPE, true);
-            sig.sigpipe_at_init = true;
-        }
-        // Otherwise SIGPIPE was ignored, a parent's choice, or has someone
-        // else's handler: either stays.
+        auto is_default = [](uint32_t s) {
+            const struct sigaction& old = sig.fwd[s];
+            return !(old.sa_flags & SA_SIGINFO) && old.sa_handler == SIG_DFL;
+        };
+        auto install_at_init = [](uint32_t s) {
+            install(static_cast<int>(s));
+            set(sig.handling, s, true);
+            set(sig.at_init, s, true);
+        };
+        // Otherwise SIGPIPE, or a crash signal, was ignored, a parent's
+        // choice, or has someone else's handler, such as a sanitizer's:
+        // either stays.
+        if (is_default(SIGPIPE)) install_at_init(SIGPIPE);
+        for (uint32_t s = 1; s < nsig; s++)
+            if (is_crash(static_cast<int>(s)) && is_default(s)) install_at_init(s);
 
-        // SIGURG preempts long-running fibers, so its handler goes in even
-        // if the program started with it ignored, as Go's does. A handler
-        // that was there before gets it forwarded.
-        install(SIGURG);
-        set(sig.handling, SIGURG, true);
-        sig.sigurg_at_init = true;
+        // SIGURG preempts long-running fibers, and asks threads for their
+        // stacks in tracebacks, so its handler goes in even if the program
+        // started with it ignored, as Go's does. A handler that was there
+        // before gets it forwarded.
+        install_at_init(SIGURG);
+
+        // An exception that escapes a thread is reported as a panic.
+        std::set_terminate(terminate_handler);
+        ensure_sigaltstack();
     });
 }
 
@@ -230,8 +269,7 @@ void signal_disable(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    if (can_notify(s) && test(sig.handling, s) && !(s == SIGPIPE && sig.sigpipe_at_init) &&
-        !(s == SIGURG && sig.sigurg_at_init)) {
+    if (can_notify(s) && test(sig.handling, s) && !test(sig.at_init, s)) {
         // Back to the disposition before Notify.
         ::sigaction(static_cast<int>(s), &sig.fwd[s], nullptr);
         set(sig.handling, s, false);
@@ -246,7 +284,7 @@ void signal_ignore(uint32_t s) noexcept {
     initsig();
     if (s >= nsig) return;
     sig.lock.lock();
-    if (can_notify(s) && !(s == SIGURG && sig.sigurg_at_init)) {
+    if (can_notify(s) && !(s == SIGURG && test(sig.at_init, s))) {
         if (!test(sig.handling, s)) ::sigaction(static_cast<int>(s), nullptr, &sig.fwd[s]);
         struct sigaction ign{};
         ign.sa_handler = SIG_IGN;

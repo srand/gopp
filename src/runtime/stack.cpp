@@ -75,6 +75,10 @@ boost::context::stack_context stack_allocator::allocate() {
     boost::context::stack_context sctx;
     sctx.size = size;
     sctx.sp = static_cast<char*>(base) + size;
+    if (gp) {
+        gp->stack_lo = reinterpret_cast<uintptr_t>(base);
+        gp->stack_hi = reinterpret_cast<uintptr_t>(sctx.sp);
+    }
     return sctx;
 }
 

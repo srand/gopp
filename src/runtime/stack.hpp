@@ -13,7 +13,12 @@ namespace gopp::runtime {
 
 std::size_t stack_size() noexcept;
 
+struct G;
+
+// Records the stack's bounds in gp, for tracebacks.
 struct stack_allocator {
+    G* gp = nullptr;
+
     boost::context::stack_context allocate();
     void deallocate(boost::context::stack_context& sctx) noexcept;
 };

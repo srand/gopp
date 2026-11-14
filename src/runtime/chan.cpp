@@ -121,8 +121,8 @@ bool chanparkcommit(G*, void* arg) noexcept {
     return true;
 }
 
-[[noreturn]] void block_forever() {
-    runtime::park(nullptr, nullptr);
+[[noreturn]] void block_forever(runtime::waitreason reason) {
+    runtime::park(nullptr, nullptr, reason);
     runtime::fatal("unreachable: resumed a fiber blocked forever");
 }
 
@@ -192,7 +192,7 @@ void chan_release(hchan* c) noexcept {
 bool chan_send(hchan* c, void* ep, bool block) {
     if (!c) {
         if (!block) return false;
-        block_forever();
+        block_forever(runtime::waitreason::chan_send_nil);
     }
     // Fast path: a full open channel fails a non-blocking send.
     if (!block && c->closed.load(std::memory_order_acquire) == 0 && c->full()) return false;
@@ -226,7 +226,7 @@ bool chan_send(hchan* c, void* ep, bool block) {
     gp->waiting = &mysg;
     gp->param = nullptr;
     c->sendq.enqueue(&mysg);
-    runtime::park(chanparkcommit, &c->lock);
+    runtime::park(chanparkcommit, &c->lock, runtime::waitreason::chan_send);
 
     gp = runtime::getg();
     gp->waiting = nullptr;
@@ -238,7 +238,7 @@ bool chan_send(hchan* c, void* ep, bool block) {
 recv_result chan_recv(hchan* c, void* ep, bool block) {
     if (!c) {
         if (!block) return {false, false};
-        block_forever();
+        block_forever(runtime::waitreason::chan_receive_nil);
     }
     // Fast path: an empty channel fails a non-blocking receive.
     if (!block && c->empty()) {
@@ -278,7 +278,7 @@ recv_result chan_recv(hchan* c, void* ep, bool block) {
     gp->waiting = &mysg;
     gp->param = nullptr;
     c->recvq.enqueue(&mysg);
-    runtime::park(chanparkcommit, &c->lock);
+    runtime::park(chanparkcommit, &c->lock, runtime::waitreason::chan_receive);
 
     gp = runtime::getg();
     gp->waiting = nullptr;
@@ -371,7 +371,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
     }
     if (norder == 0) {
         if (!block) return {-1, false};
-        block_forever();
+        block_forever(runtime::waitreason::select_no_cases);
     }
 
     // Lock order: by channel address, to avoid deadlock between selects.
@@ -457,7 +457,7 @@ select_result selectgo(scase* cases, int nsends, int nrecvs, bool block) {
 
     gp->param = nullptr;
     selpark_arg arg{cases, lockorder, norder};
-    runtime::park(selparkcommit, &arg);
+    runtime::park(selparkcommit, &arg, runtime::waitreason::select);
 
     gp = runtime::getg();
     sellock(cases, lockorder, norder);

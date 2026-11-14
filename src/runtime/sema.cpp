@@ -69,7 +69,7 @@ bool cansemacquire(std::atomic<uint32_t>* addr) noexcept {
 
 }  // namespace
 
-void semacquire(std::atomic<uint32_t>* addr, bool lifo) noexcept {
+void semacquire(std::atomic<uint32_t>* addr, bool lifo, waitreason reason) noexcept {
     if (cansemacquire(addr)) return;
     semroot& root = root_of(addr);
     semwaiter s{getg(), addr, nullptr, nullptr, false};
@@ -83,7 +83,7 @@ void semacquire(std::atomic<uint32_t>* addr, bool lifo) noexcept {
         }
         s.ticket = false;
         root.queue(&s, lifo);
-        park_unlock(&root.lock);
+        park_unlock(&root.lock, reason);
         if (s.ticket || cansemacquire(addr)) return;
     }
 }

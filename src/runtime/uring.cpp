@@ -195,7 +195,7 @@ int uring_call(void (*prep)(io_uring_sqe*, void*), void* arg) noexcept {
     // has published res when this returns.
     if (req.g.load(std::memory_order_acquire) != req_done) {
         GOPP_STAT(uring_park);
-        park(commit, &req);
+        park(commit, &req, waitreason::io_wait);
     } else {
         GOPP_STAT(uring_done);
     }

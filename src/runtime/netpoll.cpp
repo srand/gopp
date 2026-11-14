@@ -101,7 +101,7 @@ bool netpollblock(poll_desc* pd, int mode, bool waitio) noexcept {
     }
     // Recheck errors after setting pd_wait: a deadline or close may have
     // come in between and must not be missed.
-    if (waitio || checkerr(pd, mode) == poll_no_error) park(blockcommit, gpp);
+    if (waitio || checkerr(pd, mode) == poll_no_error) park(blockcommit, gpp, waitreason::io_wait);
     uintptr_t old = gpp->exchange(pd_nil, std::memory_order_acq_rel);
     if (old > pd_wait) fatal("netpollblock: corrupted state");
     return old == pd_ready;

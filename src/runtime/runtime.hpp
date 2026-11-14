@@ -11,11 +11,13 @@
 
 #include <boost/context/fiber.hpp>
 
+#include <signal.h>
 #include <sys/types.h>
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <string_view>
 
 namespace gopp::runtime {
 
@@ -81,6 +83,25 @@ struct P;
 struct sudog;
 
 enum class gstatus : uint32_t { idle, runnable, running, waiting, dead };
+
+// Why a fiber waits, for tracebacks (Go's waitReason).
+enum class waitreason : uint8_t {
+    none,
+    chan_receive,
+    chan_send,
+    chan_receive_nil,
+    chan_send_nil,
+    select,
+    select_no_cases,
+    sleep,
+    io_wait,
+    semacquire,
+    sync_mutex_lock,
+    sync_rwmutex_rlock,
+    sync_rwmutex_lock,
+    sync_waitgroup_wait,
+    sync_cond_wait,
+};
 enum class gaction : uint8_t { none, park, yield, exit, exitsyscall };
 
 using unlock_fn = bool (*)(struct G* gp, void* arg);
@@ -115,6 +136,22 @@ struct G {
     // G, not the M, because a fiber parks inside it and finishes it on
     // whichever M resumes it.
     uint32_t nopreempt = 0;
+
+    // Tracebacks (traceback.cpp). Gs are never freed: all of them, pseudo-
+    // Gs included, are on the allgs list through alllink. The fiber's stack
+    // is [stack_lo, stack_hi). sched_fp is the frame address of mcall while
+    // the fiber is switched out, 0 before it first runs. gopc is the return
+    // address of newproc's caller, in the function that started the fiber,
+    // and parent_goid its goroutine. tid is the thread of a pseudo-G, 0
+    // once that thread has exited.
+    G* alllink = nullptr;
+    uintptr_t stack_lo = 0;
+    uintptr_t stack_hi = 0;
+    uintptr_t sched_fp = 0;
+    uintptr_t gopc = 0;
+    uint64_t parent_goid = 0;
+    waitreason wait = waitreason::none;
+    pid_t tid = 0;
 };
 
 constexpr uint32_t runq_size = 256;
@@ -230,10 +267,11 @@ G* getg() noexcept;
 // arg) runs there; if it returns false the fiber resumes at once. This is
 // how a fiber releases the lock of a wait queue only once it can no longer
 // run, so that a concurrent ready() can't resume it while it's running.
-void park(unlock_fn unlockf, void* arg) noexcept;
+// reason shows in tracebacks.
+void park(unlock_fn unlockf, void* arg, waitreason reason) noexcept;
 
 // Parks the calling fiber after unlocking l.
-void park_unlock(lock_t* l) noexcept;
+void park_unlock(lock_t* l, waitreason reason) noexcept;
 
 // Makes a parked fiber runnable.
 void ready(G* gp) noexcept;
@@ -332,9 +370,46 @@ uint32_t signal_recv() noexcept;
 void signal_wait_until_idle() noexcept;
 
 // ---------------------------------------------------------------------------
+// Tracebacks (traceback.cpp), after Go's traceback.go and panic.go.
+
+// The head of the list of all Gs, linked through G::alllink (proc.cpp).
+G* allgs() noexcept;
+// The calling fiber, or the pseudo-G of a foreign thread if it has one;
+// unlike getg it never creates one, so signal handlers can call it.
+G* getg_if_any() noexcept;
+// The entry function of fibers, where their stacks start (proc.cpp).
+uintptr_t gentry_pc() noexcept;
+// Whether t is the main thread (proc.cpp).
+bool is_main_thread(pid_t t) noexcept;
+
+// Prints "panic: msg" and the calling goroutine's stack, or all of them,
+// as GOTRACEBACK says, and exits.
+[[noreturn]] void dopanic(std::string_view msg) noexcept;
+// The same for "fatal error: msg", which prints all goroutines.
+[[noreturn]] void dofatal(const char* msg) noexcept;
+// The handler of the crash signals: SIGSEGV, SIGBUS, SIGFPE, SIGILL,
+// SIGTRAP, SIGABRT, SIGSYS and SIGQUIT.
+[[noreturn]] void crash_signal(int sig, siginfo_t* info, void* uc) noexcept;
+// The traceback's part of the SIGURG handler: answers a request to print
+// the stack of this thread. Async-signal-safe.
+void traceback_signal(void* uc) noexcept;
+// Runs gp's function. An exception that escapes it is reported as a panic
+// from where it was thrown, before any unwinding.
+void run_fiber_fn(G* gp);
+// The terminate handler: reports an uncaught exception, on threads other
+// than fibers, as a panic.
+[[noreturn]] void terminate_handler() noexcept;
+// Gives the calling thread an alternate signal stack, if it has none, so
+// that the crash handler can run after a stack overflow.
+void ensure_sigaltstack() noexcept;
+// Frees the calling thread's alternate signal stack, at its exit.
+void release_sigaltstack() noexcept;
+
+// ---------------------------------------------------------------------------
 // Semaphores (sema.cpp), after Go's sema.Go.
 
-void semacquire(std::atomic<uint32_t>* addr, bool lifo = false) noexcept;
+void semacquire(std::atomic<uint32_t>* addr, bool lifo = false,
+                waitreason reason = waitreason::semacquire) noexcept;
 void semrelease(std::atomic<uint32_t>* addr, bool handoff = false) noexcept;
 
 }  // namespace gopp::runtime

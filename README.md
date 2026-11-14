@@ -235,6 +235,21 @@ The interfaces are in `modules/`, one per header. In module mode
   `signal::Notify` asks for, so an unexpected SIGUSR1 ends the program as
   in C. Signals the program started with ignored stay ignored (Go keeps
   only SIGHUP and SIGINT so).
+- **Crashes print the goroutines' stacks**, as Go's do: `panic`, an
+  exception that escapes a fiber or a thread, a fatal error, a segfault,
+  SIGFPE, SIGABRT (`abort`, a failed `assert`), Ctrl-\\ (SIGQUIT) and the
+  other crash signals print the message and `goroutine N [chan receive]:`
+  blocks with each function, its file and line, and `created by`, then exit
+  with status 2. An exception is reported from where it was thrown, before
+  any destructor runs. `GOTRACEBACK` works as in Go: `none`, `single` (the
+  default: panics print the crashing goroutine, fatal errors and signals
+  all of them), `all`, `system` (with the runtime's frames) and `crash`
+  (dies of SIGABRT, for a core dump). Threads that use the runtime, the
+  main thread among them, are listed as `thread TID`. Frames print as
+  `name(...)`, without Go's argument words, and the files and lines come
+  from the debug information (`-g`). With optimization, a call inlined into
+  a frame shows the plain name the debug information gives it, such as
+  `operator()`, and a tail call leaves no frame.
 - A few spellings differ from Go. `io.EOF` is `io::EOF_` and `os.O_RDONLY`
   is `os::O_RDONLY_` (and so on for `os`'s `O_` flags), because C headers
   define Go's names as macros; so are `syscall::SIGTERM_` and the other

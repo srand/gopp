@@ -47,7 +47,7 @@ void Mutex::lock_slow() noexcept {
             if ((old & (locked | starving)) == 0) break;  // locked with CAS
             bool lifo = wait_start != 0;
             if (wait_start == 0) wait_start = runtime::nanotime();
-            runtime::semacquire(&sema_, lifo);
+            runtime::semacquire(&sema_, lifo, runtime::waitreason::sync_mutex_lock);
             is_starving = is_starving || runtime::nanotime() - wait_start > starvation_threshold_ns;
             old = state_.load(std::memory_order_relaxed);
             if ((old & starving) != 0) {
@@ -83,7 +83,7 @@ void Mutex::unlock_slow(int32_t nw) noexcept {
 }
 
 void RWMutex::lock_shared() noexcept {
-    if (reader_count_.fetch_add(1, std::memory_order_acquire) + 1 < 0) runtime::semacquire(&reader_sem_);
+    if (reader_count_.fetch_add(1, std::memory_order_acquire) + 1 < 0) runtime::semacquire(&reader_sem_, false, runtime::waitreason::sync_rwmutex_rlock);
 }
 
 void RWMutex::unlock_shared() noexcept {
@@ -97,7 +97,7 @@ void RWMutex::unlock_shared() noexcept {
 void RWMutex::lock() noexcept {
     w_.lock();
     int32_t r = reader_count_.fetch_add(-max_readers, std::memory_order_acquire);
-    if (r != 0 && reader_wait_.fetch_add(r) + r != 0) runtime::semacquire(&writer_sem_);
+    if (r != 0 && reader_wait_.fetch_add(r) + r != 0) runtime::semacquire(&writer_sem_, false, runtime::waitreason::sync_rwmutex_lock);
 }
 
 void RWMutex::unlock() noexcept {
@@ -127,7 +127,7 @@ void WaitGroup::Wait() noexcept {
         int32_t v = static_cast<int32_t>(st >> 32);
         if (v == 0) return;
         if (state_.compare_exchange_weak(st, st + 1, std::memory_order_acq_rel)) {
-            runtime::semacquire(&sema_);
+            runtime::semacquire(&sema_, false, runtime::waitreason::sync_waitgroup_wait);
             if (state_.load() != 0) panic("sync: WaitGroup is reused before previous Wait has returned");
             return;
         }
@@ -146,7 +146,7 @@ void Cond::Wait() noexcept {
     tail_ = &w;
     m_.unlock();
     L->unlock();
-    runtime::semacquire(&w.sema);
+    runtime::semacquire(&w.sema, false, runtime::waitreason::sync_cond_wait);
     L->lock();
 }
 
