@@ -19,7 +19,7 @@ constexpr std::size_t min_read_buffer_size = 16;
 // Reader
 
 Reader::Reader(ptr<io::Reader> rd, std::size_t size)
-    : buf_(new byte[std::max(size, min_read_buffer_size)]),
+    : buf_(new byte[std::max(size, min_read_buffer_size)]()),
       size_(std::max(size, min_read_buffer_size)),
       rd_(std::move(rd)) {}
 
