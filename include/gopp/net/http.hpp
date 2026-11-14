@@ -39,6 +39,10 @@
 #include <vector>
 #endif
 
+namespace gopp::httputil {
+class ReverseProxy;
+}
+
 namespace gopp::http {
 
 namespace internal {
@@ -86,6 +90,7 @@ enum status : int {
     StatusUnsupportedMediaType = 415,
     StatusRequestedRangeNotSatisfiable = 416,
     StatusExpectationFailed = 417,
+    StatusTeapot = 418,
     StatusTooManyRequests = 429,
     StatusRequestHeaderFieldsTooLarge = 431,
     StatusInternalServerError = 500,
@@ -275,6 +280,7 @@ public:
 private:
     friend class ServeMux;
     friend class Transport;
+    friend class httputil::ReverseProxy;  // reads formParsed_, Go's Form != nil
     friend std::pair<ptr<Request>, gopp::error> NewRequestWithContext(ptr<context::Context>, std::string_view,
                                                                          std::string_view, ptr<io::Reader>);
     std::pair<ptr<multipart::Reader>, gopp::error> multipartReader(bool allowMixed);

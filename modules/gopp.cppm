@@ -40,6 +40,7 @@ export import gopp.mime.quotedprintable;
 export import gopp.net;
 export import gopp.net.http;
 export import gopp.net.http.httptest;
+export import gopp.net.http.httputil;
 export import gopp.net.netip;
 export import gopp.net.textproto;
 export import gopp.net.url;
