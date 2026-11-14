@@ -2,6 +2,7 @@
 // SectionReader, OffsetWriter, TeeReader and CopyBuffer tests of
 // io/io_test.go, with Go's test names. Left out: the tests of allocations
 // and call depths.
+#include <gopp/bufio.hpp>
 #include <gopp/bytes.hpp>
 #include <gopp/chan.hpp>
 #include <gopp/io.hpp>
@@ -723,6 +724,41 @@ TEST(GoIO, OffsetWriter_Write) {
     os::Remove(f->Name());
     ASSERT_FALSE(rerr);
     EXPECT_EQ(str(got), content);
+}
+
+// go++: the io::RuneScanners (bufio::Reader, bytes::Reader, bytes::Buffer,
+// strings::NewReader's) read UTF-8 runes, invalid bytes as RuneError of
+// size 1, and unread the last one.
+TEST(IO, RuneScanners) {
+    const std::string text = "aé\xff世";
+    std::vector<ptr<io::RuneScanner>> readers = {
+        make_ptr<bufio::Reader>(strings::NewReader(string(text))),
+        bytes::NewReader(toBytes(text)),
+        bytes::NewBufferString(text),
+        strings::NewReader(string(text)),
+    };
+    for (std::size_t k = 0; k < readers.size(); k++) {
+        auto& r = *readers[k];
+        std::vector<std::pair<rune, int>> got;
+        for (;;) {
+            auto [c, size, err] = r.ReadRune();
+            if (err) {
+                EXPECT_EQ(err, io::EOF_) << k;
+                break;
+            }
+            got.push_back({c, size});
+            if (got.size() == 2) {
+                // Unread é and read it again.
+                ASSERT_FALSE(r.UnreadRune()) << k;
+                auto [c2, size2, err2] = r.ReadRune();
+                EXPECT_EQ(c2, c) << k;
+                EXPECT_EQ(size2, size) << k;
+                EXPECT_FALSE(err2) << k;
+            }
+        }
+        std::vector<std::pair<rune, int>> want = {{'a', 1}, {0xe9, 2}, {0xfffd, 1}, {0x4e16, 3}};
+        EXPECT_EQ(got, want) << k;
+    }
 }
 
 }  // namespace

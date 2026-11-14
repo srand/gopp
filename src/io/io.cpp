@@ -1,4 +1,5 @@
 #include <gopp/io.hpp>
+#include <gopp/unicode/utf8.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -156,6 +157,29 @@ std::pair<int64, error> StringReader::Seek(int64 offset, int whence) {
     if (abs < 0) return {0, errors::New("strings.Reader.Seek: negative position")};
     i_ = static_cast<std::size_t>(abs);
     return {abs, nullptr};
+}
+
+std::tuple<rune, int, error> StringReader::ReadRune() {
+    if (i_ >= s_.size()) {
+        prevRune_ = -1;
+        return {0, 0, EOF_};
+    }
+    prevRune_ = isize(i_);
+    if (byte c = byte(s_[i_]); c < 0x80) {
+        i_++;
+        return {rune(c), 1, nullptr};
+    }
+    auto [r, size] = utf8::DecodeRuneInString(s_.view().substr(i_));
+    i_ += std::size_t(size);
+    return {r, size, nullptr};
+}
+
+error StringReader::UnreadRune() {
+    if (i_ == 0) return errors::New("strings.Reader.UnreadRune: at beginning of string");
+    if (prevRune_ < 0) return errors::New("strings.Reader.UnreadRune: previous operation was not ReadRune");
+    i_ = std::size_t(prevRune_);
+    prevRune_ = -1;
+    return nullptr;
 }
 
 std::pair<isize, error> StringReader::ReadAt(std::span<byte> p, int64 off) {

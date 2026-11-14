@@ -1,5 +1,6 @@
 // After Go's bufio/bufio.Go.
 #include <gopp/bufio.hpp>
+#include <gopp/unicode/utf8.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -9,6 +10,7 @@ namespace gopp::bufio {
 const error ErrBufferFull = errors::New("bufio: buffer full");
 const error ErrNegativeCount = errors::New("bufio: negative count");
 const error ErrInvalidUnreadByte = errors::New("bufio: invalid use of UnreadByte");
+const error ErrInvalidUnreadRune = errors::New("bufio: invalid use of UnreadRune");
 
 namespace {
 constexpr int max_consecutive_empty_reads = 100;
@@ -28,6 +30,7 @@ void Reader::Reset(ptr<io::Reader> rd) {
     r_ = w_ = 0;
     err_ = nullptr;
     last_byte_ = -1;
+    lastRuneSize_ = -1;
 }
 
 error Reader::readErr() {
@@ -82,7 +85,32 @@ std::pair<isize, error> Reader::Read(std::span<byte> p) {
     std::memcpy(p.data(), buf_.get() + r_, n);
     r_ += n;
     last_byte_ = buf_[r_ - 1];
+    lastRuneSize_ = -1;
     return {static_cast<isize>(n), nullptr};
+}
+
+std::tuple<rune, int, error> Reader::ReadRune() {
+    while (r_ + std::size_t(utf8::UTFMax) > w_ && !utf8::FullRune(std::span<const byte>(buf_.get() + r_, w_ - r_)) &&
+           !err_ && w_ - r_ < size_) {
+        fill();  // fill will panic if the buffer is full
+    }
+    lastRuneSize_ = -1;
+    if (r_ == w_) return {0, 0, readErr()};
+    rune r = buf_[r_];
+    int size = 1;
+    if (r >= utf8::RuneSelf) std::tie(r, size) = utf8::DecodeRune(std::span<const byte>(buf_.get() + r_, w_ - r_));
+    r_ += std::size_t(size);
+    last_byte_ = buf_[r_ - 1];
+    lastRuneSize_ = size;
+    return {r, size, nullptr};
+}
+
+error Reader::UnreadRune() {
+    if (lastRuneSize_ < 0 || r_ < std::size_t(lastRuneSize_)) return ErrInvalidUnreadRune;
+    r_ -= std::size_t(lastRuneSize_);
+    last_byte_ = -1;
+    lastRuneSize_ = -1;
+    return nullptr;
 }
 
 std::pair<byte, error> Reader::ReadByte() {
@@ -92,6 +120,7 @@ std::pair<byte, error> Reader::ReadByte() {
     }
     byte c = buf_[r_++];
     last_byte_ = c;
+    lastRuneSize_ = -1;
     return {c, nullptr};
 }
 
@@ -104,11 +133,13 @@ error Reader::UnreadByte() {
     }
     buf_[r_] = static_cast<byte>(last_byte_);
     last_byte_ = -1;
+    lastRuneSize_ = -1;
     return nullptr;
 }
 
 std::pair<std::span<const byte>, error> Reader::Peek(std::size_t n) {
     last_byte_ = -1;
+    lastRuneSize_ = -1;
     while (w_ - r_ < n && w_ - r_ < size_ && !err_) fill();
     if (n > size_) return {std::span<const byte>(buf_.get() + r_, w_ - r_), ErrBufferFull};
     error err;
@@ -190,6 +221,7 @@ std::pair<isize, error> Reader::Discard(isize n) {
     if (n < 0) return {0, ErrNegativeCount};
     if (n == 0) return {0, nullptr};
     last_byte_ = -1;
+    lastRuneSize_ = -1;
     isize remain = n;
     for (;;) {
         std::size_t skip = Buffered();

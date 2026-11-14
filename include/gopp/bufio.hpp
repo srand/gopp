@@ -15,17 +15,23 @@ namespace gopp::bufio {
 extern const error ErrBufferFull;
 extern const error ErrNegativeCount;
 extern const error ErrInvalidUnreadByte;
+extern const error ErrInvalidUnreadRune;
 
 inline constexpr std::size_t DefaultBufSize = 4096;
 
 // bufio.Reader
-class Reader : public io::Reader {
+class Reader : public io::Reader, public io::RuneScanner {
 public:
     explicit Reader(ptr<io::Reader> rd, std::size_t size = DefaultBufSize);
 
     std::pair<isize, error> Read(std::span<byte> p) override;
     std::pair<byte, error> ReadByte();
     error UnreadByte();
+    // Reads a UTF-8 encoded rune: the rune and its size; RuneError of size
+    // 1 for an invalid encoding.
+    std::tuple<rune, int, error> ReadRune() override;
+    // Unreads the last rune; only right after ReadRune.
+    error UnreadRune() override;
 
     // The next n bytes without advancing; valid until the next read.
     std::pair<std::span<const byte>, error> Peek(std::size_t n);
@@ -62,6 +68,7 @@ private:
     std::size_t w_ = 0;
     error err_;
     int last_byte_ = -1;
+    int lastRuneSize_ = -1;
 };
 
 // bufio.Writer

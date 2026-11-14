@@ -77,6 +77,17 @@ struct WriterTo : public virtual object {
     virtual std::pair<int64, error> WriteTo(Writer& w) = 0;
 };
 
+// io.RuneReader: reads one UTF-8 encoded rune at a time: the rune, its
+// size in bytes, and an error.
+struct RuneReader : public virtual object {
+    virtual std::tuple<rune, int, error> ReadRune() = 0;
+};
+
+// io.RuneScanner: a RuneReader that can unread the last rune read.
+struct RuneScanner : public RuneReader {
+    virtual error UnreadRune() = 0;
+};
+
 struct ReadWriter : public Reader, public Writer {};
 struct ReadSeeker : public Reader, public Seeker {};
 struct ReadWriteSeeker : public Reader, public Writer, public Seeker {};
@@ -124,7 +135,7 @@ ptr<Reader> LimitReader(ptr<Reader> r, int64 n);
 ptr<ReadCloser> NopCloser(ptr<Reader> r);
 
 // A Reader over a string (strings.NewReader, Go's strings.Reader).
-class StringReader : public Reader, public Seeker, public ReaderAt {
+class StringReader : public Reader, public Seeker, public ReaderAt, public RuneScanner {
 public:
     explicit StringReader(string s) : s_(std::move(s)) {}
     std::pair<isize, error> Read(std::span<byte> p) override;
@@ -132,6 +143,8 @@ public:
     // returns io::EOF_.
     std::pair<int64, error> Seek(int64 offset, int whence) override;
     std::pair<isize, error> ReadAt(std::span<byte> p, int64 off) override;
+    std::tuple<rune, int, error> ReadRune() override;
+    error UnreadRune() override;
     // The number of unread bytes (Len).
     std::size_t len() const noexcept { return i_ < s_.size() ? s_.size() - i_ : 0; }
     // The length of the whole string (Size).
@@ -140,6 +153,7 @@ public:
 private:
     string s_;
     std::size_t i_ = 0;
+    isize prevRune_ = -1;  // index of previous rune; or < 0
 };
 
 // io.SectionReader: reads n bytes of r from offset off. A ReaderAt, so

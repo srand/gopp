@@ -158,7 +158,7 @@ extern const error ErrTooLarge;
 
 // bytes.Buffer: a buffer of bytes to write to and read from. The zero
 // Buffer is empty and ready to use.
-class Buffer : public io::Reader, public io::Writer, public io::ReaderFrom, public io::WriterTo {
+class Buffer : public io::Reader, public io::Writer, public io::ReaderFrom, public io::WriterTo, public io::RuneScanner {
 public:
     Buffer() = default;
     // A Buffer that starts with buf's contents (bytes.NewBuffer).
@@ -206,9 +206,9 @@ public:
     std::pair<byte, error> ReadByte();
     // The next rune, its size and an error; io::EOF_ if there's nothing to
     // read.
-    std::tuple<rune, int, error> ReadRune();
+    std::tuple<rune, int, error> ReadRune() override;
     // Unreads the last rune of ReadRune.
-    error UnreadRune();
+    error UnreadRune() override;
     // Unreads the last byte of a successful read.
     error UnreadByte();
     // The bytes up to and including delim; with io::EOF_ the rest, if there
@@ -243,7 +243,7 @@ inline ptr<Buffer> NewBuffer(slice<byte> buf) { return make_ptr<Buffer>(std::mov
 inline ptr<Buffer> NewBufferString(std::string_view s) { return make_ptr<Buffer>(toBytes(s)); }
 
 // bytes.Reader: reads from a byte slice.
-class Reader : public io::Reader, public io::Seeker, public io::ReaderAt, public io::WriterTo {
+class Reader : public io::Reader, public io::Seeker, public io::ReaderAt, public io::WriterTo, public io::RuneScanner {
 public:
     // The zero Reader reads an empty slice.
     Reader() = default;
@@ -258,8 +258,8 @@ public:
     std::pair<isize, error> ReadAt(std::span<byte> b, int64 off) override;
     std::pair<byte, error> ReadByte();
     error UnreadByte();
-    std::tuple<rune, int, error> ReadRune();
-    error UnreadRune();
+    std::tuple<rune, int, error> ReadRune() override;
+    error UnreadRune() override;
     // io::Seeker. The offset may go past the end, where Read returns
     // io::EOF_.
     std::pair<int64, error> Seek(int64 offset, int whence) override;
