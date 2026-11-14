@@ -5,6 +5,8 @@
 
 #include <cerrno>
 #include <charconv>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 
 namespace gopp::strconv {
@@ -28,40 +30,136 @@ string FormatUint(uint64 i, int base) {
     return string(buf, static_cast<std::size_t>(r.ptr - buf));
 }
 
-std::pair<int64, error> ParseInt(std::string_view s, int base, int bitSize) {
-    if (s.empty()) return {0, make_ptr<NumError>("ParseInt", string(s), ErrSyntax)};
-    std::string_view t = s;
-    if (t[0] == '+') t.remove_prefix(1);  // from_chars rejects '+'
-    if (base == 0) {
-        base = 10;
-        std::string_view u = t[0] == '-' ? t.substr(1) : t;
-        if (u.size() > 1 && u[0] == '0') {
-            char b = static_cast<char>(u[1] | 0x20);
-            base = b == 'x' ? 16 : b == 'o' ? 8 : b == 'b' ? 2 : 8;
-            (void)b;
+namespace {
+
+error numErr(const char* fn, std::string_view s, const error& e) { return make_ptr<NumError>(string::fromStatic(fn), string(s), e); }
+
+constexpr char lower(char c) noexcept { return static_cast<char>(c | ('x' - 'X')); }
+
+// underscoreOK reports whether the underscores in s are allowed: only
+// with a base prefix, and only between digits or between the prefix and a
+// digit.
+bool underscoreOK(std::string_view s) {
+    // saw tracks the last character (class) we saw: ^ for the beginning,
+    // 0 for a digit or base prefix, _ for an underscore, ! for none of
+    // the above.
+    char saw = '^';
+    std::size_t i = 0;
+    // Optional sign.
+    if (!s.empty() && (s[0] == '-' || s[0] == '+')) s.remove_prefix(1);
+    // Optional base prefix.
+    bool hex = false;
+    if (s.size() >= 2 && s[0] == '0' && (lower(s[1]) == 'b' || lower(s[1]) == 'o' || lower(s[1]) == 'x')) {
+        i = 2;
+        saw = '0';  // base prefix counts as a digit for "underscore as digit separator"
+        hex = lower(s[1]) == 'x';
+    }
+    // Number proper.
+    for (; i < s.size(); i++) {
+        // Digits are always okay.
+        if ((s[i] >= '0' && s[i] <= '9') || (hex && lower(s[i]) >= 'a' && lower(s[i]) <= 'f')) {
+            saw = '0';
+            continue;
         }
-        if (base != 10) return {0, make_ptr<NumError>("ParseInt", string(s), errors::New("base prefixes not supported"))};
+        // Underscore must follow digit.
+        if (s[i] == '_') {
+            if (saw != '0') return false;
+            saw = '_';
+            continue;
+        }
+        // Underscore must also be followed by digit.
+        if (saw == '_') return false;
+        // Saw non-digit, non-underscore.
+        saw = '!';
     }
-    int64 v = 0;
-    auto r = std::from_chars(t.data(), t.data() + t.size(), v, base);
-    if (r.ec == std::errc::result_out_of_range) return {v < 0 ? INT64_MIN : INT64_MAX, make_ptr<NumError>("ParseInt", string(s), ErrRange)};
-    if (r.ec != std::errc() || r.ptr != t.data() + t.size()) return {0, make_ptr<NumError>("ParseInt", string(s), ErrSyntax)};
-    if (bitSize < 64) {
-        int64 lim = int64(1) << (bitSize - 1);
-        if (v >= lim) return {lim - 1, make_ptr<NumError>("ParseInt", string(s), ErrRange)};
-        if (v < -lim) return {-lim, make_ptr<NumError>("ParseInt", string(s), ErrRange)};
-    }
-    return {v, nullptr};
+    return saw != '_';
 }
 
+}  // namespace
+
+// After Go's strconv/atoi.go.
 std::pair<uint64, error> ParseUint(std::string_view s, int base, int bitSize) {
-    if (s.empty() || s[0] == '-' || s[0] == '+') return {0, make_ptr<NumError>("ParseUint", string(s), ErrSyntax)};
-    uint64 v = 0;
-    auto r = std::from_chars(s.data(), s.data() + s.size(), v, base == 0 ? 10 : base);
-    if (r.ec == std::errc::result_out_of_range) return {UINT64_MAX, make_ptr<NumError>("ParseUint", string(s), ErrRange)};
-    if (r.ec != std::errc() || r.ptr != s.data() + s.size()) return {0, make_ptr<NumError>("ParseUint", string(s), ErrSyntax)};
-    if (bitSize < 64 && v >= (uint64(1) << bitSize)) return {(uint64(1) << bitSize) - 1, make_ptr<NumError>("ParseUint", string(s), ErrRange)};
-    return {v, nullptr};
+    if (s.empty()) return {0, numErr("ParseUint", s, ErrSyntax)};
+    bool base0 = base == 0;
+    std::string_view s0 = s;
+    if (base >= 2 && base <= 36) {
+        // valid base; nothing to do
+    } else if (base == 0) {
+        // Look for octal, hex prefix.
+        base = 10;
+        if (s[0] == '0') {
+            if (s.size() >= 3 && lower(s[1]) == 'b') {
+                base = 2;
+                s.remove_prefix(2);
+            } else if (s.size() >= 3 && lower(s[1]) == 'o') {
+                base = 8;
+                s.remove_prefix(2);
+            } else if (s.size() >= 3 && lower(s[1]) == 'x') {
+                base = 16;
+                s.remove_prefix(2);
+            } else {
+                base = 8;
+                s.remove_prefix(1);
+            }
+        }
+    } else {
+        return {0, numErr("ParseUint", s0, errors::New("invalid base " + Itoa(base)))};
+    }
+    if (bitSize == 0) bitSize = 64;
+    else if (bitSize < 0 || bitSize > 64) return {0, numErr("ParseUint", s0, errors::New("invalid bit size " + Itoa(bitSize)))};
+
+    // Cutoff is the smallest number such that cutoff*base > maxUint64.
+    uint64 cutoff = UINT64_MAX / static_cast<uint64>(base) + 1;
+    uint64 maxVal = bitSize == 64 ? UINT64_MAX : (uint64(1) << bitSize) - 1;
+    bool underscores = false;
+    uint64 n = 0;
+    for (char c : s) {
+        uint64 d;
+        if (c == '_' && base0) {
+            underscores = true;
+            continue;
+        } else if (c >= '0' && c <= '9') {
+            d = static_cast<uint64>(c - '0');
+        } else if (lower(c) >= 'a' && lower(c) <= 'z') {
+            d = static_cast<uint64>(lower(c) - 'a' + 10);
+        } else {
+            return {0, numErr("ParseUint", s0, ErrSyntax)};
+        }
+        if (d >= static_cast<uint64>(base)) return {0, numErr("ParseUint", s0, ErrSyntax)};
+        if (n >= cutoff) return {maxVal, numErr("ParseUint", s0, ErrRange)};  // n*base overflows
+        n *= static_cast<uint64>(base);
+        uint64 n1 = n + d;
+        if (n1 < n || n1 > maxVal) return {maxVal, numErr("ParseUint", s0, ErrRange)};  // n+d overflows
+        n = n1;
+    }
+    if (underscores && !underscoreOK(s0)) return {0, numErr("ParseUint", s0, ErrSyntax)};
+    return {n, nullptr};
+}
+
+std::pair<int64, error> ParseInt(std::string_view s, int base, int bitSize) {
+    if (s.empty()) return {0, numErr("ParseInt", s, ErrSyntax)};
+    // Pick off leading sign.
+    std::string_view s0 = s;
+    bool neg = false;
+    if (s[0] == '+') {
+        s.remove_prefix(1);
+    } else if (s[0] == '-') {
+        neg = true;
+        s.remove_prefix(1);
+    }
+    // Convert unsigned and check range.
+    auto [un, err] = ParseUint(s, base, bitSize);
+    if (err) {
+        auto* ne = errors::As<NumError>(err);
+        if (!ne || ne->Err != ErrRange) return {0, numErr("ParseInt", s0, ne ? ne->Err : err)};
+    }
+    if (bitSize == 0) bitSize = 64;
+    uint64 cutoff = uint64(1) << (bitSize - 1);
+    if (!neg && un >= cutoff) return {static_cast<int64>(cutoff - 1), numErr("ParseInt", s0, ErrRange)};
+    if (neg && un > cutoff) return {-static_cast<int64>(cutoff), numErr("ParseInt", s0, ErrRange)};
+    int64 n = static_cast<int64>(un);
+    if (neg) n = static_cast<int64>(0 - un);
+    return {n, nullptr};
 }
 
 std::pair<isize, error> Atoi(std::string_view s) {
@@ -104,8 +202,31 @@ string Quote(std::string_view s) {
 }
 
 string FormatFloat(double f, char fmt, int prec, int bitSize) {
-    if (bitSize != 64) panic("strconv: illegal FormatFloat bitSize");
+    if (bitSize != 64 && bitSize != 32) panic("strconv: illegal FormatFloat bitSize");
+    if (bitSize == 32 && prec < 0 && std::isfinite(f)) {
+        // The shortest digits that read back as the float32: as a decimal,
+        // which the float64 formatting keeps (it has digits to spare).
+        char buf[64];
+        auto r = std::to_chars(buf, buf + sizeof(buf), static_cast<float>(f), std::chars_format::scientific);
+        double d = 0;
+        std::from_chars(buf, r.ptr, d);
+        return string(text::tmpl::detail::formatFloat(d, fmt, prec));
+    }
     return string(text::tmpl::detail::formatFloat(f, fmt, prec));
+}
+
+std::pair<double, error> ParseFloat(std::string_view s, int bitSize) {
+    auto [v, err] = text::tmpl::detail::parseFloat(s);
+    if (err) {
+        bool range = err.Error().view().find("out of range") != std::string_view::npos;
+        if (!range) return {0, numErr("ParseFloat", s, ErrSyntax)};
+        return {bitSize == 32 ? static_cast<float>(v) : v, numErr("ParseFloat", s, ErrRange)};
+    }
+    if (bitSize != 32) return {v, nullptr};
+    // Out of float32's range: ±Inf and ErrRange, as Go.
+    float f = static_cast<float>(v);
+    if (std::isinf(f) && !std::isinf(v)) return {f, numErr("ParseFloat", s, ErrRange)};
+    return {f, nullptr};
 }
 
 }  // namespace gopp::strconv

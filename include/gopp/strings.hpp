@@ -201,14 +201,20 @@ string Itoa(int64 i);
 string FormatInt(int64 i, int base);
 string FormatUint(uint64 i, int base);
 std::pair<isize, error> Atoi(std::string_view s);
+// strconv.ParseInt and ParseUint: base 0 reads Go's prefixes (0x, 0o, 0b,
+// 0 for octal) and underscores between digits; bitSize 0 is int's size.
 std::pair<int64, error> ParseInt(std::string_view s, int base = 10, int bitSize = 64);
 std::pair<uint64, error> ParseUint(std::string_view s, int base = 10, int bitSize = 64);
 std::pair<bool, error> ParseBool(std::string_view s);
 // strconv.Quote, for ASCII and UTF-8 text.
 string Quote(std::string_view s);
 // strconv.FormatFloat for fmt 'e', 'E', 'f', 'g' or 'G': prec digits, or
-// with prec -1 the fewest that read back as f. Only bitSize 64 is
-// supported; others panic.
+// with prec -1 the fewest that read back as f (as a float32 for bitSize
+// 32). bitSize is 32 or 64; others panic.
 string FormatFloat(double f, char fmt, int prec, int bitSize);
+// strconv.ParseFloat: decimal or hexadecimal (0x1p-2) floating point,
+// "inf" and "nan", with underscores after a base prefix; bitSize 32 rounds
+// to float32. Out of range: ±Inf (or 0) and a NumError with ErrRange.
+std::pair<double, error> ParseFloat(std::string_view s, int bitSize);
 
 }  // namespace gopp::strconv
