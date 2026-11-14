@@ -25,6 +25,7 @@ struct Item {
 
 int main() {
     auto mux = http::NewServeMux();
+    
     mux->HandleFunc("GET /items/{id}", [](http::ResponseWriter& w, http::Request& r) {
         auto [item, ok] = db.Lookup(r.PathValue("id"));
         if (!ok) {
@@ -34,8 +35,11 @@ int main() {
         w.Header().Set("Content-Type", "application/json");
         json::NewEncoder(w).Encode(item);        // struct to JSON by C++26 reflection
     });
+    
     http::Server srv{.Addr = ":8080", .Handler = mux};
-    if (auto err = srv.ListenAndServe()) fmt::Println("{}", err);
+    if (auto err = srv.ListenAndServe()) {
+        fmt::Println("{}", err);
+    }
 }
 ```
 
@@ -67,6 +71,7 @@ request, which stay comparable when a laptop throttles. The full table is in
 ```cpp
 // Fetch URLs concurrently; print each result as it arrives, or give up.
 auto results = make_chan<string>(urls.size());
+
 for (const string& u : urls) {
     go([u, results] {
         auto [resp, err] = http::Get(u);
@@ -75,9 +80,17 @@ for (const string& u : urls) {
         results.send(u + ": " + resp->Status);
     });
 }
+
 for (std::size_t i = 0; i < urls.size(); i++) {
-    select(recv(results, [](string line) { fmt::Println("{}", line); }),
-           recv(time::After(2 * time::Second), [] { fmt::Println("timed out"); }));
+    select(
+      recv(results, [](string line) { 
+        fmt::Println("{}", line); 
+      }),
+      
+      recv(time::After(2 * time::Second), [] { 
+        fmt::Println("timed out"); 
+      })
+    );
 }
 ```
 
