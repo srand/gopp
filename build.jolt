@@ -50,6 +50,11 @@ class GoppProject(cxx.Compilation):
     # (negative) branch counts that result.
     cxxflags_coverage_true = ["-fprofile-update=atomic"]
 
+    @property
+    def optimize(self):
+        # Unoptimized with coverage, so that the line counts follow the source.
+        return "none" if self.coverage.is_true else "release"
+
 
 class Gopp(GoppProject, cxx.Library):
     """ The go++ library. """

@@ -143,7 +143,7 @@ const T* makeTval() {
         t.SI = {3, 4, 5};
         t.AI = {3, 4, 5};
         t.PAI = &paiVal;
-        t.SB = {true, false};
+        t.SB = std::vector<bool>{true, false};  // not assign(): a GCC 16 -Warray-bounds false positive at -O2
         t.MSI = {{"one", 1}, {"two", 2}, {"three", 3}};
         t.MSIone = {{"one", 1}};
         t.MII = {{1, 1}};

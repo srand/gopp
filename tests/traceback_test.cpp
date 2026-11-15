@@ -92,9 +92,11 @@ void startBlockedFibers() {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
-// Panics in a fiber, for the stripped copies of this program.
-const bool panicHelper = go_helper::registerHelper("traceback-panic", [](const std::vector<std::string>&) {
-    go([] { panicInFiber(); });
+// Panics in a fiber, for the stripped copies of this program. The lambdas
+// aren't inlined into std::function and std::move_only_function, so that
+// they keep symbols of their own for the traceback to name.
+const bool panicHelper = go_helper::registerHelper("traceback-panic", [] [[gnu::noinline]] (const std::vector<std::string>&) {
+    go([] [[gnu::noinline]] () { panicInFiber(); });
     block();
 });
 
@@ -126,7 +128,9 @@ TEST(Traceback, PanicInFiber) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
-            go([] { panicInFiber(); });
+            // Not inlined: at -O2 a lambda that only calls leaves no frame
+            // or inline record of its own in std::move_only_function.
+            go([] [[gnu::noinline]] () { panicInFiber(); });
             block();
         },
         ExitedWithCode(2),

@@ -2034,7 +2034,7 @@ public:
 
             // Single character or simple range.
             std::string_view rng = t;
-            rune lo, hi;
+            rune lo = 0, hi = 0;
             if (auto err = parseClassChar(t, s, lo, t)) return err;
             hi = lo;
             // [a-] means (a|-) so check for final ].

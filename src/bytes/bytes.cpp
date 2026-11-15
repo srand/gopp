@@ -8,6 +8,11 @@
 #include <cstring>
 #include <limits>
 
+// At -O2, GCC 16 warns that libstdc++'s std::generator frees its frame with
+// the sized operator delete it allocated with ::operator new: a false
+// positive in <generator> itself.
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+
 namespace gopp::bytes {
 
 namespace text = strings::text;

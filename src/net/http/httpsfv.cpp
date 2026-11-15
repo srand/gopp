@@ -334,7 +334,7 @@ std::pair<string, bool> ParseDisplayString(std::string_view s) {
     std::string b;
     for (std::size_t i = 0; i < s.size();) {
         if (s[i] == '%') {
-            unsigned char decoded;
+            unsigned char decoded = 0;
             decOctetHex(s[i + 1], s[i + 2], decoded);
             b.push_back(static_cast<char>(decoded));
             i += 3;

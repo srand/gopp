@@ -583,8 +583,10 @@ std::tuple<std::vector<IPAddr>, dnsmessage::Name, error> goLookupIPCNAMEOrder(Re
     };
     if (!conf) conf = getSystemDNSConfig();
     auto lane = make_chan<result>(1);
-    std::vector<dnsmessage::Type> qtypes = {dnsmessage::TypeA, dnsmessage::TypeAAAA};
-    if (network == "CNAME") qtypes.push_back(dnsmessage::TypeCNAME);
+    // Not push_back onto the two: GCC 16's -Warray-bounds misreads that at -O2.
+    std::vector<dnsmessage::Type> qtypes = network == "CNAME"
+        ? std::vector{dnsmessage::TypeA, dnsmessage::TypeAAAA, dnsmessage::TypeCNAME}
+        : std::vector{dnsmessage::TypeA, dnsmessage::TypeAAAA};
     switch (ipVersion(network)) {
     case '4': qtypes = {dnsmessage::TypeA}; break;
     case '6': qtypes = {dnsmessage::TypeAAAA}; break;
