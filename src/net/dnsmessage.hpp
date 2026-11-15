@@ -220,6 +220,54 @@ struct OPTResource final : ResourceBody {
     error pack(slice<byte>& msg, compressionMap* c, int off) const override;
 };
 
+// SVCParamKey: the key of an SVCB parameter (RFC 9460).
+enum SVCParamKey : uint16 {
+    SVCParamMandatory = 0,
+    SVCParamALPN = 1,
+    SVCParamNoDefaultALPN = 2,
+    SVCParamPort = 3,
+    SVCParamIPv4Hint = 4,
+    SVCParamECH = 5,
+    SVCParamIPv6Hint = 6,
+    SVCParamDOHPath = 7,
+    SVCParamOHTTP = 8,
+    SVCParamTLSSupportedGroups = 9,
+};
+
+// "ALPN", "Port", ...; the number for other keys.
+string SVCParamKeyString(SVCParamKey k);
+
+// SVCParam: a parameter of an SVCB record, its value as on the wire.
+struct SVCParam {
+    SVCParamKey Key = SVCParamMandatory;
+    slice<byte> Value;
+};
+
+// SVCBResource: a service binding record (RFC 9460): a priority (0 for an
+// alias), a target, and parameters in strictly increasing order of key.
+struct SVCBResource : ResourceBody {
+    uint16 Priority = 0;
+    Name Target;
+    std::vector<SVCParam> Params;
+
+    Type realType() const override { return TypeSVCB; }
+    error pack(slice<byte>& msg, compressionMap* c, int off) const override;
+
+    // The value of the parameter of key, if there is one.
+    std::pair<slice<byte>, bool> GetParam(SVCParamKey key) const;
+    // Sets the parameter of key, keeping the order.
+    void SetParam(SVCParamKey key, slice<byte> value);
+    // Removes the parameter of key; whether there was one.
+    bool DeleteParam(SVCParamKey key);
+};
+
+// HTTPSResource: an SVCB record for HTTPS (RFC 9460).
+struct HTTPSResource final : SVCBResource {
+    HTTPSResource() = default;
+    explicit HTTPSResource(SVCBResource r) : SVCBResource(std::move(r)) {}
+    Type realType() const override { return TypeHTTPS; }
+};
+
 struct UnknownResource final : ResourceBody {
     dnsmessage::Type Type = dnsmessage::Type(0);
     slice<byte> Data;
@@ -304,6 +352,8 @@ public:
     std::pair<dnsmessage::AResource, error> AResource();
     std::pair<dnsmessage::AAAAResource, error> AAAAResource();
     std::pair<dnsmessage::OPTResource, error> OPTResource();
+    std::pair<dnsmessage::SVCBResource, error> SVCBResource();
+    std::pair<dnsmessage::HTTPSResource, error> HTTPSResource();
     std::pair<dnsmessage::UnknownResource, error> UnknownResource();
 
 private:
@@ -347,6 +397,8 @@ public:
     error AResource(dnsmessage::ResourceHeader h, const dnsmessage::AResource& r);
     error AAAAResource(dnsmessage::ResourceHeader h, const dnsmessage::AAAAResource& r);
     error OPTResource(dnsmessage::ResourceHeader h, const dnsmessage::OPTResource& r);
+    error SVCBResource(dnsmessage::ResourceHeader h, const dnsmessage::SVCBResource& r);
+    error HTTPSResource(dnsmessage::ResourceHeader h, const dnsmessage::HTTPSResource& r);
     error UnknownResource(dnsmessage::ResourceHeader h, const dnsmessage::UnknownResource& r);
     std::pair<slice<byte>, error> Finish();
 

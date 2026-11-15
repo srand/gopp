@@ -2,6 +2,8 @@
 // Go 1.27.3.
 #include "dnsmessage.hpp"
 
+#include <gopp/strings.hpp>
+
 #include <algorithm>
 #include <cstring>
 
@@ -41,6 +43,8 @@ const error errTooManyAuthorities = errors::New("too many Authorities to pack (>
 const error errTooManyAdditionals = errors::New("too many Additionals to pack (>65535)");
 const error errNonCanonicalName = errors::New("name is not in canonical format (it must end with a .)");
 const error errStringTooLong = errors::New("character string exceeds maximum length (255)");
+const error errParamOutOfOrder = errors::New("parameter out of order");
+const error errTooLongSVCBValue = errors::New("value too long (>65535 bytes)");
 
 // Go's nestedError: an error with the context of where it happened.
 struct nestedError final : errorInterface {
@@ -356,6 +360,56 @@ std::pair<OPTResource, error> unpackOPTResource(const slice<byte>& msg, int off,
     return {r, nullptr};
 }
 
+// Go's unpackSVCBResource: the parameters' values in one buffer.
+std::pair<SVCBResource, error> unpackSVCBResource(const slice<byte>& msg, int off, uint16 length) {
+    SVCBResource r;
+    int bodyEnd = off + int(length);
+    if (bodyEnd > len(msg)) return {{}, errResourceLen};
+    error err;
+    int paramsOff;
+    std::tie(r.Priority, paramsOff, err) = unpackUint16(msg, off);
+    if (err) return {{}, nested("Priority", err)};
+    std::tie(paramsOff, err) = unpackName(r.Target, msg, paramsOff);
+    if (err) return {{}, nested("Target", err)};
+
+    // Count them, and check the order and the lengths.
+    int n = 0;
+    std::size_t totalValueLen = 0;
+    uint16 previousKey = 0;
+    off = paramsOff;
+    while (off < bodyEnd) {
+        uint16 key, size;
+        std::tie(key, off, err) = unpackUint16(msg, off);
+        if (err) return {{}, nested("Params key", err)};
+        if (n > 0 && key <= previousKey) return {{}, nested("Params", errParamOutOfOrder)};
+        std::tie(size, off, err) = unpackUint16(msg, off);
+        if (err) return {{}, nested("Params value length", err)};
+        if (off + int(size) > bodyEnd) return {{}, errResourceLen};
+        totalValueLen += size;
+        off += int(size);
+        previousKey = key;
+        n++;
+    }
+    if (off != bodyEnd) return {{}, errResourceLen};
+
+    auto values = slice<byte>::make(totalValueLen);
+    std::size_t used = 0;
+    off = paramsOff;
+    for (int i = 0; i < n; i++) {
+        uint16 key, size;
+        std::tie(key, off, err) = unpackUint16(msg, off);
+        if (err) return {{}, nested("param key", err)};
+        std::tie(size, off, err) = unpackUint16(msg, off);
+        if (err) return {{}, nested("param length", err)};
+        if (len(msg) - off < int(size)) return {{}, nested("param value", errCalcLen)};
+        std::copy_n(msg.data() + off, size, values.data() + used);
+        r.Params.push_back(SVCParam{SVCParamKey(key), values.Sub(used, used + size)});
+        used += size;
+        off += int(size);
+    }
+    return {r, nullptr};
+}
+
 std::pair<UnknownResource, error> unpackUnknownResource(Type recordType, const slice<byte>& msg, int off,
                                                         uint16 length) {
     UnknownResource r;
@@ -385,6 +439,13 @@ std::tuple<ptr<ResourceBody>, int, error> unpackResourceBody(const slice<byte>& 
     case TypeAAAA: take(unpackAAAAResource(msg, off)), name = "AAAA"; break;
     case TypeSRV: take(unpackSRVResource(msg, off)), name = "SRV"; break;
     case TypeOPT: take(unpackOPTResource(msg, off, hdr.Length)), name = "OPT"; break;
+    case TypeSVCB: take(unpackSVCBResource(msg, off, hdr.Length)), name = "SVCB"; break;
+    case TypeHTTPS: {
+        auto [svcb, e] = unpackSVCBResource(msg, off, hdr.Length);
+        take(std::pair<HTTPSResource, error>{HTTPSResource(std::move(svcb)), e});
+        name = "HTTPS";
+        break;
+    }
     default: take(unpackUnknownResource(hdr.Type, msg, off, hdr.Length)), name = "Unknown"; break;
     }
     if (err) return {nullptr, off, nested(std::string(name) + " record", err)};
@@ -569,6 +630,57 @@ error SRVResource::pack(slice<byte>& msg, compressionMap*, int off) const {
     if (error err = packName(Target, out, nullptr, off)) return nested("SRVResource.Target", err);
     msg = std::move(out);
     return nullptr;
+}
+
+error SVCBResource::pack(slice<byte>& msg, compressionMap*, int off) const {
+    slice<byte> out = packUint16(msg, Priority);
+    // The target isn't compressed (RFC 9460 2.2).
+    if (error err = packName(Target, out, nullptr, off)) return nested("SVCBResource.Target", err);
+    for (std::size_t i = 0; i < Params.size(); i++) {
+        const SVCParam& p = Params[i];
+        if (i > 0 && p.Key <= Params[i - 1].Key) return nested("SVCBResource.Params", errParamOutOfOrder);
+        if (p.Value.size() > 0xffff) return nested("SVCBResource.Params", errTooLongSVCBValue);
+        out = packUint16(std::move(out), p.Key);
+        out = packUint16(std::move(out), uint16(p.Value.size()));
+        out = appendSpan(std::move(out), std::span<const byte>(p.Value));
+    }
+    msg = std::move(out);
+    return nullptr;
+}
+
+std::pair<slice<byte>, bool> SVCBResource::GetParam(SVCParamKey key) const {
+    for (auto& p : Params) {
+        if (p.Key == key) return {p.Value, true};
+        if (p.Key > key) break;
+    }
+    return {{}, false};
+}
+
+void SVCBResource::SetParam(SVCParamKey key, slice<byte> value) {
+    auto it = std::find_if(Params.begin(), Params.end(), [key](const SVCParam& p) { return p.Key >= key; });
+    if (it != Params.end() && it->Key == key) {
+        it->Value = std::move(value);
+        return;
+    }
+    Params.insert(it, SVCParam{key, std::move(value)});
+}
+
+bool SVCBResource::DeleteParam(SVCParamKey key) {
+    for (auto it = Params.begin(); it != Params.end(); ++it) {
+        if (it->Key == key) {
+            Params.erase(it);
+            return true;
+        }
+        if (it->Key > key) break;
+    }
+    return false;
+}
+
+string SVCParamKeyString(SVCParamKey k) {
+    static constexpr std::string_view names[] = {"Mandatory", "ALPN", "NoDefaultALPN", "Port", "IPv4Hint",
+                                                  "ECH", "IPv6Hint", "DOHPath", "OHTTP", "TLSSupportedGroups"};
+    if (k < std::size(names)) return string(names[k]);
+    return strconv::Itoa(k);
 }
 
 error AResource::pack(slice<byte>& msg, compressionMap*, int) const {
@@ -838,6 +950,15 @@ std::pair<TXTResource, error> Parser::TXTResource() {
 std::pair<SRVResource, error> Parser::SRVResource() {
     return body<dnsmessage::SRVResource>(TypeSRV, [&] { return unpackSRVResource(msg_, off_); });
 }
+std::pair<SVCBResource, error> Parser::SVCBResource() {
+    return body<dnsmessage::SVCBResource>(TypeSVCB, [&] { return unpackSVCBResource(msg_, off_, resHeaderLength_); });
+}
+std::pair<HTTPSResource, error> Parser::HTTPSResource() {
+    return body<dnsmessage::HTTPSResource>(TypeHTTPS, [&] {
+        auto [r, err] = unpackSVCBResource(msg_, off_, resHeaderLength_);
+        return std::pair<dnsmessage::HTTPSResource, error>{dnsmessage::HTTPSResource(std::move(r)), err};
+    });
+}
 std::pair<AResource, error> Parser::AResource() {
     return body<dnsmessage::AResource>(TypeA, [&] { return unpackAResource(msg_, off_); });
 }
@@ -1014,6 +1135,12 @@ error Builder::TXTResource(dnsmessage::ResourceHeader h, const dnsmessage::TXTRe
 }
 error Builder::SRVResource(dnsmessage::ResourceHeader h, const dnsmessage::SRVResource& r) {
     return addResource(h, r, "SRVResource");
+}
+error Builder::SVCBResource(dnsmessage::ResourceHeader h, const dnsmessage::SVCBResource& r) {
+    return addResource(h, r, "SVCBResource");
+}
+error Builder::HTTPSResource(dnsmessage::ResourceHeader h, const dnsmessage::HTTPSResource& r) {
+    return addResource(h, r, "HTTPSResource");
 }
 error Builder::AResource(dnsmessage::ResourceHeader h, const dnsmessage::AResource& r) {
     return addResource(h, r, "AResource");

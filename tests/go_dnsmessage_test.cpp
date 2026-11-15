@@ -3,9 +3,11 @@
 //
 // Left out: the tests of unexported helpers (printUint16 and friends, and
 // the ones that build a Parser's fields by hand), the GoString and
-// allocation tests, and the SVCB/HTTPS cases (go++ parses those records as
-// UnknownResource). reflect.DeepEqual of messages is a comparison of their
-// fields, with resource bodies compared by their packed form.
+// allocation tests. svcb_test.go's tests are here too (from v0.60.0, which
+// adds TestSVCBUnpackOutOfBounds), through whole messages where Go's call the
+// unexported pack and unpack functions. reflect.DeepEqual of messages is a
+// comparison of their fields, with resource bodies compared by their packed
+// form.
 #include "net/dnsmessage.hpp"
 
 #include <gtest/gtest.h>
@@ -140,6 +142,23 @@ Message largeTestMsg() {
     return m;
 }
 
+Message buildTestSVCBMsg() {
+    auto svcb = make_ptr<SVCBResource>();
+    svcb->Priority = 1;
+    svcb->Target = MustNewName("svc.example.com.");
+    svcb->Params = {SVCParam{SVCParamALPN, bytesOf({'h', '2'})}};
+    auto https = make_ptr<HTTPSResource>();
+    https->Priority = 2;
+    https->Target = MustNewName("https.example.com.");
+    https->Params = {SVCParam{SVCParamPort, bytesOf({0x01, 0xbb})}, SVCParam{SVCParamIPv4Hint, bytesOf({192, 0, 2, 1})}};
+    Message m;
+    m.Answers = {
+        res(rh(MustNewName("foo.bar.example.com."), TypeSVCB), svcb),
+        res(rh(MustNewName("foo.bar.example.com."), TypeHTTPS), https),
+    };
+    return m;
+}
+
 Message smallTestMsgWithUnknownResource() {
     Message m;
     ResourceHeader h = rh(MustNewName("."), privateUseType);
@@ -221,13 +240,15 @@ TEST(GoDNSMessage, ResourceNotStarted) {
     EXPECT_EQ(p.SRVResource().second, ErrNotStarted);
     EXPECT_EQ(p.AResource().second, ErrNotStarted);
     EXPECT_EQ(p.AAAAResource().second, ErrNotStarted);
+    EXPECT_EQ(p.SVCBResource().second, ErrNotStarted);
+    EXPECT_EQ(p.HTTPSResource().second, ErrNotStarted);
     EXPECT_EQ(p.UnknownResource().second, ErrNotStarted);
 }
 
 TEST(GoDNSMessage, DNSPackUnpack) {
     Message small;
     small.Questions = {question(".", TypeAAAA)};
-    std::vector<Message> wants = {small, largeTestMsg()};
+    std::vector<Message> wants = {small, largeTestMsg(), buildTestSVCBMsg()};
     for (std::size_t i = 0; i < wants.size(); i++) {
         auto& want = wants[i];
         auto [b, err] = want.Pack();
@@ -241,7 +262,7 @@ TEST(GoDNSMessage, DNSPackUnpack) {
 TEST(GoDNSMessage, DNSAppendPackUnpack) {
     Message small;
     small.Questions = {question(".", TypeAAAA)};
-    std::vector<Message> wants = {small, largeTestMsg()};
+    std::vector<Message> wants = {small, largeTestMsg(), buildTestSVCBMsg()};
     for (std::size_t i = 0; i < wants.size(); i++) {
         auto& want = wants[i];
         auto [b, err] = want.AppendPack(slice<byte>::make(2, 514));
@@ -386,6 +407,8 @@ TEST(GoDNSMessage, BuilderResourceError) {
         EXPECT_EQ(b.PTRResource(ResourceHeader{}, PTRResource{}), want);
         EXPECT_EQ(b.SOAResource(ResourceHeader{}, SOAResource{}), want);
         EXPECT_EQ(b.SRVResource(ResourceHeader{}, SRVResource{}), want);
+        EXPECT_EQ(b.SVCBResource(ResourceHeader{}, SVCBResource{}), want);
+        EXPECT_EQ(b.HTTPSResource(ResourceHeader{}, HTTPSResource{}), want);
         EXPECT_EQ(b.TXTResource(ResourceHeader{}, TXTResource{}), want);
         EXPECT_EQ(b.UnknownResource(ResourceHeader{}, UnknownResource{}), want);
     };
@@ -650,4 +673,191 @@ TEST(GoDNSMessage, BuilderCompressionInAppendMode) {
         0xC0, 12, 0, 0, 0, 0,                            // question 2
     };
     EXPECT_EQ(asStringView(msg.Sub(maxPtr)), asStringView(expect));
+}
+
+// ---------------------------------------------------------------------------
+// svcb_test.go
+
+namespace {
+
+// A message whose one answer has the SVCB record body, as on the wire.
+slice<byte> svcbMessage(const std::vector<byte>& body, Type t = TypeSVCB) {
+    std::vector<byte> m = {0x00, 0x01, 0x84, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,  // header, 1 answer
+                           0x00,                                                                  // name "."
+                           byte(t >> 8), byte(t), 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+                           byte(body.size() >> 8), byte(body.size())};
+    m.insert(m.end(), body.begin(), body.end());
+    return slice<byte>::of(m);
+}
+
+std::string packBody(const ResourceBody& r) {
+    slice<byte> out;
+    if (error err = r.pack(out, nullptr, 0)) {
+        ADD_FAILURE() << "pack() = " << err;
+        return {};
+    }
+    return std::string(asStringView(out));
+}
+
+std::string paramsString(const std::vector<SVCParam>& ps) {
+    std::string s;
+    for (auto& p : ps) s += std::to_string(p.Key) + "=" + std::string(asStringView(p.Value)) + ";";
+    return s;
+}
+
+}  // namespace
+
+TEST(GoDNSMessage, SVCBParamsRoundTrip) {
+    std::vector<SVCParam> params = {
+        {SVCParamMandatory, bytesOf({0x00, 0x01, 0x00, 0x03, 0x00, 0x05})},
+        {SVCParamALPN, bytesOf({0x02, 'h', '2', 0x02, 'h', '3'})},
+        {SVCParamNoDefaultALPN, bytesOf({})},
+        {SVCParamPort, bytesOf({0x1f, 0x90})},  // 8080
+        {SVCParamIPv4Hint, bytesOf({192, 0, 2, 1, 198, 51, 100, 2})},
+        {SVCParamECH, bytesOf({0x01, 0x02, 0x03, 0x04})},
+        {SVCParamIPv6Hint, bytesOf({0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})},
+        {SVCParamDOHPath, slice<byte>::of(as_bytes("/dns-query{?dns}"))},
+        {SVCParamOHTTP, bytesOf({0x00, 0x01, 0x02, 0x03})},
+        {SVCParamTLSSupportedGroups, bytesOf({0x00, 0x1d, 0x00, 0x17})},
+    };
+    for (auto& p : params) {
+        SVCBResource rr;
+        rr.Priority = 1;
+        rr.Target = MustNewName("svc.example.com.");
+        rr.Params = {p};
+        std::string packed = packBody(rr);
+        Message got;
+        ASSERT_FALSE(got.Unpack(svcbMessage(std::vector<byte>(packed.begin(), packed.end())))) << p.Key;
+        auto* r = dynamic_cast<SVCBResource*>(got.Answers.at(0).Body.get());
+        ASSERT_TRUE(r) << p.Key;
+        EXPECT_EQ(r->Priority, 1);
+        EXPECT_EQ(r->Target.String(), "svc.example.com.");
+        EXPECT_EQ(paramsString(r->Params), paramsString(rr.Params));
+    }
+}
+
+TEST(GoDNSMessage, SVCBParams) {
+    SVCBResource rr;
+    rr.Priority = 1;
+    rr.Target = MustNewName("svc.example.com.");
+    EXPECT_FALSE(rr.GetParam(SVCParamALPN).second) << "GetParam found non-existent param";
+    rr.SetParam(SVCParamIPv4Hint, bytesOf({192, 0, 2, 1}));
+    auto inALPN = bytesOf({0x02, 'h', '2', 0x02, 'h', '3'});
+    rr.SetParam(SVCParamALPN, inALPN);
+
+    // The params are sorted.
+    std::vector<byte> expected = {
+        0x00, 0x01,                                                                                     // priority
+        0x03, 0x73, 0x76, 0x63, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00,  // target
+        0x00, 0x01, 0x00, 0x06, 0x02, 'h', '2', 0x02, 'h', '3',                                          // key 1
+        0x00, 0x04, 0x00, 0x04, 192, 0, 2, 1,                                                            // key 4
+    };
+    EXPECT_EQ(packBody(rr), std::string(expected.begin(), expected.end()));
+
+    auto [outALPN, ok] = rr.GetParam(SVCParamALPN);
+    EXPECT_TRUE(ok && asStringView(outALPN) == asStringView(inALPN)) << "GetParam failed to retrieve set param";
+    EXPECT_TRUE(rr.DeleteParam(SVCParamALPN)) << "DeleteParam failed to remove existing param";
+    EXPECT_FALSE(rr.GetParam(SVCParamALPN).second) << "GetParam found deleted param";
+    ASSERT_EQ(rr.Params.size(), 1u);
+    EXPECT_EQ(rr.Params[0].Key, SVCParamIPv4Hint) << "DeleteParam removed wrong param";
+}
+
+TEST(GoDNSMessage, SVCBWireFormat) {
+    // RFC 9460's test vectors.
+    auto testRecord = [](const std::vector<byte>& bytes, uint16 priority, std::string_view target, std::vector<SVCParam> params) {
+        Message got;
+        ASSERT_FALSE(got.Unpack(svcbMessage(bytes)));
+        auto* r = dynamic_cast<SVCBResource*>(got.Answers.at(0).Body.get());
+        ASSERT_TRUE(r);
+        EXPECT_EQ(r->Priority, priority);
+        EXPECT_EQ(r->Target.String(), target);
+        EXPECT_EQ(paramsString(r->Params), paramsString(params));
+        SVCBResource in;
+        in.Priority = priority;
+        in.Target = MustNewName(target);
+        in.Params = params;
+        EXPECT_EQ(packBody(in), std::string(bytes.begin(), bytes.end()));
+    };
+    const std::vector<byte> fooExampleCom = {0x03, 'f', 'o', 'o', 0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00};
+    const std::vector<byte> fooExampleOrg = {0x03, 'f', 'o', 'o', 0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'o', 'r', 'g', 0x00};
+    auto cat = [](std::initializer_list<std::vector<byte>> parts) {
+        std::vector<byte> out;
+        for (auto& p : parts) out.insert(out.end(), p.begin(), p.end());
+        return out;
+    };
+
+    // Figure 2: AliasMode: example.com. HTTPS 0 foo.example.com.
+    testRecord(cat({{0x00, 0x00}, fooExampleCom}), 0, "foo.example.com.", {});
+    // Figure 3: TargetName Is ".": example.com. SVCB 1 .
+    testRecord({0x00, 0x01, 0x00}, 1, ".", {});
+    // Figure 4: Specifies a Port: example.com. SVCB 16 foo.example.com. port=53
+    testRecord(cat({{0x00, 0x10}, fooExampleCom, {0x00, 0x03, 0x00, 0x02, 0x00, 0x35}}), 16, "foo.example.com.",
+               {{SVCParamPort, bytesOf({0x00, 0x35})}});
+    // Figure 5: A Generic Key and Unquoted Value: key667=hello
+    testRecord(cat({{0x00, 0x01}, fooExampleCom, {0x02, 0x9b, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'}}), 1, "foo.example.com.",
+               {{SVCParamKey(667), slice<byte>::of(as_bytes("hello"))}});
+    // Figure 6: A Generic Key and Quoted Value with a Decimal Escape: key667="hello\210qoo"
+    testRecord(cat({{0x00, 0x01}, fooExampleCom, {0x02, 0x9b, 0x00, 0x09, 'h', 'e', 'l', 'l', 'o', 0xd2, 'q', 'o', 'o'}}), 1,
+               "foo.example.com.", {{SVCParamKey(667), slice<byte>::of(as_bytes("hello\xd2qoo"))}});
+    // Figure 7: Two Quoted IPv6 Hints: ipv6hint="2001:db8::1,2001:db8::53:1"
+    std::vector<byte> two = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01,
+                             0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x53, 0, 0x01};
+    testRecord(cat({{0x00, 0x01}, fooExampleCom, {0x00, 0x06, 0x00, 0x20}, two}), 1, "foo.example.com.",
+               {{SVCParamIPv6Hint, slice<byte>::of(two)}});
+    // Figure 8: An IPv6 Hint Using the Embedded IPv4 Syntax: ipv6hint="2001:db8:122:344::192.0.2.33"
+    std::vector<byte> embedded = {0x20, 0x01, 0x0d, 0xb8, 0x01, 0x22, 0x03, 0x44, 0, 0, 0, 0, 0xc0, 0x00, 0x02, 0x21};
+    testRecord(cat({{0x00, 0x01, 0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00, 0x00, 0x06, 0x00, 0x10}, embedded}),
+               1, "example.com.", {{SVCParamIPv6Hint, slice<byte>::of(embedded)}});
+    // Figure 9: Key Order Is Arbitrary in Presentation Format but Sorted on the Wire
+    testRecord(cat({{0x00, 0x10}, fooExampleOrg,
+                    {0x00, 0x00, 0x00, 0x04, 0x00, 0x01, 0x00, 0x04,                          // mandatory=alpn,ipv4hint
+                     0x00, 0x01, 0x00, 0x09, 0x02, 'h', '2', 0x05, 'h', '3', '-', '1', '9',  // alpn=h2,h3-19
+                     0x00, 0x04, 0x00, 0x04, 0xc0, 0x00, 0x02, 0x01}}),                      // ipv4hint=192.0.2.1
+               16, "foo.example.org.",
+               {{SVCParamMandatory, bytesOf({0x00, 0x01, 0x00, 0x04})},
+                {SVCParamALPN, bytesOf({0x02, 'h', '2', 0x05, 'h', '3', '-', '1', '9'})},
+                {SVCParamIPv4Hint, bytesOf({0xc0, 0x00, 0x02, 0x01})}});
+    // Figure 10: An "alpn" Value with an Escaped Comma and an Escaped Backslash
+    testRecord(cat({{0x00, 0x10}, fooExampleOrg, {0x00, 0x01, 0x00, 0x0c, 0x08, 'f', '\\', 'o', 'o', ',', 'b', 'a', 'r', 0x02, 'h', '2'}}),
+               16, "foo.example.org.", {{SVCParamALPN, bytesOf({0x08, 'f', '\\', 'o', 'o', ',', 'b', 'a', 'r', 0x02, 'h', '2'})}});
+}
+
+TEST(GoDNSMessage, SVCBPackErrors) {
+    auto record = [](std::vector<SVCParam> params) {
+        SVCBResource r;
+        r.Target = MustNewName("example.com.");
+        r.Params = std::move(params);
+        return r;
+    };
+    std::pair<std::string, SVCBResource> tests[] = {
+        {"long value", record({{SVCParamMandatory, slice<byte>::make(0x10000)}})},
+        {"out-of-order keys", record({{SVCParamPort, slice<byte>::of(as_bytes("443"))}, {SVCParamALPN, slice<byte>::of(as_bytes("h2"))}})},
+        {"duplicate keys", record({{SVCParamALPN, slice<byte>::of(as_bytes("h3"))}, {SVCParamALPN, slice<byte>::of(as_bytes("h2"))}})},
+    };
+    for (auto& [name, r] : tests) {
+        ResourceHeader h;
+        h.Name = MustNewName("example.com.");
+        auto b = NewBuilder({}, Header{});
+        b.StartQuestions();
+        b.StartAnswers();
+        EXPECT_TRUE(b.SVCBResource(h, r)) << name << ": b.SVCBResource() succeeded; want error";
+        b = NewBuilder({}, Header{});
+        b.StartQuestions();
+        b.StartAnswers();
+        EXPECT_TRUE(b.HTTPSResource(h, HTTPSResource(r))) << name << ": b.HTTPSResource() succeeded; want error";
+    }
+}
+
+TEST(GoDNSMessage, SVCBUnpackOutOfBounds) {
+    // An SVCB record whose header Length (65535) exceeds the message.
+    std::vector<byte> msg = {
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,  // header
+        0x00,                                                                  // name "."
+        0x00, 0x40, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,                        // SVCB, INET, TTL
+        0xff, 0xff,                                                            // length 65535 (spoofed)
+        0x00, 0x01, 0x00,                                                      // priority, target
+        0x00, 0x01, 0xff, 0xf8,                                                // a key, a length
+    };
+    Message m;
+    EXPECT_TRUE(m.Unpack(slice<byte>::of(msg))) << "expected error parsing malformed message, got nil";
 }

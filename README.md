@@ -143,7 +143,7 @@ all park instead of blocking the thread.
 | `vfs` | File systems to read and write, as Hugo and other cobra programs use them: spf13/afero (v1.15.0), ported. `vfs::Fs` and `vfs::File` are afero's interfaces; `NewOsFs()` is the disk and `NewMemoryFs()` a tree in memory (afero's `MemMapFs`), for tests that don't touch the disk. Layers wrap them: `BasePathFs` (a directory as the root), `ReadOnlyFs`, `RegexpFs` (only matching files), `CopyOnWriteFs` (a writable layer over a base it leaves alone, with merged directories) and `CacheOnReadFs`. `IOFS` makes an `Fs` an `fs::FS`, for `io/fs` and `http::FileServerFS`, and `FromIOFS` the reverse; `HttpFs` (`<gopp/vfs/http.hpp>`) serves one with `http::FileServer`. afero's helpers: `ReadFile`, `WriteFile`, `ReadDir`, `TempFile`, `TempDir`, `Walk`, `Glob`, `Exists`, `DirExists`, `IsEmpty`, `WriteReader`, ..., and the `Vfs` struct (afero's `Afero`) with them as methods |
 | `io`, `bufio`, `fmt`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `io`'s `Pipe` (parking fibers), `MultiReader`, `MultiWriter`, `TeeReader`, `SectionReader`, `OffsetWriter` and `RuneReader`/`RuneScanner` (`bufio::Reader` reads runes too), and `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists), and Go's whole `flag` (`flag::String`/`Int`/... and their Var forms, `Func`/`BoolFunc`, `TextVar`, custom `Value`s, `FlagSet` with `ErrorHandling`, `Visit`/`Lookup`/`Set`, and Go's usage output) |
 
-**Tested against Go's own tests.** 2527 unit tests, 1877 of them ported
+**Tested against Go's own tests.** 2532 unit tests, 1877 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its trailer, `ResponseController` and hijacking tests, its HTTP/2 server, priority and server push tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), its form, multipart request and `MaxBytesReader` tests, its Transport's gzip tests, `net/http/httputil`'s reverse proxy tests (with WebSocket proxying), `sync/atomic`'s tests, `container/heap`'s and `container/list`'s tests, `regexp`'s and `regexp/syntax`'s tests (with RE2's search tests and the AT&T POSIX tests), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -160,7 +160,7 @@ calendar, monotonic clock and zoneinfo tests (against the system's
 tzdata), `net`'s
 address, dialing and listening, TCP, UDP, Unix socket, raw IP, interface,
 DNS client and resolver configuration tests (against Go's fake DNS server
-and testdata), `net/netip`'s and `dnsmessage`'s tests, `sort`'s, `slices`', `maps`' and `cmp`'s tests, `log`'s and `log/slog`'s tests, `io`'s pipe, multi-reader and section reader tests, `net/textproto`'s, `mime/quotedprintable`'s and `mime/multipart`'s tests, `strings`', `bytes`', `unicode`'s, `unicode/utf8`'s and `path/filepath`'s tests, and the test vectors and tests of `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `rand` and `subtle`, `encoding/hex` and `encoding/base64`, `encoding/binary`'s and `encoding/csv`'s tests, `html`'s, `compress/gzip`'s, `compress/zlib`'s and `compress/flate`'s decoding tests and vectors, and `hash/crc32`'s and `hash/adler32`'s golden values. They keep Go's
+and testdata), `net/netip`'s and `dnsmessage`'s tests (with SVCB and HTTPS records), `sort`'s, `slices`', `maps`' and `cmp`'s tests, `log`'s and `log/slog`'s tests, `io`'s pipe, multi-reader and section reader tests, `net/textproto`'s, `mime/quotedprintable`'s and `mime/multipart`'s tests, `strings`', `bytes`', `unicode`'s, `unicode/utf8`'s and `path/filepath`'s tests, and the test vectors and tests of `crypto/sha256`, `sha512`, `sha1`, `md5`, `hmac`, `rand` and `subtle`, `encoding/hex` and `encoding/base64`, `encoding/binary`'s and `encoding/csv`'s tests, `html`'s, `compress/gzip`'s, `compress/zlib`'s and `compress/flate`'s decoding tests and vectors, and `hash/crc32`'s and `hash/adler32`'s golden values. They keep Go's
 test names and tables. The SQLite driver runs 59 tests ported from
 `mattn/go-sqlite3`'s, `cmd` and `pflag` 192 ported from cobra's and pflag's, and `vfs` 97 ported from afero's.
 
@@ -371,8 +371,7 @@ what it doesn't do yet:
   far.
 - **Name resolution is Go's own resolver only**, as `GODEBUG=netdns=go`
   has it: `/etc/hosts`, then DNS. Name service switch modules such as
-  `mdns4` or `myhostname` aren't consulted, and DNS SVCB and HTTPS records
-  parse as unknown records.
+  `mdns4` or `myhostname` aren't consulted.
 - **x86-64 only for now.** The code supports ARM64, but it isn't built or
   tested there yet.
 - **Request contexts notice a client going away only when asked for.** As
