@@ -64,16 +64,12 @@ private:
 // One-shot wakeup of a sleeping thread (Go's note).
 class note {
 public:
-    void sleep() noexcept {
-        while (key_.load(std::memory_order_acquire) == 0) key_.wait(0, std::memory_order_acquire);
-    }
-    void wakeup() noexcept {
-        key_.store(1, std::memory_order_release);
-        key_.notify_one();
-    }
+    void sleep() noexcept;
+    void wakeup() noexcept;
     void clear() noexcept { key_.store(0, std::memory_order_relaxed); }
 
 private:
+    // 0: not woken, 1: woken, 2: the sleeper waits in the kernel.
     std::atomic<uint32_t> key_{0};
 };
 
