@@ -105,6 +105,70 @@ private:
 
 class response;
 
+// The reader under the connection's bufio::Reader (Go's connReader): while
+// a handler runs with the request body read, it reads one byte in the
+// background, to notice the client going away and cancel the request's
+// context. A byte it gets (the next request, pipelined) comes back first.
+class connReader final : public io::Reader {
+public:
+    explicit connReader(ptr<net::Conn> c) : rwc_(std::move(c)) {}
+
+    std::pair<isize, gopp::error> Read(std::span<byte> p) override {
+        // Never while the background read runs: the server aborts it first.
+        if (p.empty()) return {0, nullptr};
+        if (hasByte_) {
+            hasByte_ = false;
+            p[0] = byteBuf_;
+            return {1, nullptr};
+        }
+        return rwc_->Read(p);
+    }
+
+    // Starts the background read; cancel is called if it fails other than
+    // by abortPendingRead (the client is gone).
+    void startBackgroundRead(std::function<void()> cancel) {
+        std::lock_guard l(mu_);
+        if (inRead_ || hasByte_) return;
+        inRead_ = true;
+        rwc_->SetReadDeadline(time::Time{});
+        ptr<connReader> self(this);
+        go([self, cancel = std::move(cancel)] {
+            auto [n, err] = self->rwc_->Read(std::span<byte>(&self->byteBuf_, 1));
+            std::function<void()> fn;
+            {
+                std::lock_guard l(self->mu_);
+                if (n == 1) self->hasByte_ = true;
+                if (err && !self->aborted_) fn = cancel;  // not our own abort: the client is gone
+                self->inRead_ = false;
+                self->cond_.Broadcast();
+            }
+            if (fn) fn();
+        });
+    }
+
+    // Stops the background read, if any, and waits for it.
+    void abortPendingRead() {
+        std::unique_lock l(mu_);
+        if (!inRead_) return;
+        aborted_ = true;
+        rwc_->SetReadDeadline(time::Unix(1, 0));  // a long time ago
+        while (inRead_) cond_.Wait();
+        rwc_->SetReadDeadline(time::Time{});
+        aborted_ = false;
+    }
+
+    bool hasByte() const noexcept { return hasByte_; }
+
+private:
+    ptr<net::Conn> rwc_;
+    sync::Mutex mu_;
+    sync::Cond cond_{&mu_};
+    bool inRead_ = false;
+    bool aborted_ = false;
+    bool hasByte_ = false;
+    byte byteBuf_ = 0;
+};
+
 }  // namespace
 
 namespace detail {
@@ -133,7 +197,8 @@ public:
           disableClientPriority_(srv.DisableClientPriority),
           state_(std::move(st)),
           rwc(std::move(rwc)),
-          bufr(make_ptr<bufio::Reader>(this->rwc, 4096)),
+          cr(make_ptr<connReader>(this->rwc)),
+          bufr(make_ptr<bufio::Reader>(cr, 4096)),
           bufw(make_ptr<connWriter>(this), 4096),
           protocols_(srv.Protocols.value_or(DefaultProtocols())) {
         if (!handler_) handler_ = ptr<Handler>(&DefaultServeMux());
@@ -144,6 +209,13 @@ public:
     // Hands the connection to a handler (Go's hijackLocked): the server
     // forgets it.
     std::tuple<ptr<net::Conn>, ptr<bufio::ReadWriter>, gopp::error> hijack() {
+        cr->abortPendingRead();
+        // A byte the background read got goes to the hijacker, in bufr.
+        if (cr->hasByte()) {
+            if (auto [_, err] = bufr->Peek(bufr->Buffered() + 1); err) {
+                return {nullptr, nullptr, errors::New("unexpected Peek failure reading buffered byte: " + std::string(err.Error().view()))};
+            }
+        }
         hijacked = true;
         rwc->SetDeadline(time::Time{});
         {
@@ -191,6 +263,7 @@ public:
     std::shared_ptr<detail::serverState> state_;
 
     ptr<net::Conn> rwc;
+    ptr<connReader> cr;
     string RemoteAddr;
     ptr<bufio::Reader> bufr;
     bufio::Writer bufw;
@@ -237,7 +310,8 @@ class response final : public ResponseWriter,
                        public Hijacker,
                        public io::ReaderFrom,
                        public internal::requestTooLarger,
-                       public internal::responseControl {
+                       public internal::responseControl,
+                       public detail::contextHook {
 public:
     response(conn* c, Request* req) : c_(c), req_(req) {
         wants10KeepAlive_ = !req->ProtoAtLeast(1, 1) && internal::hasToken(req->Header.Get("Connection"), "keep-alive");
@@ -388,6 +462,29 @@ public:
         }
         c_->bufw.Flush();
         return c_->hijack();
+    }
+
+    // The handler asked for the request's context: once the body is
+    // read, watch for the client going away (Go always does; go++ only
+    // when someone may wait on the context).
+    void contextRequested() override {
+        if (c_->hijacked) return;
+        conn* c = c_;
+        auto start = [c] {
+            c->cr->startBackgroundRead([c] {
+                if (c->curReq) c->curReq->CancelContext();
+            });
+        };
+        internal::bodyReader* b = requestBody();
+        if (b && !b->sawEof()) b->setOnEOF(start);
+        else start();
+    }
+
+    // The handler returned: no more watching.
+    void handlerReturned() {
+        detail::contextHook::set(*req_, nullptr);
+        if (internal::bodyReader* b = requestBody()) b->setOnEOF(nullptr);
+        if (!c_->hijacked) c_->cr->abortPendingRead();
     }
 
     gopp::error flushError() override {
@@ -800,6 +897,7 @@ void conn::serve() {
 
         response w(this, req.get());
         curReq = req.get();
+        detail::contextHook::set(*req, &w);
         // A handler that throws, as a Go handler panics, drops the
         // connection; throwing ErrAbortHandler does so without a log.
         std::optional<std::string> panicked;
@@ -810,6 +908,7 @@ void conn::serve() {
         } catch (const std::exception& e) {
             panicked = e.what();
         }
+        w.handlerReturned();
         if (panicked) {
             if (!panicked->empty()) logf("http: panic serving " + std::string(RemoteAddr.view()) + ": " + *panicked);
             req->CancelContext();

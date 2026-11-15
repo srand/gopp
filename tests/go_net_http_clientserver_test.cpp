@@ -9,7 +9,9 @@
 // Trailer is empty until then.
 #include "net/http/internal.hpp"
 
+#include <gopp/bufio.hpp>
 #include <gopp/chan.hpp>
+#include <gopp/context.hpp>
 #include <gopp/io.hpp>
 #include <gopp/net.hpp>
 #include <gopp/os.hpp>
@@ -516,6 +518,116 @@ TEST(GoNetHttpServe, ServerHijackGetsFullBody) {
         conn->Close();
     });
     io::WriteString(*t.conn, "GET / HTTP/1.1\r\nHost: e.com\r\n\r\n" + needle);
+    ASSERT_FALSE(dynamic_cast<net::TCPConn&>(*t.conn).CloseWrite());
+    done.recv();
+}
+
+// ---------------------------------------------------------------------------
+// Request contexts (serve_test.go)
+
+TEST_P(GoNetHttpClientServer, ServerRequestContextCancel_ServeHTTPDone) {
+    auto ctxc = make_chan<ptr<context::Context>>(1);
+    auto& ts = serve([ctxc](http::ResponseWriter&, http::Request& r) {
+        auto ctx = r.Context();
+        bool done = false;
+        empty e;
+        ctx->Done().tryRecv(e, &done);
+        EXPECT_FALSE(done) << "should not be Done in ServeHTTP";
+        ctxc.send(ctx);
+    });
+    auto [res, err] = ts.Client().Get(ts.URL);
+    ASSERT_FALSE(err) << err;
+    res->Body->Close();
+    auto ctx = ctxc.recv();
+    bool done = false;
+    empty e;
+    ctx->Done().tryRecv(e, &done);
+    EXPECT_TRUE(done) << "context should be done after ServeHTTP completes";
+}
+
+// The handler's context is canceled when the client closes its connection
+// (Go issues 15927 and 15224): the server reads in the background.
+TEST(GoNetHttpServe, ServerRequestContextCancel_ConnClose) {
+    auto inHandler = make_chan<empty>();
+    auto handlerDone = make_chan<empty>();
+    rawConnTest t([inHandler, handlerDone](http::ResponseWriter&, http::Request& r) {
+        inHandler.close();
+        r.Context()->Done().recv();
+        handlerDone.close();
+    });
+    io::WriteString(*t.conn, "GET / HTTP/1.1\r\nHost: foo\r\n\r\n");
+    inHandler.recv();
+    t.conn->Close();  // this cancels the context
+    t.conn = nullptr;
+    handlerDone.recv();
+}
+
+// Requests whose handlers ask for the context, pipelined: the background
+// read takes the next request's first byte, which mustn't be lost.
+TEST(GoNetHttpServe, ServerDuplicateBackgroundRead) {
+    auto hts = httptest::NewServer(make_ptr<http::HandlerFunc>([](http::ResponseWriter& w, http::Request& r) {
+        r.Context();
+        http::NotFound(w, r);
+    }));
+    constexpr int fibers = 3, requests = 200;
+    sync::WaitGroup wg;
+    std::atomic<int> responses = 0;
+    for (int i = 0; i < fibers; i++) {
+        wg.Go([&] {
+            auto [cn, err] = net::Dial("tcp", hts->Listener->Addr()->String());
+            ASSERT_FALSE(err) << err;
+            sync::WaitGroup readers;
+            readers.Go([cn, &responses] {
+                auto br = make_ptr<bufio::Reader>(cn);
+                for (;;) {
+                    auto [line, rerr] = br->ReadString('\n');
+                    if (rerr) return;
+                    if (line.starts_with("HTTP/1.1 404")) responses++;
+                }
+            });
+            std::string reqs;
+            for (int j = 0; j < requests; j++) reqs += "GET / HTTP/1.1\r\nHost: e.com\r\n\r\n";
+            ASSERT_FALSE(io::WriteString(*cn, reqs).second);
+            dynamic_cast<net::TCPConn&>(*cn).CloseWrite();
+            readers.Wait();
+            cn->Close();
+        });
+    }
+    wg.Wait();
+    EXPECT_EQ(responses.load(), fibers * requests);
+    hts->Close();
+}
+
+// The Reader of a hijacked connection has the byte the background read
+// took.
+TEST(GoNetHttpServe, ServerHijackGetsBackgroundByte) {
+    auto done = make_chan<empty>();
+    auto inHandler = make_chan<bool>(1);
+    rawConnTest t([done, inHandler](http::ResponseWriter& w, http::Request& r) {
+        struct closer {
+            chan<empty> c;
+            ~closer() { c.close(); }
+        } closeDone{done};
+        auto ctx = r.Context();  // the server reads in the background now
+        // Tell the client to send more after the request.
+        inHandler.send(true);
+        time::Sleep(20 * time::Millisecond);  // for the background read to take a byte
+        auto [conn, buf, err] = dynamic_cast<http::Hijacker&>(w).Hijack();
+        if (err) {
+            ADD_FAILURE() << err;
+            return;
+        }
+        auto [peek, perr] = buf->Reader->Peek(3);
+        EXPECT_TRUE(asStringView(peek) == "foo" && !perr) << "Peek = " << std::string(asStringView(peek)) << ", " << perr;
+        bool canceled = false;
+        empty e;
+        ctx->Done().tryRecv(e, &canceled);
+        EXPECT_FALSE(canceled) << "context unexpectedly canceled";
+        conn->Close();
+    });
+    io::WriteString(*t.conn, "GET / HTTP/1.1\r\nHost: e.com\r\n\r\n");
+    inHandler.recv();
+    io::WriteString(*t.conn, "foo");
     ASSERT_FALSE(dynamic_cast<net::TCPConn&>(*t.conn).CloseWrite());
     done.recv();
 }

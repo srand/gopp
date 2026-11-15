@@ -49,6 +49,9 @@ ptr<context::Context> Request::Context() const {
         auto [c, cancel] = context::WithCancel(context::Background());
         ctx_ = std::move(c);
         cancel_ = std::move(cancel);
+        // A server watches its connection only once someone may wait on the
+        // context.
+        if (contextHook_) contextHook_->contextRequested();
     }
     return ctx_;
 }
@@ -136,6 +139,12 @@ std::pair<isize, gopp::error> bodyReader::Read(std::span<byte> p) {
     if (closed_) return {0, ErrBodyReadAfterClose};
     if (sawEof_) return {0, io::EOF_};
     auto [n, err] = src_->Read(p);
+    struct notify {
+        bodyReader& b;
+        ~notify() {
+            if (b.sawEof_ && b.onEOF_) std::exchange(b.onEOF_, nullptr)();
+        }
+    } notifyEOF{*this};
     if (err == io::EOF_) {
         sawEof_ = true;
         if (limited_ && static_cast<io::LimitedReader*>(src_.get())->Remaining() > 0) err = io::ErrUnexpectedEOF;

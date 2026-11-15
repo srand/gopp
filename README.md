@@ -143,7 +143,7 @@ all park instead of blocking the thread.
 | `vfs` | File systems to read and write, as Hugo and other cobra programs use them: spf13/afero (v1.15.0), ported. `vfs::Fs` and `vfs::File` are afero's interfaces; `NewOsFs()` is the disk and `NewMemoryFs()` a tree in memory (afero's `MemMapFs`), for tests that don't touch the disk. Layers wrap them: `BasePathFs` (a directory as the root), `ReadOnlyFs`, `RegexpFs` (only matching files), `CopyOnWriteFs` (a writable layer over a base it leaves alone, with merged directories) and `CacheOnReadFs`. `IOFS` makes an `Fs` an `fs::FS`, for `io/fs` and `http::FileServerFS`, and `FromIOFS` the reverse; `HttpFs` (`<gopp/vfs/http.hpp>`) serves one with `http::FileServer`. afero's helpers: `ReadFile`, `WriteFile`, `ReadDir`, `TempFile`, `TempDir`, `Walk`, `Glob`, `Exists`, `DirExists`, `IsEmpty`, `WriteReader`, ..., and the `Vfs` struct (afero's `Afero`) with them as methods |
 | `io`, `bufio`, `fmt`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `io`'s `Pipe` (parking fibers), `MultiReader`, `MultiWriter`, `TeeReader`, `SectionReader`, `OffsetWriter` and `RuneReader`/`RuneScanner` (`bufio::Reader` reads runes too), and `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists), and Go's whole `flag` (`flag::String`/`Int`/... and their Var forms, `Func`/`BoolFunc`, `TextVar`, custom `Value`s, `FlagSet` with `ErrorHandling`, `Visit`/`Lookup`/`Set`, and Go's usage output) |
 
-**Tested against Go's own tests.** 2521 unit tests, 1877 of them ported
+**Tested against Go's own tests.** 2527 unit tests, 1877 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its trailer, `ResponseController` and hijacking tests, its HTTP/2 server, priority and server push tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), its form, multipart request and `MaxBytesReader` tests, its Transport's gzip tests, `net/http/httputil`'s reverse proxy tests (with WebSocket proxying), `sync/atomic`'s tests, `container/heap`'s and `container/list`'s tests, `regexp`'s and `regexp/syntax`'s tests (with RE2's search tests and the AT&T POSIX tests), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -375,6 +375,8 @@ what it doesn't do yet:
   parse as unknown records.
 - **x86-64 only for now.** The code supports ARM64, but it isn't built or
   tested there yet.
-- **Request contexts** are canceled when the handler returns or a write to
-  the client fails, not when the client disconnects while the handler is
-  idle.
+- **Request contexts notice a client going away only when asked for.** As
+  in Go, a handler's context is canceled when the client closes its
+  connection while the handler runs with the body read; the server reads in
+  the background for that only once the handler calls `Context()`, so that
+  handlers that never ask pay nothing for it.

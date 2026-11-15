@@ -96,8 +96,11 @@ public:
     // Bytes left for a Content-Length body; -1 if unknown (chunked).
     int64 unreadSize() const noexcept;
     bool closeFailed() const noexcept { return closeFailed_; }
+    // Called once when a read reaches the end (Go's registerOnHitEOF).
+    void setOnEOF(std::function<void()> fn) { onEOF_ = std::move(fn); }
 
 private:
+    std::function<void()> onEOF_;
     ptr<io::Reader> src_;
     bool limited_;
     bool sawEof_ = false;

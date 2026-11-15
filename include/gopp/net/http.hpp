@@ -202,8 +202,19 @@ private:
 // the header was written can be sent this way.
 inline constexpr std::string_view TrailerPrefix = "Trailer:";
 
+class Request;
+
 namespace detail {
 struct trailerSink;
+// Told when a server request's context is first asked for, so that the
+// server watches the connection for the client going away.
+struct contextHook {
+    virtual void contextRequested() = 0;
+    static void set(Request& r, contextHook* h) noexcept;
+
+protected:
+    ~contextHook() = default;
+};
 }
 
 // ---------------------------------------------------------------------------
@@ -253,8 +264,9 @@ public:
     Request& operator=(const Request&) = delete;
     ~Request() override;
 
-    // The request's context: canceled when the handler returns or the
-    // client connection fails.
+    // The request's context: canceled when the handler returns, when the
+    // client connection fails, or, once the handler has read the request's
+    // body, when the client goes away.
     ptr<context::Context> Context() const;
     // A shallow copy with ctx as its context (r.WithContext).
     ptr<Request> WithContext(ptr<context::Context> ctx) const;
@@ -300,6 +312,7 @@ private:
     friend std::pair<ptr<Request>, gopp::error> NewRequestWithContext(ptr<context::Context>, std::string_view,
                                                                          std::string_view, ptr<io::Reader>);
     friend struct detail::trailerSink;
+    friend struct detail::contextHook;
     std::pair<ptr<multipart::Reader>, gopp::error> multipartReader(bool allowMixed);
 
     mutable ptr<context::Context> ctx_;
@@ -309,7 +322,10 @@ private:
     bool postFormParsed_ = false;  // Go's PostForm != nil
     bool multipartByReader_ = false;
     ptr<object> trailerSink_;  // a detail::trailerSink: where the body's trailers go
+    detail::contextHook* contextHook_ = nullptr;  // the server's, while the handler runs
 };
+
+inline void detail::contextHook::set(Request& r, contextHook* h) noexcept { r.contextHook_ = h; }
 
 // ---------------------------------------------------------------------------
 // ResponseWriter, Handler
