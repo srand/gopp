@@ -43,6 +43,7 @@ enum class FrameType : uint8 {
     goaway = 0x7,
     windowUpdate = 0x8,
     continuation = 0x9,
+    priorityUpdate = 0x10,  // RFC 9218
 };
 
 // "DATA", "HEADERS", ...; "UNKNOWN_FRAME_TYPE_n" for others.
@@ -156,12 +157,12 @@ struct Frame {
     FrameHeader header;
     // DATA: the data without padding. HEADERS, PUSH_PROMISE, CONTINUATION:
     // the header block fragment. PING: the 8 bytes. GOAWAY: debug data.
-    // Unknown types: the payload.
+    // PRIORITY_UPDATE: the priority field value. Unknown types: the payload.
     string data;
     PriorityParam priority;          // HEADERS with the PRIORITY flag; PRIORITY
     ErrCode errCode{};              // RST_STREAM, GOAWAY
     uint32 lastStreamId = 0;       // GOAWAY
-    uint32 promiseId = 0;           // PUSH_PROMISE
+    uint32 promiseId = 0;           // PUSH_PROMISE; PRIORITY_UPDATE: the prioritized stream
     uint32 increment = 0;            // WINDOW_UPDATE
     std::vector<Setting> settings;   // SETTINGS
 

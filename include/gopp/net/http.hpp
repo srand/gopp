@@ -552,6 +552,10 @@ struct Server {
     std::optional<tls::Config> TLSConfig{};
     // The protocols to accept; HTTP/1 and HTTP/2 over TLS if unset.
     std::optional<http::Protocols> Protocols{};
+    // Whether HTTP/2 ignores the priorities clients give their requests
+    // (RFC 9218: the Priority header and PRIORITY_UPDATE frames) and sends
+    // the responses round-robin.
+    bool DisableClientPriority = false;
 
     // Listens on addr and serves until closed. Always returns an error;
     // ErrServerClosed after close() or shutdown().

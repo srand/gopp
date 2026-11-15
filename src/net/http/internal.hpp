@@ -131,6 +131,7 @@ struct serverOptions {
     time::Duration IdleTimeout{};
     int64 MaxHeaderBytes = 0;
     bool DisableKeepAlives = false;
+    bool DisableClientPriority = false;
     std::shared_ptr<detail::serverState> state;
     // Reports whether the connection has open streams, for shutdown().
     std::function<void(bool active)> setActive;

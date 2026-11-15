@@ -49,6 +49,7 @@ string to_string(FrameType t) {
                                   "PUSH_PROMISE", "PING",    "GOAWAY",   "WINDOW_UPDATE", "CONTINUATION"};
     auto i = static_cast<std::size_t>(t);
     if (i < std::size(names)) return string::fromStatic(names[i]);
+    if (t == FrameType::priorityUpdate) return string::fromStatic("PRIORITY_UPDATE");
     return "UNKNOWN_FRAME_TYPE_" + strconv::Itoa(static_cast<int64>(i));
 }
 
@@ -86,6 +87,9 @@ gopp::error Setting::Valid() const {
         break;
     case SettingID::initialWindowSize:
         if (val > uint32(maxWindowSize)) return connectionError(ErrCode::flowControl);
+        break;
+    case SettingID::noRfc7540Priorities:
+        if (val > 1) return connectionError(ErrCode::protocol);
         break;
     case SettingID::maxFrameSize:
         if (val < initialMaxFrameSize || val > maxFrameSizeLimit) return connectionError(ErrCode::protocol);
@@ -344,6 +348,19 @@ std::pair<Frame, gopp::error> Framer::Parse(const FrameHeader& fh, string p) {
         if (fh.streamId == 0) return fail(connectionError(ErrCode::protocol, "CONTINUATION frame with stream ID 0"));
         f.data = std::move(p);
         break;
+    case FrameType::priorityUpdate: {
+        if (fh.streamId != 0) return fail(connectionError(ErrCode::protocol, "PRIORITY_UPDATE frame with non-zero stream ID"));
+        if (p.size() < 4) {
+            return fail(connectionError(ErrCode::frameSize,
+                                        std::format("PRIORITY_UPDATE frame payload size was {}; want at least 4", p.size())));
+        }
+        f.promiseId = readU32(p.data()) & 0x7fffffff;
+        if (f.promiseId == 0) {
+            return fail(connectionError(ErrCode::protocol, "PRIORITY_UPDATE frame with prioritized stream ID of zero"));
+        }
+        f.data = p.slice(4);
+        break;
+    }
     default:
         f.data = std::move(p);  // unknown frame types are ignored
         break;

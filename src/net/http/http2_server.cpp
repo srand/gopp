@@ -7,6 +7,7 @@
 // writer is busy, frames queue up, and the next write sends them all.
 #include "ascii.hpp"
 #include "http2.hpp"
+#include "httpsfv.hpp"
 
 #include <gopp/runtime.hpp>
 #include <gopp/strings.hpp>
@@ -43,6 +44,145 @@ const gopp::error errStreamClosed = errors::New("http2: stream closed");
 const gopp::error errTooMuchData = errors::New("http2: handler wrote more than declared Content-Length");
 
 enum class streamState { idle, open, halfClosedLocal, halfClosedRemote, closed };
+
+// An RFC 9218 priority: the urgency, 0 (most urgent) to 7, and whether the
+// response can be used incrementally, as its parts arrive.
+struct rfc9218Priority {
+    uint8 urgency = 3;
+    bool incremental = true;
+};
+
+// defaultRFC9218Priority: u=3, non-incremental as RFC 9218 has it, but
+// incremental (round-robin, the historical behavior) unless the client has
+// shown it knows RFC 9218 and no intermediary is involved.
+rfc9218Priority defaultRFC9218Priority(bool canUseDefault) { return {3, !canUseDefault}; }
+
+// parseRFC9218Priority: a Priority header or PRIORITY_UPDATE value
+// ("u=1, i").
+std::pair<rfc9218Priority, bool> parseRFC9218Priority(std::string_view s, bool canUseDefault) {
+    rfc9218Priority p = defaultRFC9218Priority(canUseDefault);
+    bool ok = httpsfv::ParseDictionary(s, [&](std::string_view key, std::string_view val, std::string_view) {
+        if (key == "u") {
+            if (auto [u, uok] = httpsfv::ParseInteger(val); uok && u >= 0 && u <= 7) p.urgency = static_cast<uint8>(u);
+        } else if (key == "i") {
+            if (auto [i, iok] = httpsfv::ParseBoolean(val); iok) p.incremental = i;
+        }
+    });
+    if (!ok) return {defaultRFC9218Priority(canUseDefault), false};
+    return {p, true};
+}
+
+// The write scheduler of streams' frames (writesched_priority_rfc9218.go):
+// the most urgent first; of one urgency, non-incremental streams one at a
+// time to completion, and incremental ones round-robin, alternating
+// between the two kinds. Streams are kept in rings, one per urgency and
+// kind. With every stream at u=3,i it's a round-robin scheduler.
+class writeScheduler {
+public:
+    void open(uint32 id, rfc9218Priority p) {
+        if (id == bufId_) {
+            bufId_ = 0;
+            p = bufPriority_;
+        }
+        streams_[id] = node{0, 0, p};
+        link(id);
+    }
+
+    void close(uint32 id) {
+        auto it = streams_.find(id);
+        if (it == streams_.end()) return;
+        unlink(id);
+        streams_.erase(it);
+    }
+
+    // A PRIORITY_UPDATE; kept for the stream if it isn't open yet.
+    void adjust(uint32 id, rfc9218Priority p) {
+        auto it = streams_.find(id);
+        if (it == streams_.end()) {
+            bufId_ = id;
+            bufPriority_ = p;
+            return;
+        }
+        unlink(id);
+        it->second.p = p;
+        link(id);
+    }
+
+    void clear() {
+        streams_.clear();
+        for (auto& u : heads_) u[0] = u[1] = 0;
+        bufId_ = 0;
+    }
+
+    // Offers streams, in the order to serve them, to emit(id), which
+    // writes one frame of the stream if it can; false if no stream could.
+    template <typename F>
+    bool pop(F&& emit) {
+        // Of one urgency, incremental and non-incremental streams take
+        // turns: half the bandwidth to the incremental ones together, half
+        // to the first non-incremental one.
+        prioritizeIncremental_ = !prioritizeIncremental_;
+        for (int u = 0; u < 8; u++) {
+            for (int k = 0; k < 2; k++) {
+                int i = prioritizeIncremental_ ? (k + 1) % 2 : k;
+                uint32 q = heads_[u][i];
+                if (!q) continue;
+                for (;;) {
+                    if (emit(q)) {
+                        // Incremental streams round-robin; a non-incremental
+                        // one stays first until it has nothing to send, so
+                        // that a blocked stream doesn't hold up the others.
+                        heads_[u][i] = i == 1 ? streams_[q].next : q;
+                        return true;
+                    }
+                    q = streams_[q].next;
+                    if (q == heads_[u][i]) break;
+                }
+            }
+        }
+        return false;
+    }
+
+private:
+    struct node {
+        uint32 prev, next;  // in the ring of its urgency and kind
+        rfc9218Priority p;
+    };
+
+    // Adds id at the end of its ring.
+    void link(uint32 id) {
+        node& n = streams_[id];
+        uint32& head = heads_[n.p.urgency][n.p.incremental];
+        if (!head) {
+            head = n.prev = n.next = id;
+            return;
+        }
+        node& h = streams_[head];
+        n.prev = h.prev;
+        n.next = head;
+        streams_[n.prev].next = id;
+        h.prev = id;
+    }
+
+    void unlink(uint32 id) {
+        node& n = streams_[id];
+        uint32& head = heads_[n.p.urgency][n.p.incremental];
+        if (n.next == id) {
+            head = 0;  // the only stream
+            return;
+        }
+        streams_[n.prev].next = n.next;
+        streams_[n.next].prev = n.prev;
+        if (head == id) head = n.next;
+    }
+
+    std::unordered_map<uint32, node> streams_;
+    uint32 heads_[8][2] = {};  // a stream of each ring, 0 for none
+    bool prioritizeIncremental_ = false;
+    // The latest PRIORITY_UPDATE for a stream that isn't open yet.
+    uint32 bufId_ = 0;
+    rfc9218Priority bufPriority_;
+};
 
 class serverConn;
 
@@ -154,7 +294,8 @@ private:
     gopp::error processResetStream(const Frame& f);
     gopp::error processGoaway(const Frame& f);
     std::pair<streamState, ptr<stream>> state(uint32 id);
-    ptr<stream> newStream(uint32 id, streamState st);
+    ptr<stream> newStream(uint32 id, streamState st, rfc9218Priority priority);
+    gopp::error processPriorityUpdate(const Frame& f);
     gopp::error NewRequest(stream& st, const Frame& f, ptr<Request>& out);
     void scheduleHandler(ptr<stream> st, ptr<Request> req, int statusOverride, string msg);
     void closeStream(const ptr<stream>& st, gopp::error err);
@@ -216,7 +357,9 @@ private:
     std::string control_;
     std::vector<writeEffect> controlEffects_;
     std::map<uint32, std::deque<writeRequest>> queues_;
-    uint32 nextQueue_ = 0;  // round-robin position
+    writeScheduler sched_;
+    bool priorityAware_ = false;    // the client has sent a Priority header or PRIORITY_UPDATE
+    bool hasIntermediary_ = false;  // a request came through a proxy
     bool writing_ = false;
     std::vector<writeEffect> inFlight_;
     std::string batch_;
@@ -548,6 +691,8 @@ void serverConn::serve() {
         {SettingID::maxHeaderListSize, maxHeaderListSize_},
         {SettingID::headerTableSize, initialHeaderTableSize},
         {SettingID::initialWindowSize, uint32(initialStreamRecvWindow)},
+        // Both schedulers ignore RFC 7540's priorities.
+        {SettingID::noRfc7540Priorities, 1},
     };
     appendSettings(control_, settings);
     unackedSettings_++;
@@ -650,6 +795,7 @@ void serverConn::serve() {
     }
     // Free the queued writes; their handlers see doneServing.
     queues_.clear();
+    sched_.clear();
     controlEffects_.clear();
     inFlight_.clear();
 }
@@ -717,9 +863,19 @@ gopp::error serverConn::processFrame(Frame& f) {
     case FrameType::pushPromise:
         // A client must not push.
         return connectionError(ErrCode::protocol, "client sent PUSH_PROMISE");
+    case FrameType::priorityUpdate: return processPriorityUpdate(f);
     default:
         return nullptr;  // unknown frame types are ignored
     }
+}
+
+gopp::error serverConn::processPriorityUpdate(const Frame& f) {
+    priorityAware_ = true;
+    if (opts_.DisableClientPriority) return nullptr;
+    auto [p, ok] = parseRFC9218Priority(f.data, priorityAware_);
+    if (!ok) return streamError(f.promiseId, ErrCode::protocol);
+    sched_.adjust(f.promiseId, p);
+    return nullptr;
 }
 
 gopp::error serverConn::processSettings(const Frame& f) {
@@ -847,7 +1003,26 @@ gopp::error serverConn::processHeaders(Frame& f) {
         if (unackedSettings_ == 0) return streamError(id, ErrCode::protocol);  // they should know better
         return streamError(id, ErrCode::refusedStream);                        // a race with our SETTINGS
     }
-    ptr<stream> st = newStream(id, f.streamEnded() ? streamState::halfClosedRemote : streamState::open);
+    // The response's priority (RFC 9218). A request through an
+    // intermediary gets u=3,i, so that the clients behind a proxy share
+    // fairly; until a client shows it knows RFC 9218, its streams are
+    // incremental, round-robin as before.
+    rfc9218Priority priority = defaultRFC9218Priority(priorityAware_ && !hasIntermediary_);
+    if (!opts_.DisableClientPriority && !hasIntermediary_) {
+        std::string_view header;
+        bool aware = priorityAware_, intermediary = false;
+        for (auto& hf : f.regularFields()) {
+            if (hf.name == "priority") {
+                header = hf.value;
+                aware = true;
+            }
+            if (hf.name == "via" || hf.name == "forwarded" || hf.name == "x-forwarded-for") intermediary = true;
+        }
+        priority = parseRFC9218Priority(header, aware && !intermediary).first;
+        hasIntermediary_ = intermediary;
+        if (aware) priorityAware_ = true;
+    }
+    ptr<stream> st = newStream(id, f.streamEnded() ? streamState::halfClosedRemote : streamState::open, priority);
     if (f.hasPriority() && f.priority.streamDep == id) return streamError(id, ErrCode::protocol);
     ptr<Request> req;
     if (gopp::error err = NewRequest(*st, f, req)) return err;
@@ -900,7 +1075,7 @@ gopp::error serverConn::processTrailerHeaders(stream& st, const Frame& f) {
     return nullptr;
 }
 
-ptr<stream> serverConn::newStream(uint32 id, streamState state) {
+ptr<stream> serverConn::newStream(uint32 id, streamState state, rfc9218Priority priority) {
     auto st = make_ptr<stream>();
     st->id = id;
     st->state = state;
@@ -917,6 +1092,8 @@ ptr<stream> serverConn::newStream(uint32 id, streamState state) {
         });
     }
     streams_[id] = st;
+    // Without client priorities, every stream is u=3,i: round-robin.
+    sched_.open(id, opts_.DisableClientPriority ? rfc9218Priority{} : priority);
     curClientStreams_++;
     if (streams_.size() == 1) setActive(true);
     return st;
@@ -1070,6 +1247,7 @@ void serverConn::closeStream(const ptr<stream>& st, gopp::error err) {
     curClientStreams_--;
     streams_.erase(st->id);
     queues_.erase(st->id);
+    sched_.close(st->id);
     if (streams_.empty()) {
         setActive(false);
         resetIdleTimer();
@@ -1217,54 +1395,45 @@ void serverConn::scheduleFrameWrite() {
     for (auto& e : controlEffects_) inFlight_.push_back(std::move(e));
     controlEffects_.clear();
 
-    // Stream frames, one per stream per round, until the batch is full
-    // or nothing can be sent.
+    // Stream frames, in the scheduler's order, one at a time, until the
+    // batch is full or nothing can be sent.
     if (!inGoAway_ || goAwayCode_ == ErrCode::no) {
         uint32 frameMax = std::min(peerMaxFrameSize_, maxDataFrameSize);
-        bool progress = true;
-        while (progress && batch_.size() < maxWriteBatch && !queues_.empty()) {
-            progress = false;
-            auto it = queues_.upper_bound(nextQueue_);
-            for (std::size_t visited = 0, n = queues_.size(); visited < n && batch_.size() < maxWriteBatch; visited++) {
-                if (it == queues_.end()) it = queues_.begin();
-                auto& [id, q] = *it;
-                writeRequest& wr = q.front();
-                ptr<stream> st = wr.st;
-                bool popped = false;
-                if (wr.kind == writeRequest::headers) {
-                    encodeHeaders(wr);
-                    bool end = wr.endStream && (wr.status == 0 || wr.status >= 200);  // final or trailers
-                    appendHeaders(batch_, id, hbuf_, end, peerMaxFrameSize_);
-                    inFlight_.push_back({st, end, false, nullptr, std::move(wr.done)});
+        // Writes one frame of stream id, if it has one it can send.
+        auto emit = [&](uint32 id) -> bool {
+            auto it = queues_.find(id);
+            if (it == queues_.end()) return false;
+            auto& q = it->second;
+            writeRequest& wr = q.front();
+            ptr<stream> st = wr.st;
+            bool popped = false;
+            if (wr.kind == writeRequest::headers) {
+                encodeHeaders(wr);
+                bool end = wr.endStream && (wr.status == 0 || wr.status >= 200);  // final or trailers
+                appendHeaders(batch_, id, hbuf_, end, peerMaxFrameSize_);
+                inFlight_.push_back({st, end, false, nullptr, std::move(wr.done)});
+                popped = true;
+            } else {
+                std::size_t remain = wr.bytes.size() - wr.off;
+                int32 avail = st->flow.available();
+                if (remain != 0 && avail <= 0) return false;  // blocked by flow control
+                std::size_t k = std::min<std::size_t>({remain, static_cast<std::size_t>(std::max(avail, 0)), frameMax});
+                bool last = k == remain;
+                appendData(batch_, id, last && wr.endStream, wr.bytes.view().substr(wr.off, k));
+                st->flow.take(static_cast<int32>(k));
+                wr.off += k;
+                if (last) {
+                    inFlight_.push_back({st, wr.endStream, false, nullptr, std::move(wr.done)});
                     popped = true;
-                } else {
-                    std::size_t remain = wr.bytes.size() - wr.off;
-                    int32 avail = st->flow.available();
-                    if (remain == 0 || avail > 0) {
-                        std::size_t k = std::min<std::size_t>({remain, static_cast<std::size_t>(std::max(avail, 0)), frameMax});
-                        bool last = k == remain;
-                        appendData(batch_, id, last && wr.endStream, wr.bytes.view().substr(wr.off, k));
-                        st->flow.take(static_cast<int32>(k));
-                        wr.off += k;
-                        if (last) {
-                            inFlight_.push_back({st, wr.endStream, false, nullptr, std::move(wr.done)});
-                            popped = true;
-                        }
-                        progress = true;
-                    }
                 }
-                if (popped) {
-                    progress = true;
-                    q.pop_front();
-                    nextQueue_ = id;
-                    if (q.empty()) {
-                        it = queues_.erase(it);
-                        continue;
-                    }
-                }
-                nextQueue_ = id;
-                ++it;
             }
+            if (popped) {
+                q.pop_front();
+                if (q.empty()) queues_.erase(it);
+            }
+            return true;
+        };
+        while (batch_.size() < maxWriteBatch && !queues_.empty() && sched_.pop(emit)) {
         }
     }
     if (batch_.empty()) return;

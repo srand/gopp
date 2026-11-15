@@ -130,6 +130,7 @@ public:
           idleTimeout_(srv.IdleTimeout.ns ? srv.IdleTimeout : srv.ReadTimeout),
           maxHeaderBytes_(srv.MaxHeaderBytes > 0 ? srv.MaxHeaderBytes : DefaultMaxHeaderBytes),
           disableKeepAlives_(srv.DisableKeepAlives),
+          disableClientPriority_(srv.DisableClientPriority),
           state_(std::move(st)),
           rwc(std::move(rwc)),
           bufr(make_ptr<bufio::Reader>(this->rwc, 4096)),
@@ -147,6 +148,7 @@ public:
         opts_.IdleTimeout = idleTimeout_;
         opts_.MaxHeaderBytes = maxHeaderBytes_;
         opts_.DisableKeepAlives = disableKeepAlives_;
+        opts_.DisableClientPriority = disableClientPriority_;
         opts_.state = state_;
         opts_.setActive = [this](bool active) {
             st_.store(active ? connState::active : connState::idle, std::memory_order_relaxed);
@@ -172,6 +174,7 @@ public:
     time::Duration idleTimeout_;
     int64 maxHeaderBytes_;
     bool disableKeepAlives_;
+    bool disableClientPriority_;
     std::shared_ptr<detail::serverState> state_;
 
     ptr<net::Conn> rwc;

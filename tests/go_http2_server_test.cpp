@@ -1,8 +1,10 @@
 // Ported from Go 1.27.3's net/http/internal/http2/server_test.go: a
 // serverTester speaks raw frames to the server over h2c, and the tests keep
 // Go's names. Left out: TLS version and cipher tests (OpenSSL's job), server
-// push, RFC 9218 priorities, trailers, and tests of Go internals
-// (goroutine counts, buffer retention, synctest timing).
+// push, and tests of Go internals (goroutine counts, buffer retention,
+// synctest timing). The RFC 9218 priority tests use flow control where Go's
+// use synctest: all the streams' responses are queued before the client
+// opens their windows, so the order is the scheduler's alone.
 #include "net/http/http2.hpp"
 
 #include <gopp/chan.hpp>
@@ -898,4 +900,194 @@ TEST(Http2Server, InvalidPreface) {
     st.writeRaw("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");  // the real one, to pass the h2c check
     st.writeRaw("bogus");
     st.wantClosed();
+}
+
+// ---------------------------------------------------------------------------
+// RFC 9218 priorities
+
+TEST(Http2Server, Rejects_PriorityUpdate0) {
+    testServerRejectsConn([](serverTester& st) {
+        std::string payload(4, '\0');  // prioritized stream 0
+        st.writeFrame(FrameType::priorityUpdate, 0, 0, payload);
+    });
+}
+
+TEST(Http2Server, Rejects_PriorityUpdateUnparsable) {
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
+    st.greet();
+    std::string payload = std::string("\0\0\0\1", 4) + "Invalid dictionary: ((((";
+    st.writeFrame(FrameType::priorityUpdate, 0, 0, payload);
+    st.wantRst(1, ErrCode::protocol);
+}
+
+TEST(Http2Server, SettingNoRFC7540Priorities) {
+    serverTester st([](http::ResponseWriter&, http::Request&) {});
+    st.greet();
+    bool got = false;
+    for (auto& s : st.serverSettings) {
+        if (s.id == h2::SettingID::noRfc7540Priorities) got = s.val == 1;
+    }
+    EXPECT_TRUE(got) << "want SETTINGS_NO_RFC7540_PRIORITIES to be 1";
+}
+
+TEST(Http2Server, SettingNoRFC7540PrioritiesInvalid) {
+    testServerRejectsConn([](serverTester& st) { st.writeSettings({{h2::SettingID::noRfc7540Priorities, 2}}); });
+}
+
+namespace {
+
+constexpr std::size_t priorityBodySize = 128 << 10;
+
+// A server whose handlers each write priorityBodySize bytes at once.
+std::unique_ptr<serverTester> newPriorityTester(std::function<void(http::Server&)> configure = nullptr) {
+    auto st = std::make_unique<serverTester>(
+        [](http::ResponseWriter& w, http::Request&) {
+            std::string body(priorityBodySize, 'a');
+            io::WriteString(w, body);
+        },
+        std::move(configure));
+    st->greet();
+    std::string wu;
+    h2::appendWindowUpdate(wu, 0, 1 << 30);
+    st->writeRaw(wu);
+    return st;
+}
+
+// Opens the streams, with a zero window until each has its response
+// queued, then opens the windows; returns the stream of each DATA frame
+// with data, in order, until all the streams have ended.
+std::vector<uint32> frameOrder(serverTester& st, const std::vector<std::pair<uint32, fields>>& reqs) {
+    st.writeSettings({{h2::SettingID::initialWindowSize, 0}});
+    for (auto& [id, fs] : reqs) st.writeHeaders(id, true, fs);
+    for (std::size_t got = 0; got < reqs.size();) {
+        h2::Frame f = st.readFrame();
+        if (f.type() == FrameType::headers) got++;
+        if (f.type() == FrameType::goaway || f.type() == FrameType::rstStream) {
+            ADD_FAILURE() << "got " << f.header.String();
+            return {};
+        }
+    }
+    // The handlers queue their data right after their headers.
+    time::Sleep(50 * time::Millisecond);
+    st.writeSettings({{h2::SettingID::initialWindowSize, 1 << 30}});
+    std::vector<uint32> order;
+    for (std::size_t ended = 0; ended < reqs.size();) {
+        h2::Frame f = st.readFrame();
+        if (f.type() != FrameType::data) continue;
+        if (!f.data.empty()) order.push_back(f.streamId());
+        if (f.streamEnded()) ended++;
+    }
+    return order;
+}
+
+// Whether no stream follows itself in the middle half of order: the
+// streams took turns (the start and end may not).
+bool roundRobin(const std::vector<uint32>& order) {
+    for (std::size_t i = order.size() / 4 + 1; i < order.size() * 3 / 4; i++) {
+        if (order[i] == order[i - 1]) return false;
+    }
+    return true;
+}
+
+// Whether each stream's frames are together: one stream at a time.
+bool oneByOne(const std::vector<uint32>& order) {
+    std::vector<uint32> seen;
+    for (std::size_t i = 0; i < order.size(); i++) {
+        if (i > 0 && order[i] == order[i - 1]) continue;
+        if (std::find(seen.begin(), seen.end(), order[i]) != seen.end()) return false;
+        seen.push_back(order[i]);
+    }
+    return true;
+}
+
+std::string format(const std::vector<uint32>& order) {
+    std::string s;
+    for (auto id : order) s += std::to_string(id) + " ";
+    return s;
+}
+
+}  // namespace
+
+TEST(Http2Server, RFC9218Priority) {
+    auto st = newPriorityTester();
+    // Eight streams; the larger the id, the more urgent.
+    std::vector<std::pair<uint32, fields>> reqs;
+    for (int i = 0; i < 8; i++) {
+        reqs.push_back({uint32(i * 2 + 1), serverTester::request({{"priority", "u=" + std::to_string(7 - i)}})});
+    }
+    auto order = frameOrder(*st, reqs);
+    std::map<uint32, std::size_t> lastFrame;
+    for (std::size_t i = 0; i < order.size(); i++) lastFrame[order[i]] = i;
+    for (int i = 0; i < 7; i++) {
+        uint32 id = uint32(i * 2 + 1);
+        EXPECT_GT(lastFrame[id], lastFrame[id + 2]) << "stream " << id << " finished before stream " << id + 2
+                                                     << " unexpectedly: " << format(order);
+    }
+}
+
+TEST(Http2Server, RFC9218PriorityIgnoredWhenProxied) {
+    auto st = newPriorityTester();
+    // Priorities through a proxy are ignored: round-robin.
+    std::vector<std::pair<uint32, fields>> reqs;
+    for (int i = 0; i < 8; i++) {
+        reqs.push_back({uint32(i * 2 + 1),
+                        serverTester::request({{"priority", "u=" + std::to_string(7 - i)}, {"via", "a proxy"}})});
+    }
+    auto order = frameOrder(*st, reqs);
+    EXPECT_TRUE(roundRobin(order)) << "want round-robin when proxied, got: " << format(order);
+}
+
+TEST(Http2Server, RFC9218PriorityAware) {
+    auto st = newPriorityTester();
+    // A client that hasn't shown it knows RFC 9218: round-robin.
+    std::vector<std::pair<uint32, fields>> reqs;
+    for (int i = 0; i < 10; i++) reqs.push_back({uint32(i * 2 + 1), serverTester::request()});
+    auto order = frameOrder(*st, reqs);
+    EXPECT_TRUE(roundRobin(order)) << "want round-robin when unaware of priority, got: " << format(order);
+
+    // A PRIORITY_UPDATE for a finished stream shows the client knows it:
+    // now streams of the same urgency, non-incremental by default, are
+    // sent one at a time.
+    st->writeFrame(FrameType::priorityUpdate, 0, 0, std::string("\0\0\0\1", 4));
+    reqs.clear();
+    for (int i = 10; i < 20; i++) reqs.push_back({uint32(i * 2 + 1), serverTester::request()});
+    order = frameOrder(*st, reqs);
+    EXPECT_TRUE(oneByOne(order)) << "want one-by-one when aware of priority, got: " << format(order);
+}
+
+TEST(Http2Server, RFC9218PriorityUpdate) {
+    auto st = newPriorityTester();
+    // All u=3 and non-incremental; then stream 7 becomes the most urgent.
+    std::vector<std::pair<uint32, fields>> reqs;
+    for (uint32 id : {1u, 3u, 5u, 7u}) reqs.push_back({id, serverTester::request({{"priority", "u=3"}})});
+    st->writeSettings({{h2::SettingID::initialWindowSize, 0}});
+    for (auto& [id, fs] : reqs) st->writeHeaders(id, true, fs);
+    st->writeFrame(FrameType::priorityUpdate, 0, 0, std::string("\0\0\0\7", 4) + "u=0");
+    // frameOrder sends the same SETTINGS and HEADERS again otherwise: do
+    // its second half here.
+    for (std::size_t got = 0; got < reqs.size();) {
+        if (st->readFrame().type() == FrameType::headers) got++;
+    }
+    time::Sleep(50 * time::Millisecond);
+    st->writeSettings({{h2::SettingID::initialWindowSize, 1 << 30}});
+    std::vector<uint32> order;
+    for (std::size_t ended = 0; ended < reqs.size();) {
+        h2::Frame f = st->readFrame();
+        if (f.type() != FrameType::data) continue;
+        if (!f.data.empty()) order.push_back(f.streamId());
+        if (f.streamEnded()) ended++;
+    }
+    ASSERT_FALSE(order.empty());
+    EXPECT_EQ(order.front(), 7u) << format(order);
+    EXPECT_TRUE(oneByOne(order)) << format(order);
+}
+
+TEST(Http2Server, DisableClientPriority) {
+    auto st = newPriorityTester([](http::Server& s) { s.DisableClientPriority = true; });
+    std::vector<std::pair<uint32, fields>> reqs;
+    for (int i = 0; i < 8; i++) {
+        reqs.push_back({uint32(i * 2 + 1), serverTester::request({{"priority", "u=" + std::to_string(7 - i)}})});
+    }
+    auto order = frameOrder(*st, reqs);
+    EXPECT_TRUE(roundRobin(order)) << "want round-robin with DisableClientPriority, got: " << format(order);
 }
