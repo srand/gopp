@@ -59,6 +59,7 @@ If you're new to go++, read them in this order:
 | [parallel](parallel/main.cpp) | Runs shell commands a few at a time, like `xargs -P`: `os/exec` with `CommandContext`, an `io::Writer` of its own as each command's `Stdout`, which prefixes the lines with the job number, and timeouts and Ctrl-C that kill the processes |
 | [sandbox](sandbox/main.cpp) | Runs a command in new Linux namespaces, as an ordinary user: `SysProcAttr` with clone flags and user ID mappings |
 | [json-file](json-file/main.cpp) | A task list saved as JSON: `json::Marshal` by reflection, errors wrapped with `fmt::W` (Go's `%w`) and tested with `errors::Is`, and atomic saves with `os::CreateTemp` and `os::Rename` |
+| [sitegen](sitegen/main.cpp) | A static site generator written against `vfs::Fs` (afero), so one build function writes to disk, to memory, or to memory over the disk: a `ReadOnlyFs` over a `BasePathFs` for the sources, a `CopyOnWriteFs` over the output directory for `-n` and for writing only the files that changed, and a `MemoryFs` served through `vfs::IOFS` and `http::FileServerFS` for `-serve` |
 | [template](template/main.cpp) | Renders a Markdown report from plain C++ structs with `text/template`, reading their fields by reflection, with a C++ lambda as a template function |
 
 ## Command-line programs

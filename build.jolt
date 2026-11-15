@@ -265,6 +265,12 @@ class Kvctl(Example):
     sources = ["examples/kvctl/*.cpp"]
 
 
+class SiteGen(Example):
+    """ A static site generator over vfs: builds to disk, to memory, or to memory over the disk. """
+    name = "examples/sitegen"
+    sources = ["examples/sitegen/*.cpp"]
+
+
 class Examples(Alias):
     name = "examples"
     requires = [
@@ -273,7 +279,7 @@ class Examples(Alias):
         "examples/httpfileserver", "examples/proxy", "examples/lookup", "examples/grep", "examples/parallel",
         "examples/sandbox", "examples/todo", "examples/panic",
         "examples/sha256sum", "examples/wordfreq", "examples/search", "examples/pnginfo", "examples/csvstats",
-        "examples/upload", "examples/greet", "examples/kvctl",
+        "examples/upload", "examples/greet", "examples/kvctl", "examples/sitegen",
     ]
 
 
