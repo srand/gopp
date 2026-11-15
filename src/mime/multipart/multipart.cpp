@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <numeric>
 
 namespace gopp::multipart {
 
@@ -370,8 +371,7 @@ std::pair<ptr<Form>, error> Reader::ReadForm(int64 maxMemory) {
     // Reserve an additional 10 MB for non-file parts.
     int64 maxFileMemoryBytes = maxMemory;
     if (maxFileMemoryBytes == std::numeric_limits<int64>::max()) maxFileMemoryBytes--;
-    int64 maxMemoryBytes = maxMemory + int64(10 << 20);
-    if (maxMemoryBytes <= 0) maxMemoryBytes = std::numeric_limits<int64>::max();  // overflow
+    int64 maxMemoryBytes = std::saturating_add(maxMemory, int64(10 << 20));
     for (;;) {
         auto [p, err] = nextPart(false, maxMemoryBytes, maxHeaders);
         if (err == io::EOF_) break;

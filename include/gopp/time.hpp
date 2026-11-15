@@ -272,10 +272,12 @@ public:
     std::pair<Time, Time> ZoneBounds() const;
     bool IsDST() const;
 
-    int64 Unix() const noexcept { return sec_ + internalToUnix; }
-    int64 UnixMilli() const noexcept { return Unix() * 1000 + nsec_ / 1000000; }
-    int64 UnixMicro() const noexcept { return Unix() * 1000000 + nsec_ / 1000; }
-    int64 UnixNano() const noexcept { return Unix() * 1000000000 + nsec_; }
+    // Out of int64's range they wrap around, as Go's do: the arithmetic is
+    // in uint64, where C++'s wraps too.
+    int64 Unix() const noexcept { return int64(uint64(sec_) + uint64(internalToUnix)); }
+    int64 UnixMilli() const noexcept { return int64(uint64(Unix()) * 1000 + uint64(nsec_ / 1000000)); }
+    int64 UnixMicro() const noexcept { return int64(uint64(Unix()) * 1000000 + uint64(nsec_ / 1000)); }
+    int64 UnixNano() const noexcept { return int64(uint64(Unix()) * 1000000000 + uint64(nsec_)); }
 
     // The time rounded down, or to the nearest, multiple of d since the
     // zero time. They strip the monotonic reading.

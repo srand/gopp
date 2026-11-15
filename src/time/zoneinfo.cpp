@@ -403,7 +403,7 @@ tzsetResult tzset(std::string_view s, int64 lastTxSec, int64 sec) {
     auto [endRule, s4, ok4] = tzsetRule(s3.substr(1));
     if (!ok4 || !s4.empty()) return fail;
 
-    auto [year, yday] = absYearYday(static_cast<absSeconds>(sec + unixToInternal + internalToAbsolute) / secondsPerDay);
+    auto [year, yday] = absYearYday((static_cast<absSeconds>(sec) + absSeconds(unixToInternal + internalToAbsolute)) / secondsPerDay);
     int64 ysec = static_cast<int64>(yday - 1) * secondsPerDay + sec % secondsPerDay;
     // Compute start of year in seconds since Unix epoch.
     int64 ystart = sec - ysec;

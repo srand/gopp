@@ -159,7 +159,8 @@ absSeconds Time::internal::absSec(const Time& t) {
         if (l->hasCache && l->cacheStart <= sec && sec < l->cacheEnd) sec += l->cacheZone.offset;
         else sec += l->lookup(sec).offset;
     }
-    return static_cast<absSeconds>(sec + (unixToInternal + internalToAbsolute));
+    // In uint64, wrapping around as Go's int64 does at the ends of time.
+    return static_cast<absSeconds>(sec) + absSeconds(unixToInternal + internalToAbsolute);
 }
 
 std::tuple<string, int, absSeconds> Time::internal::locabs(const Time& t) {
@@ -180,7 +181,7 @@ std::tuple<string, int, absSeconds> Time::internal::locabs(const Time& t) {
     } else {
         name = string::fromStatic("UTC");
     }
-    return {name, offset, static_cast<absSeconds>(sec + (unixToInternal + internalToAbsolute))};
+    return {name, offset, static_cast<absSeconds>(sec) + absSeconds(unixToInternal + internalToAbsolute)};
 }
 
 // ---------------------------------------------------------------------------
@@ -429,8 +430,10 @@ Time Date(int year, Month month, int day, int hour, int min, int sec, int nsec, 
     norm(hour, min, 60);
     norm(day, hour, 24);
 
-    int64 unix = static_cast<int64>(dateToAbsDays(year, month, day)) * secondsPerDay +
-                 static_cast<int64>(hour * secondsPerHour + min * secondsPerMinute + sec) + absoluteToUnix;
+    // In uint64, wrapping around for years beyond int64's seconds, as Go does.
+    absSeconds abs = dateToAbsDays(year, month, day) * secondsPerDay +
+                     static_cast<absSeconds>(hour * secondsPerHour + min * secondsPerMinute + sec);
+    int64 unix = static_cast<int64>(abs + static_cast<absSeconds>(absoluteToUnix));
 
     // Look for the zone offset for the expected time, so that we can adjust
     // to UTC. The lookup function expects UTC, so first guess with unix and

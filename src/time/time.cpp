@@ -174,7 +174,8 @@ std::pair<Duration, error> ParseDuration(std::string_view s) {
         d += v;
         if (d > uint64(1) << 63) return invalid("invalid duration");
     }
-    if (neg) return {Duration(-static_cast<int64>(d)), nullptr};
+    // Negated in uint64: -(1<<63) is MinInt64, which int64 can't negate.
+    if (neg) return {Duration(static_cast<int64>(-d)), nullptr};
     if (d > (uint64(1) << 63) - 1) return invalid("invalid duration");
     return {Duration(static_cast<int64>(d)), nullptr};
 }

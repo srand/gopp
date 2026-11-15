@@ -1053,7 +1053,8 @@ TEST_F(GoTime, TimeAddSecOverflow) {
         int64 sec = notMonoTime.Unix();
         notMonoTime = notMonoTime.Add(Duration(i * 1000000000));
         int64 newSec = notMonoTime.Unix();
-        ASSERT_TRUE(newSec == sec + i || newSec + unixToInternal == maxInt64)
+        // Unix() wraps around here, as in Go: so does the check, in uint64.
+        ASSERT_TRUE(newSec == sec + i || int64(uint64(newSec) + uint64(unixToInternal)) == maxInt64)
             << "time ext: " << newSec << " overflows with negative delta, overflow threshold: " << maxInt64;
     }
 }
