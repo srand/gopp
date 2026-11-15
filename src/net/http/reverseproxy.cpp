@@ -149,7 +149,12 @@ public:
         std::lock_guard l(state_->mu);
         state_->flushPending = false;
         state_->stopped = true;
-        if (state_->t) state_->t->Stop();
+        if (state_->t) {
+            state_->t->Stop();
+            // The timer's function holds the state: drop the timer, or
+            // the two would keep each other alive.
+            state_->t = nullptr;
+        }
     }
 
 private:
