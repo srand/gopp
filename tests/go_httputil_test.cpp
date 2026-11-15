@@ -1,10 +1,12 @@
 // Ported from Go 1.27.3's net/http/httputil/reverseproxy_test.go, with Go's
-// test names. Left out: the tests of protocol upgrades (WebSocket) and
-// hijacking, of trailers and 1xx responses, which go++'s HTTP doesn't
-// carry, and of unexported functions. TestReverseProxy's hangup case
-// proxies to a port that refuses connections instead of a hijacked connection.
+// test names. Left out: the tests of 1xx responses, which go++'s HTTP
+// doesn't carry, and of unexported functions. Go's Trailer holds the
+// announced keys before the body is read; go++'s can't, so the proxy sends
+// all trailers as unannounced ones.
 #include <gopp/bytes.hpp>
+#include <gopp/bufio.hpp>
 #include <gopp/chan.hpp>
+#include <gopp/context.hpp>
 #include <gopp/fmt.hpp>
 #include <gopp/io.hpp>
 #include <gopp/log.hpp>
@@ -61,6 +63,11 @@ TEST(GoHttputil, ReverseProxy) {
     const std::string backendResponse = "I am the backend";
     constexpr int backendStatus = 404;
     server backend(handlerFunc([&](http::ResponseWriter& w, http::Request& r) {
+        if (r.Method == "GET" && r.FormValue("mode") == "hangup") {
+            auto [c, _, _] = dynamic_cast<http::Hijacker&>(w).Hijack();
+            c->Close();
+            return;
+        }
         EXPECT_TRUE(r.TransferEncoding.empty()) << "backend got unexpected TransferEncoding";
         EXPECT_NE(r.Header.Get("X-Forwarded-For"), "") << "didn't get X-Forwarded-For header";
         EXPECT_EQ(r.Header.Get("Connection"), "") << "handler got Connection header";
@@ -69,6 +76,7 @@ TEST(GoHttputil, ReverseProxy) {
         EXPECT_EQ(r.Header.Get("Proxy-Connection"), "") << "handler got Proxy-Connection header";
         EXPECT_EQ(r.Host, "some-name") << "backend got Host header";
         w.Header().Set("Trailers", "not a special header field name");
+        w.Header().Set("Trailer", "X-Trailer");
         w.Header().Set("X-Foo", "bar");
         w.Header().Set("Upgrade", "foo");
         w.Header().Set("Keep-Alive", "foo");
@@ -77,6 +85,8 @@ TEST(GoHttputil, ReverseProxy) {
         w.Header().Add("Set-Cookie", "flavor=chocolateChip");
         w.WriteHeader(backendStatus);
         io::WriteString(w, backendResponse);
+        w.Header().Set("X-Trailer", "trailer_value");
+        w.Header().Set(std::string(http::TrailerPrefix) + "X-Unannounced-Trailer", "unannounced_trailer_value");
     }));
     auto proxyHandler = httputil::NewSingleHostReverseProxy(parse(backend->URL));
     proxyHandler->ErrorLog = quiet();
@@ -100,16 +110,14 @@ TEST(GoHttputil, ReverseProxy) {
     EXPECT_EQ(res->Header.Values("X-Multi-Value").size(), 2u);
     EXPECT_EQ(res->Header.Values("Set-Cookie").size(), 1u);
     EXPECT_EQ(readBody(res), backendResponse);
+    EXPECT_EQ(res->Trailer.Get("X-Trailer"), "trailer_value");
+    EXPECT_EQ(res->Trailer.Get("X-Unannounced-Trailer"), "unannounced_trailer_value");
 
     // Test that a backend failing to be reached or one which doesn't return
     // a response results in a StatusBadGateway.
-    // (A port that refuses connections: a closed test server's port may
-    // be the next server's.)
-    std::string closedURL = "http://127.0.0.1:1";
-    auto badProxy = httputil::NewSingleHostReverseProxy(parse(closedURL));
-    badProxy->ErrorLog = quiet();
-    server badFrontend(badProxy);
-    std::tie(res, err) = badFrontend->Client().Get(badFrontend->URL + "/?mode=hangup");
+    std::tie(getReq, std::ignore) = http::NewRequest("GET", frontend->URL + "/?mode=hangup");
+    getReq->Close = true;
+    std::tie(res, err) = frontendClient.Do(getReq);
     ASSERT_FALSE(err) << err;
     res->Body->Close();
     EXPECT_EQ(res->StatusCode, http::StatusBadGateway) << "request to bad proxy = " << res->Status;
@@ -705,3 +713,306 @@ TEST(Httputil, SetXForwarded) {
 }
 
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// Protocol upgrades and trailers
+
+namespace {
+
+string upgradeType(const http::Header& h) {
+    bool upgrade = false;
+    for (auto& v : h.Values("Connection")) {
+        for (auto t : strings::Split(v, ",")) {
+            if (strings::EqualFold(strings::TrimSpace(t), "Upgrade")) upgrade = true;
+        }
+    }
+    return upgrade ? h.Get("Upgrade") : string();
+}
+
+}  // namespace
+
+TEST(GoHttputil, ReverseProxyWebSocket) {
+    server backendServer(handlerFunc([](http::ResponseWriter& w, http::Request& r) {
+        if (upgradeType(r.Header) != "websocket") {
+            ADD_FAILURE() << "unexpected backend request";
+            http::Error(w, "unexpected request", 400);
+            return;
+        }
+        auto [c, brw, err] = dynamic_cast<http::Hijacker&>(w).Hijack();
+        if (err) {
+            ADD_FAILURE() << err;
+            return;
+        }
+        io::WriteString(*c, "HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: WebSocket\r\n\r\n");
+        auto [line, rerr] = brw->Reader->ReadString('\n');
+        if (rerr) {
+            ADD_FAILURE() << "backend failed to read line from client: " << rerr;
+            c->Close();
+            return;
+        }
+        io::WriteString(*c, "backend got " + strconv::Quote(strings::TrimSuffix(line, "\n")).str() + "\n");
+        c->Close();
+    }));
+
+    auto rproxy = httputil::NewSingleHostReverseProxy(parse(backendServer->URL));
+    rproxy->ErrorLog = quiet();
+    rproxy->ModifyResponse = [](http::Response& res) -> error {
+        res.Header.Add("X-Modified", "true");
+        return nullptr;
+    };
+    server frontendProxy(handlerFunc([rproxy](http::ResponseWriter& rw, http::Request& req) {
+        rw.Header().Set("X-Header", "X-Value");
+        rproxy->ServeHTTP(rw, req);
+        EXPECT_EQ(rw.Header().Get("X-Modified"), "true") << "response writer X-Modified header";
+    }));
+
+    auto [req, _] = http::NewRequest("GET", frontendProxy->URL);
+    req->Header.Set("Connection", "Upgrade");
+    req->Header.Set("Upgrade", "websocket");
+    auto [res, err] = frontendProxy->Client().Do(req);
+    ASSERT_FALSE(err) << err;
+    ASSERT_EQ(res->StatusCode, 101) << res->Status;
+    EXPECT_EQ(res->Header.Get("X-Header"), "X-Value");
+    ASSERT_TRUE(strings::EqualFold(upgradeType(res->Header), "websocket")) << "not websocket upgrade";
+    auto* rwc = dynamic_cast<io::Writer*>(res->Body.get());
+    ASSERT_TRUE(rwc) << "response body does not implement ReadWriteCloser";
+    EXPECT_EQ(res->Header.Get("X-Modified"), "true");
+
+    io::WriteString(*rwc, "Hello\n");
+    auto br = make_ptr<bufio::Reader>(res->Body);
+    auto [line, rerr] = br->ReadString('\n');
+    EXPECT_FALSE(rerr) << rerr;
+    EXPECT_EQ(line, "backend got \"Hello\"\n");
+    res->Body->Close();
+}
+
+TEST(GoHttputil, ReverseProxyWebSocketCancellation) {
+    constexpr int n = 5;
+    auto triggerCancelCh = make_chan<bool>(n);
+    auto nthResponse = [](int i) { return "backend response #" + std::to_string(i) + "\n"; };
+    const std::string terminalMsg = "final message";
+
+    // By value: the handler outlives the test, sleeping on a hijacked
+    // connection.
+    server cst(handlerFunc([triggerCancelCh, nthResponse, terminalMsg](http::ResponseWriter& w, http::Request& r) {
+        if (upgradeType(r.Header) != "websocket") {
+            ADD_FAILURE() << "unexpected upgrade type";
+            http::Error(w, "Unexpected request", 400);
+            return;
+        }
+        auto [conn, bufrw, err] = dynamic_cast<http::Hijacker&>(w).Hijack();
+        if (err) {
+            ADD_FAILURE() << err;
+            return;
+        }
+        struct closer {
+            ptr<net::Conn> c;
+            ~closer() { c->Close(); }
+        } closeConn{conn};
+        io::WriteString(*conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: WebSocket\r\n\r\n");
+        if (auto [_, rerr] = bufrw->Reader->ReadString('\n'); rerr) {
+            ADD_FAILURE() << "Failed to read line from client: " << rerr;
+            return;
+        }
+        // Go's <-triggerCancelCh: a value, or the channel closed.
+        auto canceled = [&] {
+            bool v, closed = false;
+            return triggerCancelCh.tryRecv(v, &closed) || closed;
+        };
+        for (int i = 0; i < n; i++) {
+            bufrw->WriteString(nthResponse(i));
+            if (error ferr = bufrw->Flush()) {
+                if (!canceled()) ADD_FAILURE() << "Writing response #" << i << " failed: " << ferr;
+                return;
+            }
+            time::Sleep(time::Second);
+        }
+        bufrw->WriteString(terminalMsg);
+        if (error ferr = bufrw->Flush(); ferr && !canceled()) ADD_FAILURE() << "Failed to write terminal message: " << ferr;
+    }));
+
+    auto rproxy = httputil::NewSingleHostReverseProxy(parse(cst->URL));
+    rproxy->ErrorLog = quiet();
+    rproxy->ModifyResponse = [](http::Response& res) -> error {
+        res.Header.Add("X-Modified", "true");
+        return nullptr;
+    };
+    server frontendProxy(handlerFunc([rproxy, triggerCancelCh](http::ResponseWriter& rw, http::Request& req) {
+        rw.Header().Set("X-Header", "X-Value");
+        auto [ctx, cancel] = context::WithCancel(req.Context());
+        go([triggerCancelCh, cancel] {
+            triggerCancelCh.recv();
+            cancel();
+        });
+        rproxy->ServeHTTP(rw, *req.WithContext(ctx));
+    }));
+
+    auto [req, _] = http::NewRequest("GET", frontendProxy->URL);
+    req->Header.Set("Connection", "Upgrade");
+    req->Header.Set("Upgrade", "websocket");
+    auto [res, err] = frontendProxy->Client().Do(req);
+    ASSERT_FALSE(err) << "Dialing to frontend proxy: " << err;
+    ASSERT_EQ(res->StatusCode, 101) << "Switching protocols failed";
+    EXPECT_EQ(res->Header.Get("X-Header"), "X-Value");
+    EXPECT_TRUE(strings::EqualFold(upgradeType(res->Header), "websocket"));
+    auto* rwc = dynamic_cast<io::Writer*>(res->Body.get());
+    ASSERT_TRUE(rwc) << "Response body type mismatch";
+    EXPECT_EQ(res->Header.Get("X-Modified"), "true");
+    ASSERT_FALSE(io::WriteString(*rwc, "Hello\n").second) << "Failed to write first message";
+
+    auto br = make_ptr<bufio::Reader>(res->Body);
+    for (;;) {
+        auto [line, rerr] = br->ReadString('\n');
+        if (line == terminalMsg) FAIL() << "The websocket request was not canceled, unfortunately!";
+        if (rerr == io::EOF_) break;
+        ASSERT_FALSE(rerr) << "Unexpected error: " << rerr;
+        // The first response: cancel.
+        if (line == nthResponse(0)) triggerCancelCh.close();
+    }
+    res->Body->Close();
+}
+
+TEST(GoHttputil, ReverseProxyWebSocketHalfTCP) {
+    // Issue 35892: TCP half-close through the proxy, when the client or the
+    // server closes reading or writing; a closed write reads as EOF at the
+    // other end.
+    auto mustRead = [](net::TCPConn& conn, std::string_view msg) {
+        std::string b(msg.size(), '\0');
+        auto [n, err] = io::ReadFull(conn, std::span<byte>(reinterpret_cast<byte*>(b.data()), b.size()));
+        EXPECT_FALSE(err) << "failed to read: " << err;
+        EXPECT_EQ(b, msg);
+    };
+    auto mustReadEOF = [](net::TCPConn& conn) {
+        byte b[1];
+        auto [n, err] = conn.Read(b);
+        EXPECT_EQ(err, io::EOF_) << "failed to read error: " << err;
+    };
+    auto mustWrite = [](net::TCPConn& conn, std::string_view msg) {
+        EXPECT_FALSE(io::WriteString(conn, msg).second) << "failed to write";
+    };
+
+    std::vector<std::pair<std::string, std::function<void(net::TCPConn&, net::TCPConn&)>>> tests = {
+        {"server close read",
+         [&](net::TCPConn& cli, net::TCPConn& srv) {
+             EXPECT_FALSE(srv.CloseRead());
+             mustWrite(srv, "server sends");
+             mustRead(cli, "server sends");
+         }},
+        {"server close write",
+         [&](net::TCPConn& cli, net::TCPConn& srv) {
+             EXPECT_FALSE(srv.CloseWrite());
+             mustWrite(cli, "client sends");
+             mustRead(srv, "client sends");
+             mustReadEOF(cli);
+         }},
+        {"client close read",
+         [&](net::TCPConn& cli, net::TCPConn& srv) {
+             EXPECT_FALSE(cli.CloseRead());
+             mustWrite(cli, "client sends");
+             mustRead(srv, "client sends");
+         }},
+        {"client close write",
+         [&](net::TCPConn& cli, net::TCPConn& srv) {
+             EXPECT_FALSE(cli.CloseWrite());
+             mustWrite(srv, "server sends");
+             mustRead(cli, "server sends");
+             mustReadEOF(srv);
+         }},
+    };
+
+    for (auto& [name, test] : tests) {
+        SCOPED_TRACE(name);
+        auto srvc = make_chan<ptr<net::TCPConn>>(1);
+        server backendServer(handlerFunc([srvc](http::ResponseWriter& w, http::Request& r) {
+            EXPECT_EQ(upgradeType(r.Header), "websocket");
+            auto [conn, _, err] = dynamic_cast<http::Hijacker&>(w).Hijack();
+            ASSERT_FALSE(err) << "hijack failed: " << err;
+            auto srv = dynamic_pointer_cast<net::TCPConn>(conn);
+            ASSERT_TRUE(srv) << "conn is not a TCPConn";
+            io::WriteString(*srv, "HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: WebSocket\r\n\r\n");
+            srvc.send(srv);
+        }));
+        auto rproxy = httputil::NewSingleHostReverseProxy(parse(backendServer->URL));
+        rproxy->ErrorLog = quiet();
+        server frontendProxy(handlerFunc([rproxy](http::ResponseWriter& rw, http::Request& req) { rproxy->ServeHTTP(rw, req); }));
+
+        auto [c, derr] = net::Dial("tcp", parse(frontendProxy->URL).Host);
+        ASSERT_FALSE(derr) << "failed to dial TCP address: " << derr;
+        auto cli = dynamic_pointer_cast<net::TCPConn>(c);
+        io::WriteString(*cli, "GET / HTTP/1.1\r\nHost: " + parse(frontendProxy->URL).Host.str() +
+                                  "\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+        // The response header, byte by byte, so that nothing after it is
+        // buffered here.
+        std::string head;
+        while (!head.ends_with("\r\n\r\n")) {
+            byte b[1];
+            auto [n, rerr] = cli->Read(b);
+            ASSERT_FALSE(rerr) << "failed to read response: " << rerr;
+            head.push_back(static_cast<char>(b[0]));
+        }
+        ASSERT_TRUE(head.starts_with("HTTP/1.1 101 ")) << head;
+        EXPECT_NE(strings::ToLower(head).find("upgrade: websocket"), std::string::npos) << head;
+        auto srv = srvc.recv();
+        test(*cli, *srv);
+        srv->Close();
+        cli->Close();
+    }
+}
+
+TEST(GoHttputil, ReverseProxyUpgradeNoCloseWrite) {
+    // The backend hijacks the connection, reads all the client sends, and
+    // returns.
+    auto backendDone = make_chan<empty>();
+    server backend(handlerFunc([backendDone](http::ResponseWriter& w, http::Request&) {
+        w.Header().Set("Connection", "upgrade");
+        w.Header().Set("Upgrade", "u");
+        w.WriteHeader(101);
+        auto [conn, _, err] = http::NewResponseController(w).Hijack();
+        EXPECT_FALSE(err) << "Hijack: " << err;
+        io::Copy(io::Discard(), *conn);
+        conn->Close();
+        backendDone.close();
+    }));
+
+    // ModifyResponse replaces the body with a wrapper without CloseWrite.
+    struct readWriteCloserOnly final : io::ReadCloser, io::Writer {
+        explicit readWriteCloserOnly(ptr<io::ReadCloser> b) : b_(std::move(b)) {}
+        std::pair<isize, error> Read(std::span<byte> p) override { return b_->Read(p); }
+        std::pair<isize, error> Write(std::span<const byte> p) override { return dynamic_cast<io::Writer&>(*b_).Write(p); }
+        error Close() override { return b_->Close(); }
+        ptr<io::ReadCloser> b_;
+    };
+    auto proxyHandler = httputil::NewSingleHostReverseProxy(parse(backend->URL));
+    proxyHandler->ModifyResponse = [](http::Response& resp) -> error {
+        resp.Body = make_ptr<readWriteCloserOnly>(resp.Body);
+        return nullptr;
+    };
+    server frontend(proxyHandler);
+
+    // The client sends a request and closes the connection.
+    auto [req, _] = http::NewRequest("GET", frontend->URL);
+    req->Header.Set("Connection", "upgrade");
+    req->Header.Set("Upgrade", "u");
+    auto [resp, err] = frontend->Client().Do(req);
+    ASSERT_FALSE(err) << err;
+    resp->Body->Close();
+
+    // The client's close reaches the backend.
+    backendDone.recv();
+}
+
+TEST(GoHttputil, UnannouncedTrailer) {
+    server backend(handlerFunc([](http::ResponseWriter& w, http::Request&) {
+        w.WriteHeader(http::StatusOK);
+        dynamic_cast<http::Flusher&>(w).Flush();
+        w.Header().Set(std::string(http::TrailerPrefix) + "X-Unannounced-Trailer", "unannounced_trailer_value");
+    }));
+    auto proxyHandler = httputil::NewSingleHostReverseProxy(parse(backend->URL));
+    proxyHandler->ErrorLog = quiet();
+    server frontend(proxyHandler);
+    auto [res, err] = frontend->Client().Get(frontend->URL);
+    ASSERT_FALSE(err) << "Get: " << err;
+    io::ReadAll(*res->Body);
+    res->Body->Close();
+    EXPECT_EQ(res->Trailer.Get("X-Unannounced-Trailer"), "unannounced_trailer_value");
+}

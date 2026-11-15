@@ -11,8 +11,9 @@
 //         r.SetXForwarded();
 //     };
 //
-// Protocol upgrades (101 Switching Protocols, as WebSocket uses) aren't
-// proxied yet: go++'s server has no Hijacker.
+// Protocol upgrades (101 Switching Protocols, as WebSocket uses) are
+// proxied over HTTP/1: the proxy hijacks the client's connection and
+// copies both ways between it and the backend's.
 #pragma once
 
 // The module interfaces (modules/) import these instead.
@@ -89,6 +90,7 @@ private:
     template <typename... A>
     void logf(std::format_string<A...> f, A&&... a);
     void handleError(http::ResponseWriter& rw, http::Request& req, gopp::error err);
+    void handleUpgradeResponse(http::ResponseWriter& rw, http::Request& req, http::Response& res);
     bool modifyResponse(http::ResponseWriter& rw, http::Response& res, http::Request& req);
     time::Duration flushInterval(const http::Response& res) const;
     gopp::error copyResponse(http::ResponseWriter& dst, io::Reader& src, time::Duration flushInterval);

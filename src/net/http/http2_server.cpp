@@ -223,6 +223,7 @@ struct writeRequest {
     bool endStream = false;
     // rst
     ErrCode code = ErrCode::internal;
+    gopp::error cause;  // why, for the handler's later writes
     // pushPromise: the promised request (and header)
     string method, scheme, authority, path;
     // Receives the result once the frame is written; nil if no one waits.
@@ -284,6 +285,9 @@ public:
     gopp::error writeAndWait(writeRequest wr);
     // Pusher::Push, once the request is checked.
     gopp::error startPush(writeRequest wr);
+    // ResponseController's deadlines: from now on, a deadline of the
+    // request body's reads, or of the response's writes (zero for none).
+    void setStreamDeadline(const ptr<stream>& st, time::Time t, bool write);
     void noteBodyReadFromHandler(const ptr<stream>& st, int n);
     void sendServeMsg(std::function<void()> fn);
     const chan<empty>& doneServing() const noexcept { return doneServing_; }
@@ -424,11 +428,39 @@ bool bodyAllowedForStatus(int status) {
 // The ResponseWriter of a stream (responseWriter and responseWriterState).
 // Writes collect in a 4 KiB buffer; a full buffer, flush() or the end of
 // the handler sends it as a chunk: the header first, then DATA.
-class responseWriter final : public ResponseWriter, public Flusher, public Pusher {
+class responseWriter final : public ResponseWriter, public Flusher, public Pusher, public internal::responseControl {
 public:
     responseWriter(ptr<serverConn> sc, ptr<stream> st, Request* req) : sc_(std::move(sc)), st_(std::move(st)), req_(req) {}
 
     gopp::error Push(std::string_view target, const PushOptions* opts) override;
+
+    gopp::error setReadDeadline(time::Time t) override {
+        // A deadline past takes effect now, so that the reads after this
+        // fail.
+        if (!t.IsZero() && t.Before(time::Now())) {
+            if (st_->body) st_->body->closeWithError(net::ErrDeadlineExceeded);
+            return nullptr;
+        }
+        sc_->setStreamDeadline(st_, t, false);
+        return nullptr;
+    }
+    gopp::error setWriteDeadline(time::Time t) override {
+        // A deadline past resets the stream now: the reset goes before the
+        // writes after this, which then fail.
+        if (!t.IsZero() && t.Before(time::Now())) {
+            writeRequest wr;
+            wr.kind = writeRequest::rst;
+            wr.st = st_;
+            wr.code = ErrCode::internal;
+            wr.cause = net::ErrDeadlineExceeded;
+            sc_->writeFromHandler(std::move(wr));
+            return nullptr;
+        }
+        sc_->setStreamDeadline(st_, t, true);
+        return nullptr;
+    }
+    // HTTP/2 is always full duplex.
+    gopp::error enableFullDuplex() override { return nullptr; }
 
     http::Header& Header() override { return handlerHeader_; }
 
@@ -480,7 +512,7 @@ public:
 
     void Flush() override { flushError(); }
 
-    gopp::error flushError() {
+    gopp::error flushError() override {
         if (!buf_.empty()) {
             flushBuf();
         } else {
@@ -595,7 +627,7 @@ private:
             // The header goes out before any data, as both queue on the
             // stream in order; no need to wait for it.
             if (gopp::error err = sc_->writeFromHandler(std::move(wr))) {
-                err_ = err;
+                fail(err);
                 return;
             }
             if (endStream) return;
@@ -613,9 +645,9 @@ private:
             wr.endStream = endStream;
             if (handlerDone_) {
                 // The last chunk: the handler need not wait for it.
-                if (gopp::error err = sc_->writeFromHandler(std::move(wr))) err_ = err;
+                if (gopp::error err = sc_->writeFromHandler(std::move(wr))) fail(err);
             } else if (gopp::error err = sc_->writeAndWait(std::move(wr))) {
-                err_ = err;
+                fail(err);
             }
         }
         if (trailers && !err_) {
@@ -627,8 +659,15 @@ private:
                 for (auto& v : handlerHeader_.Values(k)) wr.header.AddCanonical(k, v);
             }
             wr.endStream = true;
-            if (gopp::error err = sc_->writeFromHandler(std::move(wr))) err_ = err;
+            if (gopp::error err = sc_->writeFromHandler(std::move(wr))) fail(err);
         }
+    }
+
+    // A write failed: on a closed stream, the error is why it closed
+    // (chunkWriter.Write).
+    void fail(gopp::error err) {
+        if (err == errStreamClosed && st_->closeErr) err = st_->closeErr;
+        err_ = std::move(err);
     }
 
     ptr<serverConn> sc_;
@@ -720,6 +759,36 @@ gopp::error serverConn::writeAndWait(writeRequest wr) {
                else err = errStreamClosed;
            }));
     return err;
+}
+
+void serverConn::setStreamDeadline(const ptr<stream>& st, time::Time t, bool write) {
+    ptr<serverConn> self(this);
+    sendServeMsg([self, st, t, write] {
+        // A closed stream's timers are gone.
+        auto it = self->streams_.find(st->id);
+        if (it == self->streams_.end() || it->second != st) return;
+        ptr<time::Timer>& timer = write ? st->writeDeadline : st->readDeadline;
+        if (timer) {
+            if (!timer->Stop()) return;  // it fired already
+            timer = nullptr;
+        }
+        if (t.IsZero()) return;
+        uint32 id = st->id;
+        // A read deadline ends the body's reads; a write deadline resets
+        // the stream.
+        std::function<void()> expire = write ? std::function<void()>([self, id] {
+            if (self->streams_.contains(id)) self->resetStream(id, ErrCode::internal, net::ErrDeadlineExceeded);
+        })
+                                             : std::function<void()>([st] {
+                                                   if (st->body) st->body->closeWithError(net::ErrDeadlineExceeded);
+                                               });
+        time::Duration d = t.Sub(time::Now());
+        if (d.ns <= 0) {
+            expire();
+            return;
+        }
+        timer = time::AfterFunc(d, [self, expire] { self->sendServeMsg(expire); });
+    });
 }
 
 gopp::error serverConn::startPush(writeRequest wr) {
@@ -1428,7 +1497,7 @@ void serverConn::resetIdleTimer() {
 
 void serverConn::queueWrite(writeRequest wr) {
     if (wr.kind == writeRequest::rst) {
-        if (streams_.contains(wr.st->id)) resetStream(wr.st->id, wr.code);
+        if (streams_.contains(wr.st->id)) resetStream(wr.st->id, wr.code, wr.cause);
         return;
     }
     auto it = streams_.find(wr.st->id);

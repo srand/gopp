@@ -3,6 +3,7 @@
 #include "ascii.hpp"
 #include "internal.hpp"
 
+#include <gopp/chan.hpp>
 #include <gopp/fmt.hpp>
 #include <gopp/mime.hpp>
 #include <gopp/net.hpp>
@@ -225,6 +226,97 @@ void ReverseProxy::logf(std::format_string<A...> f, A&&... a) {
     }
 }
 
+void ReverseProxy::handleUpgradeResponse(http::ResponseWriter& rw, http::Request& req, http::Response& res) {
+    string reqUpType = upgradeType(req.Header);
+    string resUpType = upgradeType(res.Header);
+    for (char c : resUpType) {
+        if (c < ' ' || c > '~') {
+            res.Body->Close();
+            handleError(rw, req, errors::New("backend tried to switch to invalid protocol " + strconv::Quote(resUpType)));
+            return;
+        }
+    }
+    if (!http::ascii::EqualFold(reqUpType, resUpType)) {
+        res.Body->Close();
+        handleError(rw, req, errors::New("backend tried to switch protocol " + strconv::Quote(resUpType) + " when " +
+                                         strconv::Quote(reqUpType) + " was requested"));
+        return;
+    }
+
+    ptr<io::ReadCloser> backBody = res.Body;
+    auto* backConn = dynamic_cast<io::Writer*>(backBody.get());
+    if (!backConn) {
+        backBody->Close();
+        handleError(rw, req, errors::New("internal error: 101 switching protocols response with non-writable body"));
+        return;
+    }
+
+    http::ResponseController rc(rw);
+    auto [conn, brw, hijackErr] = rc.Hijack();
+    if (hijackErr == http::ErrNotSupported) {
+        backBody->Close();
+        handleError(rw, req, errors::New("can't switch protocols using non-Hijacker ResponseWriter"));
+        return;
+    }
+
+    // Canceling the request closes the backend (Go issue 35559).
+    auto backConnCloseCh = make_chan<empty>();
+    auto ctxDone = req.Context()->Done();
+    go([backBody, backConnCloseCh, ctxDone] {
+        select(recv(ctxDone, [] {}), recv(backConnCloseCh, [] {}));
+        backBody->Close();
+    });
+    struct closeOnExit {
+        chan<empty> ch;
+        ~closeOnExit() { ch.close(); }
+    } closeBack{backConnCloseCh};
+
+    if (hijackErr) {
+        handleError(rw, req, errors::New("Hijack failed on protocol switch: " + std::string(hijackErr.Error().view())));
+        return;
+    }
+    struct closer {
+        ptr<net::Conn> c;
+        ~closer() { c->Close(); }
+    } closeConn{conn};
+
+    copyHeader(rw.Header(), res.Header);
+
+    // The 101 response, with the backend's header, to the client.
+    std::string head = "HTTP/1.1 101 Switching Protocols\r\n";
+    rw.Header().WriteTo(head);
+    head += "\r\n";
+    if (auto [_, err] = brw->WriteString(head); err) {
+        handleError(rw, req, errors::New("response write: " + std::string(err.Error().view())));
+        return;
+    }
+    if (gopp::error err = brw->Flush()) {
+        handleError(rw, req, errors::New("response flush: " + std::string(err.Error().view())));
+        return;
+    }
+
+    // Copy both ways (switchProtocolCopier); at one's end, shut down the
+    // writing half of the other side. Done when both are done, or one
+    // fails.
+    auto errc = make_chan<gopp::error>(2);
+    static const gopp::error errCopyDone = errors::New("hijacked connection copy complete");
+    ptr<bufio::Reader> userReader = brw->Reader;  // with what the client sent after its request
+    go([userReader, backBody, backConn, errc] {
+        auto [_, err] = io::Copy(*backConn, *userReader);
+        if (!err) err = http::internal::closeWrite(*backBody);
+        if (err == http::ErrNotSupported) err = errCopyDone;
+        errc.send(err);
+    });
+    go([conn, backBody, errc] {
+        auto [_, err] = io::Copy(*conn, *backBody);
+        if (!err) err = http::internal::closeWrite(*conn);
+        if (err == http::ErrNotSupported) err = errCopyDone;
+        errc.send(err);
+    });
+    gopp::error err = errc.recv();
+    if (!err) errc.recv();
+}
+
 void ReverseProxy::handleError(http::ResponseWriter& rw, http::Request& req, gopp::error err) {
     if (ErrorHandler) {
         ErrorHandler(rw, req, std::move(err));
@@ -335,8 +427,7 @@ void ReverseProxy::ServeHTTP(http::ResponseWriter& rw, http::Request& req) {
     // Deal with 101 Switching Protocols responses: (WebSocket, h2c, etc).
     if (res->StatusCode == http::StatusSwitchingProtocols) {
         if (!modifyResponse(rw, *res, *outreq)) return;
-        res->Body->Close();
-        handleError(rw, *outreq, errors::New("can't switch protocols using non-Hijacker ResponseWriter"));
+        handleUpgradeResponse(rw, *outreq, *res);
         return;
     }
 
@@ -348,12 +439,21 @@ void ReverseProxy::ServeHTTP(http::ResponseWriter& rw, http::Request& req) {
     rw.WriteHeader(res->StatusCode);
 
     err = copyResponse(rw, *res->Body, flushInterval(*res));
-    res->Body->Close();
+    res->Body->Close();  // now, to set res->Trailer
     if (err) {
         // Since we're streaming the response, if we run into an error all we
         // can do is abort the request. Issue 23643: ReverseProxy should use
         // ErrAbortHandler on read error while copying body.
         throw http::ErrAbortHandler;
+    }
+
+    if (!res->Trailer.empty()) {
+        // Trailers need chunking: flush, so that the server doesn't
+        // compute a Content-Length for a short body. They came after the
+        // body, so they go out with TrailerPrefix (go++'s Trailer holds no
+        // announced keys before the body is read).
+        http::ResponseController(rw).Flush();
+        for (auto& e : res->Trailer) rw.Header().Add(std::string(http::TrailerPrefix) + std::string(e.key.view()), e.value);
     }
 }
 

@@ -141,6 +141,19 @@ public:
 
     void serve();
 
+    // Hands the connection to a handler (Go's hijackLocked): the server
+    // forgets it.
+    std::tuple<ptr<net::Conn>, ptr<bufio::ReadWriter>, gopp::error> hijack() {
+        hijacked = true;
+        rwc->SetDeadline(time::Time{});
+        {
+            std::lock_guard l(state_->mu);
+            state_->conns.erase(this);
+        }
+        return {rwc, bufio::NewReadWriter(bufr, make_ptr<bufio::Writer>(rwc)), nullptr};
+    }
+    bool hijacked = false;
+
     // The settings HTTP/2 connections share with HTTP/1.
     const internal::serverOptions* thisServerOptions() {
         opts_.ReadTimeout = readTimeout_;
@@ -219,7 +232,12 @@ std::pair<isize, gopp::error> expectContinueReader::Read(std::span<byte> p) {
 // so that small responses get a Content-Length and a sniffed Content-Type,
 // then through the chunk writer (chunked encoding when the length isn't
 // known), into the connection's 4 KiB buffer.
-class response final : public ResponseWriter, public Flusher, public io::ReaderFrom, public internal::requestTooLarger {
+class response final : public ResponseWriter,
+                       public Flusher,
+                       public Hijacker,
+                       public io::ReaderFrom,
+                       public internal::requestTooLarger,
+                       public internal::responseControl {
 public:
     response(conn* c, Request* req) : c_(c), req_(req) {
         wants10KeepAlive_ = !req->ProtoAtLeast(1, 1) && internal::hasToken(req->Header.Get("Connection"), "keep-alive");
@@ -236,6 +254,10 @@ public:
     }
 
     void WriteHeader(int code) override {
+        if (c_->hijacked) {
+            logf("http: response.WriteHeader on hijacked connection");
+            return;
+        }
         if (wroteHeader_) {
             logf("http: superfluous response.WriteHeader call");
             return;
@@ -269,6 +291,10 @@ public:
     }
 
     std::pair<isize, gopp::error> Write(std::span<const byte> p) override {
+        if (c_->hijacked) {
+            if (!p.empty()) logf("http: response.Write on hijacked connection");
+            return {0, ErrHijacked};
+        }
         if (!wroteHeader_) WriteHeader(StatusOK);
         if (p.empty()) return {0, nullptr};
         if (!bodyAllowedForStatus(status_)) return {0, ErrBodyNotAllowed};
@@ -292,6 +318,7 @@ public:
     }
 
     void Flush() override {
+        if (c_->hijacked) return;
         if (!wroteHeader_) WriteHeader(StatusOK);
         flushBuf();
         if (!cwWrote_) cwWriteHeader({});
@@ -349,6 +376,30 @@ public:
         }
         auto [m, err] = io::Copy(wo, src);
         return {n + m, err};
+    }
+
+    std::tuple<ptr<net::Conn>, ptr<bufio::ReadWriter>, gopp::error> Hijack() override {
+        if (handlerDone_) panic("net/http: Hijack called after ServeHTTP finished");
+        if (c_->hijacked) return {nullptr, nullptr, ErrHijacked};
+        // What's written goes out first.
+        if (wroteHeader_) {
+            flushBuf();
+            if (!cwWrote_) cwWriteHeader({});
+        }
+        c_->bufw.Flush();
+        return c_->hijack();
+    }
+
+    gopp::error flushError() override {
+        if (c_->hijacked) return nullptr;
+        Flush();
+        return c_->werr;
+    }
+    gopp::error setReadDeadline(time::Time t) override { return c_->rwc->SetReadDeadline(t); }
+    gopp::error setWriteDeadline(time::Time t) override { return c_->rwc->SetWriteDeadline(t); }
+    gopp::error enableFullDuplex() override {
+        fullDuplex_ = true;
+        return nullptr;
     }
 
     void finishRequest() {
@@ -489,8 +540,9 @@ private:
 
         // Discard a small unread request body, so that the connection can
         // be reused and clients that write their whole request before
-        // reading the response don't deadlock.
-        if (req_->ContentLength != 0 && !closeAfterReply_) {
+        // reading the response don't deadlock; unless the handler reads it
+        // while it writes (EnableFullDuplex).
+        if (req_->ContentLength != 0 && !closeAfterReply_ && !fullDuplex_) {
             if (internal::bodyReader* b = requestBody()) {
                 bool discard = false, tooBig = false;
                 if (b->closed()) {
@@ -596,6 +648,7 @@ private:
     bool wants10KeepAlive_ = false;
     bool wantsClose_ = false;
     bool handlerDone_ = false;
+    bool fullDuplex_ = false;
 
     byte buf_[bufferBeforeChunking];
     std::size_t n_ = 0;
@@ -604,6 +657,41 @@ private:
     bool chunking_ = false;
     std::vector<string> trailers_;  // declared in the "Trailer" header
 };
+
+}  // namespace
+
+const gopp::error ErrHijacked = errors::New("http: connection has been hijacked");
+
+gopp::error ResponseController::Flush() {
+    if (auto* c = dynamic_cast<internal::responseControl*>(&rw_)) return c->flushError();
+    auto* f = dynamic_cast<Flusher*>(&rw_);
+    if (!f) return ErrNotSupported;
+    f->Flush();
+    return nullptr;
+}
+
+std::tuple<ptr<net::Conn>, ptr<bufio::ReadWriter>, gopp::error> ResponseController::Hijack() {
+    auto* h = dynamic_cast<Hijacker*>(&rw_);
+    if (!h) return {nullptr, nullptr, ErrNotSupported};
+    return h->Hijack();
+}
+
+gopp::error ResponseController::SetReadDeadline(time::Time deadline) {
+    auto* c = dynamic_cast<internal::responseControl*>(&rw_);
+    return c ? c->setReadDeadline(deadline) : ErrNotSupported;
+}
+
+gopp::error ResponseController::SetWriteDeadline(time::Time deadline) {
+    auto* c = dynamic_cast<internal::responseControl*>(&rw_);
+    return c ? c->setWriteDeadline(deadline) : ErrNotSupported;
+}
+
+gopp::error ResponseController::EnableFullDuplex() {
+    auto* c = dynamic_cast<internal::responseControl*>(&rw_);
+    return c ? c->enableFullDuplex() : ErrNotSupported;
+}
+
+namespace {
 
 void conn::writeErrorResponse(const gopp::error& err) {
     int code = 400;
@@ -640,8 +728,10 @@ void conn::serve() {
     struct closer {
         conn* c;
         ~closer() {
-            c->bufw.Flush();
-            c->rwc->Close();
+            if (!c->hijacked) {
+                c->bufw.Flush();
+                c->rwc->Close();
+            }
             c->st_.store(connState::closed);
             std::lock_guard l(c->state_->mu);
             c->state_->conns.erase(c);
@@ -728,6 +818,12 @@ void conn::serve() {
             return;  // like Go: drop the connection
         }
         req->CancelContext();
+        if (hijacked) {
+            // The handler has the connection now.
+            if (req->MultipartForm) req->MultipartForm->RemoveAll();
+            curReq = nullptr;
+            return;
+        }
         w.finishRequest();
         if (req->MultipartForm) req->MultipartForm->RemoveAll();
         curReq = nullptr;

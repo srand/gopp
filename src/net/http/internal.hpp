@@ -55,6 +55,32 @@ protected:
     ~requestTooLarger() = default;
 };
 
+// What ResponseController asks of the servers' ResponseWriters, beyond
+// Flusher and Hijacker (Go checks for these methods by name).
+struct responseControl {
+    // Flusher::Flush, and the error of writing (Go's FlushError).
+    virtual gopp::error flushError() = 0;
+    virtual gopp::error setReadDeadline(time::Time t) = 0;
+    virtual gopp::error setWriteDeadline(time::Time t) = 0;
+    virtual gopp::error enableFullDuplex() = 0;
+
+protected:
+    ~responseControl() = default;
+};
+
+// Something whose writing half can be shut down (Go checks for a
+// CloseWrite method), such as the body of a 101 response.
+struct closeWriter {
+    virtual gopp::error CloseWrite() = 0;
+
+protected:
+    ~closeWriter() = default;
+};
+
+// Shuts down the writing half of c: a TCP or Unix connection, or a
+// closeWriter; ErrNotSupported for others.
+gopp::error closeWrite(object& c);
+
 // The request body as the server provides it.
 class bodyReader final : public io::ReadCloser {
 public:

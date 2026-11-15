@@ -328,6 +328,50 @@ struct Flusher : public virtual object {
     virtual void Flush() = 0;
 };
 
+// http.Hijacker: implemented by the HTTP/1 server's ResponseWriter, to
+// take over the connection, as protocol upgrades (WebSocket) do. Use
+// ResponseController::Hijack.
+struct Hijacker : public virtual object {
+    // The connection, and a ReadWriter whose Reader may hold bytes the
+    // client sent after the request. The server no longer reads from,
+    // writes to or closes the connection; the caller does. The response
+    // header, if written, is flushed first. ErrHijacked if called twice.
+    virtual std::tuple<ptr<net::Conn>, ptr<bufio::ReadWriter>, gopp::error> Hijack() = 0;
+};
+
+// http.ErrHijacked: "http: connection has been hijacked", from the
+// ResponseWriter of a hijacked connection.
+extern const gopp::error ErrHijacked;
+
+// http.ResponseController: the less common things a handler can do with
+// its ResponseWriter, each ErrNotSupported where the server can't.
+//
+//     http::ResponseController rc(w);
+//     rc.SetWriteDeadline(time::Now().Add(time::Minute));
+class ResponseController {
+public:
+    explicit ResponseController(ResponseWriter& rw) noexcept : rw_(rw) {}
+
+    // Flushes buffered data to the client (Flusher).
+    gopp::error Flush();
+    // Hijacker::Hijack.
+    std::tuple<ptr<net::Conn>, ptr<bufio::ReadWriter>, gopp::error> Hijack();
+    // The time limit for reading the rest of the request body; a zero
+    // Time means none. Reads after it fail with a timeout error.
+    gopp::error SetReadDeadline(time::Time deadline);
+    // The time limit for writing the response; a zero Time means none.
+    gopp::error SetWriteDeadline(time::Time deadline);
+    // Lets the handler read the request body after writing the response
+    // has begun, which HTTP/1 otherwise doesn't (HTTP/2 always does).
+    gopp::error EnableFullDuplex();
+
+private:
+    ResponseWriter& rw_;
+};
+
+// http.NewResponseController
+inline ResponseController NewResponseController(ResponseWriter& rw) noexcept { return ResponseController(rw); }
+
 // http.PushOptions: the request of a server push.
 struct PushOptions {
     // "GET" or "HEAD"; "GET" if empty.

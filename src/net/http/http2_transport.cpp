@@ -113,8 +113,8 @@ private:
     }
     gopp::error writeFrames(const std::string& frames);
     gopp::error writeHeaders(Request& req, clientStream& cs, bool endStream);
-    gopp::error writeBody(Request& req, const ptr<clientStream>& cs);
-    gopp::error writeTrailers(Request& req, const ptr<clientStream>& cs);
+    gopp::error writeBody(io::Reader* body, const ptr<detail::trailerSink>& trailer, const ptr<clientStream>& cs);
+    gopp::error writeTrailers(const ptr<detail::trailerSink>& trailer, const ptr<clientStream>& cs);
     void forgetStream(const ptr<clientStream>& cs);
     void resetStream(const ptr<clientStream>& cs, ErrCode code);
     void readLoop();
@@ -264,10 +264,12 @@ gopp::error clientConn::writeHeaders(Request& req, clientStream& cs, bool endStr
     return err;
 }
 
-gopp::error clientConn::writeTrailers(Request& req, const ptr<clientStream>& cs) {
+gopp::error clientConn::writeTrailers(const ptr<detail::trailerSink>& trailer, const ptr<clientStream>& cs) {
     std::lock_guard l(wmu_);
     hbuf_.clear();
-    for (auto& e : req.Trailer) {
+    // The trailers' values as the body ends, if the Request is still there.
+    Header none;
+    for (auto& e : trailer->dst ? *trailer->dst : none) {
         string k = lowerHeader(e.key);
         if (!validWireHeaderFieldName(k) || !internal::validHeaderFieldValue(e.value)) continue;
         henc_.writeField({k, e.value});
@@ -290,14 +292,14 @@ gopp::error clientConn::writeTrailers(Request& req, const ptr<clientStream>& cs)
     return nullptr;
 }
 
-gopp::error clientConn::writeBody(Request& req, const ptr<clientStream>& cs) {
+gopp::error clientConn::writeBody(io::Reader* body, const ptr<detail::trailerSink>& trailer, const ptr<clientStream>& cs) {
     // With trailers, they end the stream instead of the last DATA frame.
-    bool trailers = !req.Trailer.empty();
-    if (!req.Body) return writeTrailers(req, cs);
+    bool trailers = trailer->dst && !trailer->dst->empty();
+    if (!body) return writeTrailers(trailer, cs);
     std::vector<byte> buf(maxBodyChunk);
     for (;;) {
-        auto [n, rerr] = req.Body->Read(buf);
-        if (trailers && rerr == io::EOF_ && n == 0) return writeTrailers(req, cs);
+        auto [n, rerr] = body->Read(buf);
+        if (trailers && rerr == io::EOF_ && n == 0) return writeTrailers(trailer, cs);
         if (rerr && rerr != io::EOF_) return rerr;
         std::size_t off = 0;
         bool eof = rerr == io::EOF_;
@@ -324,7 +326,7 @@ gopp::error clientConn::writeBody(Request& req, const ptr<clientStream>& cs) {
                 }
             }
             off += k;
-            if (last && trailers) return writeTrailers(req, cs);
+            if (last && trailers) return writeTrailers(trailer, cs);
             if (last) {
                 std::lock_guard l(mu_);
                 cs->sentEnd = true;
@@ -384,41 +386,45 @@ std::pair<ptr<Response>, gopp::error> clientConn::roundTrip(Request& req, const 
     }
     if (hasBody) {
         // The body goes out on its own fiber, so that a server that
-        // answers before reading it all isn't kept waiting.
+        // answers before reading it all isn't kept waiting, and a handler
+        // can answer as it reads (full duplex). The fiber holds the body,
+        // and the trailers through the sink, not the Request.
         ptr<clientConn> self(this);
-        ptr<io::ReadCloser> body = req.Body;
-        Request* r = &req;
+        ptr<io::ReadCloser> body = req.Body && req.ContentLength != 0 ? req.Body : nullptr;
+        ptr<detail::trailerSink> trailer = detail::trailerSink::of(req);
         auto bodyDone = make_chan<gopp::error>(1);
-        go([self, cs, r, body, bodyDone] {
-            gopp::error err = self->writeBody(*r, cs);
+        go([self, cs, body, trailer, bodyDone] {
+            gopp::error err = self->writeBody(body.get(), trailer, cs);
             if (body) body->Close();
             if (err && err != cs->abortErr) self->resetStream(cs, ErrCode::cancel);
             bodyDone.send(err);
         });
-        // Wait for the body while waiting for the response: the request
-        // must outlive the body's fiber.
         std::pair<ptr<Response>, gopp::error> res;
-        gopp::error berr;
-        bool gotRes = false, gotBody = false;
-        while (!gotRes || !gotBody) {
-            chan<empty> ctxDone = ctx ? ctx->Done() : chan<empty>();
+        bool gotRes = false;
+        chan<empty> ctxDone = ctx ? ctx->Done() : chan<empty>();
+        while (!gotRes) {
+            gopp::error berr;
+            bool gotBody = false;
             select(recv(cs->resp, [&](std::pair<ptr<Response>, gopp::error> r2) { res = std::move(r2); gotRes = true; }),
-                   recv(gotBody ? chan<gopp::error>() : bodyDone, [&](gopp::error e) { berr = std::move(e); gotBody = true; }),
-                   recv(gotRes ? chan<empty>() : ctxDone, [&] {
+                   recv(bodyDone, [&](gopp::error e) { berr = std::move(e); gotBody = true; }),
+                   recv(ctxDone, [&] {
                        resetStream(cs, ErrCode::cancel);
                        res = {nullptr, ctx->Err()};
                        gotRes = true;
                    }));
-            // A response that ends the stream early doesn't need the rest
-            // of the body.
-            if (gotRes && !gotBody && (res.second || cs->peerDone)) {
-                std::lock_guard l(mu_);
-                if (!cs->abortErr) cs->abortErr = res.second ? res.second : errClosedBody;
-                cond_.Broadcast();
+            if (gotBody) {
+                // A body that failed before the response ends the request.
+                if (berr && berr != cs->abortErr) return {nullptr, berr};
+                bodyDone = chan<gopp::error>();  // written; wait for the response
             }
         }
-        if (res.second) return res;
-        if (berr && berr != cs->abortErr && !res.first) return {nullptr, berr};
+        // A response that ends the stream early, or an error, doesn't need
+        // the rest of the body.
+        if (res.second || cs->peerDone) {
+            std::lock_guard l(mu_);
+            if (!cs->abortErr) cs->abortErr = res.second ? res.second : errClosedBody;
+            cond_.Broadcast();
+        }
         return res;
     }
 
@@ -607,7 +613,18 @@ gopp::error clientConn::processFrame(Frame& f) {
             if (it == streams_.end()) return nullptr;
             cs = it->second;
             cs->sentEnd = true;
-            abortStream(cs, make_ptr<StreamError>(f.streamId(), f.errCode, errFromPeer));
+            gopp::error serr = make_ptr<StreamError>(f.streamId(), f.errCode, errFromPeer);
+            if (!cs->gotHeaders) {
+                abortStream(cs, serr);
+            } else {
+                // The reader gets what came before the reset, and a body
+                // that had ended keeps its end: a server may reset with
+                // NO_ERROR after a complete response, to stop the request
+                // body (RFC 9113 8.1).
+                cs->peerDone = true;
+                if (!cs->abortErr) cs->abortErr = serr;
+                cs->body->closeWithError(serr);
+            }
             cond_.Broadcast();
         }
         forgetStream(cs);

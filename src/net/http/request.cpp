@@ -257,6 +257,13 @@ gopp::error fixTrailer(Header& header, bool chunked) {
     return err;
 }
 
+gopp::error closeWrite(object& c) {
+    if (auto* tc = dynamic_cast<net::TCPConn*>(&c)) return tc->CloseWrite();
+    if (auto* uc = dynamic_cast<net::UnixConn*>(&c)) return uc->CloseWrite();
+    if (auto* cw = dynamic_cast<closeWriter*>(&c)) return cw->CloseWrite();
+    return ErrNotSupported;
+}
+
 bool validTrailerHeader(std::string_view key) noexcept {
     static constexpr std::string_view bad[] = {
         "Authorization", "Cache-Control",       "Connection",          "Content-Encoding", "Content-Length",

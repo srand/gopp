@@ -94,4 +94,24 @@ private:
     error err_;
 };
 
+// bufio.ReadWriter: a Reader and a Writer, as one io::Reader and
+// io::Writer, as an http::Hijacker returns them.
+class ReadWriter final : public io::Reader, public io::Writer {
+public:
+    ReadWriter(ptr<bufio::Reader> r, ptr<bufio::Writer> w) : Reader(std::move(r)), Writer(std::move(w)) {}
+
+    std::pair<isize, error> Read(std::span<byte> p) override { return Reader->Read(p); }
+    std::pair<isize, error> Write(std::span<const byte> p) override { return Writer->Write(p); }
+    std::pair<isize, error> WriteString(std::string_view s) { return Writer->WriteString(s); }
+    error Flush() { return Writer->Flush(); }
+
+    ptr<bufio::Reader> Reader;
+    ptr<bufio::Writer> Writer;
+};
+
+// bufio.NewReadWriter
+inline ptr<ReadWriter> NewReadWriter(ptr<bufio::Reader> r, ptr<bufio::Writer> w) {
+    return make_ptr<ReadWriter>(std::move(r), std::move(w));
+}
+
 }  // namespace gopp::bufio

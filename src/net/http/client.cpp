@@ -7,6 +7,7 @@
 #include "ascii.hpp"
 #include "internal.hpp"
 
+#include <gopp/chan.hpp>
 #include <gopp/compress/gzip.hpp>
 #include <gopp/strings.hpp>
 #include <gopp/sync.hpp>
@@ -36,11 +37,46 @@ public:
     bufio::Writer bw;
     bool hasDeadline = false;
     std::optional<tls::ConnectionState> tls;
+    // The result of writing the last request's body, which a fiber of its
+    // own does; nil when there was none.
+    chan<gopp::error> wrote;
+
+    // Go's wroteRequest: whether the last request was written whole, so
+    // that the connection can be reused; waits a moment for its body.
+    bool wroteRequest() {
+        if (!wrote) return true;
+        gopp::error err = errors::New("http: request body not written");
+        auto t = time::NewTimer(50 * time::Millisecond);
+        select(recv(wrote, [&](gopp::error e) { err = std::move(e); }), recv(t->C, [] {}));
+        t->Stop();
+        if (err) return false;
+        wrote = {};
+        return true;
+    }
 };
 
 }  // namespace detail
 
 using detail::persistConn;
+
+namespace {
+
+// The body of a 101 Switching Protocols response: the connection, to read
+// what the server sends in the new protocol and to write to it.
+class switchedBody final : public io::ReadCloser, public io::Writer, public internal::closeWriter {
+public:
+    explicit switchedBody(ptr<persistConn> pc) : pc_(std::move(pc)) {}
+
+    std::pair<isize, gopp::error> Read(std::span<byte> p) override { return pc_->br->Read(p); }
+    std::pair<isize, gopp::error> Write(std::span<const byte> p) override { return pc_->conn->Write(p); }
+    gopp::error Close() override { return pc_->conn->Close(); }
+    gopp::error CloseWrite() override { return internal::closeWrite(*pc_->conn); }
+
+private:
+    ptr<persistConn> pc_;
+};
+
+}  // namespace
 
 struct Transport::impl {
     // The TLS config for https, compiled once and shared by connections.
@@ -103,6 +139,7 @@ struct Transport::impl {
 
     // Returns false if the pool is full; the caller closes pc then.
     bool putIdle(const ptr<persistConn>& pc, int maxPerHost, int maxTotal) {
+        if (!pc->wroteRequest()) return false;
         std::lock_guard l(mu);
         auto& list = idle[pc->key];
         if (maxPerHost <= 0) maxPerHost = 2;
@@ -241,7 +278,48 @@ bool staleConnError(const gopp::error& err) {
     return false;
 }
 
-gopp::error writeRequest(persistConn& pc, Request& req, bool close) {
+// Writes a request body (Go's transferWriter.writeBody): chunked, flushed
+// after each chunk, with the trailers its Request has at the end, if it's
+// still there.
+gopp::error writeBody(persistConn& pc, io::Reader& body, bool chunked, const ptr<detail::trailerSink>& trailer) {
+    byte buf[16 * 1024];
+    for (;;) {
+        auto [n, rerr] = body.Read(buf);
+        if (n > 0) {
+            if (chunked) {
+                char hex[20];
+                auto r = std::to_chars(hex, hex + 16, n, 16);
+                *r.ptr++ = '\r';
+                *r.ptr++ = '\n';
+                pc.bw.WriteString(std::string_view(hex, static_cast<std::size_t>(r.ptr - hex)));
+            }
+            if (auto [m, werr] = pc.bw.Write(std::span<const byte>(buf, static_cast<std::size_t>(n))); werr) return werr;
+            if (chunked) {
+                pc.bw.WriteString("\r\n");
+                // A streamed body goes out as it comes (FlushAfterChunkWriter).
+                if (gopp::error err = pc.bw.Flush()) return err;
+            }
+        }
+        if (rerr == io::EOF_) break;
+        if (rerr) return rerr;
+    }
+    if (chunked) {
+        // The last chunk, and the trailers with their values now.
+        std::string end = "0\r\n";
+        if (trailer->dst) trailer->dst->WriteTo(end);
+        end.append("\r\n");
+        pc.bw.WriteString(end);
+    }
+    return pc.bw.Flush();
+}
+
+// Writes the request's header, and its body on a fiber of its own, as Go's
+// writeLoop does: the response may come while the body is still going out
+// (pc.wrote gets the result), and a handler may answer as it reads it (full
+// duplex). The fiber holds the body, not the Request.
+gopp::error writeRequest(const ptr<persistConn>& pcp, Request& req, bool close) {
+    persistConn& pc = *pcp;
+    pc.wrote = {};
     std::string out;
     out.reserve(256);
     out.append(req.Method.empty() ? std::string_view("GET") : req.Method.view());
@@ -292,35 +370,21 @@ gopp::error writeRequest(persistConn& pc, Request& req, bool close) {
     req.Header.WriteTo(out, {"Host", "User-Agent", "Content-Length", "Transfer-Encoding", "Trailer"});
     out.append("\r\n");
     if (auto [n, err] = pc.bw.WriteString(out); err) return err;
+    if (!req.Body || req.ContentLength == 0) return pc.bw.Flush();
 
-    if (req.Body && req.ContentLength != 0) {
-        byte buf[16 * 1024];
-        for (;;) {
-            auto [n, rerr] = req.Body->Read(buf);
-            if (n > 0) {
-                if (chunked) {
-                    char hex[20];
-                    auto r = std::to_chars(hex, hex + 16, n, 16);
-                    *r.ptr++ = '\r';
-                    *r.ptr++ = '\n';
-                    pc.bw.WriteString(std::string_view(hex, static_cast<std::size_t>(r.ptr - hex)));
-                }
-                if (auto [m, werr] = pc.bw.Write(std::span<const byte>(buf, static_cast<std::size_t>(n))); werr) return werr;
-                if (chunked) pc.bw.WriteString("\r\n");
-            }
-            if (rerr == io::EOF_) break;
-            if (rerr) return rerr;
-        }
-        if (chunked) {
-            // The last chunk, and the trailers with their values now.
-            std::string end = "0\r\n";
-            req.Trailer.WriteTo(end);
-            end.append("\r\n");
-            pc.bw.WriteString(end);
-        }
-        req.Body->Close();
+    // A body of unknown length may come slowly (a pipe): the header goes
+    // out first.
+    if (chunked) {
+        if (gopp::error err = pc.bw.Flush()) return err;
     }
-    return pc.bw.Flush();
+    auto wrote = make_chan<gopp::error>(1);
+    pc.wrote = wrote;
+    go([pcp, body = req.Body, chunked, trailer = detail::trailerSink::of(req), wrote] {
+        gopp::error err = writeBody(*pcp, *body, chunked, trailer);
+        body->Close();
+        wrote.send(err);
+    });
+    return nullptr;
 }
 
 struct readResult {
@@ -453,7 +517,12 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
     // when the transport speaks only unencrypted HTTP/2 to http:// URLs.
     http::Protocols protos = Protocols.value_or(DefaultProtocols());
     bool h2c = !https && protos.UnencryptedHTTP2() && !protos.HTTP1();
-    bool mayH2 = (https && protos.HTTP2() && internal::http2ClientEnabled) || h2c;
+    // A WebSocket upgrade needs HTTP/1 (Go's Request.requiresHTTP1).
+    bool requiresHTTP1 = internal::hasToken(req.Header.Get("Connection"), "upgrade") &&
+                         ascii::EqualFold(req.Header.Get("Upgrade"), "websocket");
+    if (requiresHTTP1 && !protos.HTTP1()) return {nullptr, errors::New("http: WebSocket upgrade needs HTTP/1")};
+    if (requiresHTTP1) h2c = false;
+    bool mayH2 = ((https && protos.HTTP2() && internal::http2ClientEnabled) || h2c) && !requiresHTTP1;
     internal::http2ClientOptions h2opts{.responseHeaderTimeout = ResponseHeaderTimeout};
     // Retries a request the server didn't process (after GOAWAY or on a
     // connection that broke before the request went out).
@@ -486,6 +555,10 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
             if (https) {
                 tls::Config cfg = impl_->clientTlsConfig(*this);
                 if (cfg.ServerName.empty()) cfg.ServerName = req.URL.Hostname();
+                if (requiresHTTP1) {
+                    std::erase_if(cfg.NextProtos, [](const string& p) { return p == "h2"; });
+                    cfg.ctx_ = nullptr;  // the compiled context offers h2
+                }
                 auto tc = tls::Client(c, cfg);
                 if (TLSHandshakeTimeout.ns > 0) c->SetDeadline(time::Now().Add(TLSHandshakeTimeout));
                 if (gopp::error herr = tc->Handshake()) {
@@ -520,7 +593,7 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
             pc->hasDeadline = true;
         }
 
-        gopp::error err = writeRequest(*pc, req, DisableKeepAlives);
+        gopp::error err = writeRequest(pc, req, DisableKeepAlives);
         readResult rr;
         if (!err) {
             if (ResponseHeaderTimeout.ns > 0 && !deadline) {
@@ -532,6 +605,11 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
         }
         if (err) {
             pc->conn->Close();
+            // A failed write of the body explains a failed read.
+            if (pc->wrote) {
+                gopp::error werr;
+                if (pc->wrote.tryRecv(werr) && werr) err = werr;
+            }
             if (reused && attempt == 0 && idempotent(req.Method) && !req.Body && staleConnError(err)) continue;
             if (deadline && err->Timeout()) err = context::DeadlineExceeded;
             return {nullptr, err};
@@ -567,6 +645,16 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
                 return {nullptr, errors::New("bad Content-Length " + strconv::Quote(cl))};
             }
             resp->ContentLength = n;
+        }
+        if (code == StatusSwitchingProtocols) {
+            // The connection is the body now, both ways
+            // (readWriteCloserBody); it's not reused.
+            if (pc->hasDeadline) {
+                pc->conn->SetDeadline(time::Time{});
+                pc->hasDeadline = false;
+            }
+            resp->Body = make_ptr<switchedBody>(pc);
+            return {resp, nullptr};
         }
         if (noBody) {
             if (req.Method != "HEAD") resp->ContentLength = 0;
