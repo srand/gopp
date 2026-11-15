@@ -5,6 +5,9 @@ export module gopp.flag;
 
 import std.compat;
 export import gopp.errors;
+export import gopp.io;
+export import gopp.ptr;
+export import gopp.slice;
 export import gopp.string;
 export import gopp.time;
 

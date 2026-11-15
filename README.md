@@ -141,9 +141,9 @@ all park instead of blocking the thread.
 | `path/filepath` | Linux paths: `Abs`, `Rel`, `EvalSymlinks`, `Glob`, `Walk`/`WalkDir`, `IsLocal`, `Localize`, `SplitList`, and `path`'s lexical functions (`Join`, `Clean`, `Split`, `Base`, `Dir`, `Ext`, `Match`) |
 | `cmd`, `pflag` | Command-line programs as kubectl, gh and hugo write them: `cmd` is spf13/cobra (v1.10.2), ported, over `pflag`, spf13/pflag's GNU-style flags (`--name=x`, `-n x`, `-abc`, interspersed with arguments). `cmd::New({.Use = "get NAME", .Args = cmd::ExactArgs(1), .RunE = ...})` builds a tree of `Command`s, with subcommands, aliases and "did you mean" suggestions, persistent flags and pre/post run hooks, argument validators, required, required-together, one-required and mutually exclusive flags, command groups, `--help`, a `help` command and `--version`, and help and usage templates (text/template over the `Command`, with cobra's functions). Shell completion for bash, zsh, fish and PowerShell (the scripts are cobra's), with dynamic completions from `ValidArgsFunction` and `RegisterFlagCompletionFunc`, and active help. `pflag` has every pflag type: numbers, `Count`, durations, slices and arrays, maps (`StringToString`, ...), IPs and networks, bytes in hex or base64, `Time`, `Func`/`BoolFunc` and `TextVar`; `NoOptDefVal`, deprecated and hidden flags, name normalization. Help, errors and completion output match cobra's byte for byte |
 | `vfs` | File systems to read and write, as Hugo and other cobra programs use them: spf13/afero (v1.15.0), ported. `vfs::Fs` and `vfs::File` are afero's interfaces; `NewOsFs()` is the disk and `NewMemoryFs()` a tree in memory (afero's `MemMapFs`), for tests that don't touch the disk. Layers wrap them: `BasePathFs` (a directory as the root), `ReadOnlyFs`, `RegexpFs` (only matching files), `CopyOnWriteFs` (a writable layer over a base it leaves alone, with merged directories) and `CacheOnReadFs`. `IOFS` makes an `Fs` an `fs::FS`, for `io/fs` and `http::FileServerFS`, and `FromIOFS` the reverse; `HttpFs` (`<gopp/vfs/http.hpp>`) serves one with `http::FileServer`. afero's helpers: `ReadFile`, `WriteFile`, `ReadDir`, `TempFile`, `TempDir`, `Walk`, `Glob`, `Exists`, `DirExists`, `IsEmpty`, `WriteReader`, ..., and the `Vfs` struct (afero's `Afero`) with them as methods |
-| `io`, `bufio`, `fmt`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `io`'s `Pipe` (parking fibers), `MultiReader`, `MultiWriter`, `TeeReader`, `SectionReader`, `OffsetWriter` and `RuneReader`/`RuneScanner` (`bufio::Reader` reads runes too), and `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists) |
+| `io`, `bufio`, `fmt`, `strconv`, `errors`, `path`, `flag`, `syscall` | The everyday packages, with `io`'s `Pipe` (parking fibers), `MultiReader`, `MultiWriter`, `TeeReader`, `SectionReader`, `OffsetWriter` and `RuneReader`/`RuneScanner` (`bufio::Reader` reads runes too), and `fmt` on `std::format` (`fmt::W(err)` is Go's `%w`; `errors::Join` and `errors::Is`/`As` see wrapped lists), and Go's whole `flag` (`flag::String`/`Int`/... and their Var forms, `Func`/`BoolFunc`, `TextVar`, custom `Value`s, `FlagSet` with `ErrorHandling`, `Visit`/`Lookup`/`Set`, and Go's usage output) |
 
-**Tested against Go's own tests.** 2498 unit tests, 1877 of them ported
+**Tested against Go's own tests.** 2521 unit tests, 1877 of them ported
 from Go: `net/http`'s routing and ServeMux tests, its trailer, `ResponseController` and hijacking tests, its HTTP/2 server, priority and server push tests,
 its file server tests (over HTTP/1.1, HTTPS and HTTP/2), its form, multipart request and `MaxBytesReader` tests, its Transport's gzip tests, `net/http/httputil`'s reverse proxy tests (with WebSocket proxying), `sync/atomic`'s tests, `container/heap`'s and `container/list`'s tests, `regexp`'s and `regexp/syntax`'s tests (with RE2's search tests and the AT&T POSIX tests), `mime`'s,
 `encoding/json`'s scanner, encoding and decoding tests, HPACK's RFC 7541
@@ -152,7 +152,7 @@ tests against Go's fake driver, `text/template`'s lexer, parser and
 executor tests, `html/template`'s escaping, escaper, content, clone and multi-template tests, `os`'s and `io/fs`'s file, directory, pipe, error,
 process, environment, zero-copy, `DirFS`, `CopyFS` and `os.Root` tests
 (with the matrix that checks each `Root` operation against the plain
-`os` one), `testing/fstest`'s, `path`'s and `errors`' tests, `syscall`'s
+`os` one), `testing/fstest`'s, `path`'s, `errors`' and `flag`'s tests, `syscall`'s
 fork and exec tests (namespaces, ID mappings, ambient capabilities,
 cgroups, chroot), `os/signal`'s tests, `os/exec`'s tests (which run
 the test program again as their helper commands), `time`'s format,
@@ -375,7 +375,6 @@ what it doesn't do yet:
   parse as unknown records.
 - **x86-64 only for now.** The code supports ARM64, but it isn't built or
   tested there yet.
-- **`flag` has only the Var forms** (`StringVar`, `IntVar`, ...).
 - **Request contexts** are canceled when the handler returns or a write to
   the client fails, not when the client disconnects while the handler is
   idle.
