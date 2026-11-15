@@ -182,7 +182,7 @@ public:
     void AddCanonical(string key, string value) { entries_.push_back({std::move(key), std::move(value)}); }
 
     // Writes the header in wire format, sorted by key, without the keys in
-    // exclude (canonical).
+    // exclude (canonical) and those that begin with TrailerPrefix.
     gopp::error Write(io::Writer& w) const;
     void WriteTo(std::string& out, std::initializer_list<std::string_view> exclude = {}) const;
 
@@ -195,6 +195,16 @@ public:
 private:
     std::vector<entry> entries_;
 };
+
+// http.TrailerPrefix: a ResponseWriter's header keys with this prefix
+// ("Trailer:Grpc-Status") are sent as trailers, after the body, without
+// the prefix; trailers that weren't declared in a "Trailer" header before
+// the header was written can be sent this way.
+inline constexpr std::string_view TrailerPrefix = "Trailer:";
+
+namespace detail {
+struct trailerSink;
+}
 
 // ---------------------------------------------------------------------------
 // Request
@@ -220,6 +230,12 @@ public:
     string RequestURI;
     // The ServeMux pattern that matched.
     string Pattern;
+    // Trailers: on a server request, the trailer fields of a chunked or
+    // HTTP/2 body, set when the handler reads the body to its end (the
+    // "Trailer" header that announced them is removed). On a client
+    // request, sent after a body of unknown length (ContentLength -1),
+    // with the values the Trailer has when the body ends.
+    http::Header Trailer;
     // The TLS connection the request came on, for server requests over TLS.
     std::optional<tls::ConnectionState> TLS;
     // The parsed form: the URL query and the POST, PUT or PATCH body's
@@ -283,6 +299,7 @@ private:
     friend class httputil::ReverseProxy;  // reads formParsed_, Go's Form != nil
     friend std::pair<ptr<Request>, gopp::error> NewRequestWithContext(ptr<context::Context>, std::string_view,
                                                                          std::string_view, ptr<io::Reader>);
+    friend struct detail::trailerSink;
     std::pair<ptr<multipart::Reader>, gopp::error> multipartReader(bool allowMixed);
 
     mutable ptr<context::Context> ctx_;
@@ -291,6 +308,7 @@ private:
     bool formParsed_ = false;      // Go's Form != nil
     bool postFormParsed_ = false;  // Go's PostForm != nil
     bool multipartByReader_ = false;
+    ptr<object> trailerSink_;  // a detail::trailerSink: where the body's trailers go
 };
 
 // ---------------------------------------------------------------------------
@@ -597,6 +615,19 @@ public:
     // Content-Encoding and Content-Length headers are then removed, and
     // ContentLength is -1.
     bool Uncompressed = false;
+    // The trailer fields that came after the body, set when the body has
+    // been read to its end (the "Trailer" header that announced them is
+    // removed).
+    http::Header Trailer;
+
+    Response() = default;
+    Response(const Response&) = delete;
+    Response& operator=(const Response&) = delete;
+    ~Response() override;
+
+private:
+    friend struct detail::trailerSink;
+    ptr<object> trailerSink_;  // a detail::trailerSink
 };
 
 // http.NewRequest

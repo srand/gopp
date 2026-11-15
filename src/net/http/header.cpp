@@ -158,6 +158,8 @@ void Header::WriteTo(std::string& out, std::initializer_list<std::string_view> e
     std::stable_sort(order, order + n, [](const entry* a, const entry* b) { return a->key < b->key; });
     for (std::size_t i = 0; i < n; i++) {
         const entry& e = *order[i];
+        // A ResponseWriter's trailers.
+        if (e.key.starts_with(TrailerPrefix)) continue;
         bool skip = false;
         for (auto x : exclude) {
             if (ascii::EqualFold(e.key, x)) {

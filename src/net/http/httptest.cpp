@@ -1,4 +1,5 @@
 // After Go's net/http/httptest.
+#include "internal.hpp"
 #include "testcert.hpp"
 
 #include <gopp/net/http/httptest.hpp>
@@ -52,6 +53,20 @@ ptr<http::Response> ResponseRecorder::Result() {
     if (string cl = res->Header.Get("Content-Length"); !cl.empty()) {
         auto [n, err] = strconv::ParseInt(cl, 10, 63);
         if (!err) res->ContentLength = n;
+    }
+    // The trailers: those declared in the header as written, with their
+    // values now, and the TrailerPrefix keys.
+    if (wroteHeader_) {
+        for (auto& v : snapHeader_.Values("Trailer")) {
+            for (auto k : strings::Split(v, ",")) {
+                string key = http::CanonicalHeaderKey(strings::TrimSpace(k).view());
+                if (!http::internal::validTrailerHeader(key)) continue;
+                for (auto& val : header_.Values(key)) res->Trailer.AddCanonical(key, val);
+            }
+        }
+    }
+    for (auto& e : header_) {
+        if (e.key.starts_with(http::TrailerPrefix)) res->Trailer.Add(e.key.view().substr(http::TrailerPrefix.size()), e.value);
     }
     return res;
 }

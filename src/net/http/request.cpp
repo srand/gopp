@@ -29,6 +29,7 @@ Request::Request(const Request& o)
       RemoteAddr(o.RemoteAddr),
       RequestURI(o.RequestURI),
       Pattern(o.Pattern),
+      Trailer(o.Trailer),
       TLS(o.TLS),
       Form(o.Form),
       PostForm(o.PostForm),
@@ -39,7 +40,9 @@ Request::Request(const Request& o)
       postFormParsed_(o.postFormParsed_),
       multipartByReader_(o.multipartByReader_) {}
 
-Request::~Request() = default;
+Request::~Request() { detail::trailerSink::detach(*this); }
+
+Response::~Response() { detail::trailerSink::detach(*this); }
 
 ptr<context::Context> Request::Context() const {
     if (!ctx_) {
@@ -206,15 +209,78 @@ gopp::error chunkedReader::beginChunk() {
     }
     n_ = n;
     if (n == 0) {
-        // Last chunk: skip the trailer up to the empty line.
-        for (;;) {
-            auto [tl, tp, terr] = r_->ReadLine();
-            if (terr) return terr == io::EOF_ ? io::ErrUnexpectedEOF : terr;
-            if (tl.empty() && !tp) break;
-        }
+        // The last chunk, then the trailer up to an empty line.
+        if (gopp::error err = readTrailer()) return err;
         done_ = true;
     }
     return nullptr;
+}
+
+gopp::error chunkedReader::readTrailer() {
+    Header trailer;
+    for (;;) {
+        auto [tl, tp, terr] = r_->ReadLine();
+        if (terr) return terr == io::EOF_ ? errors::New("http: unexpected EOF reading trailer") : terr;
+        if (tp) return errors::New("http: trailer line too long");
+        if (tl.empty()) break;
+        std::string_view line = asStringView(tl);
+        if (line[0] == ' ' || line[0] == '\t') {
+            // An obsolete continuation of the previous line.
+            if (trailer.empty()) return errors::New("malformed MIME header initial line: " + std::string(line));
+            continue;
+        }
+        auto colon = line.find(':');
+        if (colon == line.npos || colon == 0) return errors::New("malformed MIME header line: " + std::string(line));
+        std::string_view key = line.substr(0, colon);
+        for (unsigned char c : key) {
+            if (!isTokenChar(c)) return errors::New("malformed MIME header line: " + std::string(line));
+        }
+        if (trailer_) trailer.Add(key, strings::TrimSpace(string(line.substr(colon + 1))));
+    }
+    if (trailer_ && !trailer.empty()) trailer_->set(trailer);
+    return nullptr;
+}
+
+gopp::error fixTrailer(Header& header, bool chunked) {
+    if (!header.Has("Trailer") || !chunked) return nullptr;
+    gopp::error err;
+    for (auto& v : header.Values("Trailer")) {
+        for (auto key : strings::Split(v, ",")) {
+            string k = CanonicalHeaderKey(strings::TrimSpace(key).view());
+            if (k.view().empty()) continue;
+            if (k == "Transfer-Encoding" || k == "Trailer" || k == "Content-Length") {
+                if (!err) err = errors::New("bad trailer key: " + std::string(k.view()));
+            }
+        }
+    }
+    header.Del("Trailer");
+    return err;
+}
+
+bool validTrailerHeader(std::string_view key) noexcept {
+    static constexpr std::string_view bad[] = {
+        "Authorization", "Cache-Control",       "Connection",          "Content-Encoding", "Content-Length",
+        "Content-Range", "Content-Type",        "Expect",              "Host",             "Keep-Alive",
+        "Max-Forwards",  "Pragma",              "Proxy-Authenticate",  "Proxy-Authorization", "Proxy-Connection",
+        "Range",         "Realm",               "Te",                  "Trailer",          "Transfer-Encoding",
+        "Www-Authenticate",
+    };
+    for (auto b : bad) {
+        if (ascii::EqualFold(key, b)) return false;
+    }
+    return true;
+}
+
+std::vector<string> declaredTrailers(const Header& h) {
+    std::vector<string> keys;
+    for (auto& v : h.Values("Trailer")) {
+        for (auto key : strings::Split(v, ",")) {
+            string k = CanonicalHeaderKey(strings::TrimSpace(key).view());
+            if (k.view().empty() || k == "Transfer-Encoding" || k == "Trailer" || k == "Content-Length") continue;
+            if (std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(k);
+        }
+    }
+    return keys;
 }
 
 std::pair<isize, gopp::error> chunkedReader::Read(std::span<byte> p) {
@@ -368,8 +434,10 @@ std::pair<ptr<Request>, gopp::error> readRequest(const ptr<bufio::Reader>& br, i
         }
         req->TransferEncoding = {string::fromStatic("chunked")};
         req->Header.Del("Content-Length");  // RFC 9112: Transfer-Encoding overrides
+        req->Header.Del("Transfer-Encoding");  // as TransferEncoding, as Go's readTransfer has it
         req->ContentLength = -1;
-        req->Body = make_ptr<bodyReader>(make_ptr<chunkedReader>(br), false);
+        if (gopp::error err = fixTrailer(req->Header, true)) return {nullptr, badRequest(err.Error())};
+        req->Body = make_ptr<bodyReader>(make_ptr<chunkedReader>(br, detail::trailerSink::of(*req)), false);
         return {req, nullptr};
     }
     std::vector<string> cl = req->Header.Values("Content-Length");

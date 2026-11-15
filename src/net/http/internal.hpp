@@ -79,20 +79,37 @@ private:
     bool closeFailed_ = false;
 };
 
-// Reads the chunked transfer encoding (after net/http/internal/chunked.Go).
+// Reads the chunked transfer encoding (after net/http/internal/chunked.Go),
+// and the trailer after it into trailer, if not nil (Go's body.readTrailer).
 class chunkedReader final : public io::Reader {
 public:
-    explicit chunkedReader(ptr<bufio::Reader> r) : r_(std::move(r)) {}
+    explicit chunkedReader(ptr<bufio::Reader> r, ptr<detail::trailerSink> trailer = nullptr)
+        : r_(std::move(r)), trailer_(std::move(trailer)) {}
     std::pair<isize, gopp::error> Read(std::span<byte> p) override;
 
 private:
     gopp::error beginChunk();
+    gopp::error readTrailer();
     ptr<bufio::Reader> r_;
+    ptr<detail::trailerSink> trailer_;
     uint64 n_ = 0;          // bytes left in the current chunk
     bool checkEnd_ = false;  // expect CRLF after the chunk data
     bool done_ = false;
     gopp::error err_;
 };
+
+// Go's fixTrailer: for a chunked message, checks the keys a "Trailer"
+// header announces and removes it; an error for a key that can't be a
+// trailer (Transfer-Encoding, Trailer, Content-Length).
+gopp::error fixTrailer(Header& header, bool chunked);
+
+// The keys of the trailers that h declares ("Trailer" values, canonical),
+// without those that can't be trailers.
+std::vector<string> declaredTrailers(const Header& h);
+
+// httpguts.ValidTrailerHeader: whether the canonical key may be a
+// trailer (not Content-Length, Host, Authorization and the like).
+bool validTrailerHeader(std::string_view key) noexcept;
 
 // An empty body (http.NoBody).
 ptr<io::ReadCloser> noBody();
@@ -154,3 +171,34 @@ void serveHttp2(const ptr<net::Conn>& c, const ptr<bufio::Reader>& br, const ptr
                  const serverOptions& opts, std::optional<tls::ConnectionState> tlsState);
 
 }  // namespace gopp::http::internal
+
+namespace gopp::http::detail {
+
+// Where the trailers read after a body go: the Trailer of a Request or
+// Response, which clears dst when it's destroyed, so that a body that
+// outlives its message doesn't write to it. (A body holding its message
+// would make a cycle.)
+struct trailerSink final : object {
+    explicit trailerSink(Header* d) noexcept : dst(d) {}
+
+    template <typename M>
+    static ptr<trailerSink> of(M& m) {
+        if (!m.trailerSink_) m.trailerSink_ = make_ptr<trailerSink>(&m.Trailer);
+        return static_pointer_cast<trailerSink>(m.trailerSink_);
+    }
+    template <typename M>
+    static void detach(M& m) noexcept {
+        if (m.trailerSink_) static_cast<trailerSink*>(m.trailerSink_.get())->dst = nullptr;
+    }
+
+    // Go's mergeSetHeader: each key of t replaces the key's values.
+    void set(const Header& t) {
+        if (!dst) return;
+        for (auto& e : t) dst->Del(e.key);
+        for (auto& e : t) dst->AddCanonical(e.key, e.value);
+    }
+
+    Header* dst;
+};
+
+}  // namespace gopp::http::detail

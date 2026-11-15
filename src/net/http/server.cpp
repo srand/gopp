@@ -250,6 +250,9 @@ public:
         }
         wroteHeader_ = true;
         status_ = code;
+        // Later changes to the handler's header don't go out (but its
+        // trailers' values do).
+        snapHeader_ = handlerHeader_;
         string cl = handlerHeader_.Get("Content-Length");
         if (!cl.empty()) {
             auto [v, err] = strconv::ParseInt(cl, 10, 64);
@@ -257,7 +260,7 @@ public:
                 contentLength_ = v;
             } else {
                 logf("http: invalid Content-Length of " + std::string(strconv::Quote(cl).view()));
-                handlerHeader_.Del("Content-Length");
+                snapHeader_.Del("Content-Length");
             }
         }
     }
@@ -409,10 +412,27 @@ private:
         return {n, err};
     }
 
-    // chunkWriter.Close: the last chunk.
+    // chunkWriter.Close: the last chunk, and the trailers.
     void cwClose() {
         if (!cwWrote_) cwWriteHeader({});
-        if (chunking_) c_->bufw.WriteString("0\r\n\r\n");
+        if (!chunking_) return;
+        std::string end = "0\r\n";
+        finalTrailers().WriteTo(end);
+        end.append("\r\n");
+        c_->bufw.WriteString(end);
+    }
+
+    // response.finalTrailers: the TrailerPrefix keys of the header, without
+    // the prefix, and the declared trailers' values.
+    http::Header finalTrailers() const {
+        http::Header t;
+        for (auto& e : handlerHeader_) {
+            if (e.key.starts_with(TrailerPrefix)) t.AddCanonical(string(e.key.view().substr(TrailerPrefix.size())), e.value);
+        }
+        for (auto& k : trailers_) {
+            for (auto& v : handlerHeader_.Values(k)) t.AddCanonical(k, v);
+        }
+        return t;
     }
 
     // chunkWriter.writeHeader: decides on framing and writes the header.
@@ -422,15 +442,25 @@ private:
         if (cwWrote_) return;
         cwWrote_ = true;
 
-        http::Header& header = handlerHeader_;
+        http::Header& header = snapHeader_;
         bool isHead = req_->Method == "HEAD";
         bool keepAlives = c_->keepAlivesEnabled();
         string te = header.Get("Transfer-Encoding");
         bool hasTe = !te.empty();
         string setCl, setCt, setConn, setTe;
 
+        // Trailers, declared or set with TrailerPrefix, need chunking.
+        bool trailers = false;
+        for (auto& e : header) {
+            if (e.key.starts_with(TrailerPrefix)) trailers = true;
+        }
+        if (header.Has("Trailer")) {
+            trailers = true;
+            trailers_ = internal::declaredTrailers(header);
+        }
+
         // A finished handler that set no Content-Length: we know it now.
-        if (handlerDone_ && bodyAllowedForStatus(status_) && !header.Has("Content-Length") && !hasTe &&
+        if (handlerDone_ && !trailers && bodyAllowedForStatus(status_) && !header.Has("Content-Length") && !hasTe &&
             (!isHead || !p.empty())) {
             contentLength_ = static_cast<int64>(p.size());
             setCl = strconv::Itoa(contentLength_);
@@ -554,6 +584,7 @@ private:
     conn* c_;
     Request* req_;
     http::Header handlerHeader_;
+    http::Header snapHeader_;  // handlerHeader_ as of WriteHeader
     bool wroteHeader_ = false;
     int status_ = 0;
     int64 contentLength_ = -1;  // declared, -1 if unknown
@@ -568,6 +599,7 @@ private:
 
     bool cwWrote_ = false;
     bool chunking_ = false;
+    std::vector<string> trailers_;  // declared in the "Trailer" header
 };
 
 void conn::writeErrorResponse(const gopp::error& err) {

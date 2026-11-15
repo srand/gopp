@@ -11,6 +11,7 @@
 #include <gopp/strings.hpp>
 #include <gopp/sync.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <charconv>
@@ -270,6 +271,24 @@ gopp::error writeRequest(persistConn& pc, Request& req, bool close) {
             chunked = true;
         }
     }
+    // Trailers, sorted, as Go's transferWriter announces them.
+    std::vector<string> trailerKeys;
+    for (auto& e : req.Trailer) {
+        string k = CanonicalHeaderKey(e.key);
+        if (k == "Transfer-Encoding" || k == "Trailer" || k == "Content-Length") {
+            return errors::New("invalid Trailer key " + strconv::Quote(k));
+        }
+        if (std::find(trailerKeys.begin(), trailerKeys.end(), k) == trailerKeys.end()) trailerKeys.push_back(k);
+    }
+    if (!trailerKeys.empty()) {
+        std::sort(trailerKeys.begin(), trailerKeys.end());
+        out.append("Trailer: ");
+        for (std::size_t i = 0; i < trailerKeys.size(); i++) {
+            if (i) out.append(",");
+            out.append(trailerKeys[i].view());
+        }
+        out.append("\r\n");
+    }
     req.Header.WriteTo(out, {"Host", "User-Agent", "Content-Length", "Transfer-Encoding", "Trailer"});
     out.append("\r\n");
     if (auto [n, err] = pc.bw.WriteString(out); err) return err;
@@ -292,7 +311,13 @@ gopp::error writeRequest(persistConn& pc, Request& req, bool close) {
             if (rerr == io::EOF_) break;
             if (rerr) return rerr;
         }
-        if (chunked) pc.bw.WriteString("0\r\n\r\n");
+        if (chunked) {
+            // The last chunk, and the trailers with their values now.
+            std::string end = "0\r\n";
+            req.Trailer.WriteTo(end);
+            end.append("\r\n");
+            pc.bw.WriteString(end);
+        }
         req.Body->Close();
     }
     return pc.bw.Flush();
@@ -528,6 +553,11 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
         if (chunked) {
             resp->TransferEncoding = {string::fromStatic("chunked")};
             resp->Header.Del("Content-Length");
+            resp->Header.Del("Transfer-Encoding");  // as TransferEncoding, as Go's readTransfer has it
+            if (gopp::error terr = internal::fixTrailer(resp->Header, !noBody)) {
+                pc->conn->Close();
+                return {nullptr, terr};
+            }
         }
         string cl = resp->Header.Get("Content-Length");
         if (!cl.empty()) {
@@ -543,7 +573,7 @@ std::pair<ptr<Response>, gopp::error> Transport::roundTrip(Request& req) {
             resp->Body = internal::noBody();
         } else if (chunked) {
             resp->ContentLength = -1;
-            resp->Body = make_ptr<clientBody>(impl_, pc, make_ptr<internal::chunkedReader>(pc->br), nullptr, reusable,
+            resp->Body = make_ptr<clientBody>(impl_, pc, make_ptr<internal::chunkedReader>(pc->br, detail::trailerSink::of(*resp)), nullptr, reusable,
                                                MaxIdleConnsPerHost, MaxIdleConns);
             return {resp, nullptr};
         } else if (resp->ContentLength > 0) {

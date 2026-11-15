@@ -10,6 +10,7 @@
 #include <gopp/runtime.hpp>
 #include <gopp/strings.hpp>
 
+#include <algorithm>
 #include <unordered_map>
 
 namespace gopp::http {
@@ -58,6 +59,7 @@ struct clientStream final : object {
     gopp::error abortErr;   // why the stream ended early
     chan<empty> done = make_chan<empty>();  // closed when the stream is forgotten
     bool head = false;
+    ptr<detail::trailerSink> trailer;  // the response's Trailer
 };
 
 class clientConn final : public internal::http2ClientConn {
@@ -112,6 +114,7 @@ private:
     gopp::error writeFrames(const std::string& frames);
     gopp::error writeHeaders(Request& req, clientStream& cs, bool endStream);
     gopp::error writeBody(Request& req, const ptr<clientStream>& cs);
+    gopp::error writeTrailers(Request& req, const ptr<clientStream>& cs);
     void forgetStream(const ptr<clientStream>& cs);
     void resetStream(const ptr<clientStream>& cs, ErrCode code);
     void readLoop();
@@ -232,6 +235,24 @@ gopp::error clientConn::writeHeaders(Request& req, clientStream& cs, bool endStr
         field("content-length", strconv::Itoa(cl));
     }
     if (!didUa) field("user-agent", "gopp-http-client/2.0");
+    // The trailers to come, sorted (commaSeparatedTrailers).
+    std::vector<string> trailerKeys;
+    for (auto& e : req.Trailer) {
+        string k = CanonicalHeaderKey(e.key);
+        if (k == "Transfer-Encoding" || k == "Trailer" || k == "Content-Length") {
+            return errors::New("invalid Trailer key " + strconv::Quote(k));
+        }
+        if (std::find(trailerKeys.begin(), trailerKeys.end(), k) == trailerKeys.end()) trailerKeys.push_back(k);
+    }
+    if (!trailerKeys.empty()) {
+        std::sort(trailerKeys.begin(), trailerKeys.end());
+        std::string v;
+        for (auto& k : trailerKeys) {
+            if (!v.empty()) v += ",";
+            v += k.view();
+        }
+        field("trailer", v);
+    }
     if (hbuf_.size() > defaultMaxHeaderListSize) return errors::New("http2: request header list larger than peer's advertised limit");
     std::string out;
     {
@@ -243,10 +264,40 @@ gopp::error clientConn::writeHeaders(Request& req, clientStream& cs, bool endStr
     return err;
 }
 
+gopp::error clientConn::writeTrailers(Request& req, const ptr<clientStream>& cs) {
+    std::lock_guard l(wmu_);
+    hbuf_.clear();
+    for (auto& e : req.Trailer) {
+        string k = lowerHeader(e.key);
+        if (!validWireHeaderFieldName(k) || !internal::validHeaderFieldValue(e.value)) continue;
+        henc_.writeField({k, e.value});
+    }
+    std::string out;
+    {
+        std::lock_guard l2(mu_);
+        appendHeaders(out, cs->id, hbuf_, true, peerMaxFrameSize_);
+    }
+    if (auto [w, err] = io::WriteString(*conn_, out); err) {
+        conn_->Close();
+        return err;
+    }
+    std::lock_guard l2(mu_);
+    cs->sentEnd = true;
+    if (cs->peerDone) {
+        streams_.erase(cs->id);
+        cond_.Broadcast();
+    }
+    return nullptr;
+}
+
 gopp::error clientConn::writeBody(Request& req, const ptr<clientStream>& cs) {
+    // With trailers, they end the stream instead of the last DATA frame.
+    bool trailers = !req.Trailer.empty();
+    if (!req.Body) return writeTrailers(req, cs);
     std::vector<byte> buf(maxBodyChunk);
     for (;;) {
         auto [n, rerr] = req.Body->Read(buf);
+        if (trailers && rerr == io::EOF_ && n == 0) return writeTrailers(req, cs);
         if (rerr && rerr != io::EOF_) return rerr;
         std::size_t off = 0;
         bool eof = rerr == io::EOF_;
@@ -264,7 +315,7 @@ gopp::error clientConn::writeBody(Request& req, const ptr<clientStream>& cs) {
             }
             bool last = eof && off + k == static_cast<std::size_t>(n);
             std::string out;
-            appendData(out, cs->id, last, asStringView(std::span<const byte>(buf.data() + off, k)));
+            appendData(out, cs->id, last && !trailers, asStringView(std::span<const byte>(buf.data() + off, k)));
             {
                 std::lock_guard l(wmu_);
                 if (auto [w, err] = io::WriteString(*conn_, out); err) {
@@ -273,6 +324,7 @@ gopp::error clientConn::writeBody(Request& req, const ptr<clientStream>& cs) {
                 }
             }
             off += k;
+            if (last && trailers) return writeTrailers(req, cs);
             if (last) {
                 std::lock_guard l(mu_);
                 cs->sentEnd = true;
@@ -299,7 +351,8 @@ std::pair<ptr<Response>, gopp::error> clientConn::roundTrip(Request& req, const 
         }
         reserved_++;
     }
-    bool hasBody = req.Body && req.ContentLength != 0;
+    // The request's trailers follow its body, if any, as a body would.
+    bool hasBody = (req.Body && req.ContentLength != 0) || !req.Trailer.empty();
     gopp::error werr;
     {
         // Stream ids must reach the server in order: take the id under the
@@ -338,7 +391,7 @@ std::pair<ptr<Response>, gopp::error> clientConn::roundTrip(Request& req, const 
         auto bodyDone = make_chan<gopp::error>(1);
         go([self, cs, r, body, bodyDone] {
             gopp::error err = self->writeBody(*r, cs);
-            body->Close();
+            if (body) body->Close();
             if (err && err != cs->abortErr) self->resetStream(cs, ErrCode::cancel);
             bodyDone.send(err);
         });
@@ -632,14 +685,21 @@ gopp::error clientConn::processHeaders(Frame& f) {
         cs = it->second;
     }
     if (cs->gotHeaders) {
-        // Trailers: must end the stream.
-        if (!f.streamEnded()) {
+        // Trailers: must end the stream, without pseudo fields.
+        if (!f.streamEnded() || !f.pseudoFields().empty()) {
             resetStream(cs, ErrCode::protocol);
             return nullptr;
         }
+        Header trailer;
+        for (auto& hf : f.regularFields()) trailer.AddCanonical(CanonicalHeaderKey(hf.name), hf.value);
         std::lock_guard l(mu_);
         cs->peerDone = true;
-        cs->body->closeWithError(io::EOF_);
+        if (cs->trailer && !trailer.empty()) {
+            // The reader's read of the end sets them (copyTrailers).
+            cs->body->closeWithErrorAndCode(io::EOF_, [sink = cs->trailer, t = std::move(trailer)] { sink->set(t); });
+        } else {
+            cs->body->closeWithError(io::EOF_);
+        }
         if (cs->sentEnd) {
             streams_.erase(cs->id);
             cs->done.close();
@@ -666,7 +726,11 @@ gopp::error clientConn::processHeaders(Frame& f) {
     resp->ProtoMajor = 2;
     resp->ProtoMinor = 0;
     resp->TLS = tls_;
-    for (auto& hf : f.regularFields()) resp->Header.AddCanonical(CanonicalHeaderKey(hf.name), hf.value);
+    for (auto& hf : f.regularFields()) {
+        // The "Trailer" header announces the Trailer (handleResponse).
+        if (hf.name == "trailer") continue;
+        resp->Header.AddCanonical(CanonicalHeaderKey(hf.name), hf.value);
+    }
     resp->ContentLength = -1;
     if (string cl = resp->Header.Get("Content-Length"); !cl.empty()) {
         auto [n, err] = strconv::ParseInt(cl, 10, 63);
@@ -691,6 +755,7 @@ gopp::error clientConn::processHeaders(Frame& f) {
         }
     } else {
         resp->Body = make_ptr<clientBody>(ptr<clientConn>(this), cs);
+        cs->trailer = detail::trailerSink::of(*resp);
     }
     cs->resp.trySend(std::pair<ptr<Response>, gopp::error>{resp, nullptr});
     return nullptr;

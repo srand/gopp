@@ -11,6 +11,7 @@
 #include <gopp/runtime.hpp>
 #include <gopp/strings.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <exception>
 #include <map>
@@ -55,6 +56,8 @@ struct stream final : object {
     outflow flow;                // what we may send
     inflow in;                   // what the peer may send
     bool gotTrailerHeader = false;
+    std::vector<string> trailerKeys;  // the trailers the request declares
+    Header trailer;                   // the trailers received
     bool resetQueued = false;   // a RST_STREAM is on its way
     chan<empty> cw;              // closed when the stream closes
     gopp::error closeErr;       // why it closed; set before cw closes
@@ -352,13 +355,47 @@ private:
         writeChunk(b);
     }
 
-    // writeChunk: sends the header with the first chunk, then the data.
+    // A trailer to send, if it may be one.
+    void declareTrailer(std::string_view k) {
+        string key = CanonicalHeaderKey(k);
+        if (!internal::validTrailerHeader(key)) {
+            internal::logf("http2: ignoring invalid trailer " + std::string(strconv::Quote(key).view()));
+            return;
+        }
+        if (std::find(trailers_.begin(), trailers_.end(), key) == trailers_.end()) trailers_.push_back(std::move(key));
+    }
+
+    // The TrailerPrefix keys, declared as trailers under their own names.
+    void promoteUndeclaredTrailers() {
+        std::vector<std::pair<string, string>> promoted;
+        for (auto& e : handlerHeader_) {
+            if (e.key.starts_with(TrailerPrefix)) promoted.emplace_back(string(e.key.view().substr(TrailerPrefix.size())), e.value);
+        }
+        for (auto& [k, _] : promoted) {
+            declareTrailer(k);
+            handlerHeader_.Del(k);
+        }
+        for (auto& [k, v] : promoted) handlerHeader_.Add(k, v);
+        std::sort(trailers_.begin(), trailers_.end());
+    }
+
+    bool hasNonemptyTrailers() const {
+        for (auto& k : trailers_) {
+            if (handlerHeader_.Has(k)) return true;
+        }
+        return false;
+    }
+
+    // writeChunk: sends the header with the first chunk, then the data,
+    // and the trailers once the handler is done.
     void writeChunk(std::string_view p) {
         if (err_) return;
         if (!wroteHeader_) WriteHeader(StatusOK);
+        if (handlerDone_) promoteUndeclaredTrailers();
         bool isHead = req_->Method == "HEAD";
         if (!sentHeader_) {
             sentHeader_ = true;
+            for (auto& k : internal::declaredTrailers(snapHeader_)) declareTrailer(k);
             writeRequest wr;
             wr.kind = writeRequest::headers;
             wr.st = st_;
@@ -393,7 +430,7 @@ private:
                 snapHeader_.Del("Connection");
                 if (v == "close") sc_->sendServeMsg(nullptr);  // graceful shutdown
             }
-            bool endStream = (handlerDone_ && p.empty()) || isHead;
+            bool endStream = (handlerDone_ && trailers_.empty() && p.empty()) || isHead;
             wr.endStream = endStream;
             wr.header = std::move(snapHeader_);
             // The header goes out before any data, as both queue on the
@@ -406,17 +443,33 @@ private:
         }
         if (isHead) return;
         if (p.empty() && !handlerDone_) return;
-        writeRequest wr;
-        wr.kind = writeRequest::data;
-        wr.st = st_;
-        wr.bytes = string(p);
-        wr.endStream = handlerDone_;
-        if (handlerDone_) {
-            // The last chunk: the handler need not wait for it.
-            if (gopp::error err = sc_->writeFromHandler(std::move(wr))) err_ = err;
-            return;
+        // Trailers end the stream, if the handler gave them values.
+        bool trailers = handlerDone_ && hasNonemptyTrailers();
+        bool endStream = handlerDone_ && !trailers;
+        if (!p.empty() || endStream) {
+            writeRequest wr;
+            wr.kind = writeRequest::data;
+            wr.st = st_;
+            wr.bytes = string(p);
+            wr.endStream = endStream;
+            if (handlerDone_) {
+                // The last chunk: the handler need not wait for it.
+                if (gopp::error err = sc_->writeFromHandler(std::move(wr))) err_ = err;
+            } else if (gopp::error err = sc_->writeAndWait(std::move(wr))) {
+                err_ = err;
+            }
         }
-        if (gopp::error err = sc_->writeAndWait(std::move(wr))) err_ = err;
+        if (trailers && !err_) {
+            writeRequest wr;
+            wr.kind = writeRequest::headers;
+            wr.st = st_;
+            wr.status = 0;
+            for (auto& k : trailers_) {
+                for (auto& v : handlerHeader_.Values(k)) wr.header.AddCanonical(k, v);
+            }
+            wr.endStream = true;
+            if (gopp::error err = sc_->writeFromHandler(std::move(wr))) err_ = err;
+        }
     }
 
     ptr<serverConn> sc_;
@@ -433,6 +486,7 @@ private:
     int64 sentContentLen_ = -1;
     std::string buf_;
     gopp::error err_;
+    std::vector<string> trailers_;  // declared, sorted once the handler is done
 };
 
 // ---------------------------------------------------------------------------
@@ -761,6 +815,14 @@ void serverConn::endStream(stream& st) {
     if (st.declBodyBytes != -1 && st.declBodyBytes != st.bodyBytes) {
         st.body->closeWithError(errors::New(std::format("request declared a Content-Length of {} but only wrote {} bytes",
                                                           st.declBodyBytes, st.bodyBytes)));
+    } else if (!st.trailer.empty() && st.req) {
+        // The handler's read of the end sets the declared trailers
+        // (copyTrailersToHandlerRequest).
+        Header t;
+        for (auto& k : st.trailerKeys) {
+            for (auto& v : st.trailer.Values(k)) t.AddCanonical(k, v);
+        }
+        st.body->closeWithErrorAndCode(io::EOF_, [sink = detail::trailerSink::of(*st.req), t = std::move(t)] { sink->set(t); });
     } else {
         st.body->closeWithError(io::EOF_);
     }
@@ -827,6 +889,13 @@ gopp::error serverConn::processTrailerHeaders(stream& st, const Frame& f) {
     st.gotTrailerHeader = true;
     if (!f.streamEnded()) return streamError(st.id, ErrCode::protocol);
     if (!f.pseudoFields().empty()) return streamError(st.id, ErrCode::protocol);
+    if (!st.trailerKeys.empty()) {
+        for (auto& hf : f.regularFields()) {
+            string key = CanonicalHeaderKey(hf.name);
+            if (!internal::validTrailerHeader(key)) return streamError(st.id, ErrCode::protocol);
+            st.trailer.AddCanonical(std::move(key), hf.value);
+        }
+    }
     endStream(st);
     return nullptr;
 }
@@ -878,6 +947,8 @@ gopp::error serverConn::NewRequest(stream& st, const Frame& f, ptr<Request>& out
         req->Header.AddCanonical(CanonicalHeaderKey(hf.name), hf.value);
     }
     if (!cookie.empty()) req->Header.AddCanonical(string::fromStatic("Cookie"), string(cookie));
+    st.trailerKeys = internal::declaredTrailers(req->Header);
+    req->Header.Del("Trailer");
     if (authority.empty()) authority = req->Header.Get("Host");
 
     if (isConnect) {
@@ -1162,7 +1233,7 @@ void serverConn::scheduleFrameWrite() {
                 bool popped = false;
                 if (wr.kind == writeRequest::headers) {
                     encodeHeaders(wr);
-                    bool end = wr.endStream && wr.status >= 200;
+                    bool end = wr.endStream && (wr.status == 0 || wr.status >= 200);  // final or trailers
                     appendHeaders(batch_, id, hbuf_, end, peerMaxFrameSize_);
                     inFlight_.push_back({st, end, false, nullptr, std::move(wr.done)});
                     popped = true;
