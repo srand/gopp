@@ -499,6 +499,21 @@ void appendHeaders(std::string& out, uint32 streamId, std::string_view block, bo
     }
 }
 
+void appendPushPromise(std::string& out, uint32 streamId, uint32 promisedId, std::string_view block, uint32 maxFrameSize) {
+    std::size_t max = maxFrameSize ? maxFrameSize : initialMaxFrameSize;
+    std::string_view first = block.substr(0, max - 4);
+    block.remove_prefix(first.size());
+    appendFrameHeader(out, FrameType::pushPromise, block.empty() ? flags::endHeaders : 0, streamId, 4 + first.size());
+    putU32(out, promisedId & 0x7fffffff);
+    out.append(first);
+    while (!block.empty()) {
+        std::string_view frag = block.substr(0, max);
+        block.remove_prefix(frag.size());
+        appendFrameHeader(out, FrameType::continuation, block.empty() ? flags::endHeaders : 0, streamId, frag.size());
+        out.append(frag);
+    }
+}
+
 void appendSettings(std::string& out, std::span<const Setting> settings) {
     appendFrameHeader(out, FrameType::settings, 0, 0, settings.size() * 6);
     for (auto& s : settings) {

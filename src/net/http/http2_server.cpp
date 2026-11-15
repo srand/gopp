@@ -23,6 +23,9 @@ namespace gopp::http {
 
 namespace http2 {
 
+const gopp::error ErrRecursivePush = errors::New("http2: recursive push not allowed");
+const gopp::error ErrPushLimitReached = errors::New("http2: push would exceed peer's SETTINGS_MAX_CONCURRENT_STREAMS");
+
 namespace {
 
 // Defaults of Go's http2.Server.
@@ -207,7 +210,7 @@ struct stream final : object {
 
 // A write a handler asks for (FrameWriteRequest).
 struct writeRequest {
-    enum kindT { headers, data, rst };
+    enum kindT { headers, data, rst, pushPromise };
     kindT kind = data;
     ptr<stream> st;
     // headers
@@ -220,6 +223,8 @@ struct writeRequest {
     bool endStream = false;
     // rst
     ErrCode code = ErrCode::internal;
+    // pushPromise: the promised request (and header)
+    string method, scheme, authority, path;
     // Receives the result once the frame is written; nil if no one waits.
     chan<gopp::error> done;
 };
@@ -277,6 +282,8 @@ public:
     // Handler side (any fiber).
     gopp::error writeFromHandler(writeRequest wr);
     gopp::error writeAndWait(writeRequest wr);
+    // Pusher::Push, once the request is checked.
+    gopp::error startPush(writeRequest wr);
     void noteBodyReadFromHandler(const ptr<stream>& st, int n);
     void sendServeMsg(std::function<void()> fn);
     const chan<empty>& doneServing() const noexcept { return doneServing_; }
@@ -296,6 +303,9 @@ private:
     std::pair<streamState, ptr<stream>> state(uint32 id);
     ptr<stream> newStream(uint32 id, streamState st, rfc9218Priority priority);
     gopp::error processPriorityUpdate(const Frame& f);
+    void queuePush(writeRequest wr);
+    std::pair<uint32, gopp::error> allocatePromisedId(const writeRequest& wr);
+    void encodePushPromise(const writeRequest& wr);
     gopp::error NewRequest(stream& st, const Frame& f, ptr<Request>& out);
     void scheduleHandler(ptr<stream> st, ptr<Request> req, int statusOverride, string msg);
     void closeStream(const ptr<stream>& st, gopp::error err);
@@ -336,6 +346,10 @@ private:
     uint32 maxClientStreamId_ = 0;
     uint32 advMaxStreams_ = defaultMaxStreams;
     uint32 curClientStreams_ = 0;
+    uint32 curPushedStreams_ = 0;
+    uint32 maxPushPromiseId_ = 0;
+    bool pushEnabled_ = true;               // the client's SETTINGS_ENABLE_PUSH
+    uint32 clientMaxStreams_ = 0xffffffff;  // the client's SETTINGS_MAX_CONCURRENT_STREAMS
     int unackedSettings_ = 0;
     bool sawFirstSettings_ = false;
     bool needToSendSettingsAck_ = false;
@@ -410,9 +424,11 @@ bool bodyAllowedForStatus(int status) {
 // The ResponseWriter of a stream (responseWriter and responseWriterState).
 // Writes collect in a 4 KiB buffer; a full buffer, flush() or the end of
 // the handler sends it as a chunk: the header first, then DATA.
-class responseWriter final : public ResponseWriter, public Flusher {
+class responseWriter final : public ResponseWriter, public Flusher, public Pusher {
 public:
     responseWriter(ptr<serverConn> sc, ptr<stream> st, Request* req) : sc_(std::move(sc)), st_(std::move(st)), req_(req) {}
+
+    gopp::error Push(std::string_view target, const PushOptions* opts) override;
 
     http::Header& Header() override { return handlerHeader_; }
 
@@ -632,6 +648,54 @@ private:
     std::vector<string> trailers_;  // declared, sorted once the handler is done
 };
 
+gopp::error responseWriter::Push(std::string_view target, const PushOptions* opts) {
+    // No pushes from a pushed stream: PUSH_PROMISE goes on streams the
+    // client opened.
+    if (st_->id % 2 == 0) return ErrRecursivePush;
+    PushOptions o = opts ? *opts : PushOptions{};
+    if (o.Method.view().empty()) o.Method = string::fromStatic("GET");
+    string wantScheme = string::fromStatic(req_->TLS ? "https" : "http");
+
+    auto [u, err] = url::Parse(target);
+    if (err) return err;
+    if (u.Scheme.view().empty()) {
+        if (!target.starts_with("/")) {
+            return errors::New("target must be an absolute URL or an absolute path: " + strconv::Quote(target));
+        }
+        u.Scheme = wantScheme;
+        u.Host = req_->Host;
+    } else {
+        if (u.Scheme != wantScheme) {
+            return errors::New("cannot push URL with scheme " + strconv::Quote(u.Scheme) + " from request with scheme " +
+                               strconv::Quote(wantScheme));
+        }
+        if (u.Host.view().empty()) return errors::New("URL must have a host");
+    }
+    for (auto& e : o.Header) {
+        if (e.key.starts_with(":")) return errors::New("promised request headers cannot include pseudo header " + strconv::Quote(e.key));
+        // Meaningful only with a body, which promised requests can't have
+        // (8.4); and the URL has the host.
+        for (std::string_view k : {"content-length", "content-encoding", "trailer", "te", "expect", "host"}) {
+            if (ascii::EqualFold(e.key, k)) return errors::New("promised request headers cannot include " + strconv::Quote(e.key));
+        }
+    }
+    for (std::string_view k : {"Connection", "Keep-Alive", "Proxy-Connection", "Transfer-Encoding", "Upgrade"}) {
+        if (o.Header.Has(k)) return errors::New("request header " + strconv::Quote(k) + " is not valid in HTTP/2");
+    }
+    // Promised requests must be cacheable and safe: GET or HEAD (8.4).
+    if (o.Method != "GET" && o.Method != "HEAD") return errors::New("method " + strconv::Quote(o.Method) + " must be GET or HEAD");
+
+    writeRequest wr;
+    wr.kind = writeRequest::pushPromise;
+    wr.st = st_;
+    wr.method = o.Method;
+    wr.scheme = u.Scheme;
+    wr.authority = u.Host;
+    wr.path = u.RequestURI();
+    wr.header = std::move(o.Header);
+    return sc_->startPush(std::move(wr));
+}
+
 // ---------------------------------------------------------------------------
 // Handler side
 
@@ -655,6 +719,21 @@ gopp::error serverConn::writeAndWait(writeRequest wr) {
                if (done.tryRecv(e)) err = std::move(e);
                else err = errStreamClosed;
            }));
+    return err;
+}
+
+gopp::error serverConn::startPush(writeRequest wr) {
+    ptr<stream> st = wr.st;
+    chan<gopp::error> done = make_chan<gopp::error>(1);
+    wr.done = done;
+    ptr<serverConn> self(this);
+    std::function<void()> fn = [self, wr] { self->queuePush(wr); };
+    gopp::error err;
+    select(send(serveMsgCh_, std::move(fn), [] {}), recv(doneServing_, [&] { err = errClientDisconnected; }),
+           recv(st->cw, [&] { err = errStreamClosed; }));
+    if (err) return err;
+    select(recv(done, [&](gopp::error e) { err = std::move(e); }), recv(doneServing_, [&] { err = errClientDisconnected; }),
+           recv(st->cw, [&] { err = errStreamClosed; }));
     return err;
 }
 
@@ -911,7 +990,9 @@ gopp::error serverConn::processSetting(const Setting& s) {
         break;
     }
     case SettingID::maxFrameSize: peerMaxFrameSize_ = s.val; break;
-    default: break;  // ENABLE_PUSH, MAX_CONCURRENT_STREAMS (for pushes), MAX_HEADER_LIST_SIZE, ...
+    case SettingID::enablePush: pushEnabled_ = s.val != 0; break;
+    case SettingID::maxConcurrentStreams: clientMaxStreams_ = s.val; break;
+    default: break;  // MAX_HEADER_LIST_SIZE, ...
     }
     return nullptr;
 }
@@ -920,7 +1001,7 @@ std::pair<streamState, ptr<stream>> serverConn::state(uint32 id) {
     if (auto it = streams_.find(id); it != streams_.end()) return {it->second->state, it->second};
     // Opening a stream implicitly closes the idle ones below it (5.1.1).
     if (id % 2 == 1 && id <= maxClientStreamId_) return {streamState::closed, nullptr};
-    if (id % 2 == 0 && id != 0) return {streamState::closed, nullptr};  // we never push
+    if (id % 2 == 0 && id != 0 && id <= maxPushPromiseId_) return {streamState::closed, nullptr};
     return {streamState::idle, nullptr};
 }
 
@@ -1094,7 +1175,8 @@ ptr<stream> serverConn::newStream(uint32 id, streamState state, rfc9218Priority 
     streams_[id] = st;
     // Without client priorities, every stream is u=3,i: round-robin.
     sched_.open(id, opts_.DisableClientPriority ? rfc9218Priority{} : priority);
-    curClientStreams_++;
+    if (id % 2 == 0) curPushedStreams_++;
+    else curClientStreams_++;
     if (streams_.size() == 1) setActive(true);
     return st;
 }
@@ -1237,6 +1319,8 @@ gopp::error serverConn::processGoaway(const Frame& f) {
     if (f.errCode != ErrCode::no) {
         internal::logf("http2: received GOAWAY " + std::string(to_string(f.errCode).view()) + ", starting graceful shutdown");
     }
+    // No more pushes.
+    pushEnabled_ = false;
     goAway(ErrCode::no);
     return nullptr;
 }
@@ -1244,7 +1328,8 @@ gopp::error serverConn::processGoaway(const Frame& f) {
 void serverConn::closeStream(const ptr<stream>& st, gopp::error err) {
     if (st->state == streamState::idle || st->state == streamState::closed) panic("http2: can't close stream in this state");
     st->state = streamState::closed;
-    curClientStreams_--;
+    if (st->id % 2 == 0) curPushedStreams_--;
+    else curClientStreams_--;
     streams_.erase(st->id);
     queues_.erase(st->id);
     sched_.close(st->id);
@@ -1356,6 +1441,68 @@ void serverConn::queueWrite(writeRequest wr) {
     queues_[wr.st->id].push_back(std::move(wr));
 }
 
+void serverConn::queuePush(writeRequest wr) {
+    // PUSH_PROMISE only on a stream the client opened that is open or
+    // half-closed (remote) (6.6).
+    if (wr.st->state != streamState::open && wr.st->state != streamState::halfClosedRemote) {
+        wr.done.trySend(gopp::error(errStreamClosed));
+        return;
+    }
+    if (!pushEnabled_) {
+        wr.done.trySend(gopp::error(ErrNotSupported));
+        return;
+    }
+    queueWrite(std::move(wr));
+}
+
+std::pair<uint32, gopp::error> serverConn::allocatePromisedId(const writeRequest& wr) {
+    // The client may have turned pushes off since.
+    if (!pushEnabled_) return {0, ErrNotSupported};
+    if (curPushedStreams_ + 1 > clientMaxStreams_) return {0, ErrPushLimitReached};
+    // Server streams have even ids (5.1.1); out of them, no more pushes.
+    if (maxPushPromiseId_ + 2 >= 1u << 31) return {0, ErrPushLimitReached};
+    maxPushPromiseId_ += 2;
+    uint32 promisedId = maxPushPromiseId_;
+    // The stream should start reserved (local) and become half-closed
+    // (remote) with its HEADERS; it starts half-closed, as Go's does.
+    ptr<stream> st = newStream(promisedId, streamState::halfClosedRemote, defaultRFC9218Priority(priorityAware_ && !hasIntermediary_));
+    auto req = make_ptr<Request>();
+    req->Method = wr.method;
+    auto [u, err] = url::ParseRequestURI(wr.path);
+    req->URL = std::move(u);
+    req->RequestURI = wr.path;
+    req->Host = wr.authority;
+    req->Header = wr.header;  // a copy: the handler may change it while the promise is written
+    req->Proto = string::fromStatic("HTTP/2.0");
+    req->ProtoMajor = 2;
+    req->ProtoMinor = 0;
+    req->RemoteAddr = remoteAddr_;
+    req->TLS = tlsState_;
+    req->Body = internal::noBody();
+    req->Context();
+    st->req = req;
+    scheduleHandler(st, std::move(req), 0, {});
+    return {promisedId, nullptr};
+}
+
+void serverConn::encodePushPromise(const writeRequest& wr) {
+    hbuf_.clear();
+    auto field = [&](std::string_view k, std::string_view v) { henc_.writeField({string(k), string(v)}); };
+    field(":method", wr.method);
+    field(":scheme", wr.scheme);
+    field(":authority", wr.authority);
+    field(":path", wr.path);
+    // The header, sorted by key, as Go's encodeHeaders writes it.
+    std::vector<const Header::entry*> fields;
+    for (auto& e : wr.header) fields.push_back(&e);
+    std::stable_sort(fields.begin(), fields.end(), [](auto* a, auto* b) { return lowerHeader(a->key) < lowerHeader(b->key); });
+    for (auto* e : fields) {
+        string k = lowerHeader(e->key);
+        if (!validWireHeaderFieldName(k) || !internal::validHeaderFieldValue(e->value)) continue;
+        henc_.writeField({k, e->value});
+    }
+}
+
 void serverConn::encodeHeaders(const writeRequest& wr) {
     hbuf_.clear();
     auto field = [&](std::string_view k, std::string_view v) { henc_.writeField({string(k), string(v)}); };
@@ -1407,7 +1554,19 @@ void serverConn::scheduleFrameWrite() {
             writeRequest& wr = q.front();
             ptr<stream> st = wr.st;
             bool popped = false;
-            if (wr.kind == writeRequest::headers) {
+            if (wr.kind == writeRequest::pushPromise) {
+                // The promised stream's id is taken now, so that promises
+                // go out in the order of their ids.
+                auto [promisedId, err] = allocatePromisedId(wr);
+                if (err) {
+                    if (wr.done) wr.done.trySend(gopp::error(err));
+                } else {
+                    encodePushPromise(wr);
+                    appendPushPromise(batch_, id, promisedId, hbuf_, peerMaxFrameSize_);
+                    inFlight_.push_back({st, false, false, nullptr, std::move(wr.done)});
+                }
+                popped = true;
+            } else if (wr.kind == writeRequest::headers) {
                 encodeHeaders(wr);
                 bool end = wr.endStream && (wr.status == 0 || wr.status >= 200);  // final or trailers
                 appendHeaders(batch_, id, hbuf_, end, peerMaxFrameSize_);

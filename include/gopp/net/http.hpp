@@ -328,6 +328,33 @@ struct Flusher : public virtual object {
     virtual void Flush() = 0;
 };
 
+// http.PushOptions: the request of a server push.
+struct PushOptions {
+    // "GET" or "HEAD"; "GET" if empty.
+    string Method{};
+    // The promised request's header; not Content-Length, Content-Encoding,
+    // Trailer, Te, Expect or Host, nor pseudo headers.
+    http::Header Header{};
+};
+
+// http.Pusher: implemented by the ResponseWriters of HTTP/2 requests, to
+// push responses the client will want (RFC 9113 8.4). Browsers no longer
+// accept pushes, and Go's own client never does.
+//
+//     if (auto* p = dynamic_cast<http::Pusher*>(&w)) p->Push("/style.css");
+struct Pusher : public virtual object {
+    // Sends a PUSH_PROMISE for target, an absolute path ("/style.css") or
+    // a URL with the request's scheme and a host, then serves the promised
+    // request with the server's handler, as if the client had sent it.
+    // ErrNotSupported if the client turned pushes off, or has sent GOAWAY.
+    // Call it before the response that refers to target, so that the
+    // client gets the promise first.
+    virtual gopp::error Push(std::string_view target, const PushOptions* opts = nullptr) = 0;
+};
+
+// http.ErrNotSupported: "feature not supported".
+extern const gopp::error ErrNotSupported;
+
 // http.Handler
 struct Handler : public virtual object {
     virtual void ServeHTTP(ResponseWriter& w, Request& r) = 0;

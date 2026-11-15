@@ -227,6 +227,9 @@ void appendData(std::string& out, uint32 streamId, bool endStream, std::string_v
 // A header block as HEADERS and as many CONTINUATION frames as
 // maxFrameSize requires.
 void appendHeaders(std::string& out, uint32 streamId, std::string_view block, bool endStream, uint32 maxFrameSize);
+// A PUSH_PROMISE on streamId promising promisedId, with as many
+// CONTINUATION frames as maxFrameSize requires.
+void appendPushPromise(std::string& out, uint32 streamId, uint32 promisedId, std::string_view block, uint32 maxFrameSize);
 void appendSettings(std::string& out, std::span<const Setting> settings);
 void appendSettingsAck(std::string& out);
 void appendPing(std::string& out, bool ack, std::string_view data8);
@@ -325,5 +328,10 @@ private:
 };
 
 extern const gopp::error errClosedPipeWrite;  // "write on closed buffer"
+
+// The errors of Pusher::Push: a push from a pushed stream's handler, and
+// one more push than the client's SETTINGS_MAX_CONCURRENT_STREAMS allows.
+extern const gopp::error ErrRecursivePush;     // "http2: recursive push not allowed"
+extern const gopp::error ErrPushLimitReached;  // "http2: push would exceed peer's SETTINGS_MAX_CONCURRENT_STREAMS"
 
 }  // namespace gopp::http::http2

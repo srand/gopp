@@ -255,6 +255,7 @@ std::string_view StatusText(int code) noexcept {
 
 const gopp::error ErrServerClosed = errors::New("http: Server closed");
 const gopp::error ErrBodyNotAllowed = errors::New("http: request method or response status code does not allow body");
+const gopp::error ErrNotSupported = errors::New("feature not supported");
 const gopp::error ErrContentLength = errors::New("http: wrote more than the declared Content-Length");
 const gopp::error ErrBodyReadAfterClose = errors::New("http: invalid Read on closed Body");
 const gopp::error ErrHandlerTimeout = errors::New("http: Handler timeout");

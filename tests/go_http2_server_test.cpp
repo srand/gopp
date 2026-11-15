@@ -1,8 +1,9 @@
 // Ported from Go 1.27.3's net/http/internal/http2/server_test.go: a
 // serverTester speaks raw frames to the server over h2c, and the tests keep
-// Go's names. Left out: TLS version and cipher tests (OpenSSL's job), server
-// push, and tests of Go internals (goroutine counts, buffer retention,
-// synctest timing). The RFC 9218 priority tests use flow control where Go's
+// Go's names, and the server push tests of server_push_test.go, over h2c
+// (http:// where Go's use https://). Left out: TLS version and cipher tests
+// (OpenSSL's job), and tests of Go internals (goroutine counts, buffer
+// retention, stream states, synctest timing). The RFC 9218 priority tests use flow control where Go's
 // use synctest: all the streams' responses are queued before the client
 // opens their windows, so the order is the scheduler's alone.
 #include "net/http/http2.hpp"
@@ -1090,4 +1091,359 @@ TEST(Http2Server, DisableClientPriority) {
     }
     auto order = frameOrder(*st, reqs);
     EXPECT_TRUE(roundRobin(order)) << "want round-robin with DisableClientPriority, got: " << format(order);
+}
+
+// ---------------------------------------------------------------------------
+// Server push (server_push_test.go)
+
+namespace {
+
+using headerList = std::vector<std::pair<std::string, std::string>>;
+
+// The fields of a header block, without date.
+headerList decodeBlock(serverTester& st, const string& block) {
+    auto [fs, err] = st.dec.decodeFull(as_bytes(block.view()));
+    EXPECT_FALSE(err) << err;
+    headerList out;
+    for (auto& hf : fs) {
+        if (hf.name != "date") out.emplace_back(hf.name.str(), hf.value.str());
+    }
+    return out;
+}
+
+headerList fieldsOf(const h2::Frame& f) {
+    headerList out;
+    for (auto& hf : f.fields) {
+        if (hf.name != "date") out.emplace_back(hf.name.str(), hf.value.str());
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST(Http2Server, Push_Success) {
+    const std::string mainBody = "<html>index page</html>";
+    const std::string pushedBody = "<html>pushed page</html>";
+    const std::string userAgent = "testagent";
+    const std::string cookie = "testcookie";
+    const std::string stURL = "http://example.com";
+
+    auto checkPromisedReq = [&](http::Request& r, std::string_view wantMethod, const http::Header& wantH) -> std::string {
+        if (r.Method != wantMethod) return "promised Req.Method=" + r.Method.str() + ", want " + std::string(wantMethod);
+        if (r.Header.size() != wantH.size()) return "promised Req.Header has " + std::to_string(r.Header.size()) + " fields";
+        for (auto& e : wantH) {
+            if (r.Header.Get(e.key) != e.value) return "promised Req.Header " + e.key.str() + "=" + r.Header.Get(e.key).str();
+        }
+        if ("http://" + r.Host.str() != stURL) return "promised Req.Host=" + r.Host.str();
+        if (!r.Body) return "nil Body";
+        auto [buf, err] = io::ReadAll(*r.Body);
+        if (err || !buf.empty()) return "ReadAll(Body) not empty";
+        return "";
+    };
+
+    auto errc = make_chan<std::string>(3);
+    serverTester st([&](http::ResponseWriter& w, http::Request& r) {
+        auto& p = dynamic_cast<http::Pusher&>(w);
+        std::string uri = r.URL.RequestURI().str();
+        if (uri == "/") {
+            // Push "/pushed?get" as a GET request, by an absolute URL.
+            http::PushOptions opt;
+            opt.Header.Set("User-Agent", string(userAgent));
+            if (gopp::error err = p.Push(stURL + "/pushed?get", &opt)) {
+                errc.send("error pushing /pushed?get: " + err.Error().str());
+                return;
+            }
+            // Push "/pushed?head" as a HEAD request, by a path.
+            http::PushOptions opt2;
+            opt2.Method = "HEAD";
+            opt2.Header.Set("User-Agent", string(userAgent));
+            opt2.Header.Set("Cookie", string(cookie));
+            if (gopp::error err = p.Push("/pushed?head", &opt2)) {
+                errc.send("error pushing /pushed?head: " + err.Error().str());
+                return;
+            }
+            w.Header().Set("Content-Type", "text/html");
+            w.Header().Set("Content-Length", strconv::Itoa(static_cast<int64>(mainBody.size())));
+            w.WriteHeader(200);
+            io::WriteString(w, mainBody);
+            errc.send("");
+        } else if (uri == "/pushed?get") {
+            http::Header wantH;
+            wantH.Set("User-Agent", string(userAgent));
+            if (auto e = checkPromisedReq(r, "GET", wantH); !e.empty()) {
+                errc.send("/pushed?get: " + e);
+                return;
+            }
+            w.Header().Set("Content-Type", "text/html");
+            w.Header().Set("Content-Length", strconv::Itoa(static_cast<int64>(pushedBody.size())));
+            w.WriteHeader(200);
+            io::WriteString(w, pushedBody);
+            errc.send("");
+        } else if (uri == "/pushed?head") {
+            http::Header wantH;
+            wantH.Set("User-Agent", string(userAgent));
+            wantH.Set("Cookie", string(cookie));
+            if (auto e = checkPromisedReq(r, "HEAD", wantH); !e.empty()) {
+                errc.send("/pushed?head: " + e);
+                return;
+            }
+            w.WriteHeader(204);
+            errc.send("");
+        } else {
+            errc.send("unknown RequestURL " + uri);
+        }
+    });
+
+    // One request, which pushes two responses.
+    st.greet();
+    st.writeHeaders(1, true, serverTester::request());
+    for (int k = 0; k < 3; k++) {
+        std::string err = errc.recv();
+        ASSERT_EQ(err, "") << "handler " << k;
+    }
+
+    // Stream 1: 2 PUSH_PROMISE, HEADERS, DATA; stream 2: HEADERS, DATA;
+    // stream 4: HEADERS.
+    std::map<uint32, std::vector<std::function<void(h2::Frame&)>>> expected;
+    expected[1] = {
+        [&](h2::Frame& f) {
+            ASSERT_EQ(f.type(), FrameType::pushPromise) << f.header.String();
+            EXPECT_TRUE(f.headersEnded()) << "want END_HEADERS flag in PushPromiseFrame";
+            EXPECT_EQ(f.promiseId, 2u);
+            EXPECT_EQ(decodeBlock(st, f.data),
+                      (headerList{{":method", "GET"}, {":scheme", "http"}, {":authority", "example.com"},
+                                  {":path", "/pushed?get"}, {"user-agent", userAgent}}));
+        },
+        [&](h2::Frame& f) {
+            ASSERT_EQ(f.type(), FrameType::pushPromise) << f.header.String();
+            EXPECT_EQ(f.promiseId, 4u);
+            EXPECT_EQ(decodeBlock(st, f.data),
+                      (headerList{{":method", "HEAD"}, {":scheme", "http"}, {":authority", "example.com"},
+                                  {":path", "/pushed?head"}, {"cookie", cookie}, {"user-agent", userAgent}}));
+        },
+        [&](h2::Frame& f) {
+            ASSERT_EQ(f.type(), FrameType::headers) << f.header.String();
+            EXPECT_EQ(fieldsOf(f), (headerList{{":status", "200"}, {"content-type", "text/html"},
+                                               {"content-length", std::to_string(mainBody.size())}}));
+        },
+        [&](h2::Frame& f) {
+            ASSERT_EQ(f.type(), FrameType::data) << f.header.String();
+            EXPECT_EQ(f.data, mainBody);
+        },
+    };
+    expected[2] = {
+        [&](h2::Frame& f) {
+            ASSERT_EQ(f.type(), FrameType::headers) << f.header.String();
+            EXPECT_EQ(fieldsOf(f), (headerList{{":status", "200"}, {"content-type", "text/html"},
+                                               {"content-length", std::to_string(pushedBody.size())}}));
+        },
+        [&](h2::Frame& f) {
+            ASSERT_EQ(f.type(), FrameType::data) << f.header.String();
+            EXPECT_EQ(f.data, pushedBody);
+        },
+    };
+    expected[4] = {
+        [&](h2::Frame& f) {
+            ASSERT_EQ(f.type(), FrameType::headers) << f.header.String();
+            EXPECT_EQ(fieldsOf(f), (headerList{{":status", "204"}}));
+        },
+    };
+    while (!expected.empty()) {
+        h2::Frame f = st.readFrame();
+        if (f.type() == FrameType::windowUpdate || f.type() == FrameType::settings || f.type() == FrameType::ping) continue;
+        uint32 id = f.streamId();
+        auto it = expected.find(id);
+        ASSERT_TRUE(it != expected.end()) << "unexpected frame " << f.header.String();
+        auto check = it->second.front();
+        it->second.erase(it->second.begin());
+        if (it->second.empty()) expected.erase(it);
+        check(f);
+    }
+}
+
+// The handler of the pushed request can change its header while the
+// PUSH_PROMISE is written (Go issue 18326).
+TEST(Http2Server, Push_SuccessNoRace) {
+    auto errc = make_chan<std::string>(2);
+    serverTester st([&](http::ResponseWriter& w, http::Request& r) {
+        std::string uri = r.URL.RequestURI().str();
+        if (uri == "/") {
+            http::PushOptions opt;
+            opt.Header.Set("User-Agent", "testagent");
+            if (gopp::error err = dynamic_cast<http::Pusher&>(w).Push("/pushed", &opt)) {
+                errc.send("error pushing: " + err.Error().str());
+                return;
+            }
+            w.WriteHeader(200);
+            errc.send("");
+        } else if (uri == "/pushed") {
+            r.Header.Set("User-Agent", "newagent");
+            r.Header.Set("Cookie", "cookie");
+            w.WriteHeader(200);
+            errc.send("");
+        } else {
+            errc.send("unknown RequestURL " + uri);
+        }
+    });
+    st.greet();
+    st.writeHeaders(1, true, serverTester::request());
+    for (int k = 0; k < 2; k++) EXPECT_EQ(errc.recv(), "") << "handler " << k;
+}
+
+TEST(Http2Server, Push_RejectRecursivePush) {
+    auto errc = make_chan<std::string>(3);
+    serverTester st([&](http::ResponseWriter& w, http::Request& r) {
+        std::string baseURL = "http://" + r.Host.str();
+        auto& p = dynamic_cast<http::Pusher&>(w);
+        if (r.URL.Path == "/") {
+            gopp::error err = p.Push(baseURL + "/push1");
+            errc.send(err ? "first Push()=" + err.Error().str() + ", want nil" : "");
+        } else if (r.URL.Path == "/push1") {
+            gopp::error err = p.Push(baseURL + "/push2");
+            errc.send(err == h2::ErrRecursivePush ? "" : "Push()=" + err.Error().str() + ", want ErrRecursivePush");
+        } else {
+            errc.send("unexpected path: " + r.URL.Path.str());
+        }
+    });
+    st.greet();
+    st.writeHeaders(1, true, serverTester::request());
+    EXPECT_EQ(errc.recv(), "") << "First request failed";
+    EXPECT_EQ(errc.recv(), "") << "Second request failed";
+}
+
+namespace {
+
+// testServer_Push_RejectSingleRequest: the push fails, and no PUSH_PROMISE
+// is sent.
+void testServerPushRejectSingleRequest(std::function<std::string(http::Pusher&, http::Request&)> doPush,
+                                       std::vector<h2::Setting> settings = {}) {
+    auto errc = make_chan<std::string>(2);
+    serverTester st([&](http::ResponseWriter& w, http::Request& r) { errc.send(doPush(dynamic_cast<http::Pusher&>(w), r)); });
+    st.greet();
+    if (!settings.empty()) {
+        st.writeSettings(settings);
+        // The ack.
+        for (;;) {
+            h2::Frame f = st.readFrame();
+            if (f.type() == FrameType::settings && f.isAck()) break;
+        }
+    }
+    st.writeHeaders(1, true, serverTester::request());
+    EXPECT_EQ(errc.recv(), "");
+    // No PUSH_PROMISE.
+    st.wantHeaders(1, true);
+}
+
+}  // namespace
+
+TEST(Http2Server, Push_RejectIfDisabled) {
+    testServerPushRejectSingleRequest(
+        [](http::Pusher& p, http::Request& r) {
+            gopp::error err = p.Push("http://" + r.Host.str() + "/pushed");
+            return err == http::ErrNotSupported ? std::string() : "Push()=" + err.Error().str() + ", want ErrNotSupported";
+        },
+        {{h2::SettingID::enablePush, 0}});
+}
+
+TEST(Http2Server, Push_RejectWhenNoConcurrentStreams) {
+    testServerPushRejectSingleRequest(
+        [](http::Pusher& p, http::Request& r) {
+            gopp::error err = p.Push("http://" + r.Host.str() + "/pushed");
+            return err == h2::ErrPushLimitReached ? std::string() : "Push()=" + err.Error().str() + ", want ErrPushLimitReached";
+        },
+        {{h2::SettingID::maxConcurrentStreams, 0}});
+}
+
+TEST(Http2Server, Push_RejectWrongScheme) {
+    testServerPushRejectSingleRequest([](http::Pusher& p, http::Request& r) {
+        return p.Push("https://" + r.Host.str() + "/pushed") ? std::string() : "Push() should have failed (push target URL is https)";
+    });
+}
+
+TEST(Http2Server, Push_RejectMissingHost) {
+    testServerPushRejectSingleRequest([](http::Pusher& p, http::Request&) {
+        return p.Push("http:pushed") ? std::string() : "Push() should have failed (push target URL missing host)";
+    });
+}
+
+TEST(Http2Server, Push_RejectRelativePath) {
+    testServerPushRejectSingleRequest([](http::Pusher& p, http::Request&) {
+        return p.Push("../test") ? std::string() : "Push() should have failed (push target is a relative path)";
+    });
+}
+
+TEST(Http2Server, Push_RejectForbiddenMethod) {
+    testServerPushRejectSingleRequest([](http::Pusher& p, http::Request& r) {
+        http::PushOptions opt;
+        opt.Method = "POST";
+        return p.Push("http://" + r.Host.str() + "/pushed", &opt) ? std::string() : "Push() should have failed (cannot promise a POST)";
+    });
+}
+
+TEST(Http2Server, Push_RejectForbiddenHeader) {
+    testServerPushRejectSingleRequest([](http::Pusher& p, http::Request& r) {
+        http::PushOptions opt;
+        opt.Header.Set("Content-Length", "10");
+        opt.Header.Set("Content-Encoding", "gzip");
+        opt.Header.Set("Trailer", "Foo");
+        opt.Header.Set("Te", "trailers");
+        opt.Header.Set("Host", "test.com");
+        opt.Header.Set(":authority", "test.com");
+        return p.Push("http://" + r.Host.str() + "/pushed", &opt) ? std::string() : "Push() should have failed (forbidden headers)";
+    });
+}
+
+TEST(Http2Server, Push_RejectAfterGoAway) {
+    auto ready = make_chan<empty>();
+    auto errc = make_chan<std::string>(2);
+    serverTester st([&](http::ResponseWriter& w, http::Request& r) {
+        ready.recv();
+        gopp::error err = dynamic_cast<http::Pusher&>(w).Push("http://" + r.Host.str() + "/pushed");
+        errc.send(err == http::ErrNotSupported ? std::string() : "Push()=" + (err ? err.Error().str() : std::string("nil")) + ", want ErrNotSupported");
+    });
+    st.greet();
+    st.writeHeaders(1, true, serverTester::request());
+    // A GOAWAY, and time for the server to read it.
+    std::string ga;
+    h2::appendGoaway(ga, 1, ErrCode::no);
+    st.writeRaw(ga);
+    time::Sleep(50 * time::Millisecond);
+    ready.close();
+    EXPECT_EQ(errc.recv(), "");
+}
+
+// Several requests that push (Go issue 63511).
+TEST(Http2Server, Push_Underflow) {
+    serverTester st([&](http::ResponseWriter& w, http::Request& r) {
+        std::string uri = r.URL.RequestURI().str();
+        if (uri == "/") {
+            http::PushOptions opt;
+            opt.Header.Set("User-Agent", "testagent");
+            if (gopp::error err = dynamic_cast<http::Pusher&>(w).Push("/pushed", &opt)) ADD_FAILURE() << "error pushing: " << err;
+            w.WriteHeader(200);
+        } else if (uri == "/pushed") {
+            r.Header.Set("User-Agent", "newagent");
+            r.Header.Set("Cookie", "cookie");
+            w.WriteHeader(200);
+        } else {
+            ADD_FAILURE() << "unknown RequestURL " << uri;
+        }
+    });
+    st.greet();
+    constexpr int numRequests = 4;
+    for (int i = 0; i < numRequests; i++) st.writeHeaders(uint32(1 + i * 2), true, serverTester::request());
+    // Each request: one PUSH_PROMISE and two responses.
+    int numPushPromises = 0, numHeaders = 0;
+    while (numHeaders < numRequests * 2 || numPushPromises < numRequests) {
+        h2::Frame f = st.readFrame();
+        if (f.type() == FrameType::headers) {
+            EXPECT_TRUE(f.streamEnded()) << "got HEADERS frame with no END_STREAM: " << f.header.String();
+            numHeaders++;
+        } else if (f.type() == FrameType::pushPromise) {
+            decodeBlock(st, f.data);  // keep the decoder's table in step
+            numPushPromises++;
+        } else if (f.type() == FrameType::goaway || f.type() == FrameType::rstStream) {
+            FAIL() << "got " << f.header.String();
+        }
+    }
 }
