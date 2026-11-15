@@ -76,3 +76,5 @@ export import gopp.text.tmpl.parse;
 export import gopp.time;
 export import gopp.unicode;
 export import gopp.unicode.utf8;
+export import gopp.vfs;
+export import gopp.vfs.http;
