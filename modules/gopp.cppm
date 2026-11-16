@@ -46,6 +46,7 @@ export import gopp.mime.multipart;
 export import gopp.mime.quotedprintable;
 export import gopp.net;
 export import gopp.net.http;
+export import gopp.net.http.cgi;
 export import gopp.net.http.httptest;
 export import gopp.net.http.httputil;
 export import gopp.net.netip;
