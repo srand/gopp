@@ -6,8 +6,9 @@
 // running handler with a counter instead; and the tests of the child side
 // (child_test.go and integration_test.go), which go++ doesn't have.
 // Deviations of the handler from Go: AllowChunked (CGIPostChunkedAllowed),
-// killing the program on bad headers, and no dot-segment cleaning in an
-// internal redirect.
+// killing the program on bad headers (but not after an internal redirect,
+// where it is waited for: InternalRedirectWaitsForChild), and no
+// dot-segment cleaning in an internal redirect.
 // Added: CGIStreamsLargeBody (a response of 256 MiB passes through with
 // the memory of the test unchanged) and CGIClientDisconnectKillsChild.
 #include "go_helper.hpp"
@@ -92,6 +93,12 @@ void cmdCgiTest(const std::vector<std::string>&) {
     auto params = parseForm();
     if (auto it = params.find("loc"); it != params.end() && !it->second.empty()) {
         out("Location: " + it->second + "\r\n\r\n");
+        if (auto m = params.find("marker"); m != params.end()) {
+            // Work done after the response: it must not be cut short.
+            ::close(1);
+            ::usleep(300 * 1000);
+            if (FILE* f = std::fopen(m->second.c_str(), "w")) std::fclose(f);
+        }
         return;
     }
     out("Content-Type: text/html\r\nX-CGI-Pid: " + std::to_string(::getpid()) + "\r\nX-Test-Header: X-Test-Value\r\n\r\n");
@@ -487,6 +494,25 @@ TEST(GoCGI, InternalRedirect) {
         {"remoteaddr", "1.2.3.4:1234"},
     };
     runCgiTest(*h, "GET /test.cgi?loc=/foo HTTP/1.0\nHost: example.com\n\n", expectedMap);
+}
+
+// After an internal redirect the program is not killed: it finishes its work.
+TEST(GoCGI, InternalRedirectWaitsForChild) {
+    auto [dir, derr] = os::MkdirTemp("", "cgi-marker");
+    ASSERT_FALSE(derr) << derr;
+    std::string marker = std::string(dir.view()) + "/done";
+    auto base = make_ptr<http::HandlerFunc>([](http::ResponseWriter& rw, http::Request& req) {
+        io::WriteString(rw, "ok\n");
+    });
+    auto h = newHandler("/test.cgi");
+    h->PathLocationHandler = base;
+    auto rw = httptest::NewRecorder();
+    auto req = newRequest("GET /test.cgi?loc=/foo&marker=" + marker + " HTTP/1.0\nHost: example.com\n\n");
+    h->ServeHTTP(*rw, *req);
+    EXPECT_EQ(rw->Body, "ok\n");
+    auto [fi, serr] = os::Stat(marker);
+    EXPECT_FALSE(serr) << "the CGI program was killed before it finished: " << serr;
+    os::RemoveAll(dir);
 }
 
 // TestCopyError tests that we kill the process if there's an error copying

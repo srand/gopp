@@ -13,7 +13,8 @@
 // client goes away, the program is killed and waited for.
 //
 // Differences from Go: AllowChunked (below); the program is also killed
-// when its headers are bad, not only after a copy error; and an internal
+// when its headers are bad, not only after a copy error (after an internal
+// redirect it is not killed: it is waited for, as in Go); and an internal
 // redirect takes the request's scheme and host without cleaning dot
 // segments out of the path (go++ has no URL resolution).
 #pragma once

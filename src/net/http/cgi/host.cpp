@@ -270,6 +270,9 @@ void Handler::ServeHTTP(http::ResponseWriter& rw, http::Request& req) {
 
     if (auto loc = headers.Get("Location"); !loc.empty()) {
         if (loc.starts_with("/") && PathLocationHandler) {
+            // The program's response is complete and good: as in Go, only
+            // close its output and wait, so that it can finish its work.
+            guard.finished = true;
             handleInternalRedirect(rw, req, loc.view());
             return;
         }
