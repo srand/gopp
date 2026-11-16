@@ -146,6 +146,7 @@ slice<byte> hashOf(crypto::Hash h, std::string_view msg) {
 }
 
 TEST(GoRSA, SignPKCS1v15) {
+    rsa::detail::AllowSmallKeys allowSmall;  // GODEBUG=rsa1024min=0
     // signPKCS1v15Tests: `openssl rsautl -verify -inkey pk -in signature | hexdump -C`
     const char* want =
         "a4f3fa6ea93bcdd0c57be020c1193ecbfd6f200a3d95c409769b029578fa0e336ad9a347600e40d3ae823b8c7e6bad88cc07c1d54c3a1523cbbb6d58efc362ae";
@@ -161,6 +162,7 @@ TEST(GoRSA, SignPKCS1v15) {
 }
 
 TEST(GoRSA, VerifyPKCS1v15) {
+    rsa::detail::AllowSmallKeys allowSmall;  // GODEBUG=rsa1024min=0
     auto key = test512Key();
     auto digest = hashOf(crypto::Hash::SHA1, "Test.\n");
     auto [sig, herr] = hex::DecodeString(
@@ -181,6 +183,7 @@ TEST(GoRSA, VerifyPKCS1v15) {
 }
 
 TEST(GoRSA, UnpaddedSignature) {
+    rsa::detail::AllowSmallKeys allowSmall;  // GODEBUG=rsa1024min=0
     auto key = test512Key();
     auto msg = as_bytes("Thu Dec 19 18:06:16 EST 2013\n");
     // `openssl rsautl -sign -inkey key -in msg`
@@ -194,6 +197,7 @@ TEST(GoRSA, UnpaddedSignature) {
 }
 
 TEST(GoRSA, SignPKCS1v15NotHashed) {
+    rsa::detail::AllowSmallKeys allowSmall;  // GODEBUG=rsa1024min=0
     auto key = test512Key();
     auto [s, err] = rsa::SignPKCS1v15(nullptr, *key, crypto::Hash::SHA256, as_bytes("too short"));
     EXPECT_FALSE(s.data());
@@ -246,9 +250,55 @@ TEST(GoRSA, PSSSignerAndHashOverride) {
     EXPECT_FALSE(rsa::VerifyPSS(key->PublicKey, crypto::Hash::SHA256, hashed, sig, &opts));
     // A PKCS #1 v1.5 verifier rejects it.
     EXPECT_TRUE(rsa::VerifyPKCS1v15(key->PublicKey, crypto::Hash::SHA256, hashed, sig));
+    // SignPSS takes opts.Hash over its hash argument, VerifyPSS does not.
     auto [sig2, err2] = rsa::SignPSS(nullptr, *key, crypto::Hash::SHA1, hashed, &opts);
     ASSERT_FALSE(err2);
-    EXPECT_FALSE(rsa::VerifyPSS(key->PublicKey, crypto::Hash::SHA256, hashed, sig2, &opts));
+    rsa::PSSOptions other;
+    other.Hash = crypto::Hash::SHA1;
+    EXPECT_FALSE(rsa::VerifyPSS(key->PublicKey, crypto::Hash::SHA256, hashed, sig2, &other));
+    EXPECT_TRUE(rsa::VerifyPSS(key->PublicKey, crypto::Hash::SHA1, hashed, sig2, &opts));
+}
+
+TEST(GoRSA, PSSShortSignature) {
+    // A signature without its leading zero byte is not valid, though
+    // OpenSSL would accept it for PSS.
+    auto key = test1024Key();
+    for (int i = 0; i < 20000; i++) {
+        auto hashed = hashOf(crypto::Hash::SHA256, "message " + std::to_string(i));
+        auto [sig, err] = rsa::SignPSS(nullptr, *key, crypto::Hash::SHA256, hashed, nullptr);
+        ASSERT_FALSE(err);
+        if (sig[0] != 0) continue;
+        EXPECT_FALSE(rsa::VerifyPSS(key->PublicKey, crypto::Hash::SHA256, hashed, sig, nullptr));
+        EXPECT_EQ(rsa::VerifyPSS(key->PublicKey, crypto::Hash::SHA256, hashed, std::span<const byte>(sig).subspan(1), nullptr),
+                  rsa::ErrVerification);
+        return;
+    }
+    FAIL() << "no signature began with a zero byte";
+}
+
+TEST(GoRSA, SmallKeysRejected) {
+    auto key = test512Key();
+    const char* want = "crypto/rsa: 512-bit keys are insecure (see https://go.dev/pkg/crypto/rsa#hdr-Minimum_key_size)";
+    auto hashed = hashOf(crypto::Hash::SHA256, "x");
+    std::string sig(64, 'x');
+    auto sigb = as_bytes(sig);
+    auto [s1, e1] = rsa::SignPKCS1v15(nullptr, *key, crypto::Hash::SHA256, hashed);
+    ASSERT_TRUE(e1);
+    EXPECT_EQ(e1->Error().view(), want);
+    auto [s2, e2] = rsa::SignPSS(nullptr, *key, crypto::Hash::SHA256, hashed, nullptr);
+    ASSERT_TRUE(e2);
+    EXPECT_EQ(e2->Error().view(), want);
+    error e3 = rsa::VerifyPKCS1v15(key->PublicKey, crypto::Hash::SHA256, hashed, sigb);
+    ASSERT_TRUE(e3);
+    EXPECT_EQ(e3->Error().view(), want);
+    error e4 = rsa::VerifyPSS(key->PublicKey, crypto::Hash::SHA256, hashed, sigb, nullptr);
+    ASSERT_TRUE(e4);
+    EXPECT_EQ(e4->Error().view(), want);
+    {
+        rsa::detail::AllowSmallKeys allow;
+        EXPECT_FALSE(rsa::SignPKCS1v15(nullptr, *key, crypto::Hash::SHA256, hashed).second);
+    }
+    EXPECT_TRUE(rsa::SignPKCS1v15(nullptr, *key, crypto::Hash::SHA256, hashed).second);
 }
 
 TEST(GoRSA, PSSNilOpts) {

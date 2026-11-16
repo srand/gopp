@@ -7,6 +7,8 @@
 
 #include <openssl/rsa.h>
 
+#include <atomic>
+
 namespace gopp::rsa {
 
 const error ErrVerification = errors::New("crypto/rsa: verification error");
@@ -154,6 +156,8 @@ std::pair<slice<byte>, error> sign(const PrivateKey& priv, Padding pad, crypto::
 
 error verify(const PublicKey& pub, Padding pad, crypto::Hash hash, int salt, std::span<const byte> digest,
              std::span<const byte> sig) {
+    // As Go does: OpenSSL accepts a PSS signature with its leading zeros cut.
+    if (sig.size() != static_cast<size_t>(pub.Size())) return ErrVerification;
     auto [key, kerr] = publicEvp(pub);
     if (kerr) return kerr;
     pkey::Ctx ctx(EVP_PKEY_CTX_new_from_pkey(nullptr, key, nullptr));
@@ -164,10 +168,17 @@ error verify(const PublicKey& pub, Padding pad, crypto::Hash hash, int salt, std
     return r == 1 ? nullptr : ErrVerification;
 }
 
+std::atomic<int> allowSmall{0};
+
 error checkKeySize(int bits) {
-    if (bits >= 1024) return nullptr;
+    if (bits >= 1024 || allowSmall.load() > 0) return nullptr;
     return errors::New(string("crypto/rsa: " + std::to_string(bits) +
                               "-bit keys are insecure (see https://go.dev/pkg/crypto/rsa#hdr-Minimum_key_size)"));
+}
+
+error checkPublicKeySize(const PublicKey& k) {
+    if (k.N.Sign() <= 0) return errors::New("crypto/rsa: missing public modulus");
+    return checkKeySize(k.N.BitLen());
 }
 
 }  // namespace
@@ -218,17 +229,20 @@ std::pair<slice<byte>, error> SignPKCS1v15(io::Reader*, const PrivateKey& priv, 
                                            std::span<const byte> hashed) {
     if (hash != crypto::Hash{} && static_cast<isize>(hashed.size()) != crypto::Size(hash))
         return {slice<byte>(), errors::New("crypto/rsa: input must be hashed message")};
+    if (error err = checkPublicKeySize(priv.PublicKey)) return {slice<byte>(), err};
     return sign(priv, Padding::PKCS1v15, hash, 0, hashed);
 }
 
 error VerifyPKCS1v15(const PublicKey& pub, crypto::Hash hash, std::span<const byte> hashed,
                      std::span<const byte> sig) {
+    if (error err = checkPublicKeySize(pub)) return err;
     if (hash != crypto::Hash{} && static_cast<isize>(hashed.size()) != crypto::Size(hash)) return ErrVerification;
     return verify(pub, Padding::PKCS1v15, hash, 0, hashed, sig);
 }
 
 std::pair<slice<byte>, error> SignPSS(io::Reader*, const PrivateKey& priv, crypto::Hash hash,
                                       std::span<const byte> digest, const PSSOptions* opts) {
+    if (error err = checkPublicKeySize(priv.PublicKey)) return {slice<byte>(), err};
     if (opts && opts->Hash != crypto::Hash{}) hash = opts->Hash;
     int salt = 0;
     if (!saltFor(opts ? opts->SaltLength : PSSSaltLengthAuto, false, salt))
@@ -239,7 +253,8 @@ std::pair<slice<byte>, error> SignPSS(io::Reader*, const PrivateKey& priv, crypt
 
 error VerifyPSS(const PublicKey& pub, crypto::Hash hash, std::span<const byte> digest, std::span<const byte> sig,
                 const PSSOptions* opts) {
-    if (opts && opts->Hash != crypto::Hash{}) hash = opts->Hash;
+    if (error err = checkPublicKeySize(pub)) return err;
+    // Unlike SignPSS, opts->Hash is not used: Go's VerifyPSS ignores it.
     int salt = 0;
     if (!saltFor(opts ? opts->SaltLength : PSSSaltLengthAuto, true, salt)) return ErrVerification;
     crypto::Size(hash);
@@ -247,6 +262,9 @@ error VerifyPSS(const PublicKey& pub, crypto::Hash hash, std::span<const byte> d
 }
 
 namespace detail {
+
+AllowSmallKeys::AllowSmallKeys() { allowSmall.fetch_add(1); }
+AllowSmallKeys::~AllowSmallKeys() { allowSmall.fetch_sub(1); }
 
 ptr<PrivateKey> fromComponents(std::string_view n, int e, std::string_view d, std::string_view p,
                                std::string_view q) {
