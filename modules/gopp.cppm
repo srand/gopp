@@ -14,6 +14,8 @@ export import gopp.container.heap;
 export import gopp.container.list;
 export import gopp.context;
 export import gopp.crypto;
+export import gopp.crypto.ecdsa;
+export import gopp.crypto.ed25519;
 export import gopp.crypto.elliptic;
 export import gopp.crypto.hmac;
 export import gopp.crypto.md5;

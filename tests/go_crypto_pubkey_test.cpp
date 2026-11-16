@@ -16,17 +16,44 @@
 // Go's own implementation rather than the interface. Go's 512 and 1024 bit
 // test keys are given by their parameters, as the x509 parser isn't ported
 // yet.
+//
+// The GoECDSA tests are ported from crypto/ecdsa's ecdsa_test.go of Go 1.26:
+// TestSignAndVerify, TestSignAndVerifyASN1, TestNonceSafety, TestINDCCA,
+// TestZeroHashSignature, and TestZeroSignature, TestNegativeSignature,
+// TestRPlusNSignature and TestRMinusNSignature (as BadScalars), over P-224,
+// P-256, P-384 and P-521 (not Go's "generic" P-256 params). Left out:
+// TestRandomPoint and the point arithmetic (go++ has none), TestVectors (its
+// testdata is the gzipped SigVer.rsp), the ParseUncompressedPublicKey,
+// Bytes and ECDH tests (not ported), and the private key validation tests.
+// RFC6979Vector replaces TestRFC6979: go++ signs with a random nonce, so it
+// verifies the RFC 6979 A.2.5 signature instead of reproducing it. The
+// remaining tests (Invalid*, MalformedDER) pin what Go's Verify does with
+// input an attacker controls, and Go's tests don't.
+//
+// The GoEd25519 tests are ported from crypto/ed25519's ed25519_test.go:
+// TestSignVerify, TestCryptoSigner, TestEqual, TestMalleability, and
+// TestGolden over the first 8 lines of testdata/sign.input.gz (the vectors of
+// https://ed25519.cr.yp.to/python/sign.input, whose message is 0 to 7 bytes
+// long), written here in hex. Left out: Ed25519ph and Ed25519ctx (Options,
+// TestSignVerifyHashed, TestSignVerifyContext), the RFC 8032 vector tests
+// through them, TestGenerateKey's nil reader, and TestAllocations.
 #include <gopp/crypto.hpp>
+#include <gopp/crypto/ecdsa.hpp>
+#include <gopp/crypto/ed25519.hpp>
 #include <gopp/crypto/elliptic.hpp>
+#include <gopp/crypto/rand.hpp>
 #include <gopp/crypto/rsa.hpp>
 #include <gopp/encoding/base64.hpp>
 #include <gopp/encoding/hex.hpp>
 
 #include <gtest/gtest.h>
 
+#include "crypto/pkey.hpp"
 #include "crypto/rsa_internal.hpp"
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 using namespace gopp;
 
@@ -361,6 +388,562 @@ TEST(GoRSA, PublicKeyEqual) {
     b->PublicKey.E = 3;
     EXPECT_FALSE(a->PublicKey.Equal(b->PublicKey));
     EXPECT_FALSE(a->PublicKey.Equal(test1024Key()->PublicKey));
+}
+
+
+// ---- crypto/ecdsa ----
+
+struct NamedCurve {
+    const char* name;
+    ptr<elliptic::Curve> c;
+};
+std::vector<NamedCurve> allCurves() {
+    return {{"P224", elliptic::P224()}, {"P256", elliptic::P256()}, {"P384", elliptic::P384()},
+            {"P521", elliptic::P521()}};
+}
+
+slice<byte> unhex(std::string_view h) {
+    auto [b, err] = hex::DecodeString(string(h));
+    EXPECT_FALSE(err);
+    return b;
+}
+
+big::Int bigHex(std::string_view h) {
+    big::Int z;
+    z.SetString(h, 16);
+    return z;
+}
+
+// Arithmetic that big::Int doesn't have, over OpenSSL's BIGNUM.
+big::Int arith(const big::Int& a, const big::Int& b, bool sub) {
+    pkey::BN z(BN_new());
+    EXPECT_EQ((sub ? BN_sub : BN_add)(z.get(), pkey::bn(a), pkey::bn(b)), 1);
+    char* h = BN_bn2hex(z.get());
+    big::Int out = bigHex(h);
+    OPENSSL_free(h);
+    return out;
+}
+big::Int add(const big::Int& a, const big::Int& b) { return arith(a, b, false); }
+big::Int sub(const big::Int& a, const big::Int& b) { return arith(a, b, true); }
+big::Int neg(const big::Int& a) {
+    big::Int zero;
+    return sub(zero, a);
+}
+
+// A reader of zeros.
+struct ZeroReader final : io::Reader {
+    std::pair<isize, error> Read(std::span<byte> p) override {
+        std::fill(p.begin(), p.end(), byte(0));
+        return {static_cast<isize>(p.size()), nullptr};
+    }
+};
+
+// A DER ECDSA signature from the encoded content of two INTEGERs (each with
+// its own tag and length): for building signatures that are not canonical.
+std::vector<byte> derSeq(const std::vector<byte>& inner) {
+    std::vector<byte> out{0x30};
+    if (inner.size() < 128) {
+        out.push_back(static_cast<byte>(inner.size()));
+    } else {
+        out.push_back(0x81);
+        out.push_back(static_cast<byte>(inner.size()));
+    }
+    out.insert(out.end(), inner.begin(), inner.end());
+    return out;
+}
+std::vector<byte> derInt(std::vector<byte> v) {
+    std::vector<byte> out{0x02, static_cast<byte>(v.size())};
+    out.insert(out.end(), v.begin(), v.end());
+    return out;
+}
+std::vector<byte> cat(std::vector<byte> a, const std::vector<byte>& b) {
+    a.insert(a.end(), b.begin(), b.end());
+    return a;
+}
+std::vector<byte> bytesOf(const slice<byte>& s) { return std::vector<byte>(s.data(), s.data() + s.len()); }
+
+TEST(GoECDSA, SignAndVerify) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        auto [priv, gerr] = ecdsa::GenerateKey(c, nullptr);
+        ASSERT_FALSE(gerr);
+        slice<byte> hashed = unhex(hex::EncodeToString(as_bytes("testing")).view());
+        auto [r, s, err] = ecdsa::Sign(&rand::Reader, *priv, hashed);
+        ASSERT_FALSE(err) << err->Error().view();
+        EXPECT_TRUE(ecdsa::Verify(priv->PublicKey, hashed, r, s));
+        hashed[0] ^= 0xff;
+        EXPECT_FALSE(ecdsa::Verify(priv->PublicKey, hashed, r, s)) << "Verify always works!";
+    }
+}
+
+TEST(GoECDSA, SignAndVerifyASN1) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        auto [priv, gerr] = ecdsa::GenerateKey(c, &rand::Reader);
+        ASSERT_FALSE(gerr);
+        slice<byte> hashed = unhex(hex::EncodeToString(as_bytes("testing")).view());
+        auto [sig, err] = ecdsa::SignASN1(&rand::Reader, *priv, hashed);
+        ASSERT_FALSE(err) << err->Error().view();
+        EXPECT_TRUE(ecdsa::VerifyASN1(priv->PublicKey, hashed, sig));
+        hashed[0] ^= 0xff;
+        EXPECT_FALSE(ecdsa::VerifyASN1(priv->PublicKey, hashed, sig)) << "VerifyASN1 always works!";
+    }
+}
+
+TEST(GoECDSA, KeyGeneration) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        auto [priv, err] = ecdsa::GenerateKey(c, nullptr);
+        ASSERT_FALSE(err);
+        EXPECT_TRUE(priv->PublicKey.Curve == c);
+        EXPECT_GT(priv->D.Sign(), 0);
+        EXPECT_LT(priv->D.Cmp(c->Params().N), 0);
+        EXPECT_GT(priv->PublicKey.X.Sign(), 0);
+        EXPECT_GT(priv->PublicKey.Y.Sign(), 0);
+        EXPECT_LE(priv->PublicKey.X.BitLen(), c->Params().BitSize);
+    }
+}
+
+TEST(GoECDSA, NonceSafety) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        ZeroReader zero;
+        auto [priv, gerr] = ecdsa::GenerateKey(c, &rand::Reader);
+        ASSERT_FALSE(gerr);
+        auto [r0, s0, err0] = ecdsa::Sign(&zero, *priv, unhex("74657374696e67"));
+        ASSERT_FALSE(err0);
+        auto [r1, s1, err1] = ecdsa::Sign(&zero, *priv, unhex("74657374696e672e2e2e"));
+        ASSERT_FALSE(err1);
+        EXPECT_NE(s0.Cmp(s1), 0) << "the signatures on two different messages were the same";
+        EXPECT_NE(r0.Cmp(r1), 0) << "the nonce used for two different messages was the same";
+    }
+}
+
+TEST(GoECDSA, INDCCA) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        auto [priv, gerr] = ecdsa::GenerateKey(c, &rand::Reader);
+        ASSERT_FALSE(gerr);
+        auto h = unhex("74657374696e67");
+        auto [r0, s0, err0] = ecdsa::Sign(&rand::Reader, *priv, h);
+        auto [r1, s1, err1] = ecdsa::Sign(&rand::Reader, *priv, h);
+        ASSERT_FALSE(err0);
+        ASSERT_FALSE(err1);
+        EXPECT_NE(s0.Cmp(s1), 0) << "two signatures of the same message produced the same result";
+        EXPECT_NE(r0.Cmp(r1), 0) << "two signatures of the same message produced the same nonce";
+    }
+}
+
+TEST(GoECDSA, ZeroHashSignature) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        std::vector<byte> zeroHash(64, byte(0));
+        auto [priv, gerr] = ecdsa::GenerateKey(c, &rand::Reader);
+        ASSERT_FALSE(gerr);
+        auto [r, s, err] = ecdsa::Sign(&rand::Reader, *priv, zeroHash);
+        ASSERT_FALSE(err);
+        EXPECT_TRUE(ecdsa::Verify(priv->PublicKey, zeroHash, r, s));
+        // And an empty hash.
+        auto [r2, s2, err2] = ecdsa::Sign(&rand::Reader, *priv, std::span<const byte>());
+        ASSERT_FALSE(err2);
+        EXPECT_TRUE(ecdsa::Verify(priv->PublicKey, std::span<const byte>(), r2, s2));
+    }
+}
+
+// TestZeroSignature, TestNegativeSignature, TestRPlusNSignature and
+// TestRMinusNSignature, and s as well as r.
+TEST(GoECDSA, BadScalars) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        std::vector<byte> zeroHash(64, byte(0));
+        auto [priv, gerr] = ecdsa::GenerateKey(c, &rand::Reader);
+        ASSERT_FALSE(gerr);
+        const auto& pub = priv->PublicKey;
+        const auto& N = c->Params().N;
+        auto [r, s, err] = ecdsa::Sign(&rand::Reader, *priv, zeroHash);
+        ASSERT_FALSE(err);
+        ASSERT_TRUE(ecdsa::Verify(pub, zeroHash, r, s));
+
+        big::Int zero;
+        big::Int negR = neg(r), negS = neg(s);
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, zero, zero));
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, zero, s));
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, r, zero));
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, negR, s));
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, r, negS));
+        big::Int rPlusN = add(r, N), sPlusN = add(s, N);
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, rPlusN, s));
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, r, sPlusN));
+        big::Int rMinusN = sub(r, N), sMinusN = sub(s, N);
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, rMinusN, s));
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, r, sMinusN));
+        // Exactly N is out of range too.
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, N, s));
+        EXPECT_FALSE(ecdsa::Verify(pub, zeroHash, r, N));
+    }
+}
+
+// RFC 6979, A.2.5: P-256 and SHA-256, message "sample".
+TEST(GoECDSA, RFC6979Vector) {
+    ecdsa::PublicKey pub;
+    pub.Curve = elliptic::P256();
+    pub.X = bigHex("60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6");
+    pub.Y = bigHex("7903FE1008B8BC99A41AE9E95628BC64F2F1B20C2D7E9F5177A3C294D4462299");
+    auto h = hashOf(crypto::Hash::SHA256, "sample");
+    big::Int r = bigHex("EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716");
+    big::Int s = bigHex("F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8");
+    EXPECT_TRUE(ecdsa::Verify(pub, h, r, s));
+    // Another message, and a changed s, fail.
+    EXPECT_FALSE(ecdsa::Verify(pub, hashOf(crypto::Hash::SHA256, "test"), r, s));
+    big::Int one;
+    one.SetInt64(1);
+    big::Int s2 = add(s, one);
+    EXPECT_FALSE(ecdsa::Verify(pub, h, r, s2));
+
+    // The private key signs, with a signature that verifies, through Signer.
+    ecdsa::PrivateKey priv;
+    priv.PublicKey = pub;
+    priv.D = bigHex("C9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721");
+    auto [sig, err] = priv.Sign(nullptr, h, crypto::HashOpts{crypto::Hash::SHA256});
+    ASSERT_FALSE(err) << err->Error().view();
+    EXPECT_TRUE(ecdsa::VerifyASN1(pub, h, sig));
+    auto pubOf = priv.Public();
+    EXPECT_TRUE(pubOf->Equal(pub));
+}
+
+TEST(GoECDSA, PublicKeyEqual) {
+    auto [a, e1] = ecdsa::GenerateKey(elliptic::P256(), nullptr);
+    auto [b, e2] = ecdsa::GenerateKey(elliptic::P256(), nullptr);
+    ASSERT_FALSE(e1);
+    ASSERT_FALSE(e2);
+    EXPECT_TRUE(a->PublicKey.Equal(a->PublicKey));
+    EXPECT_TRUE(a->PublicKey.Equal(*a->Public()));
+    EXPECT_FALSE(a->PublicKey.Equal(b->PublicKey));
+    ecdsa::PublicKey other = a->PublicKey;
+    other.Curve = elliptic::P384();
+    EXPECT_FALSE(a->PublicKey.Equal(other));
+    ed25519::PublicKey ed;
+    EXPECT_FALSE(a->PublicKey.Equal(ed));
+}
+
+// What Go's Verify does with a public key that is not valid: false.
+TEST(GoECDSA, InvalidPublicKeys) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        auto [priv, gerr] = ecdsa::GenerateKey(c, nullptr);
+        ASSERT_FALSE(gerr);
+        auto h = unhex("74657374696e67");
+        auto [sig, err] = ecdsa::SignASN1(nullptr, *priv, h);
+        ASSERT_FALSE(err);
+        ASSERT_TRUE(ecdsa::VerifyASN1(priv->PublicKey, h, sig));
+
+        big::Int one, zero;
+        one.SetInt64(1);
+        auto check = [&](const ecdsa::PublicKey& k, const char* what) {
+            SCOPED_TRACE(what);
+            EXPECT_FALSE(ecdsa::VerifyASN1(k, h, sig));
+            auto [r, s, e2] = ecdsa::Sign(nullptr, *priv, h);
+            EXPECT_FALSE(e2);
+            EXPECT_FALSE(ecdsa::Verify(k, h, r, s));
+        };
+        ecdsa::PublicKey k = priv->PublicKey;
+        k.Y = add(k.Y, one);
+        check(k, "off the curve");
+        k = priv->PublicKey;
+        k.X = zero;
+        k.Y = zero;
+        check(k, "(0, 0), where infinity would be");
+        k = priv->PublicKey;
+        k.X = add(k.X, c->Params().P);
+        check(k, "X not reduced");
+        k = priv->PublicKey;
+        k.Y = neg(k.Y);
+        check(k, "negative Y");
+        k = priv->PublicKey;
+        k.X = neg(k.X);
+        check(k, "negative X");
+        k = priv->PublicKey;
+        k.Curve = nullptr;
+        check(k, "nil curve");
+        // The point of one curve with another's.
+        k = priv->PublicKey;
+        k.Curve = c == elliptic::P256() ? elliptic::P384() : elliptic::P256();
+        check(k, "mismatched curve");
+        k = priv->PublicKey;
+        k.X = bigHex("1");
+        k.Y = bigHex("1");
+        check(k, "(1, 1)");
+    }
+}
+
+TEST(GoECDSA, UnsupportedCurve) {
+    struct Custom final : elliptic::Curve {
+        elliptic::CurveParams p;
+        const elliptic::CurveParams& Params() const override { return p; }
+    };
+    auto c = make_ptr<Custom>();
+    c->p = elliptic::P256()->Params();
+    auto [priv, err] = ecdsa::GenerateKey(c, nullptr);
+    EXPECT_TRUE(err);
+    EXPECT_FALSE(priv);
+    auto [good, gerr] = ecdsa::GenerateKey(elliptic::P256(), nullptr);
+    ASSERT_FALSE(gerr);
+    auto h = unhex("74657374696e67");
+    auto [sig, serr] = ecdsa::SignASN1(nullptr, *good, h);
+    ASSERT_FALSE(serr);
+    ecdsa::PublicKey k = good->PublicKey;
+    k.Curve = c;
+    EXPECT_FALSE(ecdsa::VerifyASN1(k, h, sig));
+}
+
+TEST(GoECDSA, MalformedDER) {
+    for (auto& [name, c] : allCurves()) {
+        SCOPED_TRACE(name);
+        auto [priv, gerr] = ecdsa::GenerateKey(c, nullptr);
+        ASSERT_FALSE(gerr);
+        const auto& pub = priv->PublicKey;
+        auto h = unhex("74657374696e67");
+        auto [sig, err] = ecdsa::SignASN1(nullptr, *priv, h);
+        ASSERT_FALSE(err);
+        std::vector<byte> good = bytesOf(sig);
+        ASSERT_TRUE(ecdsa::VerifyASN1(pub, h, good));
+
+        auto bad = [&](const std::vector<byte>& v, const char* what) {
+            SCOPED_TRACE(what);
+            EXPECT_FALSE(ecdsa::VerifyASN1(pub, h, v));
+        };
+        bad({}, "empty");
+        bad({0x30}, "a tag alone");
+        bad({0x30, 0x00}, "an empty sequence");
+        auto trailing = good;
+        trailing.push_back(0);
+        bad(trailing, "trailing byte");
+        auto trailing2 = good;
+        trailing2.insert(trailing2.end(), good.begin(), good.end());
+        bad(trailing2, "two signatures");
+        for (size_t cut : {size_t(1), good.size() / 2, good.size() - 1}) {
+            bad(std::vector<byte>(good.begin(), good.begin() + cut), "truncated");
+        }
+        auto wrongTag = good;
+        wrongTag[0] = 0x31;
+        bad(wrongTag, "a SET");
+        // The parts of the signature, to be reassembled.
+        size_t off = good[1] & 0x80 ? 3 : 2;  // after the header of the SEQUENCE
+        size_t nR = static_cast<size_t>(good[off + 1]);
+        std::vector<byte> rBytes(good.begin() + off + 2, good.begin() + off + 2 + nR);
+        size_t sOff = off + 2 + nR;
+        size_t nS = static_cast<size_t>(good[sOff + 1]);
+        std::vector<byte> sBytes(good.begin() + sOff + 2, good.begin() + sOff + 2 + nS);
+        ASSERT_TRUE(ecdsa::VerifyASN1(pub, h, derSeq(cat(derInt(rBytes), derInt(sBytes)))));
+        // A leading zero that isn't needed, in r.
+        auto padded = rBytes;
+        if (!(padded[0] & 0x80)) {
+            padded.insert(padded.begin(), byte(0));
+            bad(derSeq(cat(derInt(padded), derInt(sBytes))), "non-minimal r");
+        }
+        // A negative r: the same bytes with the sign bit set.
+        auto neg = rBytes;
+        neg[0] |= 0x80;
+        bad(derSeq(cat(derInt(neg), derInt(sBytes))), "negative r");
+        bad(derSeq(cat(derInt({}), derInt(sBytes))), "empty r");
+        bad(derSeq(cat(derInt({0}), derInt(sBytes))), "r is 0");
+        bad(derSeq(cat(derInt(rBytes), derInt({0}))), "s is 0");
+        bad(derSeq(derInt(rBytes)), "r alone");
+        bad(derSeq(cat(cat(derInt(rBytes), derInt(sBytes)), derInt({1}))), "three integers");
+        auto wrongInt = cat(derInt(rBytes), derInt(sBytes));
+        wrongInt[0] = 0x04;
+        bad(derSeq(wrongInt), "an OCTET STRING for r");
+        // r = N and s = N, as the longest integers.
+        auto nBytes = bytesOf(c->Params().N.Bytes());
+        if (nBytes[0] & 0x80) nBytes.insert(nBytes.begin(), byte(0));
+        bad(derSeq(cat(derInt(nBytes), derInt(sBytes))), "r = N");
+        bad(derSeq(cat(derInt(rBytes), derInt(nBytes))), "s = N");
+        // Indefinite length (BER).
+        std::vector<byte> ber{0x30, 0x80};
+        auto inner = cat(derInt(rBytes), derInt(sBytes));
+        ber.insert(ber.end(), inner.begin(), inner.end());
+        ber.push_back(0);
+        ber.push_back(0);
+        bad(ber, "indefinite length");
+        // A long form of the length that fits the short.
+        std::vector<byte> longForm{0x30, 0x81, static_cast<byte>(inner.size())};
+        longForm.insert(longForm.end(), inner.begin(), inner.end());
+        if (inner.size() < 128) bad(longForm, "non-minimal length");
+    }
+}
+
+// ---- crypto/ed25519 ----
+
+TEST(GoEd25519, SignVerify) {
+    ZeroReader zero;
+    auto [pub, priv, gerr] = ed25519::GenerateKey(&zero);
+    ASSERT_FALSE(gerr);
+    ASSERT_EQ(static_cast<isize>(pub->key.len()), ed25519::PublicKeySize);
+    ASSERT_EQ(static_cast<isize>(priv->key.len()), ed25519::PrivateKeySize);
+    auto message = as_bytes("test message");
+    auto sig = ed25519::Sign(*priv, message);
+    EXPECT_EQ(static_cast<isize>(sig.len()), ed25519::SignatureSize);
+    EXPECT_TRUE(ed25519::Verify(*pub, message, sig));
+    EXPECT_FALSE(ed25519::Verify(*pub, as_bytes("wrong message"), sig)) << "signature of different message accepted";
+    // The signature is deterministic, and the key from the zero seed is
+    // RFC 8032's well known one.
+    EXPECT_EQ(std::string(hex::EncodeToString(pub->key).view()),
+              "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29");
+    auto sig2 = ed25519::Sign(*priv, message);
+    EXPECT_EQ(std::string(hex::EncodeToString(sig).view()), std::string(hex::EncodeToString(sig2).view()));
+
+    // Flipping any part of the signature breaks it, and so do wrong lengths.
+    for (int i : {0, 31, 32, 63}) {
+        auto bad = ed25519::Sign(*priv, message);
+        bad[i] ^= 1;
+        EXPECT_FALSE(ed25519::Verify(*pub, message, bad)) << i;
+    }
+    EXPECT_FALSE(ed25519::Verify(*pub, message, sig.Sub(0, 63)));
+    EXPECT_FALSE(ed25519::Verify(*pub, message, std::span<const byte>()));
+    auto longer = appendSpan(sig, std::span<const byte>(as_bytes("x")));
+    EXPECT_FALSE(ed25519::Verify(*pub, message, longer));
+    // Another key.
+    auto [pub2, priv2, e2] = ed25519::GenerateKey(nullptr);
+    ASSERT_FALSE(e2);
+    EXPECT_FALSE(ed25519::Verify(*pub2, message, sig));
+}
+
+TEST(GoEd25519, CryptoSigner) {
+    ZeroReader zero;
+    auto [pub, priv, gerr] = ed25519::GenerateKey(&zero);
+    ASSERT_FALSE(gerr);
+    crypto::Signer& signer = *priv;
+    auto pubIface = signer.Public();
+    auto pub2 = dynamic_pointer_cast<ed25519::PublicKey>(pubIface);
+    ASSERT_TRUE(pub2) << "expected PublicKey from Public()";
+    EXPECT_EQ(std::string(hex::EncodeToString(pub->key).view()), std::string(hex::EncodeToString(pub2->key).view()));
+    auto message = as_bytes("message");
+    auto [sig, err] = signer.Sign(nullptr, message, crypto::HashOpts{});
+    ASSERT_FALSE(err) << err->Error().view();
+    EXPECT_TRUE(ed25519::Verify(*pub2, message, sig));
+    // Ed25519ph isn't supported.
+    auto [sig2, err2] = signer.Sign(nullptr, message, crypto::HashOpts{crypto::Hash::SHA512});
+    EXPECT_TRUE(err2);
+}
+
+TEST(GoEd25519, Equal) {
+    auto [pub, priv, err] = ed25519::GenerateKey(&rand::Reader);
+    ASSERT_FALSE(err);
+    EXPECT_TRUE(pub->Equal(*pub));
+    EXPECT_TRUE(pub->Equal(*priv->Public()));
+    auto [otherPub, otherPriv, err2] = ed25519::GenerateKey(&rand::Reader);
+    ASSERT_FALSE(err2);
+    EXPECT_FALSE(pub->Equal(*otherPub));
+    EXPECT_FALSE(pub->Equal(*otherPriv->Public()));
+    auto [ec, eerr] = ecdsa::GenerateKey(elliptic::P256(), nullptr);
+    ASSERT_FALSE(eerr);
+    EXPECT_FALSE(pub->Equal(ec->PublicKey));
+}
+
+TEST(GoEd25519, MalleabilityRejected) {
+    // RFC 8032 section 5.1.7 requires s in [0, order): a multiple of the
+    // order added to s must not give a second valid signature.
+    auto msg = unhex("54657374");
+    auto sig = unhex(
+        "7c38e026f29e14aabd059a0f2db8b0cd783040609a8be684db12f82a27774ab0"
+        "67654bce3832c2d76f8f6f5dafc08d9339d4eef676573336a5c51eb6f946b31d");
+    ed25519::PublicKey pub;
+    pub.key = unhex("7d4d0e7f6153a69b6242b522abbee685fda4420f8834b108c3bdae369ef549fa");
+    EXPECT_FALSE(ed25519::Verify(pub, msg, sig)) << "non-canonical signature accepted";
+}
+
+TEST(GoEd25519, Golden) {
+    // The first 8 lines of Go's testdata/sign.input.gz: seed and public key,
+    // public key, message, signature.
+    struct {
+        const char* priv;
+        const char* pub;
+        const char* msg;
+        const char* sig;
+    } tests[] = {
+        {"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+         "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+         "",
+         "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"},
+        {"4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+         "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+         "72",
+         "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"},
+        {"c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+         "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+         "af82",
+         "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"},
+        {"0d4a05b07352a5436e180356da0ae6efa0345ff7fb1572575772e8005ed978e9e61a185bcef2613a6c7cb79763ce945d3b245d76114dd440bcf5f2dc1aa57057",
+         "e61a185bcef2613a6c7cb79763ce945d3b245d76114dd440bcf5f2dc1aa57057",
+         "cbc77b",
+         "d9868d52c2bebce5f3fa5a79891970f309cb6591e3e1702a70276fa97c24b3a8e58606c38c9758529da50ee31b8219cba45271c689afa60b0ea26c99db19b00c"},
+        {"6df9340c138cc188b5fe4464ebaa3f7fc206a2d55c3434707e74c9fc04e20ebbc0dac102c4533186e25dc43128472353eaabdb878b152aeb8e001f92d90233a7",
+         "c0dac102c4533186e25dc43128472353eaabdb878b152aeb8e001f92d90233a7",
+         "5f4c8989",
+         "124f6fc6b0d100842769e71bd530664d888df8507df6c56dedfdb509aeb93416e26b918d38aa06305df3095697c18b2aa832eaa52edc0ae49fbae5a85e150c07"},
+        {"b780381a65edf8b78f6945e8dbec7941ac049fd4c61040cf0c324357975a293ce253af0766804b869bb1595be9765b534886bbaab8305bf50dbc7f899bfb5f01",
+         "e253af0766804b869bb1595be9765b534886bbaab8305bf50dbc7f899bfb5f01",
+         "18b6bec097",
+         "b2fc46ad47af464478c199e1f8be169f1be6327c7f9a0a6689371ca94caf04064a01b22aff1520abd58951341603faed768cf78ce97ae7b038abfe456aa17c09"},
+        {"78ae9effe6f245e924a7be63041146ebc670dbd3060cba67fbc6216febc44546fbcfbfa40505d7f2be444a33d185cc54e16d615260e1640b2b5087b83ee3643d",
+         "fbcfbfa40505d7f2be444a33d185cc54e16d615260e1640b2b5087b83ee3643d",
+         "89010d855972",
+         "6ed629fc1d9ce9e1468755ff636d5a3f40a5d9c91afd93b79d241830f7e5fa29854b8f20cc6eecbb248dbd8d16d14e99752194e4904d09c74d639518839d2300"},
+        {"691865bfc82a1e4b574eecde4c7519093faf0cf867380234e3664645c61c5f7998a5e3a36e67aaba89888bf093de1ad963e774013b3902bfab356d8b90178a63",
+         "98a5e3a36e67aaba89888bf093de1ad963e774013b3902bfab356d8b90178a63",
+         "b4a8f381e70e7a",
+         "6e0af2fe55ae377a6b7a7278edfb419bd321e06d0df5e27037db8812e7e3529810fa5552f6c0020985ca17a0e02e036d7b222a24f99b77b75fdd16cb05568107"},
+    };
+    int line = 0;
+    for (auto& t : tests) {
+        SCOPED_TRACE(++line);
+        auto privBytes = unhex(t.priv);
+        auto pubKey = unhex(t.pub);
+        auto msg = unhex(t.msg);
+        auto sig = unhex(t.sig);
+        ed25519::PrivateKey priv;
+        priv.key = privBytes;
+        ed25519::PublicKey pub;
+        pub.key = pubKey;
+        auto sig2 = ed25519::Sign(priv, msg);
+        EXPECT_EQ(std::string(hex::EncodeToString(sig).view()), std::string(hex::EncodeToString(sig2).view()));
+        EXPECT_TRUE(ed25519::Verify(pub, msg, sig2));
+        auto priv2 = ed25519::NewKeyFromSeed(privBytes.Sub(0, 32));
+        EXPECT_EQ(std::string(hex::EncodeToString(priv2->key).view()), t.priv);
+        EXPECT_EQ(std::string(hex::EncodeToString(priv2->Seed()).view()), std::string(t.priv).substr(0, 64));
+        auto p2 = dynamic_pointer_cast<ed25519::PublicKey>(priv2->Public());
+        ASSERT_TRUE(p2);
+        EXPECT_EQ(std::string(hex::EncodeToString(p2->key).view()), t.pub);
+    }
+}
+
+// Go panics on a public key of the wrong length; any other signature
+// length is just false.
+TEST(GoEd25519, BadLengths) {
+    ed25519::PublicKey pub;
+    pub.key = slice<byte>::make(31);
+    auto sig = slice<byte>::make(64);
+    EXPECT_DEATH((void)ed25519::Verify(pub, as_bytes("m"), sig), "bad public key length: 31");
+    pub.key = slice<byte>::make(32);
+    EXPECT_FALSE(ed25519::Verify(pub, as_bytes("m"), sig));  // zeros: not a signature
+    EXPECT_FALSE(ed25519::Verify(pub, as_bytes("m"), slice<byte>::make(65)));
+    EXPECT_DEATH((void)ed25519::NewKeyFromSeed(slice<byte>::make(31)), "bad seed length: 31");
+    ed25519::PrivateKey priv;
+    priv.key = slice<byte>::make(63);
+    EXPECT_DEATH((void)ed25519::Sign(priv, as_bytes("m")), "bad private key");
+}
+
+// A public key that isn't a point of the curve: Verify is false, not a crash.
+TEST(GoEd25519, InvalidPublicKey) {
+    ed25519::PublicKey pub;
+    pub.key = unhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    auto [pk, sk, err] = ed25519::GenerateKey(nullptr);
+    ASSERT_FALSE(err);
+    auto sig = ed25519::Sign(*sk, as_bytes("m"));
+    EXPECT_FALSE(ed25519::Verify(pub, as_bytes("m"), sig));
+    // The all-zero key (y = 0) isn't a valid signer of a real signature.
+    pub.key = slice<byte>::make(32);
+    EXPECT_FALSE(ed25519::Verify(pub, as_bytes("m"), sig));
 }
 
 }  // namespace
