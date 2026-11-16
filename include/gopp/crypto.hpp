@@ -59,6 +59,15 @@ struct SignerOpts {
     virtual ~SignerOpts() = default;
 };
 
+// The SignerOpts that is only a hash function, which Go writes as the
+// crypto.Hash itself: `key->Sign(rand, digest, crypto::HashOpts{crypto::Hash::SHA256})`.
+struct HashOpts final : SignerOpts {
+    Hash h{};
+    HashOpts() = default;
+    explicit HashOpts(Hash h) : h(h) {}
+    Hash HashFunc() const override { return h; }
+};
+
 // crypto.Signer: an opaque private key that can sign.
 struct Signer : virtual object {
     virtual ptr<PublicKey> Public() const = 0;

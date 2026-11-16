@@ -18,6 +18,7 @@ export import gopp.crypto.elliptic;
 export import gopp.crypto.hmac;
 export import gopp.crypto.md5;
 export import gopp.crypto.rand;
+export import gopp.crypto.rsa;
 export import gopp.crypto.sha1;
 export import gopp.crypto.sha256;
 export import gopp.crypto.sha512;
