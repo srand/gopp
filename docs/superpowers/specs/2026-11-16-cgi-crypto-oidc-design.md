@@ -73,8 +73,15 @@ The packages, in the order they are built:
   (git's sideband progress depends on that).
 - When copying fails, the handler kills the child and waits for it, so no
   process or fiber is left behind when the client goes away.
-- `PathLocationHandler` that is nil means `http::DefaultServeMux()` here.
-- Chunked request bodies get 400, as in Go: CGI forbids them.
+- A nil `PathLocationHandler` means a Location that starts with "/" goes to
+  the client (302 if the program gave no status), as in Go.
+- Chunked request bodies get 400 by default, as in Go: CGI forbids them.
+  go++ adds `bool AllowChunked = false`: when true, a chunked body streams
+  to the program's stdin with CONTENT_LENGTH unset, which `git http-backend`
+  reads to the end (git clients push large packs chunked).
+- Other deviations from Go: the program is also killed when its headers are
+  bad, and an internal redirect takes the request's scheme and host without
+  cleaning dot segments from the path.
 - Tests: Go's `host_test.go`, with the test program running itself as the
   CGI child through `go_helper` (in place of Go's Perl script), and two
   added: `CGIStreamsLargeBody` and `CGIClientDisconnectKillsChild`.

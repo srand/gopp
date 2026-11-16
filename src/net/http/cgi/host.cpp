@@ -67,6 +67,7 @@ struct reaper {
 
 }  // namespace
 
+namespace detail {
 slice<string> removeLeadingDuplicates(const slice<string>& env) {
     slice<string> ret;
     for (std::size_t i = 0; i < env.size(); i++) {
@@ -85,6 +86,7 @@ slice<string> removeLeadingDuplicates(const slice<string>& env) {
     }
     return ret;
 }
+}  // namespace detail
 
 template <typename... A>
 void Handler::printf(std::format_string<A...> f, A&&... a) {
@@ -93,7 +95,7 @@ void Handler::printf(std::format_string<A...> f, A&&... a) {
 }
 
 void Handler::ServeHTTP(http::ResponseWriter& rw, http::Request& req) {
-    if (!req.TransferEncoding.empty() && req.TransferEncoding[0] == "chunked") {
+    if (!AllowChunked && !req.TransferEncoding.empty() && req.TransferEncoding[0] == "chunked") {
         rw.WriteHeader(http::StatusBadRequest);
         io::WriteString(rw, "Chunked request bodies are not supported by CGI.");
         return;
@@ -173,7 +175,7 @@ void Handler::ServeHTTP(http::ResponseWriter& rw, http::Request& req) {
     }
     for (auto& e : Env) env.push_back(e);
 
-    auto cleanEnv = removeLeadingDuplicates(slice<string>::of(env));
+    auto cleanEnv = detail::removeLeadingDuplicates(slice<string>::of(env));
 
     string cwd, path;
     if (!Dir.empty()) {
@@ -267,7 +269,7 @@ void Handler::ServeHTTP(http::ResponseWriter& rw, http::Request& req) {
     }
 
     if (auto loc = headers.Get("Location"); !loc.empty()) {
-        if (loc.starts_with("/")) {
+        if (loc.starts_with("/") && PathLocationHandler) {
             handleInternalRedirect(rw, req, loc.view());
             return;
         }
@@ -353,8 +355,7 @@ void Handler::handleInternalRedirect(http::ResponseWriter& rw, http::Request& re
     newReq.RemoteAddr = req.RemoteAddr;
     newReq.TLS = req.TLS;
     newReq.Body = io::NopCloser(strings::NewReader(string()));
-    http::Handler* h = PathLocationHandler ? PathLocationHandler.get() : &http::DefaultServeMux();
-    h->ServeHTTP(rw, newReq);
+    PathLocationHandler->ServeHTTP(rw, newReq);
 }
 
 }  // namespace gopp::cgi

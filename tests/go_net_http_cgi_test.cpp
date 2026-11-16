@@ -5,6 +5,9 @@
 // handlerRunning (a goroutine dump) in TestCopyError, which tracks the
 // running handler with a counter instead; and the tests of the child side
 // (child_test.go and integration_test.go), which go++ doesn't have.
+// Deviations of the handler from Go: AllowChunked (CGIPostChunkedAllowed),
+// killing the program on bad headers, and no dot-segment cleaning in an
+// internal redirect.
 // Added: CGIStreamsLargeBody (a response of 256 MiB passes through with
 // the memory of the test unchanged) and CGIClientDisconnectKillsChild.
 #include "go_helper.hpp"
@@ -116,6 +119,19 @@ void cmdCgiTest(const std::vector<std::string>&) {
     if (params.count("forever")) {
         std::string chunk(64 << 10, 'y');
         for (;;) writeAll(chunk.data(), chunk.size());
+    }
+    if (params.count("sum")) {
+        // The whole of standard input: its length and FNV-1a hash.
+        std::uint64_t h = 14695981039346656037ull, n = 0;
+        char b[65536];
+        for (;;) {
+            ssize_t r = ::read(0, b, sizeof b);
+            if (r <= 0) break;
+            for (ssize_t i = 0; i < r; i++) h = (h ^ std::uint8_t(b[i])) * 1099511628211ull;
+            n += std::uint64_t(r);
+        }
+        out("bytes=" + std::to_string(n) + "\r\nsum=" + std::to_string(h) + "\r\n");
+        return;
     }
     out("test=Hello CGI\r\n");
     for (auto& [k, v] : params) out("param-" + k + "=" + v + "\r\n");
@@ -421,6 +437,37 @@ TEST(GoCGI, CGIPostChunked) {
     EXPECT_EQ(resp->Code, http::StatusBadRequest) << "Expected response code from chunked request body";
 }
 
+// A chunked body of a few MiB, which AllowChunked streams to the program.
+TEST(GoCGI, CGIPostChunkedAllowed) {
+    std::string data(3 << 20, '\0');
+    std::uint64_t want = 14695981039346656037ull;
+    for (std::size_t i = 0; i < data.size(); i++) {
+        data[i] = char((i * 7 + i / 251) & 0xff);
+        want = (want ^ std::uint8_t(data[i])) * 1099511628211ull;
+    }
+    auto h = newHandler("/test.cgi");
+    h->AllowChunked = true;
+    auto req = newRequest(
+        "POST /test.cgi?sum=1 HTTP/1.1\n"
+        "Host: example.com\n"
+        "Content-Type: application/octet-stream\n"
+        "Transfer-Encoding: chunked\n\n");
+    req->Body = io::NopCloser(strings::NewReader(string(data)));
+    auto rw = httptest::NewRecorder();
+    h->ServeHTTP(*rw, *req);
+    EXPECT_EQ(rw->Code, 200);
+    runResponseChecks(*rw, {{"bytes", std::to_string(data.size())}, {"sum", std::to_string(want)}});
+}
+
+// A Location of a local path goes to the client unless there is a
+// PathLocationHandler.
+TEST(GoCGI, RedirectLocalPathWithoutHandler) {
+    auto h = newHandler("/test.cgi");
+    auto rec = runCgiTest(*h, "GET /test.cgi?loc=/foo HTTP/1.0\nHost: example.com\n\n", {});
+    EXPECT_EQ(rec->Code, 302);
+    EXPECT_EQ(rec->Header().Get("Location"), "/foo");
+}
+
 TEST(GoCGI, Redirect) {
     auto h = newHandler("/test.cgi");
     auto rec = runCgiTest(*h, "GET /test.cgi?loc=http://foo.com/ HTTP/1.0\nHost: example.com\n\n", {});
@@ -530,7 +577,7 @@ TEST(GoCGI, RemoveLeadingDuplicates) {
         {{"a=b", "b=c", "d", "e=f"}, {"a=b", "b=c", "d", "e=f"}},
     };
     for (auto& tt : tests) {
-        auto got = cgi::removeLeadingDuplicates(tt.env);
+        auto got = cgi::detail::removeLeadingDuplicates(tt.env);
         EXPECT_EQ(std::vector<string>(got.begin(), got.end()), std::vector<string>(tt.want.begin(), tt.want.end()));
     }
 }

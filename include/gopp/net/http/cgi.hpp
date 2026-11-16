@@ -11,6 +11,11 @@
 // output is the response: after the headers it is copied as it arrives, and
 // flushed after each read, so a response larger than memory streams. If the
 // client goes away, the program is killed and waited for.
+//
+// Differences from Go: AllowChunked (below); the program is also killed
+// when its headers are bad, not only after a copy error; and an internal
+// redirect takes the request's scheme and host without cleaning dot
+// segments out of the path (go++ has no URL resolution).
 #pragma once
 
 // The module interfaces (modules/) import these instead.
@@ -48,8 +53,15 @@ struct Handler final : http::Handler {
 
     // The handler of internal redirects, which the program asks for with a
     // Location header that starts with "/" (RFC 3875, 6.3.2); the redirect
-    // is handled as a GET. http::DefaultServeMux() if nil.
+    // is handled as a GET. If nil, such a Location goes to the client (with
+    // status 302 if the program gave none), as in Go.
     ptr<http::Handler> PathLocationHandler;
+
+    // go++ addition (not in Go): CGI forbids chunked request bodies, and
+    // Go answers them with 400. With AllowChunked, a chunked body streams
+    // to the program's standard input with CONTENT_LENGTH unset, and the
+    // program reads to the end of its input (as git http-backend does).
+    bool AllowChunked = false;
 
     void ServeHTTP(http::ResponseWriter& w, http::Request& r) override;
 
@@ -59,8 +71,10 @@ private:
     void handleInternalRedirect(http::ResponseWriter& w, http::Request& r, std::string_view path);
 };
 
+namespace detail {
 // Removes the entries of env whose key comes again later: the last one
 // counts. Exported for the tests (Go's removeLeadingDuplicates).
 slice<string> removeLeadingDuplicates(const slice<string>& env);
+}  // namespace detail
 
 }  // namespace gopp::cgi
