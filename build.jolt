@@ -102,6 +102,27 @@ class GoppSQLite3(GoppProject, cxx.Library):
         artifact.cxxinfo.incpaths.append("include")
 
 
+class GoppJose(GoppProject, cxx.Library):
+    """
+    JSON Web Keys (<gopp/jose.hpp>), after go-jose v4. A library of its
+    own, like the third-party libraries that go++ ports.
+    """
+    name = "gopp/x/jose"
+    requires = ["gopp"]
+    incpaths = ["x/jose/include", "x/jose/src"]
+    sources = [
+        "x/jose/include/gopp/*.hpp",
+        "x/jose/src/*.hpp",
+        "x/jose/src/*.cpp",
+    ]
+
+    def publish(self, artifact, tools):
+        super().publish(artifact, tools)
+        with tools.cwd("x/jose/include"):
+            artifact.collect("gopp/*.hpp", "include/")
+        artifact.cxxinfo.incpaths.append("include")
+
+
 @attributes.common_metadata()
 class Example(GoppProject, cxx.Executable):
     abstract = True
@@ -286,10 +307,11 @@ class Examples(Alias):
 class Tests(GoppProject, cxx.Executable):
     """ Unit tests of the library. """
     name = "gopp/tests"
-    requires = ["gopp:coverage={coverage},leaks={leaks}", "gopp/sqlite3:coverage={coverage},leaks={leaks}", "google/test/main"]
+    requires = ["gopp:coverage={coverage},leaks={leaks}", "gopp/sqlite3:coverage={coverage},leaks={leaks}",
+                "gopp/x/jose:coverage={coverage},leaks={leaks}", "google/test/main"]
     # Tests ported from Go's in-package tests use the internal headers.
-    incpaths = ["src", "drivers/sqlite3/src"]
-    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp"]
+    incpaths = ["src", "drivers/sqlite3/src", "x/jose/src"]
+    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp", "x/jose/src/*.hpp"]
 
 
 @googletest.filter()
