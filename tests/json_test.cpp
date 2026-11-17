@@ -1,6 +1,7 @@
 #include <gopp/chan.hpp>
 #include <gopp/encoding/json.hpp>
 #include <gopp/io.hpp>
+#include <gopp/net.hpp>
 #include <gopp/runtime.hpp>
 #include <gopp/strings.hpp>
 
@@ -82,6 +83,17 @@ TEST(Json, Primitives) {
     EXPECT_EQ(marshalStr(string("hi")), "\"hi\"");
     EXPECT_EQ(marshalStr(std::string("hi")), "\"hi\"");
     EXPECT_EQ(marshalStr(nullptr), "null");
+}
+
+TEST(Json, OmitEmptyDerivedSlice) {
+    struct host {
+        string name;
+        [[= json::tag("ip,omitempty")]] net::IP ip;
+    };
+    EXPECT_EQ(marshalStr(host{"a", net::IP{}}), R"({"name":"a"})");
+    // Non-empty: the member is present (net::IP has no MarshalJSON, so
+    // its own encoding is not the point here).
+    EXPECT_NE(marshalStr(host{"a", net::IPv4(10, 0, 0, 1)}).find("\"ip\":"), std::string::npos);
 }
 
 TEST(Json, Floats) {

@@ -33,6 +33,10 @@
 // {"iss":"a","ISS":"b"} only "iss" sets a field tagged "iss", and "ISS" is
 // an unknown key. This holds for nested structs too, but not inside types
 // that decode themselves with UnmarshalJSON.
+//
+// Types derived from slice<T> (net::IP, net::IPMask, net::HardwareAddr,
+// sql::RawBytes) are slices in Go, so with omitempty an empty one is
+// omitted; before, it was always encoded.
 #pragma once
 
 // The module interfaces (modules/) import these instead.
@@ -452,13 +456,13 @@ bool isEmptyValue(const T& v) {
     else if constexpr (std::is_arithmetic_v<T> || std::is_enum_v<T>) return v == T{};
     else if constexpr (stringLike<T>) return v.empty();
     else if constexpr (isSlice<T>::value || isVector<T>::value || isMap<T>::value) return v.empty();
-    else if constexpr (derivedSlice<T>) return v.empty();
     else if constexpr (isStdArray<T>::value) return std::tuple_size_v<T> == 0;
     else if constexpr (isOptional<T>::value) return !v.has_value();
     else if constexpr (isPtr<T>::value) return !v;
     else if constexpr (std::is_same_v<T, Value>) return v.IsNull();
     else if constexpr (std::is_same_v<T, time::Duration>) return v.ns == 0;
     else if constexpr (std::is_same_v<T, RawMessage>) return v.data.empty();  // a []byte in Go
+    else if constexpr (derivedSlice<T>) return v.empty();  // net::IP, sql::RawBytes: a []byte in Go
     else return false;  // structs and times are never empty, as in Go
 }
 
