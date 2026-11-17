@@ -117,8 +117,22 @@ The packages, in the order they are built:
   reads them whole); ID token claims are decoded case-sensitively, as
   go-jose's are.
 
+### Core changes and limits
+
+- encoding/json, opt-in case-sensitive decoding: `UnmarshalCaseSensitive`
+  and `Decoder::CaseSensitive()` match object keys by their exact name
+  only, as go-jose's fork of encoding/json does. The default is unchanged
+  (Go's case-insensitive fallback). x/jose, and x/oidc for tokens, use it.
+- encoding/json, omitempty: a type derived from `slice<T>` (net::IP,
+  IPMask, HardwareAddr, sql::RawBytes) counts as empty when its length is
+  0, as Go's reflect.Slice does; before, it was always encoded, and now
+  it is omitted. Tested by `Json.OmitEmptyDerivedSlice`.
+- JWK unmarshal ignores `x5c`, `x5t` and `x5u` (no certificate chain
+  validation), because real identity providers put `x5c` on every key.
+- RSA keys under 1024 bits are rejected, as in Go 1.24 (`rsa1024min`); a
+  test-only toggle lets the ported tests use small keys.
+
 ## Left to the builder
 
-- Whether `rsa::PublicKey` holds a `big::Int` or bytes behind Go's
-  signatures: choose the smaller design that keeps call sites Go-shaped.
+- (Decided: `rsa::PublicKey` holds a `big::Int` N, as Go's does.)
 - Which parts of go-jose's and go-oidc's tests apply to the subset.
