@@ -20,9 +20,13 @@
 #include <gopp/slice.hpp>
 #include <gopp/string.hpp>
 
+#include <functional>
+#include <memory>
 #include <span>
 #include <utility>
 #endif
+
+struct evp_pkey_st;  // OpenSSL's EVP_PKEY
 
 namespace gopp::crypto {
 
@@ -79,5 +83,30 @@ struct Signer : virtual object {
 
 // crypto.PrivateKey. Go's is any; here every private key is a Signer.
 struct PrivateKey : Signer {};
+
+namespace detail {
+
+// The EVP_PKEY that a key of crypto/rsa or crypto/ecdsa builds from its
+// fields on first use, once. Copying a key gives the copy a cache of its own.
+// Internal.
+class KeyCache {
+public:
+    KeyCache();
+    KeyCache(const KeyCache&);
+    KeyCache& operator=(const KeyCache&);
+    ~KeyCache();
+
+    // The cached key and error. The first call runs build, under a
+    // sync::Once, which returns a new EVP_PKEY (owned by the cache from then
+    // on) or an error; later calls, and concurrent ones, get its result.
+    std::pair<evp_pkey_st*, error> Get(const std::function<std::pair<evp_pkey_st*, error>()>& build) const;
+
+    struct State;
+
+private:
+    std::unique_ptr<State> s_;
+};
+
+}  // namespace detail
 
 }  // namespace gopp::crypto

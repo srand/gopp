@@ -34,26 +34,6 @@
 
 namespace gopp::ecdsa {
 
-namespace detail {
-
-// The EVP_PKEY a key builds from its fields on first use, once. Copying a
-// key gives the copy a cache of its own.
-class KeyCache {
-public:
-    KeyCache();
-    KeyCache(const KeyCache&);
-    KeyCache& operator=(const KeyCache&);
-    ~KeyCache();
-
-    struct State;
-    State& state() const { return *s_; }
-
-private:
-    std::unique_ptr<State> s_;
-};
-
-}  // namespace detail
-
 // ecdsa.PublicKey.
 struct PublicKey final : crypto::PublicKey {
     ptr<elliptic::Curve> Curve;  // one of the four NIST curves
@@ -63,7 +43,7 @@ struct PublicKey final : crypto::PublicKey {
     // on the same curve (the same singleton).
     bool Equal(const crypto::PublicKey& x) const override;
 
-    detail::KeyCache cache_;  // internal
+    crypto::detail::KeyCache cache_;  // internal
 };
 
 // ecdsa.PrivateKey.
@@ -78,7 +58,7 @@ struct PrivateKey final : crypto::PrivateKey {
     std::pair<slice<byte>, error> Sign(io::Reader* rand, std::span<const byte> digest,
                                        const crypto::SignerOpts& opts) override;
 
-    detail::KeyCache cache_;  // internal
+    crypto::detail::KeyCache cache_;  // internal
 };
 
 // ecdsa.GenerateKey: a new key on c, which must be one of the NIST curves.

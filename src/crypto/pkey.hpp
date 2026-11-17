@@ -37,6 +37,7 @@ public:
     ~Key() { EVP_PKEY_free(p_); }
 
     EVP_PKEY* get() const { return p_; }
+    EVP_PKEY* release() { return std::exchange(p_, nullptr); }
     explicit operator bool() const { return p_ != nullptr; }
 
 private:
@@ -66,6 +67,16 @@ inline error openSSLError(const char* pkg, const char* what) {
     }
     ERR_clear_error();
     return errors::New(string(msg));
+}
+
+// The EVP_PKEY of a key's cache, which build makes on first use: it returns
+// {Key, nullptr} or {Key(), error}.
+template <typename F>
+std::pair<EVP_PKEY*, error> cached(const crypto::detail::KeyCache& cache, F build) {
+    return cache.Get([&]() -> std::pair<EVP_PKEY*, error> {
+        auto [k, err] = build();
+        return {err ? nullptr : k.release(), err};
+    });
 }
 
 // big::Int to and from a BIGNUM.

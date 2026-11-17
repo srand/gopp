@@ -10,24 +10,6 @@
 
 namespace gopp::ecdsa {
 
-namespace detail {
-
-struct KeyCache::State {
-    sync::Once once;
-    pkey::Key key;
-    error err;
-};
-
-KeyCache::KeyCache() : s_(std::make_unique<State>()) {}
-KeyCache::KeyCache(const KeyCache&) : s_(std::make_unique<State>()) {}
-KeyCache& KeyCache::operator=(const KeyCache& o) {
-    if (this != &o) s_ = std::make_unique<State>();
-    return *this;
-}
-KeyCache::~KeyCache() = default;
-
-}  // namespace detail
-
 namespace {
 
 constexpr const char* pkg = "crypto/ecdsa";
@@ -74,51 +56,41 @@ error addPublic(pkey::ParamBuilder& b, const PublicKey& pub, std::vector<byte>& 
 // The key as an EVP_PKEY, built on first use. OpenSSL rejects a point that is
 // not on the curve, at infinity, or not reduced.
 std::pair<EVP_PKEY*, error> publicEvp(const PublicKey& pub) {
-    auto& st = pub.cache_.state();
-    st.once.Do([&] {
+    return pkey::cached(pub.cache_, [&]() -> std::pair<pkey::Key, error> {
         pkey::ParamBuilder b;
         std::vector<byte> point;
         if (error err = addPublic(b, pub, point)) {
-            st.err = err;
-            return;
+            return {pkey::Key(), err};
         }
         auto [k, err] = pkey::fromParams("EC", EVP_PKEY_PUBLIC_KEY, b, pkg);
-        st.key = std::move(k);
-        st.err = err;
+        return {std::move(k), err};
     });
-    return {st.key.get(), st.err};
 }
 
 std::pair<EVP_PKEY*, error> privateEvp(const PrivateKey& priv) {
-    auto& st = priv.cache_.state();
-    st.once.Do([&] {
+    return pkey::cached(priv.cache_, [&]() -> std::pair<pkey::Key, error> {
         const PublicKey& pub = priv.PublicKey;
         pkey::ParamBuilder b;
         std::vector<byte> point;
         if (error err = addPublic(b, pub, point)) {
-            st.err = err;
-            return;
+            return {pkey::Key(), err};
         }
         if (priv.D.Sign() <= 0 || priv.D.Cmp(pub.Curve->Params().N) >= 0) {
-            st.err = errors::New("crypto/ecdsa: invalid private key");
-            return;
+            return {pkey::Key(), errors::New("crypto/ecdsa: invalid private key")};
         }
         b.add(OSSL_PKEY_PARAM_PRIV_KEY, priv.D);
         auto [k, err] = pkey::fromParams("EC", EVP_PKEY_KEYPAIR, b, pkg);
         if (err) {
-            st.err = err;
-            return;
+            return {pkey::Key(), err};
         }
         // The public key must be the private key's.
         pkey::Ctx ctx(EVP_PKEY_CTX_new_from_pkey(nullptr, k.get(), nullptr));
         if (!ctx || EVP_PKEY_check(ctx.get()) != 1) {
             ERR_clear_error();
-            st.err = errors::New("crypto/ecdsa: invalid private key");
-            return;
+            return {pkey::Key(), errors::New("crypto/ecdsa: invalid private key")};
         }
-        st.key = std::move(k);
+        return {std::move(k), nullptr};
     });
-    return {st.key.get(), st.err};
 }
 
 // One DER element at the front of in: its tag, and its content, and what

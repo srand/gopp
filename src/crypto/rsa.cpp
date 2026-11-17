@@ -13,39 +13,18 @@ namespace gopp::rsa {
 
 const error ErrVerification = errors::New("crypto/rsa: verification error");
 
-namespace detail {
-
-struct KeyCache::State {
-    sync::Once once;
-    pkey::Key key;
-    error err;
-};
-
-KeyCache::KeyCache() : s_(std::make_unique<State>()) {}
-KeyCache::KeyCache(const KeyCache&) : s_(std::make_unique<State>()) {}
-KeyCache& KeyCache::operator=(const KeyCache& o) {
-    if (this != &o) s_ = std::make_unique<State>();
-    return *this;
-}
-KeyCache::~KeyCache() = default;
-
-}  // namespace detail
-
 namespace {
 
 constexpr const char* pkg = "crypto/rsa";
 
 // The key as an EVP_PKEY, built on first use.
 std::pair<EVP_PKEY*, error> publicEvp(const PublicKey& pub) {
-    auto& st = pub.cache_.state();
-    st.once.Do([&] {
+    return pkey::cached(pub.cache_, [&]() -> std::pair<pkey::Key, error> {
         if (pub.N.Sign() <= 0) {
-            st.err = errors::New("crypto/rsa: missing public modulus");
-            return;
+            return {pkey::Key(), errors::New("crypto/rsa: missing public modulus")};
         }
         if (pub.E < 2) {
-            st.err = errors::New("crypto/rsa: public exponent too small or negative");
-            return;
+            return {pkey::Key(), errors::New("crypto/rsa: public exponent too small or negative")};
         }
         big::Int e;
         e.SetInt64(pub.E);
@@ -53,27 +32,21 @@ std::pair<EVP_PKEY*, error> publicEvp(const PublicKey& pub) {
         b.add(OSSL_PKEY_PARAM_RSA_N, pub.N);
         b.add(OSSL_PKEY_PARAM_RSA_E, e);
         auto [k, err] = pkey::fromParams("RSA", EVP_PKEY_PUBLIC_KEY, b, pkg);
-        st.key = std::move(k);
-        st.err = err;
+        return {std::move(k), err};
     });
-    return {st.key.get(), st.err};
 }
 
 std::pair<EVP_PKEY*, error> privateEvp(const PrivateKey& priv) {
-    auto& st = priv.cache_.state();
-    st.once.Do([&] {
+    return pkey::cached(priv.cache_, [&]() -> std::pair<pkey::Key, error> {
         const PublicKey& pub = priv.PublicKey;
         if (pub.N.Sign() <= 0) {
-            st.err = errors::New("crypto/rsa: missing public modulus");
-            return;
+            return {pkey::Key(), errors::New("crypto/rsa: missing public modulus")};
         }
         if (pub.E < 2) {
-            st.err = errors::New("crypto/rsa: public exponent too small or negative");
-            return;
+            return {pkey::Key(), errors::New("crypto/rsa: public exponent too small or negative")};
         }
         if (priv.Primes.size() != 2) {
-            st.err = errors::New("crypto/rsa: only keys of two primes are supported");
-            return;
+            return {pkey::Key(), errors::New("crypto/rsa: only keys of two primes are supported")};
         }
         const BIGNUM* d = pkey::bn(priv.D);
         const BIGNUM* p = pkey::bn(priv.Primes[0]);
@@ -89,8 +62,7 @@ std::pair<EVP_PKEY*, error> privateEvp(const PrivateKey& priv) {
         BN_CTX_free(ctx);
         if (!ok || !qinv) {
             ERR_clear_error();
-            st.err = errors::New("crypto/rsa: invalid private key");
-            return;
+            return {pkey::Key(), errors::New("crypto/rsa: invalid private key")};
         }
         big::Int e;
         e.SetInt64(pub.E);
@@ -104,10 +76,8 @@ std::pair<EVP_PKEY*, error> privateEvp(const PrivateKey& priv) {
         b.add(OSSL_PKEY_PARAM_RSA_EXPONENT2, dq.get());
         b.add(OSSL_PKEY_PARAM_RSA_COEFFICIENT1, qinv.get());
         auto [k, err] = pkey::fromParams("RSA", EVP_PKEY_KEYPAIR, b, pkg);
-        st.key = std::move(k);
-        st.err = err;
+        return {std::move(k), err};
     });
-    return {st.key.get(), st.err};
 }
 
 enum class Padding { PKCS1v15, PSS };

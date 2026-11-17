@@ -30,29 +30,7 @@
 #include <vector>
 #endif
 
-struct evp_pkey_st;  // OpenSSL's EVP_PKEY
-
 namespace gopp::rsa {
-
-namespace detail {
-
-// The EVP_PKEY a key builds from its fields on first use, once. Copying a
-// key gives the copy a cache of its own.
-class KeyCache {
-public:
-    KeyCache();
-    KeyCache(const KeyCache&);
-    KeyCache& operator=(const KeyCache&);
-    ~KeyCache();
-
-    struct State;
-    State& state() const { return *s_; }
-
-private:
-    std::unique_ptr<State> s_;
-};
-
-}  // namespace detail
 
 // rsa.PublicKey.
 struct PublicKey final : crypto::PublicKey {
@@ -64,7 +42,7 @@ struct PublicKey final : crypto::PublicKey {
     // pub.Equal(x): whether x is an rsa::PublicKey with the same N and E.
     bool Equal(const crypto::PublicKey& x) const override;
 
-    detail::KeyCache cache_;  // internal
+    crypto::detail::KeyCache cache_;  // internal
 };
 
 // rsa.PSSOptions.
@@ -99,7 +77,7 @@ struct PrivateKey final : crypto::PrivateKey {
     // to N, and D is the inverse of E.
     error Validate() const;
 
-    detail::KeyCache cache_;  // internal
+    crypto::detail::KeyCache cache_;  // internal
 };
 
 // rsa.GenerateKey: a key of bits bits, at least 1024. random is ignored.
