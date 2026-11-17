@@ -18,7 +18,8 @@
 // RS256) as it parses it; the signature, with the key set; then the
 // issuer, the audience (unless SkipClientIDCheck), the expiry (unless
 // SkipExpiryCheck, with Config::Now) and "nbf" (with 5 minutes of leeway).
-// It does not check the nonce: compare IDToken::Nonce yourself.
+// It does not check the nonce: compare IDToken::Nonce yourself. Like
+// go-oidc v3.21, it does not check "iat" either.
 //
 // The HTTP requests (discovery, the key set and UserInfo) go through the
 // http::Client of the context, if it holds one (ClientContext), and else

@@ -45,11 +45,11 @@ struct keyMetadata {
 // that x/jose doesn't (such as Ed448).
 std::pair<slice<jose::JSONWebKey>, error> unmarshalKeySet(std::span<const byte> data) {
     rawKeySet raw;
-    if (error err = json::Unmarshal(data, &raw)) return {slice<jose::JSONWebKey>(), err};
+    if (error err = json::UnmarshalCaseSensitive(data, &raw)) return {slice<jose::JSONWebKey>(), err};
     slice<jose::JSONWebKey> keys;
     for (const auto& key : raw.Keys) {
         keyMetadata metadata;
-        if (error err = json::Unmarshal(key.data, &metadata)) return {slice<jose::JSONWebKey>(), err};
+        if (error err = json::UnmarshalCaseSensitive(key.data, &metadata)) return {slice<jose::JSONWebKey>(), err};
         // Algorithms are optional, but a key that advertises one that isn't
         // supported is skipped rather than failing the whole set.
         if (!metadata.Alg.empty() && !internal::supportedAlg(metadata.Alg.view())) continue;
