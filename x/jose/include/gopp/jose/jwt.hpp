@@ -117,7 +117,8 @@ public:
     slice<jose::Header> Headers;
 
     // t.Claims(key, out...): verifies the token with key (as
-    // JSONWebSignature::Verify does) and decodes its claims into each out.
+    // JSONWebSignature::Verify does) and decodes its claims into each out,
+    // case-sensitively (json::UnmarshalCaseSensitive), as go-jose does.
     template <typename... T>
     error Claims(const object& key, T*... out) const {
         auto [b, err] = payload(key);
@@ -126,7 +127,7 @@ public:
     }
 
     // t.UnsafeClaimsWithoutVerification(out...): decodes the claims without
-    // verifying them. They cannot be trusted.
+    // verifying them, case-sensitively. They cannot be trusted.
     template <typename... T>
     error UnsafeClaimsWithoutVerification(T*... out) const {
         if (!sig_) return errors::New("go-jose/go-jose: Cannot get unverified claims");
@@ -141,7 +142,7 @@ private:
     template <typename... T>
     static error unmarshalAll([[maybe_unused]] std::span<const byte> b, T*... out) {
         error err;
-        (void)((err = json::Unmarshal(b, out), !err) && ...);
+        (void)((err = json::UnmarshalCaseSensitive(b, out), !err) && ...);
         return err;
     }
 };
@@ -170,7 +171,7 @@ std::pair<std::map<string, json::RawMessage>, error> normalize(const T& c) {
     auto [raw, err] = json::Marshal(c);
     if (err) return {{}, err};
     std::map<string, json::RawMessage> m;
-    if (error err2 = json::Unmarshal(raw, &m)) return {{}, err2};
+    if (error err2 = json::UnmarshalCaseSensitive(raw, &m)) return {{}, err2};
     return {std::move(m), nullptr};
 }
 

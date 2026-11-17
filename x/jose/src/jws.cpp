@@ -52,7 +52,7 @@ std::pair<std::vector<string>, error> getCritical(const rawHeader& h) {
     const auto* v = member(h, "crit");
     if (!v) return {{}, nullptr};
     std::vector<string> q;
-    if (error err = json::Unmarshal(v->data, &q)) return {{}, err};
+    if (error err = json::UnmarshalCaseSensitive(v->data, &q)) return {{}, err};
     return {q, nullptr};
 }
 
@@ -68,7 +68,7 @@ string getString(const rawHeader& h, std::string_view k) {
     const auto* v = member(h, k);
     if (!v) return "";
     string s;
-    if (json::Unmarshal(v->data, &s)) return "";
+    if (json::UnmarshalCaseSensitive(v->data, &s)) return "";
     return s;
 }
 
@@ -90,7 +90,7 @@ std::pair<bool, error> getB64(const rawHeader& h) {
     const auto* v = member(h, "b64");
     if (!v) return {true, nullptr};
     bool b64 = false;
-    if (error err = json::Unmarshal(v->data, &b64)) return {true, err};
+    if (error err = json::UnmarshalCaseSensitive(v->data, &b64)) return {true, err};
     return {b64, nullptr};
 }
 
@@ -106,7 +106,7 @@ std::pair<Header, error> sanitized(const rawHeader& parsed) {
             h.JSONWebKey = jwk;
         } else if (k == "kid" || k == "alg" || k == "nonce") {
             string s;
-            if (error err = json::Unmarshal(v->data, &s)) {
+            if (error err = json::UnmarshalCaseSensitive(v->data, &s)) {
                 return {Header{}, unmarshalError(k == "kid" ? "key ID" : k == "alg" ? "algorithm" : "nonce", err, *v)};
             }
             (k == "kid" ? h.KeyID : k == "alg" ? h.Algorithm : h.Nonce) = s;
@@ -114,10 +114,10 @@ std::pair<Header, error> sanitized(const rawHeader& parsed) {
             // go++ doesn't parse certificates: a list of strings is
             // accepted, and dropped.
             std::vector<string> c;
-            if (error err = json::Unmarshal(v->data, &c)) return {Header{}, unmarshalError("x5c header", err, *v)};
+            if (error err = json::UnmarshalCaseSensitive(v->data, &c)) return {Header{}, unmarshalError("x5c header", err, *v)};
         } else {
             json::Value v2;
-            if (error err = json::Unmarshal(v->data, &v2)) return {Header{}, unmarshalError("value", err, *v)};
+            if (error err = json::UnmarshalCaseSensitive(v->data, &v2)) return {Header{}, unmarshalError("value", err, *v)};
             h.ExtraHeaders[k] = std::move(v2);
         }
     }
@@ -134,7 +134,7 @@ void merge(rawHeader& dst, const std::optional<rawHeader>& src) {
 std::pair<std::optional<rawHeader>, error> parseProtectedHeader(const std::optional<byteBuffer>& in) {
     if (!in || in->bytes().empty()) return {std::nullopt, nullptr};
     std::optional<rawHeader> header;
-    if (error err = json::Unmarshal(in->bytes(), &header); err || !header) {
+    if (error err = json::UnmarshalCaseSensitive(in->bytes(), &header); err || !header) {
         return {std::nullopt, errors::New("go-jose/go-jose: invalid protected header")};
     }
     return {header, nullptr};
@@ -155,7 +155,7 @@ std::pair<slice<byte>, error> computeAuthData(std::span<const byte> payload, con
     rawHeader protectedHeader;
 
     if (sig.originalProtected_) {
-        if (error err = json::Unmarshal(*sig.originalProtected_, &protectedHeader)) return {slice<byte>(), err};
+        if (error err = json::UnmarshalCaseSensitive(*sig.originalProtected_, &protectedHeader)) return {slice<byte>(), err};
         authData += base64::RawURLEncoding.EncodeToString(*sig.originalProtected_);
     } else if (sig.protected_) {
         protectedHeader = *sig.protected_;

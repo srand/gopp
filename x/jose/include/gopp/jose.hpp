@@ -40,6 +40,11 @@
 // is never used to verify unless passed as the key. Where go-jose panics
 // (an Ed25519 key that isn't 32 bytes, a message without signatures),
 // go++ fails.
+//
+// As go-jose parses with its own case-sensitive json, all JSON here (JWKs
+// and JWK Sets, JWS headers, and JWT claims, including the caller's claims
+// structs) is decoded with json::UnmarshalCaseSensitive: a member sets a
+// field only by its exact name, so "KTY" is not "kty".
 #pragma once
 
 #include <gopp/base.hpp>

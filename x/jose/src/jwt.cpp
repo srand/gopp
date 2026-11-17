@@ -68,7 +68,7 @@ std::pair<slice<byte>, error> Audience::MarshalJSON() const {
 
 error Audience::UnmarshalJSON(std::span<const byte> b) {
     json::Value v;
-    if (error err = json::Unmarshal(b, &v)) return err;
+    if (error err = json::UnmarshalCaseSensitive(b, &v)) return err;
     if (v.IsString()) {
         *this = Audience{v.AsString()};
         return nullptr;

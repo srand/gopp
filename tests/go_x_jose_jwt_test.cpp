@@ -624,3 +624,32 @@ TEST(GoJWT, AudienceContains) {
     c.ID = "x";
     EXPECT_EQ(asStringView(json::Marshal(c).first), R"({"jti":"x"})");
 }
+
+TEST(GoJWT, ClaimsCaseSensitive) {
+    // As go-jose's json: a member matches a claim only by its exact name.
+    std::map<string, json::Value> raw = {{"iss", "a"}, {"ISS", "b"}, {"Sub", "x"}, {"scopes", json::Value::array{"s"}},
+                                         {"SCOPES", json::Value::array{"t"}}};
+    auto [token, err] = jwt::Signed(rsaSigner()).Claims(raw).Serialize();
+    ASSERT_FALSE(err) << err.Error();
+    auto [tok, err2] = jwt::ParseSigned(token, Algs{jose::RS256});
+    ASSERT_FALSE(err2) << err2.Error();
+
+    jwt::Claims c;
+    customClaims cc;
+    ASSERT_FALSE(tok->Claims(testPrivRSAKey1()->PublicKey, &c, &cc));
+    EXPECT_EQ(c.Issuer, "a");
+    EXPECT_EQ(c.Subject, "");
+    EXPECT_EQ(cc.Scopes, (std::vector<string>{"s"}));
+
+    jwt::Claims u;
+    customClaims uc;
+    ASSERT_FALSE(tok->UnsafeClaimsWithoutVerification(&u, &uc));
+    EXPECT_EQ(u.Issuer, "a");
+    EXPECT_EQ(u.Subject, "");
+    EXPECT_EQ(uc.Scopes, (std::vector<string>{"s"}));
+
+    // Decoding Claims directly is Go v1's json, as go++'s json::Unmarshal.
+    jwt::Claims v;
+    ASSERT_FALSE(json::Unmarshal(R"({"Sub":"x"})", &v));
+    EXPECT_EQ(v.Subject, "x");
+}

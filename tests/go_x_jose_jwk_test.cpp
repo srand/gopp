@@ -933,3 +933,30 @@ TEST(GoJWK, SignatureAlgorithms) {
     jose::SignatureAlgorithm alg(jose::ES256);
     EXPECT_EQ(alg, "ES256");
 }
+
+TEST(GoJWK, MembersAreCaseSensitive) {
+    // As go-jose's json: "KTY" is not "kty", and "N" is not "n".
+    jose::JSONWebKey good;
+    good.Key = keys().rsa->Public();
+    good.KeyID = "k";
+    std::string j = str(good.MarshalJSON().first);
+    ASSERT_FALSE(unmarshal(j).second);
+
+    std::string upper = j;
+    upper.replace(upper.find("\"kty\""), 5, "\"KTY\"");
+    EXPECT_TRUE(contains(unmarshal(upper).second, "missing json web key type")) << unmarshal(upper).second;
+    std::string upperN = j;
+    upperN.replace(upperN.find("\"n\""), 3, "\"N\"");
+    EXPECT_TRUE(contains(unmarshal(upperN).second, "missing n/e")) << unmarshal(upperN).second;
+    // A differently cased duplicate doesn't replace a member.
+    auto [jwk, err] = unmarshal(j.substr(0, j.size() - 1) + R"(,"KID":"other","Kid":"x"})");
+    ASSERT_FALSE(err) << err.Error();
+    EXPECT_EQ(jwk.KeyID, "k");
+
+    // The set: "KEYS" is not "keys".
+    jose::JSONWebKeySet set;
+    ASSERT_FALSE(json::Unmarshal(std::string_view(R"({"KEYS":[)" + j + "]}"), &set));
+    EXPECT_EQ(set.Keys.size(), 0u);
+    ASSERT_FALSE(json::Unmarshal(std::string_view(R"({"keys":[)" + j + "]}"), &set));
+    EXPECT_EQ(set.Keys.size(), 1u);
+}

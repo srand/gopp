@@ -24,6 +24,15 @@
 // json::RawMessage, time::Time (RFC 3339) and
 // time::Duration (nanoseconds). Types with MarshalJSON/UnmarshalJSON
 // members encode themselves (json.Marshaler and json.Unmarshaler).
+//
+// A go++ extension: case-sensitive decoding, as go-jose's fork of
+// encoding/json does to avoid confusing claims. Go's json.Unmarshal
+// matches an object key to a field by its exact name, or else
+// case-insensitively; json::UnmarshalCaseSensitive and
+// Decoder::CaseSensitive() match only the exact name, so in
+// {"iss":"a","ISS":"b"} only "iss" sets a field tagged "iss", and "ISS" is
+// an unknown key. This holds for nested structs too, but not inside types
+// that decode themselves with UnmarshalJSON.
 #pragma once
 
 // The module interfaces (modules/) import these instead.
@@ -242,6 +251,7 @@ public:
     explicit decoder(std::string_view data) : data_(data) {}
 
     bool disallowUnknown = false;
+    bool caseSensitive = false;  // only exact names match fields
     gopp::error err;
     std::string_view structName;
     std::string field;
@@ -676,8 +686,9 @@ void decodeStruct(decoder& d, T& v) {
     auto savedStruct = d.structName;
     while (d.nextKey(key)) {
         bool found = false;
-        // An exact match wins; otherwise a case-insensitive one, as in Go.
-        for (int pass = 0; pass < 2 && !found; pass++) {
+        // An exact match wins; otherwise a case-insensitive one, as in Go,
+        // unless the decoder is case-sensitive.
+        for (int pass = 0; pass < (d.caseSensitive ? 1 : 2) && !found; pass++) {
             template for (constexpr std::meta::info m : fieldsOf<T>()) {
                 constexpr fieldSpec f = specOf<m>();
                 if constexpr (!f.skip) {
@@ -874,6 +885,25 @@ error Unmarshal(std::string_view data, T* v) {
     return Unmarshal(as_bytes(data), v);
 }
 
+// UnmarshalCaseSensitive (a go++ extension): Unmarshal, but an object key
+// sets a struct field only if it is the field's exact name, as go-jose's
+// json does.
+template <typename T>
+error UnmarshalCaseSensitive(std::span<const byte> data, T* v) {
+    if (!v) return make_ptr<InvalidUnmarshalError>(string(detail::typeName<T>()));
+    std::string_view s = asStringView(data);
+    if (error err = detail::validate(s)) return err;
+    detail::decoder d(s);
+    d.caseSensitive = true;
+    detail::decode(d, *v);
+    return d.err;
+}
+
+template <typename T>
+error UnmarshalCaseSensitive(std::string_view data, T* v) {
+    return UnmarshalCaseSensitive(as_bytes(data), v);
+}
+
 // json.Valid
 bool Valid(std::span<const byte> data);
 inline bool Valid(std::string_view data) { return Valid(as_bytes(data)); }
@@ -950,6 +980,7 @@ public:
         if (err) return err;
         detail::decoder d(value);
         d.disallowUnknown = disallowUnknown_;
+        d.caseSensitive = caseSensitive_;
         detail::decode(d, *v);
         return d.err;
     }
@@ -958,6 +989,9 @@ public:
     bool More();
     // Makes unknown object keys an error when decoding into structs.
     void DisallowUnknownFields() noexcept { disallowUnknown_ = true; }
+    // A go++ extension: object keys set struct fields only by their exact
+    // names, as UnmarshalCaseSensitive.
+    void CaseSensitive() noexcept { caseSensitive_ = true; }
     // Bytes consumed so far.
     int64 InputOffset() const noexcept { return offset_ + static_cast<int64>(scanp_); }
 
@@ -971,6 +1005,7 @@ private:
     int64 offset_ = 0;
     error err_;
     bool disallowUnknown_ = false;
+    bool caseSensitive_ = false;
 };
 
 inline Decoder NewDecoder(io::Reader& r) { return Decoder(r); }

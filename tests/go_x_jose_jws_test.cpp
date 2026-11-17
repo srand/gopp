@@ -933,3 +933,18 @@ TEST(GoJWS, ParseSignedStripsUnicodeSpace) {
     EXPECT_EQ(stripWhitespace("a b c\xff"), "abc\xef\xbf\xbd");
     EXPECT_EQ(stripWhitespace(" a\n b\t\r c "), "abc");
 }
+
+TEST(GoJWS, HeaderMembersAreCaseSensitive) {
+    // A protected header's members are exact too: "ALG" is not "alg".
+    std::string protectedHeader = R"({"ALG":"RS256"})";
+    auto [obj, err] = jose::ParseSigned(compact(protectedHeader, "p", as_bytes("s")), Algs{jose::RS256});
+    EXPECT_NE(errors::As<jose::ErrUnexpectedSignatureAlgorithm>(err), nullptr);
+    // And an embedded key's: "KTY" is not "kty".
+    jose::JSONWebKey pub;
+    pub.Key = keys().ec256->Public();
+    std::string jwk(asStringView(pub.MarshalJSON().first));
+    jwk.replace(jwk.find("\"kty\""), 5, "\"KTY\"");
+    std::tie(obj, err) = jose::ParseSigned(compact(R"({"alg":"ES256","jwk":)" + jwk + "}", "p", as_bytes("s")),
+                                           Algs{jose::ES256});
+    EXPECT_TRUE(contains(err, "missing json web key type")) << err.Error();
+}

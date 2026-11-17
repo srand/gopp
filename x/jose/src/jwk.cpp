@@ -126,7 +126,7 @@ std::pair<slice<byte>, error> byteBuffer::MarshalJSON() const { return json::Mar
 
 error byteBuffer::UnmarshalJSON(std::span<const byte> d) {
     string encoded;
-    if (error err = json::Unmarshal(d, &encoded)) return err;
+    if (error err = json::UnmarshalCaseSensitive(d, &encoded)) return err;
     if (encoded.empty()) return nullptr;
     auto [decoded, err] = base64::RawURLEncoding.DecodeString(encoded);
     if (err) return err;
@@ -466,7 +466,7 @@ std::pair<slice<byte>, error> JSONWebKey::MarshalJSON() const {
 
 error JSONWebKey::UnmarshalJSON(std::span<const byte> data) {
     rawJSONWebKey raw;
-    if (error err = json::Unmarshal(data, &raw)) return err;
+    if (error err = json::UnmarshalCaseSensitive(data, &raw)) return err;
 
     // RFC 7517 section 4.7 asks for the key of an x5c to be the key of the
     // JWK; go++ doesn't parse certificates, and ignores x5c, x5t, x5t#S256
@@ -624,7 +624,7 @@ error unmarshalPublicJWK(JSONWebKey& k, std::span<const byte> data) {
         [[= json::tag("dq,omitempty")]] std::optional<byteBuffer> Dq;
         [[= json::tag("qi,omitempty")]] std::optional<byteBuffer> Qi;
     } raw;
-    if (error err = json::Unmarshal(data, &raw)) return err;
+    if (error err = json::UnmarshalCaseSensitive(data, &raw)) return err;
     if (raw.K || raw.D || raw.P || raw.Q || raw.Dp || raw.Dq || raw.Qi) {
         return jerr("JWK contains private parameters");
     }
@@ -648,7 +648,7 @@ error JSONWebKeySet::UnmarshalJSON(std::span<const byte> data) {
     struct raw {
         [[= json::tag("keys")]] std::vector<json::RawMessage> keys;
     } r;
-    if (error err = json::Unmarshal(data, &r)) return err;
+    if (error err = json::UnmarshalCaseSensitive(data, &r)) return err;
 
     slice<JSONWebKey> keys;
     for (const auto& msg : r.keys) {

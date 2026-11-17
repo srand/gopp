@@ -317,6 +317,50 @@ TEST(Json, EncoderDecoder) {
     EXPECT_EQ(strict.Decode(&p).Error(), "json: unknown field \"z\"");
 }
 
+namespace {
+struct claimsLike {
+    [[= json::tag("iss")]] string Issuer;
+    point Inner;
+};
+}  // namespace
+
+TEST(Json, CaseSensitive) {
+    // Default (Go v1): a key matches a field case-insensitively, and the
+    // later one wins.
+    claimsLike c;
+    ASSERT_FALSE(json::Unmarshal(R"({"iss":"a","ISS":"b","inner":{"X":1}})", &c));
+    EXPECT_EQ(c.Issuer, "b");
+    EXPECT_EQ(c.Inner.x, 1);
+
+    // Case-sensitive (go-jose's json): only the exact name matches, also in
+    // nested structs; the others are unknown keys, and ignored.
+    claimsLike s;
+    ASSERT_FALSE(json::UnmarshalCaseSensitive(R"({"iss":"a","ISS":"b","inner":{"X":1,"y":2}})", &s));
+    EXPECT_EQ(s.Issuer, "a");
+    EXPECT_EQ(s.Inner.x, 0);
+    EXPECT_EQ(s.Inner.y, 0);
+    claimsLike s2;
+    ASSERT_FALSE(json::UnmarshalCaseSensitive(as_bytes(R"({"ISS":"b","Inner":{"x":3,"y":4}})"), &s2));
+    EXPECT_EQ(s2.Issuer, "");
+    EXPECT_EQ(s2.Inner.x, 3);
+    EXPECT_EQ(s2.Inner.y, 4);
+    // Map keys are exact either way.
+    std::map<string, int> m;
+    ASSERT_FALSE(json::UnmarshalCaseSensitive(R"({"a":1,"A":2})", &m));
+    EXPECT_EQ(m.size(), 2u);
+
+    // The Decoder's mode, with DisallowUnknownFields: a differently cased
+    // key is unknown.
+    io::StringReader r(R"({"iss":"a"} {"ISS":"b"})");
+    auto dec = json::NewDecoder(r);
+    dec.CaseSensitive();
+    dec.DisallowUnknownFields();
+    claimsLike d;
+    ASSERT_FALSE(dec.Decode(&d));
+    EXPECT_EQ(d.Issuer, "a");
+    EXPECT_EQ(dec.Decode(&d).Error(), "json: unknown field \"ISS\"");
+}
+
 TEST(Json, DeepNestingOnFiberStack) {
     // Hostile input nested up to Go's limit must not overflow a fiber's
     // stack (256 KiB by default): scanning, decoding into json::Value and
