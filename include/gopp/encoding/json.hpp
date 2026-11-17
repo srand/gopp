@@ -301,6 +301,10 @@ template <typename T>
 struct isSlice : std::false_type {};
 template <typename T>
 struct isSlice<gopp::slice<T>> : std::true_type {};
+// A type derived from a slice, as Go's named slice types (net::IP,
+// jwt::Audience): empty for omitempty as the slice is.
+template <typename T>
+concept derivedSlice = requires { typename T::value_type; } && std::is_base_of_v<slice<typename T::value_type>, T>;
 template <typename T>
 struct isVector : std::false_type {};
 template <typename T, typename A>
@@ -438,6 +442,7 @@ bool isEmptyValue(const T& v) {
     else if constexpr (std::is_arithmetic_v<T> || std::is_enum_v<T>) return v == T{};
     else if constexpr (stringLike<T>) return v.empty();
     else if constexpr (isSlice<T>::value || isVector<T>::value || isMap<T>::value) return v.empty();
+    else if constexpr (derivedSlice<T>) return v.empty();
     else if constexpr (isStdArray<T>::value) return std::tuple_size_v<T> == 0;
     else if constexpr (isOptional<T>::value) return !v.has_value();
     else if constexpr (isPtr<T>::value) return !v;

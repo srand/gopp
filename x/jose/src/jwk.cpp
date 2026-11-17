@@ -3,6 +3,8 @@
 
 #include <gopp/encoding/base64.hpp>
 #include <gopp/encoding/hex.hpp>
+#include <gopp/unicode.hpp>
+#include <gopp/unicode/utf8.hpp>
 
 #include <openssl/bn.h>
 
@@ -106,9 +108,13 @@ bool equalBytes(std::span<const byte> a, std::span<const byte> b) {
 std::string stripWhitespace(std::string_view data) {
     std::string out;
     out.reserve(data.size());
-    for (char c : data) {
-        if (c == ' ' || (c >= '\t' && c <= '\r')) continue;
-        out.push_back(c);
+    while (!data.empty()) {
+        auto [r, size] = utf8::DecodeRuneInString(data);
+        if (!unicode::IsSpace(r)) {
+            if (r == utf8::RuneError && size == 1) out.append("\xef\xbf\xbd");  // as Go's WriteRune
+            else out.append(data.substr(0, static_cast<size_t>(size)));
+        }
+        data.remove_prefix(static_cast<size_t>(size));
     }
     return out;
 }
@@ -604,6 +610,28 @@ std::pair<slice<byte>, error> JSONWebKey::Thumbprint(crypto::Hash hash) const {
     h->Write(as_bytes(input));
     return {h->Sum(slice<byte>()), nullptr};
 }
+
+namespace internal {
+
+error unmarshalPublicJWK(JSONWebKey& k, std::span<const byte> data) {
+    // The private and symmetric members, which rawJSONWebKey partly lacks.
+    struct privateMembers {
+        [[= json::tag("k,omitempty")]] std::optional<byteBuffer> K;
+        [[= json::tag("d,omitempty")]] std::optional<byteBuffer> D;
+        [[= json::tag("p,omitempty")]] std::optional<byteBuffer> P;
+        [[= json::tag("q,omitempty")]] std::optional<byteBuffer> Q;
+        [[= json::tag("dp,omitempty")]] std::optional<byteBuffer> Dp;
+        [[= json::tag("dq,omitempty")]] std::optional<byteBuffer> Dq;
+        [[= json::tag("qi,omitempty")]] std::optional<byteBuffer> Qi;
+    } raw;
+    if (error err = json::Unmarshal(data, &raw)) return err;
+    if (raw.K || raw.D || raw.P || raw.Q || raw.Dp || raw.Dq || raw.Qi) {
+        return jerr("JWK contains private parameters");
+    }
+    return k.UnmarshalJSON(data);
+}
+
+}  // namespace internal
 
 // ---------------------------------------------------------------------------
 // JSONWebKeySet

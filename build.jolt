@@ -104,14 +104,16 @@ class GoppSQLite3(GoppProject, cxx.Library):
 
 class GoppJose(GoppProject, cxx.Library):
     """
-    JSON Web Keys (<gopp/jose.hpp>), after go-jose v4. A library of its
-    own, like the third-party libraries that go++ ports.
+    JSON Web Keys and Signatures (<gopp/jose.hpp>) and JSON Web Tokens
+    (<gopp/jose/jwt.hpp>), after go-jose v4. A library of its own, like the
+    third-party libraries that go++ ports.
     """
     name = "gopp/x/jose"
     requires = ["gopp"]
     incpaths = ["x/jose/include", "x/jose/src"]
     sources = [
         "x/jose/include/gopp/*.hpp",
+        "x/jose/include/gopp/jose/*.hpp",
         "x/jose/src/*.hpp",
         "x/jose/src/*.cpp",
     ]
@@ -120,6 +122,7 @@ class GoppJose(GoppProject, cxx.Library):
         super().publish(artifact, tools)
         with tools.cwd("x/jose/include"):
             artifact.collect("gopp/*.hpp", "include/")
+            artifact.collect("gopp/jose/*.hpp", "include/")
         artifact.cxxinfo.incpaths.append("include")
 
 
