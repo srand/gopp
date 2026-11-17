@@ -705,6 +705,39 @@ TEST(GoOAuth2, DeviceAccessTokenErrors) {
     EXPECT_TRUE(errors::Is(err3, context::DeadlineExceeded)) << err3;
 }
 
+// A hostile interval (negative, zero, or huge) is the default or an hour
+// at most, not a panic in the ticker or an overflow: the poll waits, and
+// the ctx ends it before the first one.
+TEST(GoOAuth2, DeviceAccessTokenHostileInterval) {
+    int calls = 0;
+    server ts([&](http::ResponseWriter& w, http::Request&) {
+        calls++;
+        respond(w, "application/json", R"({"access_token":"AT"})");
+    });
+    auto conf = newConf(ts.URL());
+    for (int64 interval : {int64(-1), int64(INT64_MIN), int64(9000000000000000000), int64(INT64_MAX), int64(3601)}) {
+        SCOPED_TRACE(interval);
+        oa::DeviceAuthResponse da;
+        da.DeviceCode = "DC";
+        da.Interval = interval;
+        auto [ctx, cancel] = context::WithTimeout(bg(), 50 * time::Millisecond);
+        auto [tok, err] = conf.DeviceAccessToken(ctx, da);
+        cancel();
+        EXPECT_EQ(tok, nullptr);
+        EXPECT_TRUE(errors::Is(err, context::DeadlineExceeded)) << err;
+    }
+    EXPECT_EQ(calls, 0);
+
+    // The same, as the JSON of a server.
+    oa::DeviceAuthResponse parsed;
+    ASSERT_FALSE(json::Unmarshal(std::string_view(R"({"device_code":"DC","interval":-1})"), &parsed));
+    auto [ctx, cancel] = context::WithTimeout(bg(), 50 * time::Millisecond);
+    auto [tok, err] = conf.DeviceAccessToken(ctx, parsed);
+    cancel();
+    EXPECT_TRUE(errors::Is(err, context::DeadlineExceeded)) << err;
+    EXPECT_EQ(calls, 0);
+}
+
 // ---------------------------------------------------------------------------
 // PKCE
 

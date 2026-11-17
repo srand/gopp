@@ -7,6 +7,7 @@
 #include <gopp/mime.hpp>
 #include <gopp/strings.hpp>
 
+#include <algorithm>
 #include <functional>
 
 namespace gopp::oauth2 {
@@ -160,8 +161,13 @@ std::pair<ptr<Token>, error> Config::DeviceAccessToken(ptr<context::Context> ctx
         for (auto& [k, val] : opt.params) v.Set(k, val);
 
     // "If no value is provided, clients MUST use 5 as the default."
+    // A hostile server's interval is not trusted: a non-positive one is the
+    // default (a ticker can't have one), and a long one is an hour, which
+    // also keeps the arithmetic below from overflowing.
+    constexpr int64 maxInterval = 3600;
     int64 interval = da.Interval;
-    if (interval == 0) interval = 5;
+    if (interval <= 0) interval = 5;
+    interval = std::min(interval, maxInterval);
 
     auto ticker = time::NewTicker(interval * time::Second);
     deferred stopTicker{[&] { ticker->Stop(); }};
@@ -179,7 +185,7 @@ std::pair<ptr<Token>, error> Config::DeviceAccessToken(ptr<context::Context> ctx
         if (e->ErrorCode.view() == internal::errSlowDown) {
             // "the interval MUST be increased by 5 seconds for this and all
             // subsequent requests"
-            interval += 5;
+            interval = std::min(interval + 5, maxInterval);
             ticker->Reset(interval * time::Second);
         } else if (e->ErrorCode.view() == internal::errAuthorizationPending) {
             // Do nothing.
