@@ -148,6 +148,31 @@ class GoppOAuth2(GoppProject, cxx.Library):
         artifact.cxxinfo.incpaths.append("include")
 
 
+class GoppOIDC(GoppProject, cxx.Library):
+    """
+    OpenID Connect discovery and ID token verification (<gopp/oidc.hpp>),
+    with a fake provider for tests (<gopp/oidc/oidctest.hpp>), after
+    coreos/go-oidc v3. A library of its own, like the third-party libraries
+    that go++ ports.
+    """
+    name = "gopp/x/oidc"
+    requires = ["gopp", "gopp/x/jose", "gopp/x/oauth2"]
+    incpaths = ["x/oidc/include", "x/oidc/src"]
+    sources = [
+        "x/oidc/include/gopp/*.hpp",
+        "x/oidc/include/gopp/oidc/*.hpp",
+        "x/oidc/src/*.hpp",
+        "x/oidc/src/*.cpp",
+    ]
+
+    def publish(self, artifact, tools):
+        super().publish(artifact, tools)
+        with tools.cwd("x/oidc/include"):
+            artifact.collect("gopp/*.hpp", "include/")
+            artifact.collect("gopp/oidc/*.hpp", "include/")
+        artifact.cxxinfo.incpaths.append("include")
+
+
 @attributes.common_metadata()
 class Example(GoppProject, cxx.Executable):
     abstract = True
@@ -334,11 +359,12 @@ class Tests(GoppProject, cxx.Executable):
     name = "gopp/tests"
     requires = ["gopp:coverage={coverage},leaks={leaks}", "gopp/sqlite3:coverage={coverage},leaks={leaks}",
                 "gopp/x/jose:coverage={coverage},leaks={leaks}",
-                "gopp/x/oauth2:coverage={coverage},leaks={leaks}", "google/test/main"]
+                "gopp/x/oauth2:coverage={coverage},leaks={leaks}",
+                "gopp/x/oidc:coverage={coverage},leaks={leaks}", "google/test/main"]
     # Tests ported from Go's in-package tests use the internal headers.
-    incpaths = ["src", "drivers/sqlite3/src", "x/jose/src", "x/oauth2/src"]
+    incpaths = ["src", "drivers/sqlite3/src", "x/jose/src", "x/oauth2/src", "x/oidc/src"]
     sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp", "x/jose/src/*.hpp",
-               "x/oauth2/src/*.hpp"]
+               "x/oauth2/src/*.hpp", "x/oidc/src/*.hpp"]
 
 
 @googletest.filter()

@@ -109,6 +109,13 @@ The packages, in the order they are built:
 - oidc: `NewProvider`, `RemoteKeySet` (which fetches the key set again once
   for an unknown key ID, rate-limited), `IDTokenVerifier::Verify`,
   `IDToken::Claims`, `UserInfo`, and an `oidctest` fake provider.
+- oidc, go++ additions: `RemoteKeySet` doesn't fetch the key set again
+  for an unknown key ID within 10 seconds (`RemoteKeySetRefetchInterval`)
+  of its last fetch, so tokens with made-up key IDs can't make it fetch
+  for each (go-oidc fetches for every one); the discovery, key set and
+  UserInfo responses are read up to 1 MiB (`MaxResponseSize`; go-oidc
+  reads them whole); ID token claims are decoded case-sensitively, as
+  go-jose's are.
 
 ## Left to the builder
 
