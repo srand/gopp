@@ -126,6 +126,28 @@ class GoppJose(GoppProject, cxx.Library):
         artifact.cxxinfo.incpaths.append("include")
 
 
+class GoppOAuth2(GoppProject, cxx.Library):
+    """
+    An OAuth 2.0 client (<gopp/oauth2.hpp>) with PKCE and the device flow,
+    after golang.org/x/oauth2. A library of its own, like the third-party
+    libraries that go++ ports.
+    """
+    name = "gopp/x/oauth2"
+    requires = ["gopp"]
+    incpaths = ["x/oauth2/include", "x/oauth2/src"]
+    sources = [
+        "x/oauth2/include/gopp/*.hpp",
+        "x/oauth2/src/*.hpp",
+        "x/oauth2/src/*.cpp",
+    ]
+
+    def publish(self, artifact, tools):
+        super().publish(artifact, tools)
+        with tools.cwd("x/oauth2/include"):
+            artifact.collect("gopp/*.hpp", "include/")
+        artifact.cxxinfo.incpaths.append("include")
+
+
 @attributes.common_metadata()
 class Example(GoppProject, cxx.Executable):
     abstract = True
@@ -311,10 +333,12 @@ class Tests(GoppProject, cxx.Executable):
     """ Unit tests of the library. """
     name = "gopp/tests"
     requires = ["gopp:coverage={coverage},leaks={leaks}", "gopp/sqlite3:coverage={coverage},leaks={leaks}",
-                "gopp/x/jose:coverage={coverage},leaks={leaks}", "google/test/main"]
+                "gopp/x/jose:coverage={coverage},leaks={leaks}",
+                "gopp/x/oauth2:coverage={coverage},leaks={leaks}", "google/test/main"]
     # Tests ported from Go's in-package tests use the internal headers.
-    incpaths = ["src", "drivers/sqlite3/src", "x/jose/src"]
-    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp", "x/jose/src/*.hpp"]
+    incpaths = ["src", "drivers/sqlite3/src", "x/jose/src", "x/oauth2/src"]
+    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp", "x/jose/src/*.hpp",
+               "x/oauth2/src/*.hpp"]
 
 
 @googletest.filter()
