@@ -64,6 +64,7 @@ class Gopp(GoppProject, cxx.Library):
     requires = ["boost:libraries=context", "liburing", "virtual/ssl", "zlib"]
     incpaths = ["include", "src"]
     sources = [
+        "include/gopp/*.hpp",
         "include/gopp/**/*.hpp",
         "modules/*.cppm",
         "src/**/*.hpp",
