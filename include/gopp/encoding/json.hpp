@@ -843,6 +843,18 @@ void decode(decoder& d, T& v) {
     }
 }
 
+// unmarshal: Unmarshal and UnmarshalCaseSensitive, which share this path.
+template <typename T>
+error unmarshal(std::span<const byte> data, T* v, bool caseSensitive) {
+    if (!v) return make_ptr<InvalidUnmarshalError>(string(typeName<T>()));
+    std::string_view s = asStringView(data);
+    if (error err = validate(s)) return err;
+    decoder d(s);
+    d.caseSensitive = caseSensitive;
+    decode(d, *v);
+    return d.err;
+}
+
 }  // namespace detail
 
 // ---------------------------------------------------------------------------
@@ -872,12 +884,7 @@ std::pair<slice<byte>, error> MarshalIndent(const T& v, std::string_view prefix,
 // keep their values; unknown keys are ignored.
 template <typename T>
 error Unmarshal(std::span<const byte> data, T* v) {
-    if (!v) return make_ptr<InvalidUnmarshalError>(string(detail::typeName<T>()));
-    std::string_view s = asStringView(data);
-    if (error err = detail::validate(s)) return err;
-    detail::decoder d(s);
-    detail::decode(d, *v);
-    return d.err;
+    return detail::unmarshal(data, v, false);
 }
 
 template <typename T>
@@ -890,13 +897,7 @@ error Unmarshal(std::string_view data, T* v) {
 // json does.
 template <typename T>
 error UnmarshalCaseSensitive(std::span<const byte> data, T* v) {
-    if (!v) return make_ptr<InvalidUnmarshalError>(string(detail::typeName<T>()));
-    std::string_view s = asStringView(data);
-    if (error err = detail::validate(s)) return err;
-    detail::decoder d(s);
-    d.caseSensitive = true;
-    detail::decode(d, *v);
-    return d.err;
+    return detail::unmarshal(data, v, true);
 }
 
 template <typename T>
