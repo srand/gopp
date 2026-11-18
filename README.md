@@ -207,6 +207,7 @@ says what each example shows, and where to start.
 |---|---|
 | `jolt build gopp` | the library: `libgopp.a` and `include/gopp/` |
 | `jolt build gopp/sqlite3` | the SQLite driver: `libgopp_sqlite3.a` and `<gopp/sqlite3.hpp>`, with SQLite 3.54 |
+| `jolt build gopp/libpq` | the PostgreSQL driver: `libgopp_libpq.a` and `<gopp/libpq.hpp>`, with libpq |
 | `jolt build gopp/x/oidc` | ports of Go libraries outside the standard library, each its own library (`gopp/x/jose`, `gopp/x/oauth2`, `gopp/x/oidc`): JOSE, OAuth 2.0 and OpenID Connect; see [x/README.md](x/README.md) |
 | `jolt build examples` | the example programs |
 | `jolt build gopp/tests` | the unit test program |

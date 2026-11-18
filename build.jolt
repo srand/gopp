@@ -18,7 +18,7 @@ import threading
 import time
 
 from jolt import Alias, BooleanParameter, IntParameter, ListParameter, Parameter, Task, attributes, influence
-from jolt.pkgs import boost, gcc, googletest, liburing, openssl, sqlite, ssl, zlib  # noqa: F401
+from jolt.pkgs import boost, gcc, googletest, liburing, openssl, postgres, sqlite, ssl, zlib  # noqa: F401
 from jolt.plugins import cxx, golang, googletest, ninja
 from jolt.plugins.googletest import GTestRunner
 
@@ -99,6 +99,24 @@ class GoppSQLite3(GoppProject, cxx.Library):
     def publish(self, artifact, tools):
         super().publish(artifact, tools)
         with tools.cwd("drivers/sqlite3/include"):
+            artifact.collect("gopp/*.hpp", "include/")
+        artifact.cxxinfo.incpaths.append("include")
+
+
+class GoppPostgres(GoppProject, cxx.Library):
+    """The PostgreSQL driver for database/sql (<gopp/libpq.hpp>)."""
+    name = "gopp/postgres"
+    requires = ["gopp", "libpq"]
+    incpaths = ["drivers/postgres/include", "drivers/postgres/src"]
+    sources = [
+        "drivers/postgres/include/gopp/*.hpp",
+        "drivers/postgres/src/*.hpp",
+        "drivers/postgres/src/*.cpp",
+    ]
+
+    def publish(self, artifact, tools):
+        super().publish(artifact, tools)
+        with tools.cwd("drivers/postgres/include"):
             artifact.collect("gopp/*.hpp", "include/")
         artifact.cxxinfo.incpaths.append("include")
 
@@ -359,12 +377,13 @@ class Tests(GoppProject, cxx.Executable):
     """ Unit tests of the library. """
     name = "gopp/tests"
     requires = ["gopp:coverage={coverage},leaks={leaks}", "gopp/sqlite3:coverage={coverage},leaks={leaks}",
+                "gopp/postgres:coverage={coverage},leaks={leaks}",
                 "gopp/x/jose:coverage={coverage},leaks={leaks}",
                 "gopp/x/oauth2:coverage={coverage},leaks={leaks}",
                 "gopp/x/oidc:coverage={coverage},leaks={leaks}", "google/test/main"]
     # Tests ported from Go's in-package tests use the internal headers.
-    incpaths = ["src", "drivers/sqlite3/src", "x/jose/src", "x/oauth2/src", "x/oidc/src"]
-    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp", "x/jose/src/*.hpp",
+    incpaths = ["src", "drivers/sqlite3/src", "drivers/postgres/src", "x/jose/src", "x/oauth2/src", "x/oidc/src"]
+    sources = ["tests/*.cpp", "tests/*.hpp", "src/**/*.hpp", "drivers/sqlite3/src/*.hpp", "drivers/libpq/src/*.hpp", "x/jose/src/*.hpp",
                "x/oauth2/src/*.hpp", "x/oidc/src/*.hpp"]
 
 
